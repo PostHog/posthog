@@ -1,6 +1,14 @@
 {
     "options": [
         {
+            "value": "-1M",
+            "label": "Last minute"
+        },
+        {
+            "value": "-30M",
+            "label": "Last 30 minutes"
+        },
+        {
             "value": "-1h",
             "label": "Last hour"
         },

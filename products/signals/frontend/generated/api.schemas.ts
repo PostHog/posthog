@@ -1158,6 +1158,7 @@ export interface ForgetResponseApi {
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
  * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1173,6 +1174,7 @@ export const SourceProductEnumApi = {
     SignalsScout: 'signals_scout',
     Logs: 'logs',
     HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
 } as const
 
 /**
@@ -1186,6 +1188,8 @@ export const SourceProductEnumApi = {
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
  * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1201,6 +1205,8 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
 } as const
 
 export interface SignalSourceConfigApi {

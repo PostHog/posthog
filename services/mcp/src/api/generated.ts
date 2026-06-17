@@ -1752,6 +1752,8 @@ export namespace Schemas {
 
 
     export const WidgetDateRangeDateFrom = {
+      '1m': '-1M',
+      '30m': '-30M',
       '1h': '-1h',
       '3h': '-3h',
       '24h': '-24h',
@@ -4182,14 +4184,123 @@ export namespace Schemas {
       config: SessionReplayListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+    export type ExperimentsListWidgetAddRequestOpenApiWidgetType = typeof ExperimentsListWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetAddRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    /**
+     * Experiment list sort column.
+     */
+    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
+
+
+    export const ExperimentsListWidgetConfigOrderBy = {
+      CreatedAt: 'created_at',
+      Name: 'name',
+      StartDate: 'start_date',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
+
+
+    export const ExperimentsListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Experiment status filter.
+     */
+    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
+
+
+    export const ExperimentsListWidgetConfigStatus = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      Stopped: 'stopped',
+      All: 'all',
+    } as const;
+
+    export interface ExperimentsListWidgetConfig {
+      /**
+         * Maximum number of experiments to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Experiment list sort column. */
+      orderBy?: ExperimentsListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
+      /** Experiment status filter. */
+      status?: ExperimentsListWidgetConfigStatus;
+      /** Filter by creator (user id). Omit for any creator. */
+      createdBy?: number | null;
+    }
+
+    export interface ExperimentsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiments list widget. */
+      config: ExperimentsListWidgetConfig;
+    }
+
+    export type ExperimentResultsWidgetAddRequestOpenApiWidgetType = typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetAddRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetConfig {
+      /** Experiment to show results for. Null until the user picks one in the widget settings. */
+      experimentId?: number | null;
+    }
+
+    export interface ExperimentResultsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiment results widget. */
+      config: ExperimentResultsWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7172,7 +7283,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -13886,6 +13997,8 @@ export namespace Schemas {
     /**
      * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
      * * `session_replay_list` - session_replay_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
@@ -13894,6 +14007,8 @@ export namespace Schemas {
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
       ErrorTrackingList: 'error_tracking_list',
+      ExperimentResults: 'experiment_results',
+      ExperimentsList: 'experiments_list',
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -13904,6 +14019,8 @@ export namespace Schemas {
        *
        * * `activity_events_list` - activity_events_list
        * * `error_tracking_list` - error_tracking_list
+       * * `experiment_results` - experiment_results
+       * * `experiments_list` - experiments_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -15264,6 +15381,7 @@ export namespace Schemas {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -15890,6 +16008,7 @@ export namespace Schemas {
       YahooFinance: 'YahooFinance',
       Clarifai: 'Clarifai',
       Adapty: 'Adapty',
+      Braintrust: 'Braintrust',
       Custom: 'Custom',
     } as const;
 
@@ -16523,6 +16642,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -17911,6 +18031,7 @@ export namespace Schemas {
     /**
      * * `duckdb` - duckdb
      * * `postgres` - postgres
+     * * `mysql` - mysql
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -17918,6 +18039,7 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+      Mysql: 'mysql',
     } as const;
 
     /**
@@ -20351,6 +20473,35 @@ export namespace Schemas {
       readonly results: readonly MetricRecalculationResult[];
     }
 
+    export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentResultsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentResultsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiment_results` - experiment_results
+     */
+    export type ExperimentResultsWidgetTypeEnum = typeof ExperimentResultsWidgetTypeEnum[keyof typeof ExperimentResultsWidgetTypeEnum];
+
+
+    export const ExperimentResultsWidgetTypeEnum = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -20379,6 +20530,35 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
     }
+
+    export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiments_list` - experiments_list
+     */
+    export type ExperimentsListWidgetTypeEnum = typeof ExperimentsListWidgetTypeEnum[keyof typeof ExperimentsListWidgetTypeEnum];
+
+
+    export const ExperimentsListWidgetTypeEnum = {
+      ExperimentsList: 'experiments_list',
+    } as const;
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -20689,7 +20869,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
     }
 
@@ -21321,6 +21502,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21408,7 +21590,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -22019,11 +22202,27 @@ export namespace Schemas {
       bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
+    export interface FeatureFlagRolloutSummary {
+      /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+      effectively_full_rollout: boolean;
+      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+      has_targeting_conditions: boolean;
+      /**
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * @nullable
+         */
+      max_rollout_percentage: number | null;
+      /** True if the flag serves multiple variants (has a multivariate variant set). */
+      is_multivariate: boolean;
+    }
+
     export interface FeatureFlagStatusResponse {
-      /** Flag status: active, stale, deleted, or unknown */
+      /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+      /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+      rollout: FeatureFlagRolloutSummary;
     }
 
     export interface FeatureFlagTestEvaluationRequest {
@@ -22359,6 +22558,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       id: string;
       repo_id: string;
       status: string;
@@ -22581,6 +22785,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
     }
 
     export interface GitHubTeam {
@@ -29652,6 +29865,112 @@ export namespace Schemas {
     }
 
     /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly
+     */
+    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+
+
+    export const RecurrenceIntervalEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `errored` - Errored
+     */
+    export type ReminderStatusEnum = typeof ReminderStatusEnum[keyof typeof ReminderStatusEnum];
+
+
+    export const ReminderStatusEnum = {
+      Active: 'active',
+      Completed: 'completed',
+      Errored: 'errored',
+    } as const;
+
+    export interface Reminder {
+      readonly id: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at: string | null;
+      /** @nullable */
+      readonly last_fired_at: string | null;
+      readonly status: ReminderStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedReminderList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Reminder[];
+    }
+
+    /**
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
@@ -30041,10 +30360,10 @@ export namespace Schemas {
      * * `monthly` - monthly
      * * `yearly` - yearly
      */
-    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+    export type ScheduledChangeRecurrenceIntervalEnum = typeof ScheduledChangeRecurrenceIntervalEnum[keyof typeof ScheduledChangeRecurrenceIntervalEnum];
 
 
-    export const RecurrenceIntervalEnum = {
+    export const ScheduledChangeRecurrenceIntervalEnum = {
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -30085,7 +30404,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -30430,6 +30749,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
      * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30446,6 +30766,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Logs: 'logs',
       HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
     } as const;
 
     /**
@@ -30459,6 +30780,8 @@ export namespace Schemas {
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
      * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30474,6 +30797,8 @@ export namespace Schemas {
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     } as const;
 
     export interface SignalSourceConfig {
@@ -30746,22 +31071,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
-     * * `weekly` - Weekly
-     * * `monthly` - Monthly
-     * * `yearly` - Yearly
-     */
-    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
-
-
-    export const SubscriptionFrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
-    /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
      * * `wednesday` - Wednesday
@@ -30828,7 +31137,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency: SubscriptionFrequencyEnum;
+      frequency: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -34613,7 +34922,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -37075,6 +37385,73 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedReminder {
+      readonly id?: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization?: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at?: string | null;
+      /** @nullable */
+      readonly last_fired_at?: string | null;
+      readonly status?: ReminderStatusEnum;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
@@ -37261,7 +37638,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -37574,7 +37951,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency?: SubscriptionFrequencyEnum;
+      frequency?: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -45407,6 +45784,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46066,6 +46444,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -48275,7 +48654,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -60750,6 +61129,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewReposSnapshotsListParams = {
@@ -60788,6 +61171,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewRunsSnapshotHistoryListParams = {
@@ -61013,6 +61400,17 @@ export namespace Schemas {
      * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
      */
     types?: string;
+    };
+
+    export type RemindersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type UsersListParams = {
