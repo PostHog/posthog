@@ -218,6 +218,55 @@ an internal product dialing up usage — is usually expected and belongs in a
 `noise:`/`addressed:` memory, whereas a move spread across many unrelated segments is a real
 broad regression. Put the driving segment and its share of the move in the evidence.
 
+## Distribution shift & changepoint (KS two-sample)
+
+A different lens from everything above. The simulator and the z-score answer _"is the **latest
+bucket** an outlier?"_ — point/level detection. They miss a metric whose **mean barely moves
+but whose distribution changes shape** (variance widens, a tail appears, a bimodal split, a
+mix shift), and they don't tell you _where_ a drift started. A two-sample
+**Kolmogorov-Smirnov** test does both: it compares two samples' whole empirical distributions
+(`D = max|F_a(x) − F_b(x)|`, with a p-value) and, swept across an ordered series, locates the
+**changepoint** that best separates it into two differently-distributed halves. Reach for it
+in the explore phase when a watched series looks fine on the mean but you suspect a shape/mix
+change, or to pin the onset of a drift a level detector already flagged.
+
+**The tool.** `scripts/ks2.py` is bundled with this skill (pure stdlib — no numpy/scipy, which
+aren't in the sandbox). Run it via `Bash`, JSON on stdin → JSON verdict:
+
+- `{"a": [...], "b": [...]}` — two raw samples → `{"d", "p", ...}`.
+- `{"a_hist": [[value, count], ...], "b_hist": [...]}` — the **cheap path**: two histograms
+  instead of raw values.
+- `{"mode": "changepoint", "series": [...ordered...], "min_seg": 24}` → the split index whose
+  left/right distributions differ most.
+
+**Pull histograms, not raw rows.** `execute-sql` caps at 500 rows, and raw samples are
+token-heavy. Instead `GROUP BY` a value-bucket expression (e.g.
+`round(rate, 4)` or `floor(value/10)*10`) so a whole window comes back as a few dozen
+`(value, count)` rows, and feed `a_hist`/`b_hist`. Binned KS reproduces the raw verdict
+closely (validated: D 0.76 raw vs 0.77 binned on the same windows) at a fraction of the
+payload. For a changepoint you do need the ordered series, but a daily series — or ≤ 500
+hourly buckets (~20 days) — fits under the cap.
+
+**Compare like with like — KS is not seasonality-aware.** Fed a weekend window against a
+weekday-heavy baseline, KS will correctly report the distributions differ — but that's the
+weekly rhythm, not an anomaly. Use seasonality-matched windows: same-day-of-week, full-week
+vs full-week (a whole week cancels its own diurnal+weekly shape), or difference the series
+first. The same discipline as the rest of this file; KS just makes the trap easy to fall into
+because it's so sensitive.
+
+**Calibration.** Emit only when **all three** hold: a small p (≲ ~0.01), a **meaningful effect
+size** `D` (the max CDF gap — a real separation, not a hair), and a move not explained by
+seasonality or a pipeline gap. On large samples p goes tiny on trivial differences, so `D` and
+the windows compared are the real evidence — put both in the finding, plus the changepoint
+timestamp when you have one.
+
+**Worked example (real, project 2).** Hourly `$rageclick / $pageview` rate, 480 buckets: the
+changepoint sweep located the regression at **2026-06-08 02:00** (`D ≈ 0.86`, `p ≈ 7e-16`);
+the pre-week vs the regression day gave `D ≈ 0.76`; two ordinary weeks compared against each
+other gave `D ≈ 0.06`, `p ≈ 0.92` (silent — no false positive). The level detectors saw a
+~30% rate drop; KS additionally pinned _when_ it broke and confirmed it as a genuine
+distribution shift, not noise.
+
 ## Per-insight-type recipes (all insight types are in scope)
 
 Most dashboard tiles are trends-style numeric series and the method above applies directly.
