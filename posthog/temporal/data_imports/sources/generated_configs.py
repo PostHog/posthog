@@ -125,6 +125,11 @@ class AdRollSourceConfig(config.Config):
 
 
 @config.config
+class AdaptySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AdjustSourceConfig(config.Config):
     pass
 
@@ -3409,6 +3414,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ACTIVECAMPAIGN: ActiveCampaignSourceConfig,
         ExternalDataSourceType.ACUITYSCHEDULING: AcuitySchedulingSourceConfig,
         ExternalDataSourceType.ADROLL: AdRollSourceConfig,
+        ExternalDataSourceType.ADAPTY: AdaptySourceConfig,
         ExternalDataSourceType.ADJUST: AdjustSourceConfig,
         ExternalDataSourceType.ADOBEANALYTICS: AdobeAnalyticsSourceConfig,
         ExternalDataSourceType.ADOBECOMMERCE: AdobeCommerceSourceConfig,

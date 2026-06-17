@@ -511,12 +511,34 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Federated table backed by a Cloud SQL PostgreSQL server — BigQuery wraps the upstream
+        # ACL failure in a 400 BadRequest while reading query results.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=us-central1: Error while reading data, error message: Failed to fetch row "
+                "from PostgreSQL server. Error: ERROR:  permission denied for table GroupParticipant"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_federated_upstream_permission_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "other_error",
     [
         # Transient server / connection errors must stay retryable
         "503 Service unavailable, please retry",
         "500 Internal error encountered",
         "Connection reset by peer",
+        # A federated-read failure that isn't a permission problem must stay retryable
+        "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
+        "Error: ERROR:  connection to server timed out",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient(other_error):
