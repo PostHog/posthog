@@ -17,7 +17,7 @@ from django.db.models import Prefetch, QuerySet
 from django.utils.text import slugify
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -25,6 +25,7 @@ from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
@@ -46,6 +47,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
@@ -56,6 +58,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     RecalculateMetricsRequestSerializer,
+    RunningTimeCalculationInputSerializer,
+    RunningTimeCalculationResultSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -64,6 +68,14 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+)
+from products.experiments.backend.running_time_calculator import (
+    BaselineStats,
+    calculate_baseline_value,
+    calculate_running_time_days,
+    calculate_sample_size,
+    calculate_variance,
+    calculate_variance_from_stats,
 )
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
@@ -240,17 +252,30 @@ class EnterpriseExperimentsViewSet(
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related(
-        Prefetch(
-            "feature_flag__flag_evaluation_contexts",
-            queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-        ),
-        "feature_flag",
-        "created_by",
-        "holdout",
-        "experimenttosavedmetric_set",
-        "saved_metrics",
-    ).all()
+    queryset = (
+        Experiment.objects.select_related(
+            "team",
+            "feature_flag",
+            "created_by",
+            "exposure_cohort",
+            "holdout__created_by",
+        )
+        .prefetch_related(
+            Prefetch(
+                "feature_flag__flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                # order_by("id") keeps saved metrics in insertion order — select_related below adds
+                # joins that would otherwise leave the row order unspecified.
+                "experimenttosavedmetric_set",
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
+                    "id"
+                ),
+            ),
+        )
+        .all()
+    )
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -955,6 +980,68 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
+
+    @validated_request(
+        request_serializer=RunningTimeCalculationInputSerializer,
+        responses={200: OpenApiResponse(response=RunningTimeCalculationResultSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="calculate_running_time",
+        required_scopes=["experiment:read"],
+    )
+    def calculate_running_time(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Estimate the recommended sample size and running time for an experiment.
+
+        Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+        minimum detectable effect, and either a baseline value or raw baseline statistics. When
+        `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+        """
+        data = request.validated_data
+        metric_type = data["metric_type"]
+        mde = data["minimum_detectable_effect"]
+        number_of_variants = data["number_of_variants"]
+        exposure_rate = data.get("exposure_rate_per_day")
+
+        baseline: BaselineStats | None = None
+        stats = data.get("baseline_stats")
+        if stats is not None:
+            baseline = BaselineStats(
+                number_of_samples=stats["number_of_samples"],
+                sum=stats["sum"],
+                sum_squares=stats.get("sum_squares", 0.0),
+                denominator_sum=stats.get("denominator_sum"),
+                denominator_sum_squares=stats.get("denominator_sum_squares"),
+                numerator_denominator_sum_product=stats.get("numerator_denominator_sum_product"),
+                step_counts=stats.get("step_counts") or [],
+            )
+
+        baseline_value = data.get("baseline_value")
+        if baseline_value is None and baseline is not None:
+            baseline_value = calculate_baseline_value(baseline, metric_type)
+
+        variance = data.get("variance")
+        if variance is None and baseline_value is not None:
+            if baseline is not None:
+                variance = calculate_variance_from_stats(baseline_value, metric_type, baseline)
+            else:
+                variance = calculate_variance(metric_type, baseline_value)
+
+        recommended_sample_size: int | None = None
+        if baseline_value is not None:
+            recommended_sample_size = calculate_sample_size(
+                metric_type, baseline_value, mde, number_of_variants, variance
+            )
+
+        return Response(
+            {
+                "baseline_value": baseline_value,
+                "variance": variance,
+                "recommended_sample_size": recommended_sample_size,
+                "recommended_running_time_days": calculate_running_time_days(recommended_sample_size, exposure_rate),
+            }
+        )
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:

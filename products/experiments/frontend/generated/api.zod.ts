@@ -315,6 +315,106 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+
+export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
+
+export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_type: zod
+            .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
+            .describe(
+                '\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention'
+            )
+            .describe(
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention"
+            ),
+        minimum_detectable_effect: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin)
+            .describe('Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.'),
+        number_of_variants: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
+            .describe('Total number of variants including control (default 2).'),
+        exposure_rate_per_day: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
+            .nullish()
+            .describe('Expected exposures per day. When provided, the response includes the recommended running time.'),
+        baseline_value: zod
+            .number()
+            .nullish()
+            .describe(
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio\/retention). Provide this or baseline_stats.'
+            ),
+        variance: zod
+            .number()
+            .nullish()
+            .describe(
+                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+            ),
+        baseline_stats: zod
+            .union([
+                zod
+                    .object({
+                        number_of_samples: zod
+                            .number()
+                            .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
+                            .describe('Number of control-group samples (users\/units) observed.'),
+                        sum: zod
+                            .number()
+                            .describe(
+                                'Sum of the metric values across the control group (for funnels, the numerator\/conversions).'
+                            ),
+                        sum_squares: zod
+                            .number()
+                            .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
+                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                        denominator_sum: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of the denominator values. Required for ratio\/retention metrics.'),
+                        denominator_sum_squares: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of squared denominator values (ratio\/retention variance).'),
+                        numerator_denominator_sum_product: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Sum of numerator×denominator products, used for the delta-method covariance term.'
+                            ),
+                        step_counts: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
+                    })
+                    .describe(
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio\/retention)\nthe delta-method variance, instead of passing `baseline_value`\/`variance` directly.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
+    })
+    .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
+
+/**
  * Create an experiment that compares N versions of an LLM prompt using a metric template.
  *
  * The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates

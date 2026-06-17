@@ -48,6 +48,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
@@ -171,6 +172,7 @@ def _build_query(
     force_index_name: str | None = None,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     hint: str | None = None
     if force_index_name is not None:
@@ -184,6 +186,7 @@ def _build_query(
             extra_table_hint=hint,
             enabled_columns=enabled_columns,
             primary_keys=primary_keys,
+            row_filters=row_filters,
         )
         params = result.params if isinstance(result.params, dict) else {}
         return result.sql, params
@@ -200,6 +203,7 @@ def _build_query(
         extra_table_hint=hint,
         enabled_columns=enabled_columns,
         primary_keys=primary_keys,
+        row_filters=row_filters,
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
@@ -803,6 +807,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
@@ -827,6 +832,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
@@ -870,6 +876,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         force_index_name=force_index_name,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 
