@@ -1,4 +1,4 @@
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 

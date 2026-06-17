@@ -224,6 +224,27 @@ class TestAbsenceChecks:
         result = check.run(ctx)
         assert not result.issues
 
+    def test_contract_check_forbidden_with_deferred_presentation_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An isolated product still owing presentation-wave work can't opt into the skip."""
+        import hogli_commands.product.checks as checks_module
+
+        monkeypatch.setattr(checks_module, "count_presentation_allowlist_entries", lambda *_a, **_k: 2)
+        ctx = _make_product(
+            tmp_path,
+            scripts={
+                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+                "backend:contract-check": "echo 'Contract files unchanged'",
+            },
+            isolated=True,
+            extra_dirs=["backend"],
+        )
+        result = check.run(ctx)
+        assert any("presentation-wave ignore_imports" in i for i in result.issues)
+        # and it must not nag the same product to *add* the script it can't have yet
+        assert not any("missing 'backend:contract-check'" in i for i in result.issues)
+
 
 # ---------------------------------------------------------------------------
 # Content checks: pytest path validation
@@ -1037,3 +1058,41 @@ class TestOrphanedTestFilesCheck:
         (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
         result = self._orphan_check.run(ctx)
         assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
+
+
+_IGNORE_IMPORTS_PYPROJECT = """
+[tool.importlinter]
+root_packages = ["products"]
+
+[[tool.importlinter.contracts]]
+name = "presentation must use facade"
+type = "forbidden"
+source_modules = ["products.*.backend.presentation"]
+forbidden_modules = ["products.*.backend"]
+ignore_imports = [
+    "products.**.backend.presentation.** -> products.**.backend.facade.**",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.runner",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
+]
+"""
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("logs", 2),
+        ("tracing", 1),
+        ("wizard", 0),
+    ],
+)
+def test_count_presentation_allowlist_entries(name: str, expected: int) -> None:
+    from hogli_commands.product.checks import count_presentation_allowlist_entries
+
+    assert count_presentation_allowlist_entries(name, _IGNORE_IMPORTS_PYPROJECT) == expected
+
+
+def test_count_presentation_allowlist_entries_handles_broken_toml() -> None:
+    from hogli_commands.product.checks import count_presentation_allowlist_entries
+
+    assert count_presentation_allowlist_entries("logs", "not = [valid") == 0

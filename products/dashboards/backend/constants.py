@@ -7,6 +7,10 @@ MAX_WIDGET_RESULT_LIMIT = 25
 # Default when config omits limit — catalog/OpenAPI default, below the hard cap.
 DEFAULT_WIDGET_LIST_LIMIT = 10
 
+# Activity events list allows a larger page than other list widgets (lightweight rows).
+ACTIVITY_EVENTS_MAX_LIMIT = 50
+ACTIVITY_EVENTS_DEFAULT_LIMIT = 25
+
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 
