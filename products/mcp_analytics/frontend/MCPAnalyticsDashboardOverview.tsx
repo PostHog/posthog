@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
 import { HarnessDonut } from './dashboard/HarnessDonut'
 import { KpiTiles } from './dashboard/KpiTiles'
@@ -31,7 +32,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolDailyRowsLoading,
         toolRows,
         toolRowsLoading,
+        dateFilter,
     } = useValues(mcpDashboardOverviewLogic)
+    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
@@ -41,12 +44,20 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-10" data-quill>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-dashboard-date-filter"
+                />
+            </div>
             <section>
-                <h2 className="mb-4 text-xl font-semibold text-primary">This week's key metrics</h2>
+                <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                 <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
             </section>
             <section>
-                <h2 className="mb-4 text-xl font-semibold text-primary">Last month's usage</h2>
+                <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
                 <div className="flex flex-col gap-[22px]">
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
                         <div className="flex lg:col-span-2">

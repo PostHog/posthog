@@ -1,38 +1,48 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { hogqlQuery } from '~/queries/query'
-import { hogql } from '~/queries/utils'
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
 
-// KPI tiles compare this week against the prior week.
-const LOOKBACK_DAYS = 7
-// Breakdowns and trends (activity, tools, harnesses, notable sessions) use a longer 30-day window.
-const BREAKDOWN_DAYS = 30
+export interface DateFilter {
+    dateFrom: string | null
+    dateTo: string | null
+}
 
-const KPI_QUERY = hogql`
+const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
+
+// KPI tiles compare the selected window against the immediately preceding window
+// of equal length. The current/previous split is applied in `buildKPIs` against
+// the daily buckets, so the query only needs the doubled date range.
+const KPI_QUERY = `
 SELECT
     toDate(timestamp) AS bucket,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions,
     count() AS tool_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
-    timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY AS in_current
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS * 2))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
-GROUP BY bucket, in_current
+    AND {filters}
+GROUP BY bucket
 ORDER BY bucket
 `
 
 // Per-session rollup powering the Notable sessions block. The selector
 // applies fixed rules over this set; no per-rule SQL.
-const SESSION_ROWS_QUERY = hogql`
+const SESSION_ROWS_QUERY = `
 SELECT
     toString(properties.$mcp_session_id) AS session_id,
     count() AS tool_calls,
@@ -43,11 +53,11 @@ SELECT
     max(timestamp) AS last_seen
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_session_id IS NOT NULL
     AND properties.$mcp_session_id != ''
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
+    AND {filters}
 GROUP BY session_id
 HAVING tool_calls >= 1
 ORDER BY tool_calls DESC
@@ -56,7 +66,7 @@ LIMIT 500
 
 // Mirrors products/mcp_analytics/backend/templates/tool_quality.sql for the
 // compact reliability matrix on the overview. Limited columns + 50 rows.
-const TOOL_ROWS_QUERY = hogql`
+const TOOL_ROWS_QUERY = `
 SELECT
     toString(properties.$mcp_tool_name) AS tool,
     count() AS total_calls,
@@ -65,15 +75,15 @@ SELECT
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
+    AND {filters}
 GROUP BY tool
 ORDER BY total_calls DESC
 LIMIT 50
 `
 
-const HARNESS_ROWS_QUERY = hogql`
+const HARNESS_ROWS_QUERY = `
 SELECT
     toString(properties.$mcp_client_name) AS client,
     count() AS total_calls,
@@ -81,40 +91,40 @@ SELECT
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
+    AND {filters}
 GROUP BY client
 ORDER BY total_calls DESC
 LIMIT 200
 `
 
 // Daily success/error split powering the activity time-series bar chart.
-const ACTIVITY_QUERY = hogql`
+const ACTIVITY_QUERY = `
 SELECT
     toDate(timestamp) AS day,
     countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
     countIf(toBool(properties.$mcp_is_error)) AS errors
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
+    AND {filters}
 GROUP BY day
 ORDER BY day
 `
 
 // Daily call counts per tool, powering the tool-usage stacked bar (one segment per tool).
-const TOOL_DAILY_QUERY = hogql`
+const TOOL_DAILY_QUERY = `
 SELECT
     toDate(timestamp) AS day,
     toString(properties.$mcp_tool_name) AS tool,
     count() AS calls
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
+    AND {filters}
 GROUP BY day, tool
 ORDER BY day
 LIMIT 10000
@@ -126,7 +136,6 @@ export interface BucketRow {
     tool_calls: number
     errors: number
     p95: number
-    in_current: boolean
 }
 
 export interface KPIMetric {
@@ -330,6 +339,28 @@ export function deltaPct(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
+export interface KpiWindow {
+    dateFrom: string
+    dateTo: string
+    currentStartDay: string
+}
+
+// Resolve the selected window to absolute bounds, then extend back by an equal
+// length so a single query returns both the selected and prior periods. The day
+// the selected window starts is the cutoff `buildKPIs` uses to split them.
+export function buildKpiWindow(dateFilter: DateFilter, timezone: string): KpiWindow {
+    const now = dayjs().tz(timezone)
+    const start = dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day')
+    const end = (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : now) ?? now
+    const windowDays = Math.max(1, end.diff(start, 'day'))
+    const priorStart = start.subtract(windowDays, 'day')
+    return {
+        dateFrom: priorStart.toISOString(),
+        dateTo: end.toISOString(),
+        currentStartDay: start.format('YYYY-MM-DD'),
+    }
+}
+
 function parseRows(rawRows: unknown[][]): BucketRow[] {
     return rawRows.map((r) => ({
         bucket: String(r[0]),
@@ -337,13 +368,14 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
         tool_calls: Number(r[2] ?? 0),
         errors: Number(r[3] ?? 0),
         p95: Number(r[4] ?? 0),
-        in_current: Boolean(r[5]),
     }))
 }
 
-export function buildKPIs(rows: BucketRow[]): KPIData {
-    const current = rows.filter((r) => r.in_current).sort((a, b) => a.bucket.localeCompare(b.bucket))
-    const previous = rows.filter((r) => !r.in_current)
+// Daily buckets at or after `currentStartDay` belong to the selected window; the
+// rest are the equal-length window immediately before it.
+export function buildKPIs(rows: BucketRow[], currentStartDay: string): KPIData {
+    const current = rows.filter((r) => r.bucket >= currentStartDay).sort((a, b) => a.bucket.localeCompare(b.bucket))
+    const previous = rows.filter((r) => r.bucket < currentStartDay)
 
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
@@ -393,16 +425,36 @@ export function buildKPIs(rows: BucketRow[]): KPIData {
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
     connect(() => ({
-        values: [mcpClusteringLogic, ['clusters', 'hasSnapshot']],
+        values: [mcpClusteringLogic, ['clusters', 'hasSnapshot'], teamLogic, ['timezone']],
     })),
-    loaders({
+    actions({
+        setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        reloadAll: true,
+    }),
+    reducers({
+        dateFilter: [
+            DEFAULT_DATE_FILTER,
+            {
+                setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+    }),
+    loaders(({ values }) => ({
         kpis: [
             EMPTY_KPIS,
             {
                 loadKPIs: async () => {
-                    const response = await hogqlQuery(KPI_QUERY)
+                    const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: KPI_QUERY,
+                        filters: {
+                            ...values.queryFilters,
+                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
+                        },
+                    })) as HogQLQueryResponse
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
-                    return buildKPIs(rows)
+                    return buildKPIs(rows, kpiWindow.currentStartDay)
                 },
             },
         ],
@@ -410,7 +462,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolRow[],
             {
                 loadToolRows: async () => {
-                    const response = await hogqlQuery(TOOL_ROWS_QUERY)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: TOOL_ROWS_QUERY,
+                        filters: values.queryFilters,
+                    })) as HogQLQueryResponse
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         tool: String(r[0] ?? ''),
@@ -426,7 +482,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as SessionRow[],
             {
                 loadSessionRows: async () => {
-                    const response = await hogqlQuery(SESSION_ROWS_QUERY)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: SESSION_ROWS_QUERY,
+                        filters: values.queryFilters,
+                    })) as HogQLQueryResponse
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         session_id: String(r[0] ?? ''),
@@ -444,7 +504,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as HarnessRawRow[],
             {
                 loadHarnessRows: async () => {
-                    const response = await hogqlQuery(HARNESS_ROWS_QUERY)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: HARNESS_ROWS_QUERY,
+                        filters: values.queryFilters,
+                    })) as HogQLQueryResponse
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         client: String(r[0] ?? ''),
@@ -459,7 +523,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ActivityRow[],
             {
                 loadActivityRows: async (): Promise<ActivityRow[]> => {
-                    const response = await hogqlQuery(ACTIVITY_QUERY)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: ACTIVITY_QUERY,
+                        filters: values.queryFilters,
+                    })) as HogQLQueryResponse
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         day: String(r[0] ?? ''),
@@ -473,7 +541,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolDailyRow[],
             {
                 loadToolDailyRows: async (): Promise<ToolDailyRow[]> => {
-                    const response = await hogqlQuery(TOOL_DAILY_QUERY)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: TOOL_DAILY_QUERY,
+                        filters: values.queryFilters,
+                    })) as HogQLQueryResponse
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         day: String(r[0] ?? ''),
@@ -483,8 +555,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
-    }),
+    })),
     selectors({
+        queryFilters: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): HogQLFilters => ({
+                dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+            }),
+        ],
         harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
         dailyActivity: [
             (s) => [s.activityRows],
@@ -513,13 +591,48 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             }),
         ],
     }),
+    listeners(({ actions }) => ({
+        setDateFilter: () => {
+            actions.reloadAll()
+        },
+        reloadAll: () => {
+            actions.loadKPIs()
+            actions.loadToolRows()
+            actions.loadSessionRows()
+            actions.loadHarnessRows()
+            actions.loadActivityRows()
+            actions.loadToolDailyRows()
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setDateFilter: () => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+            if (values.dateFilter.dateFrom) {
+                searchParams.date_from = values.dateFilter.dateFrom
+            } else {
+                delete searchParams.date_from
+            }
+            if (values.dateFilter.dateTo) {
+                searchParams.date_to = values.dateFilter.dateTo
+            } else {
+                delete searchParams.date_to
+            }
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.mcpAnalyticsDashboard()]: (_, searchParams) => {
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDateFilter(dateFrom, dateTo)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
-        actions.loadKPIs()
-        actions.loadToolRows()
-        actions.loadSessionRows()
-        actions.loadHarnessRows()
-        actions.loadActivityRows()
-        actions.loadToolDailyRows()
+        actions.reloadAll()
     }),
 ])
 

@@ -56,13 +56,19 @@ function formatTriggerLabel(value: DateTimeValue): string {
     return `${dayjs(value.start).format('MMM D, HH:mm')} – ${dayjs(value.end).format('MMM D, HH:mm')}`
 }
 
-interface ToolQualityDateFilterProps {
+interface McpDateFilterProps {
     dateFrom: string | null
     dateTo: string | null
     onChange: (dateFrom: string | null, dateTo: string | null) => void
+    dataAttr?: string
 }
 
-export function ToolQualityDateFilter({ dateFrom, dateTo, onChange }: ToolQualityDateFilterProps): JSX.Element {
+export function McpDateFilter({
+    dateFrom,
+    dateTo,
+    onChange,
+    dataAttr = 'mcp-date-filter',
+}: McpDateFilterProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const value = toPickerValue(dateFrom, dateTo)
 
@@ -80,7 +86,7 @@ export function ToolQualityDateFilter({ dateFrom, dateTo, onChange }: ToolQualit
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
                 render={
-                    <Button variant="outline" data-attr="mcp-tool-quality-date-filter">
+                    <Button variant="outline" data-attr={dataAttr}>
                         <IconCalendar />
                         {formatTriggerLabel(value)}
                     </Button>

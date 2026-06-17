@@ -1,15 +1,32 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+
+import { initKeaTests } from '~/test/init'
+
 import {
     aggregateHarnessRows,
     type BucketRow,
     buildKPIs,
+    buildKpiWindow,
     buildToolDailySeries,
     categorizeHarness,
     deltaPct,
     type HarnessRawRow,
+    mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
+
+jest.mock('lib/api')
+jest.mock('./generated/api', () => ({
+    mcpAnalyticsIntentClustersRetrieve: jest.fn().mockResolvedValue({ status: 'idle', clusters: [] }),
+    mcpAnalyticsIntentClustersRecompute: jest.fn(),
+}))
+
+const mockApi = api as jest.Mocked<typeof api>
 
 function session(overrides: Partial<SessionRow> & { session_id: string }): SessionRow {
     return {
@@ -23,7 +40,7 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
     }
 }
 
-describe('mcpDashboardOverviewLogic helpers', () => {
+describe('mcpDashboardOverviewLogic', () => {
     describe('categorizeHarness', () => {
         it.each([
             ['claude-code/1.0.0', 'Claude Code'],
@@ -115,14 +132,29 @@ describe('mcpDashboardOverviewLogic helpers', () => {
         })
     })
 
+    describe('buildKpiWindow', () => {
+        it.each([
+            ['2024-01-08', '2024-01-15', '2024-01-08', '2024-01-01', 14],
+            ['2024-01-01', '2024-01-31', '2024-01-01', '2023-12-02', 60],
+        ])(
+            'doubles the [%s, %s] window back to %s with cutoff at the selected start',
+            (dateFrom, dateTo, expectedCutoff, expectedPriorStart, expectedSpanDays) => {
+                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC')
+                expect(window.currentStartDay).toBe(expectedCutoff)
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
+                expect(dayjs(window.dateTo).diff(dayjs(window.dateFrom), 'day')).toBe(expectedSpanDays)
+            }
+        )
+    })
+
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
-                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300, in_current: true },
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200, in_current: true },
-                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150, in_current: false },
+                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300 },
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200 },
+                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150 },
             ]
-            const kpis = buildKPIs(rows)
+            const kpis = buildKPIs(rows, '2024-01-08')
 
             expect(kpis.sessions).toEqual({
                 value: 30,
@@ -149,10 +181,8 @@ describe('mcpDashboardOverviewLogic helpers', () => {
         })
 
         it('returns null deltas when there is no prior-period data', () => {
-            const rows: BucketRow[] = [
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200, in_current: true },
-            ]
-            expect(buildKPIs(rows).sessions.deltaPct).toBeNull()
+            const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
+            expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
         })
     })
 
@@ -215,6 +245,40 @@ describe('mcpDashboardOverviewLogic helpers', () => {
             // never more than the cap, never the same session twice
             expect(picked).toHaveLength(5)
             expect(new Set(picked.map((p) => p.session.session_id)).size).toBe(5)
+        })
+    })
+
+    describe('date filter wiring', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        function reloadCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        it('reloads every tile when the date filter changes', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            // Six tiles: KPI + the five breakdown queries.
+            expect(reloads.length).toBe(6)
+            // The five breakdowns pass the raw selected range straight through.
+            const breakdowns = reloads.filter((call) => call.filters.dateRange.date_from === '-30d')
+            expect(breakdowns).toHaveLength(5)
+            // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
+            const kpi = reloads.find((call) => call.query.includes('AS bucket'))
+            expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
+            expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
         })
     })
 })
