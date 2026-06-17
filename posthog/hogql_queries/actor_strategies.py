@@ -25,6 +25,7 @@ from posthog.models.person.util import (
 )
 from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 
 logger = structlog.get_logger(__name__)
@@ -105,15 +106,16 @@ class PersonStrategy(ActorStrategy):
         actor_ids_list = [str(uid) for uid in actor_ids]
         team_id = self.team.pk
 
-        all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
+        with personhog_caller_tag("persons/hogql-actors"):
+            all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
 
-        if sort_by_created_at_descending:
-            all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
+            if sort_by_created_at_descending:
+                all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
 
-        person_ids = [p.id for p in all_persons]
-        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
-            team_id, person_ids, limit_per_person=limit_per_person
-        )
+            person_ids = [p.id for p in all_persons]
+            distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+                team_id, person_ids, limit_per_person=limit_per_person
+            )
 
         return {
             p.uuid: {
