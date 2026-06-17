@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { ReactNode } from 'react'
 
 import { IconChevronRight, IconSparkles } from '@posthog/icons'
 
@@ -68,6 +69,38 @@ function pushHref(item: TreeDataItem): void {
     }
 }
 
+// Records the click and navigates — the shared behavior for every navigational create item.
+function navigateToItem(item: TreeDataItem): void {
+    captureItemClicked(keyOf(item))
+    pushHref(item)
+}
+
+// Shared submenu scaffold: a trigger row (icon + label + chevron) that expands to `children`.
+function CreateSubMenu({
+    item,
+    icon,
+    children,
+}: {
+    item: TreeDataItem
+    icon: ReactNode
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger asChild>
+                <ButtonPrimitive menuItem data-attr={`create-menu-sub-menu-${keyOf(item)}-button`}>
+                    {icon}
+                    {labelFor(item)}
+                    <IconChevronRight className="ml-auto size-3" />
+                </ButtonPrimitive>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+                <DropdownMenuGroup>{children}</DropdownMenuGroup>
+            </DropdownMenuSubContent>
+        </DropdownMenuSub>
+    )
+}
+
 export function CreateMenu(): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
     const { isLoading } = useValues(newDashboardLogic)
@@ -94,78 +127,56 @@ export function CreateMenu(): JSX.Element {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {items.map((item): JSX.Element => {
-                if (keyOf(item) === 'Dashboard') {
+                const itemKey = keyOf(item)
+                if (itemKey === 'Dashboard') {
                     return (
-                        <DropdownMenuSub key={item.id}>
-                            <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem data-attr={`create-menu-sub-menu-${keyOf(item)}-button`}>
-                                    {item.icon}
-                                    {labelFor(item)}
-                                    <IconChevronRight className="ml-auto size-3" />
-                                </ButtonPrimitive>
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent>
-                                <DropdownMenuGroup>
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            captureItemClicked('Dashboard (blank)')
-                                            runBlankDashboardFlow({ isLoading, setIsLoading, addDashboard })
-                                        }}
-                                        data-attr="create-menu-dashboard-blank"
-                                    >
-                                        <ButtonPrimitive menuItem>Start from scratch</ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            captureItemClicked('Dashboard (templates)')
-                                            pushHref(item)
-                                        }}
-                                        data-attr="create-menu-dashboard-templates"
-                                    >
-                                        <ButtonPrimitive menuItem>View templates</ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
+                        <CreateSubMenu key={item.id} item={item} icon={item.icon}>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    captureItemClicked('Dashboard (blank)')
+                                    runBlankDashboardFlow({ isLoading, setIsLoading, addDashboard })
+                                }}
+                                data-attr="create-menu-dashboard-blank"
+                            >
+                                <ButtonPrimitive menuItem>Start from scratch</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    captureItemClicked('Dashboard (templates)')
+                                    pushHref(item)
+                                }}
+                                data-attr="create-menu-dashboard-templates"
+                            >
+                                <ButtonPrimitive menuItem>View templates</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </CreateSubMenu>
                     )
                 }
                 if (item.children) {
-                    const groupIcon = GROUP_ICONS[keyOf(item)]
+                    const groupIcon = GROUP_ICONS[itemKey]
                     return (
-                        <DropdownMenuSub key={item.id}>
-                            <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem data-attr={`create-menu-sub-menu-${keyOf(item)}-button`}>
-                                    {groupIcon ? iconForType(groupIcon) : item.icon}
-                                    {labelFor(item)}
-                                    <IconChevronRight className="ml-auto size-3" />
-                                </ButtonPrimitive>
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent>
-                                <DropdownMenuGroup>
-                                    {item.children.map((child) => (
-                                        <DropdownMenuItem
-                                            key={child.id}
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                captureItemClicked(keyOf(child))
-                                                pushHref(child)
-                                            }}
-                                            data-attr={`create-menu-sub-menu-${keyOf(child)}-button`}
-                                        >
-                                            <ButtonPrimitive menuItem>
-                                                {child.icon}
-                                                {labelFor(child)}
-                                            </ButtonPrimitive>
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuGroup>
-                            </DropdownMenuSubContent>
-                        </DropdownMenuSub>
+                        <CreateSubMenu key={item.id} item={item} icon={groupIcon ? iconForType(groupIcon) : item.icon}>
+                            {item.children.map((child) => (
+                                <DropdownMenuItem
+                                    key={child.id}
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        navigateToItem(child)
+                                    }}
+                                    data-attr={`create-menu-sub-menu-${keyOf(child)}-button`}
+                                >
+                                    <ButtonPrimitive menuItem>
+                                        {child.icon}
+                                        {labelFor(child)}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                        </CreateSubMenu>
                     )
                 }
                 return (
@@ -174,11 +185,10 @@ export function CreateMenu(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            captureItemClicked(keyOf(item))
-                            pushHref(item)
+                            navigateToItem(item)
                         }}
                     >
-                        <ButtonPrimitive menuItem data-attr={`create-menu-new-${keyOf(item)}-button`}>
+                        <ButtonPrimitive menuItem data-attr={`create-menu-new-${itemKey}-button`}>
                             {item.icon}
                             {labelFor(item)}
                         </ButtonPrimitive>
