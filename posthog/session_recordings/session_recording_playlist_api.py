@@ -383,13 +383,13 @@ def precompute_synthetic_recordings_counts(playlists: list[SessionRecordingPlayl
     viewed_session_ids = _batch_current_user_viewed(all_session_ids, user, team)
 
     for playlist in synthetic_playlists:
-        count = counts_by_short_id[playlist.short_id]
-        if count is None:
+        playlist_count = counts_by_short_id[playlist.short_id]
+        if playlist_count is None:
             playlist._prefetched_synthetic_count = _empty_recordings_counts()  # type: ignore[attr-defined]
             continue
         sample_ids = sample_ids_by_short_id.get(playlist.short_id, [])
         watched_count = len(set(sample_ids) & viewed_session_ids)
-        playlist._prefetched_synthetic_count = _synthetic_counts(count, watched_count)  # type: ignore[attr-defined]
+        playlist._prefetched_synthetic_count = _synthetic_counts(playlist_count, watched_count)  # type: ignore[attr-defined]
 
 
 def log_playlist_activity(
