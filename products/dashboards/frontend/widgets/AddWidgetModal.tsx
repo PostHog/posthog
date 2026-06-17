@@ -150,26 +150,30 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                             <Fragment key={group.groupId}>
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
                                 <div
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-expanded={!isCollapsed}
+                                    onClick={() => toggleAddWidgetCollapsedGroup(group.groupId)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault()
+                                            toggleAddWidgetCollapsedGroup(group.groupId)
+                                        }
+                                    }}
                                     className={clsx(
-                                        'col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded px-3 py-2',
+                                        'col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded px-3 py-2 cursor-pointer',
+                                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                                         showProductIntro ? 'bg-accent-highlight-secondary' : 'bg-surface-secondary'
                                     )}
                                 >
-                                    <h5 className="m-0 shrink-0">
-                                        <button
-                                            type="button"
-                                            aria-expanded={!isCollapsed}
-                                            onClick={() => toggleAddWidgetCollapsedGroup(group.groupId)}
-                                            className="flex items-center gap-1.5 cursor-pointer bg-transparent border-none p-0 text-inherit"
-                                        >
-                                            {isCollapsed ? (
-                                                <IconChevronRight className="shrink-0 text-base text-secondary" />
-                                            ) : (
-                                                <IconChevronDown className="shrink-0 text-base text-secondary" />
-                                            )}
-                                            {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
-                                            {group.groupLabel}
-                                        </button>
+                                    <h5 className="m-0 flex shrink-0 items-center gap-1.5">
+                                        {isCollapsed ? (
+                                            <IconChevronRight className="shrink-0 text-base text-secondary" />
+                                        ) : (
+                                            <IconChevronDown className="shrink-0 text-base text-secondary" />
+                                        )}
+                                        {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
+                                        {group.groupLabel}
                                     </h5>
                                     {showProductIntro && productIntro ? (
                                         <span className="flex items-start gap-1.5 text-xs text-secondary">
@@ -179,7 +183,10 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                                 <Link
                                                     to={productIntro.docsHref}
                                                     target="_blank"
-                                                    onClick={() => handleProductIntroClicked(productIntro.productKey)}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleProductIntroClicked(productIntro.productKey)
+                                                    }}
                                                 >
                                                     {productIntro.ctaLabel}
                                                 </Link>
