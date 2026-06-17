@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
 import {

@@ -7,6 +7,7 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.generated_configs import GithubAuthMethodConfig, GithubSourceConfig
 from posthog.temporal.data_imports.sources.github.github import (
     GithubResumeConfig,
     _build_initial_params,
@@ -887,6 +888,7 @@ class TestGithubSourceNonRetryableErrors:
             ("403",),
             ("404",),
             ("bad_credentials",),
+            ("missing_integration_id",),
             ("client_id_not_configured",),
             ("private_key_not_configured",),
         ]
@@ -897,10 +899,24 @@ class TestGithubSourceNonRetryableErrors:
             "403": "403 Client Error",
             "404": "404 Client Error",
             "bad_credentials": "Bad credentials",
+            "missing_integration_id": "Missing GitHub integration ID",
             "client_id_not_configured": "GITHUB_APP_CLIENT_ID is not configured",
             "private_key_not_configured": "GITHUB_APP_PRIVATE_KEY is not configured",
         }
         assert expected_keys[_name] in self.source.get_non_retryable_errors()
+
+    def test_oauth_without_integration_id_raises_non_retryable_error(self) -> None:
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(selection="oauth", github_integration_id=None),
+            repository="owner/repo",
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            self.source._get_access_token(config, team_id=123)
+
+        # The raised message must stay a recognised non-retryable substring so a misconfigured
+        # OAuth source stops retrying instead of failing forever.
+        assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
 
     @parameterized.expand(
         [
@@ -912,3 +928,30 @@ class TestGithubSourceNonRetryableErrors:
         # Mirrors the substring match done in external_data_job.update_external_data_job_model.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(pattern in internal_error for pattern in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            # GitHub returns this body verbatim when the App installation no longer exists; matching it
+            # stops the pipeline from retrying a token refresh that can never succeed.
+            (
+                "not_found",
+                'Failed to refresh installation token: {"message":"Not Found",'
+                '"documentation_url":"https://docs.github.com/rest/reference/apps'
+                '#create-an-installation-access-token-for-an-app","status":"404"}',
+                True,
+            ),
+            # A 5xx during token refresh is transient and must stay retryable, so the generic
+            # "Failed to refresh installation token" prefix must not match on its own.
+            (
+                "server_error",
+                'Failed to refresh installation token: {"message":"Server Error","status":"500"}',
+                False,
+            ),
+        ]
+    )
+    def test_installation_token_refresh_non_retryable_matching(
+        self, _name: str, error_message: str, expected_match: bool
+    ) -> None:
+        # Mirrors the substring match done in external_data_job.update_external_data_job_model.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in non_retryable_errors) == expected_match

@@ -773,7 +773,7 @@
         "feature_flag": "agent-platform-mcp"
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -829,7 +829,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -1293,7 +1293,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -1445,6 +1445,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "characterize-metric-anomaly": {
+        "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> p95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius. All parameters are nested inside a `query` object.",
+        "category": "Metrics",
+        "feature": "metrics",
+        "summary": "Characterize metric anomaly",
+        "title": "Characterize metric anomaly",
+        "required_scopes": ["metrics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "metrics",
+        "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
         "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
@@ -1898,8 +1914,8 @@
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a source",
         "title": "Get a secure connect link for a source",
         "required_scopes": ["external_data_source:read"],
@@ -1912,8 +1928,8 @@
     },
     "data-warehouse-source-setup": {
         "description": "Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use 'external-data-sources-create' instead.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Set up a data warehouse source (one step)",
         "title": "Set up a data warehouse source (one step)",
         "required_scopes": ["external_data_source:write"],
@@ -1926,8 +1942,8 @@
     },
     "data-warehouse-stored-credentials-list": {
         "description": "List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "List stored source credentials awaiting setup",
         "title": "List stored source credentials awaiting setup",
         "required_scopes": ["external_data_source:read"],
@@ -2286,6 +2302,62 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-alerts-create": {
+        "description": "Create an error tracking alert that fires when an issue is created, reopened, or starts spiking. An alert is a HogFunction with `type=internal_destination` whose `filters.events` references one of the three error-tracking lifecycle events. The events themselves are the trigger — there is no threshold or evaluation window to configure.\n\nTrigger events:\n- `$error_tracking_issue_created`  — fires once when a new issue first appears.\n- `$error_tracking_issue_reopened` — fires when a previously resolved issue starts emitting again.\n- `$error_tracking_issue_spiking`  — fires when the spike detector flags abnormal volume on an\n  issue. The spike threshold is configured separately via the spike detection config endpoint\n  and applies to all issues in the project.\n\n\nRecipe — deliver an error tracking alert to Slack or a webhook:\n\n1. Confirm the trigger and channel with the user. Picking `created` for a noisy project will\n   flood the channel; `spiking` is usually the safer default. Do not assume.\n\n\n2. Pick the integration. For Slack, call `integrations-list` with `kind=slack` to find the\n   integration id, then `integrations-channels-retrieve` for that integration to list channels.\n   For a webhook, the user provides the destination URL directly. Confirm the channel name or\n   webhook URL with the user before creating the alert — never wire a new alert to a production\n   channel without explicit confirmation.\n\n\n3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger\n   event already exists. Skip creation if one is present and enabled — call\n   `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a\n   duplicate. Several alerts on the same event for the same channel produce duplicate\n   notifications.\n\n\n4. Create. Use `type=internal_destination`, the integration's `template_id`\n   (`template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`,\n   `template-linear`, `template-github`, or `template-gitlab`), and:\n\n     filters = {\n       \"events\": [{\"id\": \"$error_tracking_issue_created\", \"type\": \"events\"}]\n     }\n\n   Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause\n   on `$exception_issue_id` — for example\n   `[{\"key\": \"$exception_issue_id\", \"value\": \"<issue_uuid>\", \"operator\": \"exact\", \"type\": \"event\"}]`\n   to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry\n   no exception properties, so spiking alerts cannot be scoped per issue. PostHog's \"alerts\n   configured\" recommendation only checks `filters.events`, so adding property filters does\n   not affect it.\n\n\n5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created\n   and UI-created alerts look identical. The canonical payloads for every integration are in\n   the `authoring-error-tracking-alerts` skill references.\n\n   For `$error_tracking_issue_created` (Slack):\n\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"New issue created: {event.properties.name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"🔴 {event.properties.name}\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"New issue created\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\",\n           \"text\": \"```{substring(event.properties.description, 1, 150)}```\"}},\n         {\"type\": \"context\", \"elements\": [\n           {\"type\": \"plain_text\", \"text\": \"Status: {event.properties.status}\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Project: <{project.url}|{project.name}>\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Alert: <{source.url}|{source.name}>\"}\n         ]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Issue\"},\n            \"url\": \"{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack\"}\n         ]}\n       ]}\n     }\n\n   For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to\n   `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to\n   `Issue reopened: {event.properties.name}`.\n\n   For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to\n   `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking\n   events do not carry them), and add a context line referencing\n   `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The\n   exact block layout is in the `authoring-error-tracking-alerts` skill references.\n\n\n6. Webhook body. The webhook template only requires `url`:\n\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n   Webhooks must be `https://` URLs.\n\n\nEvent property reference — common across all three events: `event.properties.name` (issue title), `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link). `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`, `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status, fingerprint, or exception properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Create error tracking alert",
+        "title": "Create error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-alerts-delete": {
+        "description": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.\n\nThis wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it soft-deletes whatever function the ID points to, including unrelated destinations or transformations. Confirm the target with `error-tracking-alerts-list` before deleting.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Delete error tracking alert",
+        "title": "Delete error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-alerts-list": {
+        "description": "List error tracking alerts in the project. Pass `type=internal_destination` and inspect each entry's `filters.events` for one of `$error_tracking_issue_created`, `$error_tracking_issue_reopened`, or `$error_tracking_issue_spiking` to identify alerts. The same endpoint backs `cdp-functions-list`, so non-error-tracking destinations are also returned — filter client-side by event id. Pagination defaults to 100 per page; pass a higher `limit` (e.g. 1000) when scanning for an existing alert by trigger and channel.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "List error tracking alerts",
+        "title": "List error tracking alerts",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-alerts-partial-update": {
+        "description": "Partially update an error tracking alert. Use to enable or disable an alert, rename it, change the destination channel/URL, or adjust the Slack message body. The `type` field cannot be changed after creation. To delete an alert, use `error-tracking-alerts-delete`. To change the trigger event, set `filters.events` to a list with the new event id — but consider creating a new alert instead so the old one's history is preserved.\n\nLike delete, this addresses the function by ID without verifying it is an error tracking alert; an unrelated function ID is updated instead. Confirm the target with `error-tracking-alerts-list` first.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Update error tracking alert",
+        "title": "Update error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-assignment-rules-create": {
@@ -2948,8 +3020,8 @@
     },
     "external-data-schemas-cancel": {
         "description": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Cancel running sync",
         "title": "Cancel running sync",
         "required_scopes": ["external_data_source:write"],
@@ -2962,8 +3034,8 @@
     },
     "external-data-schemas-delete-data": {
         "description": "Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Delete synced table data",
         "title": "Delete synced table data",
         "required_scopes": ["external_data_source:write"],
@@ -2976,8 +3048,8 @@
     },
     "external-data-schemas-incremental-fields-create": {
         "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Refresh candidate incremental fields for a schema",
         "title": "Refresh candidate incremental fields for a schema",
         "required_scopes": ["external_data_source:write"],
@@ -2990,8 +3062,8 @@
     },
     "external-data-schemas-list": {
         "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
         "title": "List data warehouse table schemas (imported tables)",
         "required_scopes": ["external_data_source:read"],
@@ -3004,8 +3076,8 @@
     },
     "external-data-schemas-partial-update": {
         "description": "Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary key columns, CDC table mode, and enable/disable the schema.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
         "title": "Update data warehouse table schema sync config",
         "required_scopes": ["external_data_source:write"],
@@ -3018,8 +3090,8 @@
     },
     "external-data-schemas-reload": {
         "description": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Trigger sync for a table schema",
         "title": "Trigger sync for a table schema",
         "required_scopes": ["external_data_source:write"],
@@ -3032,8 +3104,8 @@
     },
     "external-data-schemas-resync": {
         "description": "Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt or out of sync.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Resync table schema from scratch",
         "title": "Resync table schema from scratch",
         "required_scopes": ["external_data_source:write"],
@@ -3046,8 +3118,8 @@
     },
     "external-data-schemas-retrieve": {
         "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Get data warehouse table schema",
         "title": "Get data warehouse table schema",
         "required_scopes": ["external_data_source:read"],
@@ -3060,8 +3132,8 @@
     },
     "external-data-sources-check-cdc-prerequisites-create": {
         "description": "Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled (wal_level=logical), replication slot available, publication present, and required permissions. Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to diagnose why an existing CDC sync has started failing.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Check Postgres CDC prerequisites",
         "title": "Check Postgres CDC prerequisites",
         "required_scopes": ["external_data_source:write"],
@@ -3074,8 +3146,8 @@
     },
     "external-data-sources-connections-list": {
         "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "List direct-query connections",
         "title": "List direct-query connections",
         "required_scopes": ["external_data_source:read"],
@@ -3088,8 +3160,8 @@
     },
     "external-data-sources-create": {
         "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard' (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Create data warehouse source (advanced; prefer source setup)",
         "title": "Create data warehouse source (advanced; prefer source setup)",
         "required_scopes": ["external_data_source:write"],
@@ -3102,8 +3174,8 @@
     },
     "external-data-sources-create-webhook-create": {
         "description": "For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and register the webhook URL with the external service using the source's stored credentials. Requires at least one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service, so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Create and register a webhook for a source",
         "title": "Create and register a webhook for a source",
         "required_scopes": ["external_data_source:write"],
@@ -3130,8 +3202,8 @@
     },
     "external-data-sources-delete-webhook-create": {
         "description": "Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it. Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with create-webhook.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Delete a source's webhook",
         "title": "Delete a source's webhook",
         "required_scopes": ["external_data_source:write"],
@@ -3144,8 +3216,8 @@
     },
     "external-data-sources-destroy": {
         "description": "Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to resume syncing.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Delete data warehouse source",
         "title": "Delete data warehouse source",
         "required_scopes": ["external_data_source:write"],
@@ -3172,8 +3244,8 @@
     },
     "external-data-sources-list": {
         "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
         "title": "List data warehouse sources",
         "required_scopes": ["external_data_source:read"],
@@ -3186,8 +3258,8 @@
     },
     "external-data-sources-partial-update": {
         "description": "Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change the source_type or access_method after creation. Avoid sending new connection credentials inline here — to rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them securely in their browser rather than pasting secrets into the chat.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Update data warehouse source",
         "title": "Update data warehouse source",
         "required_scopes": ["external_data_source:write"],
@@ -3200,8 +3272,8 @@
     },
     "external-data-sources-refresh-schemas": {
         "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. Does not trigger a data sync. Use this after adding new tables to a source database to make them available for syncing.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Refresh available schemas",
         "title": "Refresh available schemas",
         "required_scopes": ["external_data_source:write"],
@@ -3214,8 +3286,8 @@
     },
     "external-data-sources-reload": {
         "description": "Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the source uses direct query mode, this refreshes the schema metadata instead.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Trigger sync for a source",
         "title": "Trigger sync for a source",
         "required_scopes": ["external_data_source:write"],
@@ -3228,8 +3300,8 @@
     },
     "external-data-sources-retrieve": {
         "description": "Get a single data warehouse source by ID. Returns full details including source type, connection status, prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Get data warehouse source",
         "title": "Get data warehouse source",
         "required_scopes": ["external_data_source:read"],
@@ -3242,8 +3314,8 @@
     },
     "external-data-sources-update-webhook-inputs-create": {
         "description": "Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret). Fails if no webhook has been created for this source yet — call create-webhook first.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Update webhook inputs (signing secret, etc.)",
         "title": "Update webhook inputs (signing secret, etc.)",
         "required_scopes": ["external_data_source:write"],
@@ -3256,8 +3328,8 @@
     },
     "external-data-sources-webhook-info-retrieve": {
         "description": "Return webhook state for a source: supports_webhooks (is this source type webhook-capable), exists (has a webhook been created), webhook_url (the PostHog endpoint the external service should POST to), schema_mapping (external event type → PostHog schema id), and external_status (what the remote service reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a webhook is healthy and whether the external registration is still valid.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "Get webhook status for a source",
         "title": "Get webhook status for a source",
         "required_scopes": ["external_data_source:read"],
@@ -3270,8 +3342,8 @@
     },
     "external-data-sources-wizard": {
         "description": "Return the configuration metadata for all supported data warehouse source types you can import data from — revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
         "summary": "List data warehouse source types you can import",
         "title": "List data warehouse source types you can import",
         "required_scopes": ["external_data_source:read"],
@@ -5068,7 +5140,7 @@
         }
     },
     "logs-count-ranges": {
-        "description": "Get adaptive-interval bucket counts for a filtered log stream. Returns a flat list of `{date_from, date_to, count}` buckets covering the requested window. Modeled on Elasticsearch's `auto_date_histogram` — caller specifies a target bucket count, the engine picks the interval.\n\nUse this to find **where the volume is concentrated** before pulling rows. Cheaper than `query-logs`, more agent-friendly than `logs-sparkline-query` (each bucket carries explicit `date_from`/`date_to` you can feed straight back as the next call's `dateRange` to drill in).\n\n# When to use this vs other tools\n\n- **`logs-count`** — total volume in a window. Scalar.\n- **`logs-count-ranges`** (this tool) — _when_ in the window the volume sits. Time-bucketed.\n- **`query-logs`** — pull individual log rows. Most expensive; only call after counts confirm the window is right-sized.\n\n# Recursion pattern (the main reason this tool exists)\n\nUse the response to narrow into a sub-range without reasoning about interval width:\n\n1. Call `logs-count-ranges` with the user's window (e.g. last 24h).\n2. Pick the bucket(s) of interest (densest, an obvious spike, an unexpectedly empty stretch).\n3. Call `logs-count-ranges` again with that bucket's `date_from` and `date_to` as the next `dateRange`.\n4. Repeat up to ~3–4 levels — stop when buckets are shorter than your precision goal (e.g. 1 minute).\n5. Once narrowed, call `query-logs` for the actual rows.\n\nThis is the same pattern Elasticsearch users follow with `auto_date_histogram`. Keep recursion shallow — every call is cheap individually but they multiply quickly.\n\n# Parameters\n\nAll parameters must be nested inside a `query` object.\n\n## query.dateRange\n\nWindow to bucket. Defaults to the last hour (`-1h`). Same format as `query-logs`.\n\n## query.targetBuckets\n\nApproximate bucket count. Defaults to **10**, max 100. The engine picks the interval adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target — actual count may differ slightly. Empty buckets are dropped, so the response can have fewer rows than `targetBuckets`.\n\nPick a value based on what you're doing:\n\n- **10** (default) — overview, finding spikes, \"is this concentrated or spread out?\"\n- **20–30** — characterising a known busy window\n- **50+** — high-resolution drill-down, only when you know the window is small\n\n## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup\n\nSame shape as `query-logs`. Applied **before** bucketing.\n\n# Response\n\n```json\n{\n  \"ranges\": [\n    { \"date_from\": \"2026-04-26T00:00:00\", \"date_to\": \"2026-04-26T02:24:00\", \"count\": 1024 },\n    { \"date_from\": \"2026-04-26T02:24:00\", \"date_to\": \"2026-04-26T04:48:00\", \"count\": 47 }\n  ],\n  \"interval\": \"2h\"\n}\n```\n\n- `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.\n- `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.\n\n# Examples\n\n## Find when errors spiked over the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"targetBuckets\": 24,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Drill into the densest hour from a previous call\n\nAfter picking the densest bucket from the response above (say `{date_from: \"2026-04-26T15:00:00\", date_to: \"2026-04-26T16:00:00\", count: 894}`):\n\n```json\n{\n  \"query\": {\n    \"dateRange\": {\n      \"date_from\": \"2026-04-26T15:00:00\",\n      \"date_to\": \"2026-04-26T16:00:00\"\n    },\n    \"targetBuckets\": 12,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n# Reminders\n\n- Cap recursion at ~3–4 levels. If your bucket width drops below your precision goal (e.g. 1 minute), stop and call `query-logs`.\n- Empty windows return `{\"ranges\": [], \"interval\": \"...\"}` — that's not an error, it's \"I asked, nothing matched.\"\n- Always include `serviceNames` or a resource attribute filter, just like `query-logs`. Don't bucket the entire team's log stream.",
+        "description": "Get adaptive-interval bucket counts for a filtered log stream. Returns a flat list of `{date_from, date_to, count}` buckets covering the requested window. Modeled on Elasticsearch's `auto_date_histogram` — caller specifies a target bucket count, the engine picks the interval.\n\nUse this to find **where the volume is concentrated** before pulling rows. Cheaper than `query-logs`, more agent-friendly than `logs-sparkline-query` (each bucket carries explicit `date_from`/`date_to` you can feed straight back as the next call's `dateRange` to drill in).\n\n# When to use this vs other tools\n\n- **`logs-count`** — total volume in a window. Scalar.\n- **`logs-count-ranges`** (this tool) — _when_ in the window the volume sits. Time-bucketed.\n- **`query-logs`** — pull individual log rows. Most expensive; only call after counts confirm the window is right-sized.\n\n# Recursion pattern (the main reason this tool exists)\n\nUse the response to narrow into a sub-range without reasoning about interval width:\n\n1. Call `logs-count-ranges` with the user's window (e.g. last 24h).\n2. Pick the bucket(s) of interest (densest, an obvious spike, an unexpectedly empty stretch).\n3. Call `logs-count-ranges` again with that bucket's `date_from` and `date_to` as the next `dateRange`.\n4. Repeat up to ~3–4 levels — stop when buckets are shorter than your precision goal (e.g. 1 minute).\n5. Once narrowed, call `query-logs` for the actual rows.\n\nThis is the same pattern Elasticsearch users follow with `auto_date_histogram`. Keep recursion shallow — every call is cheap individually but they multiply quickly.\n\n# Parameters\n\nAll parameters must be nested inside a `query` object.\n\n## query.dateRange\n\nWindow to bucket. Defaults to the last hour (`-1h`). Same format as `query-logs`.\n\n## query.targetBuckets\n\nApproximate bucket count. Defaults to **10**, max 100. The engine picks the interval adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target — actual count may differ slightly. Empty buckets are dropped, so the response can have fewer rows than `targetBuckets`.\n\nPick a value based on what you're doing:\n\n- **10** (default) — overview, finding spikes, \"is this concentrated or spread out?\"\n- **20–30** — characterising a known busy window\n- **50+** — high-resolution drill-down, only when you know the window is small\n\n## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup\n\nSame shape as `query-logs`. Applied **before** bucketing.\n\n# Response\n\n```json\n{\n  \"ranges\": [\n    { \"date_from\": \"2026-04-26T00:00:00Z\", \"date_to\": \"2026-04-26T02:24:00Z\", \"count\": 1024 },\n    { \"date_from\": \"2026-04-26T02:24:00Z\", \"date_to\": \"2026-04-26T04:48:00Z\", \"count\": 47 }\n  ],\n  \"interval\": \"2h\"\n}\n```\n\n- `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.\n- `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.\n\n# Examples\n\n## Find when errors spiked over the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"targetBuckets\": 24,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Drill into the densest hour from a previous call\n\nAfter picking the densest bucket from the response above (say `{date_from: \"2026-04-26T15:00:00Z\", date_to: \"2026-04-26T16:00:00Z\", count: 894}`):\n\n```json\n{\n  \"query\": {\n    \"dateRange\": {\n      \"date_from\": \"2026-04-26T15:00:00Z\",\n      \"date_to\": \"2026-04-26T16:00:00Z\"\n    },\n    \"targetBuckets\": 12,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n# Reminders\n\n- Cap recursion at ~3–4 levels. If your bucket width drops below your precision goal (e.g. 1 minute), stop and call `query-logs`.\n- Empty windows return `{\"ranges\": [], \"interval\": \"...\"}` — that's not an error, it's \"I asked, nothing matched.\"\n- Always include `serviceNames` or a resource attribute filter, just like `query-logs`. Don't bucket the entire team's log stream.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Count logs by time bucket",
@@ -5260,6 +5332,52 @@
         },
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
+    },
+    "mcp-feedback-submit": {
+        "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Submit MCP feedback",
+        "title": "Submit MCP feedback",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-missing-capability-report": {
+        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Report missing capability",
+        "title": "Report missing capability",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "metric-names-list": {
+        "description": "List the distinct metric names this project has ingested, with each metric's OTel type (`gauge`, `sum`, `histogram`, `summary`, `exponential_histogram`). Names are ordered by recent activity and exact matches float to the top.\n\nALWAYS call this before `query-metrics` unless you already know the exact metric name — metric queries match names exactly, so a guessed name silently returns no data.\n\nUse `value` for a case-insensitive substring search (e.g. `value: \"lag\"` finds `metrics_rate_limiter_message_lag_seconds`). The metric's type tells you which aggregations make sense:\n\n- `sum` (counters, usually `_total`-suffixed): use `rate` or `increase`\n- `gauge`: use `avg`, `p95`, or `sum`\n- `histogram`: use `histogram_quantile` with a `quantile`",
+        "category": "Metrics",
+        "feature": "metrics",
+        "summary": "List metric names",
+        "title": "List metric names",
+        "required_scopes": ["metrics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "metrics",
+        "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
@@ -5807,6 +5925,22 @@
             "readOnlyHint": true
         },
         "system_prompt_hint": "Log filtering by severity/service/attribute"
+    },
+    "query-metrics": {
+        "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). `service_name` is always available; discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
+        "category": "Metrics",
+        "feature": "metrics",
+        "summary": "Query metrics",
+        "title": "Query metrics",
+        "required_scopes": ["metrics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "metrics",
+        "system_prompt_hint": "Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas"
     },
     "query-paths": {
         "description": "Run a paths query to analyze the most common sequences of events or pages that users navigate through. Paths insights visualize user flows as a directed graph, showing how users move between steps and where they drop off.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What do users do after signing up?\n- What pages do users visit before making a purchase?\n- What are the most common navigation flows on your website?\n- Where do users drop off in a particular flow?\n- What custom events lead to a conversion?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Paths guidelines\n\n## Event types\n\nPaths analyze sequences of events. Specify which event types to include using `includeEventTypes`. If omitted, all events are included without type filtering.\n\n- `$pageview` - web page views. Path values come from `$current_url`, with trailing slashes stripped, so they must match your stored URL format. This is often a path like `/login`, but may also be a full URL like `https://example.com/login`. Best for analyzing website navigation flows. This is the most common choice.\n- `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). Use for mobile app navigation analysis.\n- `custom_event` - custom events (any event whose name does not start with `$`). Path values are event names. Use for analyzing flows of custom-tracked events like button clicks, form submissions, or feature usage.\n- `hogql` - custom HogQL expression. Use with `pathsHogQLExpression` for advanced path definitions.\n\nYou can combine multiple types. For example, include both `$pageview` and `custom_event` to see how page views and custom events interleave.\n\n## Start and end points\n\nUse `startPoint` to filter paths that begin at a specific step, or `endPoint` to filter paths that end at a specific step. The value format depends on the event type:\n\n- For `$pageview`: use the same URL format as your `$current_url` values, often paths like `/login`, `/dashboard`, `/settings`, but sometimes full URLs\n- For `$screen`: use screen names\n- For `custom_event`: use event names like `user signed up`, `purchase completed`\n\n## Path cleaning\n\nUse `localPathCleaningFilters` to normalize dynamic URLs. Each filter has a `regex` pattern (ClickHouse regex syntax) and an `alias` replacement. Filters are applied in sequence using `replaceRegexpAll(path, regex, alias)`. For example, to normalize product URLs: `{ \"regex\": \"\\\\/product\\\\/\\\\d+\", \"alias\": \"/product/:id\" }`.\n\nUse `pathGroupings` for simpler glob-like grouping of paths into single nodes. Use `*` as a wildcard — the patterns are auto-escaped so only `*` has special meaning. For example, `/product/*` groups all product sub-pages into one node.\n\n## Exclusions\n\nUse `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.\n\n# Examples\n\n## What pages do users visit after the homepage?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"startPoint\": \"/\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What do users do after signing up?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"startPoint\": \"user signed up\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Navigation paths excluding noisy URLs\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"excludeEvents\": [\"/health-check\", \"/ping\"],\n    \"stepLimit\": 5,\n    \"edgeLimit\": 30\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Custom event paths excluding noisy events\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"excludeEvents\": [\"heartbeat\"],\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Paths with URL cleaning for dynamic segments\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"stepLimit\": 5,\n    \"localPathCleaningFilters\": [\n      { \"regex\": \"\\\\/user\\\\/\\\\d+\", \"alias\": \"/user/:id\" },\n      { \"regex\": \"\\\\/project\\\\/[a-f0-9-]+\", \"alias\": \"/project/:id\" }\n    ]\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What paths lead to the pricing page for mobile users?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"endPoint\": \"/pricing\",\n    \"stepLimit\": 5\n  },\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- Always specify `includeEventTypes` to scope the analysis to relevant event types. If omitted, all events are included which may produce noisy results.\n- Use `$pageview` as the default event type for web navigation questions.\n- Path cleaning filters (`localPathCleaningFilters`) use ClickHouse regex and are only needed when dynamic URL segments would fragment the visualization. Path groupings (`pathGroupings`) use glob-like patterns with `*` wildcards for simpler cases.\n- Paths group events into sessions with a 30-minute inactivity threshold — events more than 30 minutes apart start a new path session.",
@@ -8023,6 +8157,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-patch-email-template": {
+        "description": "Surgically edit an email template's design by sending a small, ordered list of operations instead of resending the whole design JSON. Prefer this over workflows-update-email-template for any change to an existing design. Reference blocks by their id (call workflows-get-email-template first to read the current design and its ids). For the common case — tweak one block — use update_content with a deep-merge patch (e.g. {op: update_content, id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}}); a null leaf deletes that key. Use add_content / remove_content / move_content / add_row / remove_row for structural changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the result.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch email template design",
+        "title": "Patch email template design",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-run-batch": {
         "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
         "category": "Workflows",
@@ -8108,7 +8256,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+        "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

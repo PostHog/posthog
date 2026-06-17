@@ -87,6 +87,150 @@
                                 "anyOf": [
                                     {
                                         "properties": {
+                                            "dateRange": {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "date_from": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "enum": [
+                                                                            "-1h",
+                                                                            "-3h",
+                                                                            "-24h",
+                                                                            "-7d",
+                                                                            "-14d",
+                                                                            "-30d",
+                                                                            "-90d"
+                                                                        ],
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "filterTestAccounts": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "limit": {
+                                                "default": 25,
+                                                "description": "Maximum number of events to return.",
+                                                "maximum": 50,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "widgetFilters": {
+                                                "anyOf": [
+                                                    {
+                                                        "additionalProperties": {
+                                                            "properties": {
+                                                                "filterId": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "operator": {
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
+                                                                },
+                                                                "optionId": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "propertyName": {
+                                                                    "minLength": 1,
+                                                                    "type": "string"
+                                                                },
+                                                                "value": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "items": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "filterId",
+                                                                "propertyName",
+                                                                "optionId",
+                                                                "operator"
+                                                            ],
+                                                            "type": "object"
+                                                        },
+                                                        "propertyNames": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
                                             "assignee": {
                                                 "anyOf": [
                                                     {
@@ -480,8 +624,8 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `error_tracking_list` - error_tracking_list\n* `session_replay_list` - session_replay_list",
-                                "enum": ["error_tracking_list", "session_replay_list"],
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `session_replay_list` - session_replay_list",
+                                "enum": ["activity_events_list", "error_tracking_list", "session_replay_list"],
                                 "type": "string"
                             }
                         },

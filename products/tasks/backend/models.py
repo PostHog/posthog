@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.services.sandbox import SandboxResources
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -339,6 +340,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_resources: "SandboxResources | None" = None,
+        sandbox_timeout_seconds: int | None = None,
+        inactivity_timeout_seconds: int | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -415,7 +419,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] = {}
+        extra_state: dict[str, Any] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
         if interaction_origin:
@@ -441,6 +445,23 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
+
+        # Optional per-task sandbox compute/timeout overrides. Read back into
+        # SandboxConfig at provision time (see TaskProcessingContext); unset
+        # fields keep the SandboxConfig defaults.
+        if sandbox_resources is not None:
+            if sandbox_resources.cpu_cores is not None:
+                extra_state["sandbox_cpu_cores"] = sandbox_resources.cpu_cores
+            if sandbox_resources.memory_gb is not None:
+                extra_state["sandbox_memory_gb"] = sandbox_resources.memory_gb
+        if sandbox_timeout_seconds is not None:
+            extra_state["sandbox_ttl_seconds"] = sandbox_timeout_seconds
+
+        # Optional per-task inactivity timeout override (seconds). Read back via
+        # TaskProcessingContext.inactivity_timeout(); unset falls back to the
+        # origin-aware default.
+        if inactivity_timeout_seconds is not None:
+            extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
