@@ -7,7 +7,7 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
 
 import { AvailableFeature } from '~/types'

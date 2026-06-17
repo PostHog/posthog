@@ -27,8 +27,16 @@ from products.engineering_analytics.backend.logic.quarantine import (
 
 _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
-_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
+_FOR_TEAM = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.for_team"
 _VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+
+
+def _curated_source(results: list[tuple[str, str]]) -> mock.Mock:
+    """A stand-in CuratedGitHubSource: run_source() feeds the repo SQL, run() returns the rows."""
+    source = mock.Mock()
+    source.run_source.return_value = "(runs)"
+    source.run.return_value = SimpleNamespace(results=results)
+    return source
 
 
 def _entry(**overrides: Any) -> dict[str, Any]:
@@ -212,25 +220,36 @@ class TestQuarantineBuild(BaseTest):
         assert result.available is True and len(result.entries) == 1
 
     def test_resolves_most_active_repo_from_workflow_runs(self) -> None:
-        run_query = mock.Mock(return_value=SimpleNamespace(results=[("PostHog", "posthog.com")]))
+        source = _curated_source([("PostHog", "posthog.com")])
         with (
-            mock.patch(_RUN_QUERY, run_query),
+            mock.patch(_FOR_TEAM, return_value=source),
             mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))),
         ):
             result = build_quarantine(team=self.team)
 
         assert result.repo == contracts.RepoRef(provider="github", owner="PostHog", name="posthog.com")
-        assert run_query.call_args.kwargs["query_type"] == "engineering_analytics.quarantine_repo"
+        assert source.run.call_args.kwargs["query_type"] == "engineering_analytics.quarantine_repo"
 
     def test_no_recent_runs_means_unavailable(self) -> None:
         with (
-            mock.patch(_RUN_QUERY, return_value=SimpleNamespace(results=[])),
+            mock.patch(_FOR_TEAM, return_value=_curated_source([])),
             mock.patch(_REQUESTS_GET) as get,
         ):
             result = build_quarantine(team=self.team)
 
         assert result.available is False
         assert len(result.parse_errors) == 1 and "could not determine a repository" in result.parse_errors[0]
+        get.assert_not_called()
+
+    def test_no_connected_source_is_fail_open(self) -> None:
+        with (
+            mock.patch(_FOR_TEAM, side_effect=contracts.GitHubSourceNotConnectedError("no GitHub source connected")),
+            mock.patch(_REQUESTS_GET) as get,
+        ):
+            result = build_quarantine(team=self.team)
+
+        assert result.available is False
+        assert "pass ?repo=owner/name" in result.parse_errors[0]
         get.assert_not_called()
 
     def test_debug_reads_local_checkout(self) -> None:

@@ -302,6 +302,15 @@ export interface QuarantineFileApi {
     generated_at: string
 }
 
+export interface GitHubSourceApi {
+    /** Source id — pass as `source_id` to the other endpoints to read this source. */
+    id: string
+    /** Connected repository as 'owner/name', or '' if unknown. */
+    repo: string
+    /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+    prefix: string
+}
+
 export interface WorkflowHealthDayApi {
     /** UTC calendar day. */
     day: string
@@ -344,6 +353,13 @@ export interface WorkflowHealthItemApi {
     last_failure_at: string | null
 }
 
+export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -353,6 +369,10 @@ export type EngineeringAnalyticsPrLifecycleParams = {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsPullRequestsParams = {
@@ -360,6 +380,10 @@ export type EngineeringAnalyticsPullRequestsParams = {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsQuarantineParams = {
@@ -367,6 +391,10 @@ export type EngineeringAnalyticsQuarantineParams = {
      * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
      */
     repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -378,4 +406,8 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }

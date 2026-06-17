@@ -215,6 +215,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
     "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
     "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
+    "surfacing_score": DatabaseField(name="surfacing_score", nullable=True),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -289,6 +290,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
             name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
         ),
         "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
+        "surfacing_score": ast.Call(name="max", args=[ast.Field(chain=[table_name, "surfacing_score"])]),
     }
 
     select_fields: list[ast.Expr] = []

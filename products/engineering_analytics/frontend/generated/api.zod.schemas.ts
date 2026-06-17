@@ -450,6 +450,15 @@ export const QuarantineFileApi = zod.object({
 export type QuarantineFileApi = zod.input<typeof QuarantineFileApi>
 export type QuarantineFileApiOutput = zod.output<typeof QuarantineFileApi>
 
+export const GitHubSourceApi = zod.object({
+    id: zod.string().describe('Source id — pass as `source_id` to the other endpoints to read this source.'),
+    repo: zod.string().describe("Connected repository as 'owner\/name', or '' if unknown."),
+    prefix: zod.string().describe("User-chosen warehouse table-name prefix for this source, or '' when none."),
+})
+
+export type GitHubSourceApi = zod.input<typeof GitHubSourceApi>
+export type GitHubSourceApiOutput = zod.output<typeof GitHubSourceApi>
+
 export const WorkflowHealthDayApi = zod.object({
     day: zod.iso.date().describe('UTC calendar day.'),
     run_count: zod.number().describe('Runs started that day.'),

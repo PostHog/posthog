@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -31,8 +31,8 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
     const logic = engineeringAnalyticsLogic({ tabId })
     // Keep this tab's filters and data alive across tab switches (React unmounts inactive tabs).
     useAttachedLogic(logic, tabId ? engineeringAnalyticsSceneLogic({ tabId }) : undefined)
-    const { anyLoading } = useValues(logic)
-    const { refresh } = useActions(logic)
+    const { anyLoading, hasMultipleSources, sourceOptions, sourceId } = useValues(logic)
+    const { refresh, setSourceId } = useActions(logic)
 
     const tabs: LemonTab<EngineeringAnalyticsTab>[] = [
         {
@@ -66,15 +66,29 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
                     description={TAB_DESCRIPTIONS[activeTab]}
                     resourceType={{ type: 'health' }}
                     actions={
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={refresh}
-                            loading={anyLoading}
-                            disabledReason={anyLoading ? 'Loading…' : undefined}
-                        >
-                            Refresh
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            {hasMultipleSources && (
+                                <LemonSelect
+                                    size="small"
+                                    value={sourceId}
+                                    onChange={setSourceId}
+                                    options={sourceOptions}
+                                    placeholder="Source: default"
+                                    allowClear
+                                    dropdownMatchSelectWidth={false}
+                                    data-attr="engineering-analytics-source-select"
+                                />
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={refresh}
+                                loading={anyLoading}
+                                disabledReason={anyLoading ? 'Loading…' : undefined}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">

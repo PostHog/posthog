@@ -10,13 +10,17 @@ the runner).
 
 Acquisition order: the server's own checkout in DEBUG (so the tab is live in
 local dev), then the caller-supplied ``repo``, then the connected GitHub
-source's most active repo over the last 30 days.
+source's most active repo over the last 30 days (``source_id`` selects which
+connected source; ``user_access_control`` filters out sources the caller can't
+read). Staying fail-open, a team with no connected source returns
+``available=false`` rather than the 4xx the curated read endpoints raise.
 """
 
 import re
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
@@ -28,6 +32,7 @@ from posthog.hogql import ast
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSourceNotConnectedError,
     QuarantineEntry,
     QuarantineFile,
     QuarantineLifecycle,
@@ -36,6 +41,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.queries import _curated
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 QUARANTINE_FILENAME = ".test_quarantine.json"
 
@@ -71,7 +79,13 @@ _REPO_SELECT = """
 """
 
 
-def build_quarantine(*, team: Team, repo: str | None = None) -> QuarantineFile:
+def build_quarantine(
+    *,
+    team: Team,
+    repo: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineFile:
     generated_at = datetime.now(UTC)
     today = generated_at.date()
 
@@ -91,7 +105,11 @@ def build_quarantine(*, team: Team, repo: str | None = None) -> QuarantineFile:
     if repo is not None:
         owner, _, name = repo.partition("/")
     else:
-        resolved = _most_active_repo(team)
+        try:
+            resolved = _most_active_repo(team, source_id=source_id, user_access_control=user_access_control)
+        except GitHubSourceNotConnectedError as exc:
+            # Fail open: no connected source isn't an error here, just nothing to read.
+            return _unavailable(generated_at, error=f"{exc} — pass ?repo=owner/name to read a specific repository")
         if resolved is None:
             return _unavailable(
                 generated_at,
@@ -223,11 +241,15 @@ def _read_local_text() -> str | None:
     return path.read_text()
 
 
-def _most_active_repo(team: Team) -> tuple[str, str] | None:
-    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", _curated.run_source())
-    response = _curated.run_query(
+def _most_active_repo(
+    team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+) -> tuple[str, str] | None:
+    # Raises GitHubSourceNotConnectedError when the team has no source (caught upstream and turned
+    # into available=false) or ValueError for a bad source_id (propagated to a 4xx by the view).
+    curated = _curated.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
+    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    response = curated.run(
         sql,
-        team=team,
         query_type="engineering_analytics.quarantine_repo",
         placeholders={"date_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=30))},
     )

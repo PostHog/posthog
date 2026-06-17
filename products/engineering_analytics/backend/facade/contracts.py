@@ -108,6 +108,20 @@ class QuarantineSelectorKind(StrEnum):
 
 
 @dataclass(frozen=True)
+class GitHubSource:
+    """A connected GitHub warehouse source the team can analyze. ``id`` is what a
+    caller passes back as ``source_id`` to select this source; ``repo`` and
+    ``prefix`` are display labels so a picker can tell two sources apart.
+    """
+
+    id: str
+    # Connected repository as 'owner/name' (from the source's job inputs), or '' if unknown.
+    repo: str
+    # User-chosen warehouse table-name prefix for this source, or '' when none was set.
+    prefix: str
+
+
+@dataclass(frozen=True)
 class RepoRef:
     provider: str
     owner: str

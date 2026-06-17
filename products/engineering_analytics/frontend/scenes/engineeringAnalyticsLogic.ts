@@ -1,16 +1,20 @@
 import { LogicWrapper, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
+    engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
+import type { GitHubSourceApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
@@ -313,6 +317,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
             applyCardFilter: (card: CardFilter) => ({ card }),
+            setSourceId: (sourceId: string | null) => ({ sourceId }),
             resetFilters: true,
             setQuarantineSearch: (search: string) => ({ search }),
             setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
@@ -328,7 +333,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 null as CardsData | null,
                 {
                     loadCards: async (): Promise<CardsData> => {
-                        const data = await engineeringAnalyticsCiCards(projectId())
+                        const data = await engineeringAnalyticsCiCards(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
                         return {
                             openPrs: data.open_prs,
                             repos: data.repos,
@@ -342,7 +349,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [] as PullRequestRow[],
                 {
                     loadPullRequests: async (): Promise<PullRequestRow[]> => {
-                        const response = await engineeringAnalyticsPullRequests(projectId())
+                        const response = await engineeringAnalyticsPullRequests(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
                         return response.items.map(
                             (it): PullRequestRow => ({
                                 number: it.number,
@@ -374,6 +383,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.workflowDateFrom ?? undefined,
                             date_to: values.workflowDateTo ?? undefined,
+                            source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
                             (it): WorkflowHealthRow => ({
@@ -400,7 +410,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 null as QuarantineData | null,
                 {
                     loadQuarantine: async (): Promise<QuarantineData> => {
-                        const data = await engineeringAnalyticsQuarantine(projectId())
+                        const data = await engineeringAnalyticsQuarantine(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
                         return {
                             available: data.available,
                             entries: data.entries.map(
@@ -424,6 +436,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             repoFullName: data.repo ? `${data.repo.owner}/${data.repo.name}` : null,
                         }
                     },
+                },
+            ],
+            githubSources: [
+                [] as GitHubSourceApi[],
+                {
+                    loadGithubSources: async (): Promise<GitHubSourceApi[]> =>
+                        await engineeringAnalyticsSources(projectId()),
                 },
             ],
         })),
@@ -460,6 +479,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
                 },
             ],
+            // Which connected GitHub source to read; null = the backend default (oldest connected).
+            // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
+            sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
             // The endpoints 400 when the team has no GitHub warehouse source connected.
             // A failed cards load is the canary for "no source connected".
             loadFailed: [
@@ -599,6 +621,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
+            // Only worth a picker when the team has more than one GitHub source connected.
+            hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
+            sourceOptions: [
+                (s) => [s.githubSources],
+                (githubSources): { value: string; label: string }[] =>
+                    githubSources.map((source) => ({
+                        value: source.id,
+                        label: source.repo || source.prefix || `source ${source.id.slice(0, 8)}`,
+                    })),
+            ],
         }),
 
         listeners(({ actions, values }) => ({
@@ -608,6 +640,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
             },
+            // Cards, the PR list, workflow health, and the quarantine repo are all per-source — reload them all.
+            setSourceId: () => actions.refresh(),
             setWorkflowDateRange: () => {
                 actions.loadWorkflowHealth()
             },
@@ -634,10 +668,34 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
         })),
 
+        actionToUrl(() => ({
+            setSourceId: ({ sourceId }) => {
+                const searchParams = { ...router.values.searchParams }
+                if (sourceId) {
+                    searchParams.source = sourceId
+                } else {
+                    delete searchParams.source
+                }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+        })),
+
+        urlToAction(({ actions, values }) => {
+            // The chosen source rides in `?source=` so it survives tab switches and deep-links into a PR's detail.
+            const applySource = (source: string | undefined): void => {
+                const next = source ?? null
+                if (next !== values.sourceId) {
+                    actions.setSourceId(next)
+                }
+            }
+            return {
+                [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+            }
+        }),
+
         afterMount(({ actions }) => {
-            actions.loadCards()
-            actions.loadPullRequests()
-            actions.loadWorkflowHealth()
-            actions.loadQuarantine()
+            actions.loadGithubSources()
+            actions.refresh()
         }),
     ])

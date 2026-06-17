@@ -17,9 +17,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyNumber, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { StatCard } from '../components/StatCard'

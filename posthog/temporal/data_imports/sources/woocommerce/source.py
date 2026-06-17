@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -136,6 +137,8 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WOO_COMMERCE,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
+            keywords=["woo"],
             label="WooCommerce",
             caption=(
                 "Enter your WooCommerce store URL and REST API consumer key/secret to pull your store data "

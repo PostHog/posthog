@@ -9,10 +9,12 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
+    engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
     CICardSummaryApi,
+    GitHubSourceApi,
     PullRequestListItemApi,
     QuarantineEntryApi,
     QuarantineFileApi,
@@ -38,6 +40,7 @@ jest.mock('../generated/api', () => ({
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
     engineeringAnalyticsQuarantine: jest.fn(),
+    engineeringAnalyticsSources: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
 
@@ -49,6 +52,7 @@ const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunc
     typeof engineeringAnalyticsWorkflowHealth
 >
 const mockQuarantine = engineeringAnalyticsQuarantine as jest.MockedFunction<typeof engineeringAnalyticsQuarantine>
+const mockSources = engineeringAnalyticsSources as jest.MockedFunction<typeof engineeringAnalyticsSources>
 
 function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
     return {
@@ -174,6 +178,10 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         last_failure_at: '2026-05-30T00:00:00Z',
     },
 ]
+const SOURCES: GitHubSourceApi[] = [
+    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
+    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
+]
 
 describe('engineeringAnalyticsLogic', () => {
     let logic: ReturnType<typeof engineeringAnalyticsLogic.build>
@@ -187,6 +195,8 @@ describe('engineeringAnalyticsLogic', () => {
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
+        // Most tests are single- or no-source; the picker tests override with SOURCES.
+        mockSources.mockResolvedValue([])
     })
 
     afterEach(() => {
@@ -314,6 +324,54 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
+    })
+
+    it('exposes source options and the multi-source flag only when more than one source exists', async () => {
+        mockSources.mockResolvedValue(SOURCES)
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        expect(logic.values.hasMultipleSources).toBe(true)
+        expect(logic.values.sourceOptions).toEqual([
+            { value: 'src-older', label: 'posthog/posthog' },
+            { value: 'src-newer', label: 'posthog/posthog.com' },
+        ])
+    })
+
+    it('hides the picker when the team has a single source', async () => {
+        mockSources.mockResolvedValue([SOURCES[0]])
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        expect(logic.values.hasMultipleSources).toBe(false)
+    })
+
+    it('defaults to no source, then scopes every endpoint to the picked one and reloads', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadCardsSuccess',
+            'loadPullRequestsSuccess',
+            'loadWorkflowHealthSuccess',
+        ])
+        // No source picked → omit source_id so the backend resolves its default.
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined })
+
+        logic.actions.setSourceId('src-newer')
+        await expectLogic(logic).toDispatchActions([
+            'setSourceId',
+            'loadCards',
+            'loadPullRequests',
+            'loadWorkflowHealth',
+            'loadCardsSuccess',
+        ])
+
+        expect(logic.values.sourceId).toBe('src-newer')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
+        expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', source_id: 'src-newer' })
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
