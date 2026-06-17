@@ -805,10 +805,20 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             raise ValidationError("Provide either baseline_value or baseline_stats.")
 
         if attrs["metric_type"] in ("ratio", "retention"):
-            if not has_baseline_stats and attrs.get("variance") is None:
-                raise ValidationError(
-                    "Ratio and retention metrics require baseline_stats or an explicit variance to size."
-                )
+            # A baseline value and variance must both be available. Pass them directly, or supply
+            # baseline_stats with denominator_sum so the server can derive them — without it both
+            # derivations return None and the endpoint silently responds with all-null results.
+            has_variance = attrs.get("variance") is not None
+            if not (has_baseline_value and has_variance):
+                stats = attrs.get("baseline_stats")
+                if not stats:
+                    raise ValidationError(
+                        "Ratio and retention metrics require baseline_stats, or both baseline_value and variance."
+                    )
+                if not stats.get("denominator_sum"):
+                    raise ValidationError(
+                        {"baseline_stats": {"denominator_sum": "Required to size ratio and retention metrics."}}
+                    )
 
         return attrs
 

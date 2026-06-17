@@ -6955,6 +6955,14 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
             ("missing_baseline", {"metric_type": "funnel", "minimum_detectable_effect": 5}),
             ("zero_mde", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 0}),
             ("ratio_without_variance", {"metric_type": "ratio", "baseline_value": 10, "minimum_detectable_effect": 10}),
+            (
+                "ratio_stats_without_denominator_sum",
+                {
+                    "metric_type": "ratio",
+                    "minimum_detectable_effect": 10,
+                    "baseline_stats": {"number_of_samples": 10000, "sum": 500000, "sum_squares": 30000000},
+                },
+            ),
         ]
     )
     def test_invalid_input_rejected(self, _name: str, payload: dict):

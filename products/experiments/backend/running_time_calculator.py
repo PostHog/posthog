@@ -184,19 +184,3 @@ def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: 
     if not sample_size or not exposure_rate_per_day or exposure_rate_per_day <= 0:
         return None
     return math.ceil(sample_size / exposure_rate_per_day)
-
-
-def calculate_remaining_days(
-    recommended_sample_size: int | None,
-    current_exposures: float | None,
-    exposure_rate_per_day: float | None,
-) -> float | None:
-    """Days remaining until ``recommended_sample_size`` is reached, given current progress."""
-    if not recommended_sample_size or not current_exposures or not exposure_rate_per_day:
-        return None
-
-    remaining_sample = recommended_sample_size - current_exposures
-    if remaining_sample <= 0:
-        return 0
-
-    return remaining_sample / exposure_rate_per_day
