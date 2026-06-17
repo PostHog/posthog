@@ -30,7 +30,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. To link a user to a specific account rather than the bare list, deep-link it: append `#open=` + a URL-encoded compact JSON object `{\"id\":<id>,\"externalId\":<external_id>,\"name\":<name>,\"tab\":\"usage\"}` to the accounts list path `/customer_analytics/accounts` (tab is optional — one of notes/users/usage/spend). This opens the account expanded on that tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -120,7 +120,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. To link a user to this account rather than the bare list, deep-link it: append `#open=` + a URL-encoded compact JSON object `{\"id\":<id>,\"externalId\":<external_id>,\"name\":<name>,\"tab\":\"usage\"}` to the accounts list path `/customer_analytics/accounts` (tab is optional — one of notes/users/usage/spend).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",

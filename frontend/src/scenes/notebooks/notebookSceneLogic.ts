@@ -42,7 +42,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                         ? {
                               key: Scene.CustomerAnalytics,
                               name: 'Accounts',
-                              path: urls.customerAnalyticsAccounts(),
+                              path: urls.customerAnalyticsAccounts({ id: notebook.parent_resource.id }),
                               iconType: 'group',
                           }
                         : {

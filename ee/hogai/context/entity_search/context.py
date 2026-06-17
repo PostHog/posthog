@@ -23,6 +23,7 @@ from posthog.sync import database_sync_to_async
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.customer_analytics.backend.account_urls import build_account_deeplink
 from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
@@ -490,7 +491,7 @@ class EntitySearchContext:
 
         # Get URL if available
         try:
-            url = self._build_url(entity_type, result_id, self._team.id)
+            url = self._build_url(entity_type, result_id, self._team.id, extra_fields)
         except ValueError:
             url = ""
 
@@ -532,7 +533,9 @@ class EntitySearchContext:
         except ValidationError:
             return None
 
-    def _build_url(self, entity_type: str, result_id: str, team_id: int) -> str:
+    def _build_url(
+        self, entity_type: str, result_id: str, team_id: int, extra_fields: Mapping[str, Any] | None = None
+    ) -> str:
         """Build a URL for an entity based on its type and ID."""
         base_url = f"{settings.SITE_URL}/project/{team_id}"
         match entity_type:
@@ -557,6 +560,8 @@ class EntitySearchContext:
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case "account":
-                return f"{base_url}/customer_analytics/accounts"
+                # Deep-link to the specific account (reveal + expand) rather than the bare list.
+                fields = extra_fields or {}
+                return f"{base_url}{build_account_deeplink(account_id=result_id, external_id=fields.get('external_id'), name=fields.get('name'))}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

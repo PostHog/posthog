@@ -900,7 +900,15 @@ export const productUrls = {
     supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
-    customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+    customerAnalyticsAccounts: (open?: {
+        id: string
+        externalId?: string | null
+        name?: string
+        tab?: string
+    }): string =>
+        open
+            ? `/customer_analytics/accounts#open=${encodeURIComponent(JSON.stringify(open))}`
+            : '/customer_analytics/accounts',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',

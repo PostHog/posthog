@@ -66,7 +66,14 @@ The Usage tab renders an existing saved billing-usage insight — **point users 
 
 ### Deep-link to one account (`#open=`)
 
-Separate from the persistent `#view=` state, a **one-shot** `#open={id, externalId, name, tab}` hash (`AccountsOpenUrlState`) lands directly on a single account: `urlToAction` reads it and dispatches `openAccount` (reveal + expand + tab + scroll — the same entry point Max uses). `tab` is validated against `ACCOUNT_EXPANSION_TABS`, falling back to `DEFAULT_ACCOUNT_TAB`. It self-clears — `openAccount`'s reveal calls `setSearchQuery`, which rewrites the hash to `#view=` only, dropping `open` so it never re-triggers. The usage-spike notification (`backend/services/usage_spike_notifications.py`) builds this URL (project-relative — the notifications side panel adds the project prefix) with `tab: 'usage'`; keep the Python encoding in sync with kea-router (`JSON.stringify` + percent-encoding). The notification path is routed through `buildNotificationSourcePath` in `sidePanelNotificationsLogic.tsx`, which has **no** `customer_analytics` entry in `SOURCE_TYPE_TO_PATH` precisely so the precise `source_url` deep-link wins instead of a static accounts-list path.
+Separate from the persistent `#view=` state, a **one-shot** `#open={id, externalId, name, tab}` hash (`AccountsOpenUrlState`) lands directly on a single account: `urlToAction` reads it and dispatches `openAccount` (reveal + expand + tab + scroll — the same entry point Max uses). `tab` is validated against `ACCOUNT_EXPANSION_TABS`, falling back to `DEFAULT_ACCOUNT_TAB`. It self-clears — `openAccount`'s reveal calls `setSearchQuery`, which rewrites the hash to `#view=` only, dropping `open` so it never re-triggers.
+
+**Build the URL via the canonical helpers, never hand-encode the hash** (they keep the `AccountsOpenUrlState` shape and kea-router's `JSON.stringify` + percent-encoding in sync):
+
+- Frontend: `urls.customerAnalyticsAccounts(open?)` (in the product manifest) — pass an `open` object to deep-link, omit it for the bare list. Used by the notebook→Accounts breadcrumb.
+- Backend: `build_account_deeplink(...)` in `backend/account_urls.py` — the single source of truth for the Python side. Used by the usage-spike notification (`backend/services/usage_spike_notifications.py`, `tab: 'usage'`) and by the agent's entity-search results (`ee/hogai/context/entity_search/context.py`), so when Max/MCP references an account it found, the link opens that account rather than the list.
+
+Anywhere we know the account, prefer a deep-link over the bare list. The notification path is routed through `buildNotificationSourcePath` in `sidePanelNotificationsLogic.tsx`, which has **no** `customer_analytics` entry in `SOURCE_TYPE_TO_PATH` precisely so the precise `source_url` deep-link wins instead of a static accounts-list path. The notification `source_url` is project-relative — the notifications side panel adds the project prefix on navigation.
 
 ## Saved views
 
