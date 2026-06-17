@@ -34,7 +34,18 @@ export function InsightFreshness({ lastRefresh }: { lastRefresh: string }): JSX.
                 </div>
             }
         >
-            <LemonButton icon={icon} size="small" noPadding status={status} data-attr="insight-card-freshness" />
+            <LemonButton
+                icon={icon}
+                noPadding
+                status={status}
+                // Indicator is informational only — keep it out of the tab order, but labelled for screen readers.
+                tabIndex={-1}
+                aria-label="Last computed time"
+                data-attr="insight-card-freshness"
+                // Render the glyph at the surrounding heading's text size (as the bare icon did);
+                // LemonButton's default icon sizing made the clock noticeably larger than its row.
+                style={{ '--lemon-button-font-size': '1em', '--lemon-button-icon-size': '1em' } as React.CSSProperties}
+            />
         </Tooltip>
     )
 }
