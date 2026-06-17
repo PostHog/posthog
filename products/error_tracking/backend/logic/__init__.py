@@ -17,7 +17,15 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSettings,
     ErrorTrackingSymbolSet,
+)
+
+SETTINGS_FIELDS = (
+    "project_rate_limit_value",
+    "project_rate_limit_bucket_size_minutes",
+    "per_issue_rate_limit_value",
+    "per_issue_rate_limit_bucket_size_minutes",
 )
 
 
@@ -216,3 +224,18 @@ def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
         return f"{jira.site_url()}/browse/{issue_key}"
 
     return ""
+
+
+def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
+    settings, _ = ErrorTrackingSettings.objects.get_or_create(team_id=team_id)
+    return settings
+
+
+def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+    settings = get_or_create_settings(team_id)
+    updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
+    for key, value in updates.items():
+        setattr(settings, key, value)
+    if updates:
+        settings.save(update_fields=list(updates))
+    return settings

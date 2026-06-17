@@ -89,3 +89,11 @@ class ErrorTrackingIssueAssignmentNotification:
     assigned_user_id: int | None
     role_id: UUID | None = None
     role_member_user_ids: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSettings:
+    project_rate_limit_value: int | None
+    project_rate_limit_bucket_size_minutes: int | None
+    per_issue_rate_limit_value: int | None
+    per_issue_rate_limit_bucket_size_minutes: int | None

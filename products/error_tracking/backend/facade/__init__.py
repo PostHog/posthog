@@ -19,6 +19,7 @@ from .api import (
     get_issue_values,
     get_new_issues_for_team,
     get_org_ids_with_exceptions,
+    get_settings,
     get_symbol_set_counts_by_team,
     get_top_issues_for_team,
     is_supported_external_issue_provider,
@@ -26,6 +27,7 @@ from .api import (
     list_external_references,
     list_fingerprints,
     list_issues,
+    update_settings,
 )
 
 __all__ = [
@@ -49,6 +51,7 @@ __all__ = [
     "get_issue_values",
     "get_new_issues_for_team",
     "get_org_ids_with_exceptions",
+    "get_settings",
     "get_symbol_set_counts_by_team",
     "get_top_issues_for_team",
     "is_supported_external_issue_provider",
@@ -56,4 +59,5 @@ __all__ = [
     "list_external_references",
     "list_fingerprints",
     "list_issues",
+    "update_settings",
 ]

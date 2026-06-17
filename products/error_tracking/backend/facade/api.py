@@ -118,6 +118,23 @@ def issue_exists(team_id: int) -> bool:
     return logic.issue_exists(team_id=team_id)
 
 
+def _to_settings(settings) -> contracts.ErrorTrackingSettings:
+    return contracts.ErrorTrackingSettings(
+        project_rate_limit_value=settings.project_rate_limit_value,
+        project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
+        per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
+        per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+    )
+
+
+def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
+    return _to_settings(logic.get_or_create_settings(team_id))
+
+
+def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
+    return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 

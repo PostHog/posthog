@@ -160,3 +160,29 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert result.issue.id == issue.id
         assert result.issue.team_id == self.team.id
         assert result.issue.name == "Assigned issue"
+
+    def test_get_settings_creates_defaults(self):
+        settings = api.get_settings(self.team.id)
+
+        assert isinstance(settings, contracts.ErrorTrackingSettings)
+        assert settings.project_rate_limit_value is None
+        assert settings.per_issue_rate_limit_value is None
+
+    def test_update_settings_persists_and_is_partial(self):
+        api.update_settings(
+            self.team.id,
+            {"project_rate_limit_value": 100, "project_rate_limit_bucket_size_minutes": 5},
+        )
+        updated = api.update_settings(self.team.id, {"per_issue_rate_limit_value": 7})
+
+        assert updated.project_rate_limit_value == 100
+        assert updated.project_rate_limit_bucket_size_minutes == 5
+        assert updated.per_issue_rate_limit_value == 7
+        # a fresh read reflects the same persisted state, scoped to the team
+        assert api.get_settings(self.team.id) == updated
+
+    def test_update_settings_scoped_by_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        api.update_settings(self.team.id, {"project_rate_limit_value": 42})
+
+        assert api.get_settings(other_team.id).project_rate_limit_value is None

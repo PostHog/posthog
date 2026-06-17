@@ -543,7 +543,6 @@ ignore_imports = [
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.tasks",
     "products.error_tracking.backend.presentation.views.releases -> products.error_tracking.backend.models",
-    "products.error_tracking.backend.presentation.views.settings -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.spike_detection_config -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.spike_events -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.stack_frames -> products.error_tracking.backend.models",
