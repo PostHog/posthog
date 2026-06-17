@@ -1,3 +1,7 @@
+## Releasing
+
+See [RELEASING.md](./RELEASING.md) for the full release process.
+
 ## Running a local build
 
 From the `./cli` directory run `cargo install --path .` to build a new version
