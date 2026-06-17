@@ -575,3 +575,35 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # A run that exists but is not in the requested state is excluded even on a match.
         other_state = self.client.get(self._runs_url(review_state="processing", search="login"))
         self.assertEqual(self._branches(other_state.json()), set())
+
+
+class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=77777, repo_full_name="org/scope-test")
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_finalize_allowed_with_visual_review_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["visual_review:write"])
+        # Target a non-existent UUID; a 404 proves the scope gate was passed.
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["visual_review:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_finalize_rejected_without_visual_review_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

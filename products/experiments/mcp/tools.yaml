@@ -405,8 +405,6 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
-            created_by_id:
-                cast: string-int
             feature_flag_id:
                 cast: string-int
         ui_app: experiment-list

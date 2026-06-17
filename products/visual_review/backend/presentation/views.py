@@ -391,6 +391,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "add_snapshots",
         "recompute",
         "mark_tolerated",
+        "finalize",
     ]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer

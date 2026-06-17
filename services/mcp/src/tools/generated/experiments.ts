@@ -387,7 +387,6 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     ),
     limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
-    created_by_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['created_by_id']).optional(),
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
