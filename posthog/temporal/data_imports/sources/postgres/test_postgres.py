@@ -866,6 +866,27 @@ class TestConnectOptionsStartupParamFallback:
 
         assert connect_mock.call_count == 1
 
+    def test_retry_failure_is_not_chained_to_options_error(self):
+        # When the options-less retry fails for a real reason (wrong password), that error must not
+        # carry the recovered "options unsupported" error as its context — the chained context
+        # otherwise surfaces in error tracking and masks the genuine, already-classified cause.
+        connect_mock = mock.MagicMock(
+            side_effect=[
+                psycopg.OperationalError(
+                    "FATAL:  Feature not supported: RDS Proxy currently doesn’t support command-line options."
+                ),
+                psycopg.OperationalError("FATAL:  The password that was provided for the role postgres is wrong."),
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError) as exc_info:
+                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+
+        assert connect_mock.call_count == 2
+        assert "The password that was provided for the role" in str(exc_info.value)
+        assert exc_info.value.__context__ is None
+
 
 class TestStatementTimeoutAsNonRetryable:
     @pytest.mark.parametrize(

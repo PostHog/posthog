@@ -364,9 +364,12 @@ def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
-        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
-            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
-        raise
+        if not (connect_kwargs.get("options") and _is_options_startup_param_unsupported(e)):
+            raise
+    # Retry outside the `except` block: a genuine failure on the options-less connect (bad
+    # password, tenant not found) must propagate on its own, not chained to the benign — and now
+    # recovered — "options unsupported" error, which otherwise masks the real cause in error tracking.
+    return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
 
 
 def _connect_to_postgres(
