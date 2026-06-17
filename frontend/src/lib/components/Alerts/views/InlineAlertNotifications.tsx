@@ -242,7 +242,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                             selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
                                 ? 'https://discord.com/api/webhooks/...'
                                 : selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                                  ? 'Microsoft Teams workflow / webhook URL'
+                                  ? 'https://<region>.logic.azure.com:443/workflows/...'
                                   : 'https://example.com/webhook'
                         }
                         value={webhookUrl}

@@ -155,13 +155,27 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 })
             )
 
-            const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
-
-            if (failedNotifications.length > 0) {
-                lemonToast.error(
-                    `Alert saved, but ${failedNotifications.length} notification(s) failed to create. Reopen the alert to add them again.`
+            const failures = results
+                .map((result, i) => ({ result, notification: pending[i] }))
+                .filter(
+                    (item): item is { result: PromiseRejectedResult; notification: PendingAlertNotification } =>
+                        item.result.status === 'rejected'
                 )
-                actions.setPendingNotifications(failedNotifications)
+
+            if (failures.length > 0) {
+                const labelForType = (type: AlertNotificationType): string =>
+                    ALERT_NOTIFICATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
+                // Log each failure with its destination type + API error so the cause is diagnosable later.
+                failures.forEach(({ result, notification }) => {
+                    console.error(`Failed to create ${labelForType(notification.type)} alert notification`, result.reason)
+                })
+                const failedTypes = Array.from(
+                    new Set(failures.map(({ notification }) => labelForType(notification.type)))
+                )
+                lemonToast.error(
+                    `Alert saved, but failed to create: ${failedTypes.join(', ')}. Reopen the alert to add them again.`
+                )
+                actions.setPendingNotifications(failures.map(({ notification }) => notification))
             } else {
                 if (results.length > 0) {
                     lemonToast.success(`${results.length} notification destination(s) created.`)

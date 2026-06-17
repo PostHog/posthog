@@ -1,7 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { ALERT_NOTIFICATION_TYPE_DISCORD, ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS } from 'lib/utils/alerts'
+import {
+    ALERT_NOTIFICATION_TYPE_DISCORD,
+    ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_WEBHOOK,
+} from 'lib/utils/alerts'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
@@ -25,6 +29,23 @@ describe('alertNotificationLogic', () => {
         logic?.unmount()
         createSpy.mockRestore()
         listSpy.mockRestore()
+    })
+
+    it('clears staged inputs when the destination type changes', async () => {
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        // A webhook URL entered for one destination must not carry over to another.
+        logic.actions.setWebhookUrl('https://discord.com/api/webhooks/123/abc')
+        await expectLogic(logic).toMatchValues({ webhookUrl: 'https://discord.com/api/webhooks/123/abc' })
+        logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS)
+        await expectLogic(logic).toMatchValues({ webhookUrl: '' })
+
+        // A staged Slack channel is cleared the same way.
+        logic.actions.setSlackChannelValue('C123|#general')
+        await expectLogic(logic).toMatchValues({ slackChannelValue: 'C123|#general' })
+        logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
+        await expectLogic(logic).toMatchValues({ slackChannelValue: null })
     })
 
     it('creates a Discord destination HogFunction end-to-end', async () => {
