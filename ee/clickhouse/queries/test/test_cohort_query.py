@@ -995,7 +995,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
-                            "explicit_datetime": "-1w",  # replaces time_value / time_interval
+                            "explicit_datetime": "-1w",  # first event must fall within the last week
                             "value": "performed_event_first_time",
                             "type": "behavioral",
                         }
