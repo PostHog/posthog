@@ -1,15 +1,19 @@
 from typing import Optional, cast
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
@@ -22,6 +26,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     google_search_console_session,
     google_search_console_source,
     list_sites,
+    normalize_site_url,
 )
 from posthog.temporal.data_imports.sources.google_search_console.settings import (
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
@@ -44,6 +49,11 @@ class GoogleSearchConsoleSource(
             "401 Client Error": "Your Google Search Console connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Search Console property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Search Console account with the required scopes.",
+            # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
+            # access token — the stored refresh token has been revoked, expired, or invalidated
+            # (app access revoked, password change, long inactivity). It never recovers on retry,
+            # so stop the sync and ask the user to reconnect rather than burning activity retries.
+            "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
     def get_schemas(
@@ -102,7 +112,17 @@ class GoogleSearchConsoleSource(
     ) -> tuple[bool, str | None]:
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
+            if "matching query does not exist" in str(e):
+                return False, (
+                    "Your Google Search Console connection is no longer available — it may have been "
+                    "disconnected. Please reconnect your Google Search Console account."
+                )
             return False, f"Could not load Google Search Console credentials: {e}"
 
         try:
@@ -115,11 +135,22 @@ class GoogleSearchConsoleSource(
                     "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
                 )
             return False, f"Failed to list Google Search Console sites: {e}"
+        except RefreshError:
+            # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
+            # invalid_grant): the stored token is missing the required permissions, or has expired or
+            # been revoked. Retrying can't recover it — the raw RefreshError repr is meaningless to
+            # users, so guide them to reconnect.
+            return (
+                False,
+                "PostHog could not authenticate with Google Search Console. Your connection may have "
+                "expired or is missing the required permissions. Please reconnect your Google account "
+                "and grant access to Search Console.",
+            )
         except Exception as e:
             return False, f"Failed to list Google Search Console sites: {e}"
 
         normalized = {site.get("siteUrl"): site.get("permissionLevel") for site in sites}
-        site_url = config.site_url
+        site_url = normalize_site_url(config.site_url)
         if site_url not in normalized:
             return (
                 False,
@@ -139,12 +170,14 @@ class GoogleSearchConsoleSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            keywords=["gsc"],
             label="Google Search Console",
             caption=(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "
                 "(clicks, impressions, CTR, average position). Requires a Google account with read access to the property."
             ),
-            releaseStatus="alpha",
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-google-search-console",
             iconPath="/static/services/google-search-console.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-search-console",

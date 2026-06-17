@@ -25,12 +25,15 @@ export interface ColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -54,12 +57,15 @@ export interface PatchedColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -1449,6 +1455,7 @@ export const ChartDisplayTypeApi = {
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
+    SlopeGraph: 'SlopeGraph',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -2013,6 +2020,8 @@ export interface FunnelsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -3627,6 +3636,7 @@ export const IntegrationKindApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
@@ -6361,6 +6371,8 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
+    useQueryV2?: boolean | null
+    useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
     volumeResolution: number
@@ -6718,13 +6730,9 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    /** Match accounts whose account executive is any of these user ids (OR semantics). */
-    accountExecutive?: number[] | null
-    /** Match accounts whose account owner is any of these user ids (OR semantics). */
-    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
-    /** Match accounts whose CSM is any of these user ids (OR semantics). */
-    csm?: number[] | null
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'

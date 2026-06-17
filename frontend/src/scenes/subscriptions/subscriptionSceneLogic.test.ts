@@ -85,8 +85,12 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: (req) => {
-                    deliveriesRequestUrls.push(req.url.toString())
+                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
+                    return [200, { results: [], next: null, previous: null }]
+                },
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
@@ -117,7 +121,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -140,7 +144,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -165,7 +169,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -197,7 +201,7 @@ describe('subscriptionSceneLogic', () => {
                 // Function form, not the `[200, body]` shorthand: useMocks serializes a bare array as
                 // the whole response body, so only a function-returned tuple delivers the object itself.
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },

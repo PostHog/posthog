@@ -103,10 +103,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                 if col.startswith("group_name"):
                     order_by.append(
                         ast.OrderExpr(
-                            expr=ast.Call(
-                                name="coalesce",
-                                args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])],
-                            ),
+                            expr=self._display_name_expr(),
                             order="DESC" if "DESC" in col else "ASC",
                         )
                     )
@@ -124,12 +121,23 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                 order_by=order_by,
             )
 
+    def _display_name_expr(self) -> ast.Expr:
+        # Coerce both branches to String so a numeric `name` property type doesn't make
+        # coalesce resolve to Variant(Float64, String), which clickhouse_driver can't parse.
+        return ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
+                ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
+            ],
+        )
+
     def _column_to_expr(self, col: str) -> ast.Expr:
         if col == "group_name":
             return ast.Call(
                 name="tuple",
                 args=[
-                    ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
+                    self._display_name_expr(),
                     ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
                 ],
             )
@@ -171,9 +179,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         """
         When a search term exists, we want to rank the results by how close they are to it.
         """
-        display_name_expr = ast.Call(
-            name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]
-        )
+        display_name_expr = self._display_name_expr()
 
         return ast.OrderExpr(
             expr=ast.Call(

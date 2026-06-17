@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CICardSummaryApi,
+    EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
@@ -18,8 +19,20 @@ import type {
     WorkflowHealthItemApi,
 } from './api.schemas'
 
-export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/engineering_analytics/ci_cards/`
+export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_cards/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_cards/`
 }
 
 /**
@@ -27,9 +40,10 @@ export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
  */
 export const engineeringAnalyticsCiCards = async (
     projectId: string,
+    params?: EngineeringAnalyticsCiCardsParams,
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
-    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId), {
+    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -121,7 +135,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 30 days): run count, success rate, p50/p95 duration over completed runs, and last failure time. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,

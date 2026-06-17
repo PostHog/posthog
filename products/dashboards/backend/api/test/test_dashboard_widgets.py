@@ -23,6 +23,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -915,10 +916,49 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(tiles) == 2
         assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
+        # Batch adds stack downward so vertical compaction keeps each tile at the bottom.
         assert tiles[0]["layouts"]["sm"]["y"] == 0
         assert tiles[0]["layouts"]["sm"]["x"] == 0
-        assert tiles[1]["layouts"]["sm"]["y"] == 0
-        assert tiles[1]["layouts"]["sm"]["x"] == 6
+        assert tiles[1]["layouts"]["sm"]["y"] == 5
+        assert tiles[1]["layouts"]["sm"]["x"] == 0
+
+    @parameterized.expand(
+        [
+            # (persisted_sm_layouts, layoutless_count, expected_y)
+            # Insights added to a dashboard get `layouts = {}` until a layout save; the backend
+            # must still count them so a new widget lands below, not in a mid-page gap.
+            # Layout-less tiles pack two-per-row at 6×5 (y boundaries every 2 tiles).
+            ("one_layoutless", [], 1, 5),
+            ("two_layoutless", [], 2, 5),
+            ("three_layoutless", [], 3, 10),
+            ("five_layoutless", [], 5, 15),
+            # Persisted full-width header (h=2) + one layout-less tile packed below it (y=2,h=5 → 7).
+            ("mixed_persisted_and_layoutless", [{"x": 0, "y": 0, "w": 12, "h": 2}], 1, 7),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_lands_below_tiles_with_no_persisted_layout(
+        self, _name: str, persisted_sm_layouts: list[dict], layoutless_count: int, expected_y: int
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        for sm in persisted_sm_layouts:
+            insight = Insight.objects.create(team=self.team, name="persisted")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={"sm": sm})
+        for _ in range(layoutless_count):
+            insight = Insight.objects.create(team=self.team, name="layoutless")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # The widget must land below the tallest column, not in a mid-page gap.
+        sm = response.json()["tiles"][0]["layouts"]["sm"]
+        assert sm["y"] == expected_y
+        assert sm["x"] == 0
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:

@@ -118,6 +118,11 @@ export interface PRLifecycleEventApi {
      * @nullable
      */
     detail?: string | null
+    /**
+     * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+     * @nullable
+     */
+    run_id?: number | null
 }
 
 /**
@@ -201,7 +206,22 @@ export interface PullRequestListApi {
     limit: number
 }
 
+export interface WorkflowHealthDayApi {
+    /** UTC calendar day. */
+    day: string
+    /** Runs started that day. */
+    run_count: number
+    /** Runs that completed that day. */
+    completed: number
+    /** Completed runs with conclusion 'success' that day. */
+    successes: number
+}
+
 export interface WorkflowHealthItemApi {
+    /** Repository the workflow runs in. */
+    repo: RepoRefApi
+    /** Daily run history across the whole window, oldest first, zero-filled. */
+    daily: WorkflowHealthDayApi[]
     /** GitHub Actions workflow name. */
     workflow_name: string
     /** Total runs started in the window. */
@@ -228,6 +248,13 @@ export interface WorkflowHealthItemApi {
     last_failure_at: string | null
 }
 
+export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -237,6 +264,10 @@ export type EngineeringAnalyticsPrLifecycleParams = {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsPullRequestsParams = {
@@ -244,6 +275,10 @@ export type EngineeringAnalyticsPullRequestsParams = {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -255,4 +290,8 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }

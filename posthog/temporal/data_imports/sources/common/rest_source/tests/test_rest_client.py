@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -9,7 +10,12 @@ from requests import Response
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, SinglePagePaginator
-from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient, RESTClientRetryableError
+from posthog.temporal.data_imports.sources.common.rest_source.rest_client import (
+    MAX_RETRY_AFTER_SECONDS,
+    RESTClient,
+    RESTClientRetryableError,
+    _parse_retry_after,
+)
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -17,6 +23,17 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
     resp.status_code = status_code
     resp._content = json.dumps(json_body).encode()
     resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+def _make_truncated_response(status_code: int = 200) -> Response:
+    # Simulates a body cut off mid-stream — `response.json()` raises a JSONDecodeError
+    # ("Unterminated string"), the same shape we see when an upstream truncates a large page.
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b'{"results": [{"id": 1, "name": "unterminated'
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.example.com/items"
     return resp
 
 
@@ -233,18 +250,27 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_429(self, MockSession, mock_sleep) -> None:
+    def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
+        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
-        rate_limited.url = "https://api.example.com/items"
+        error = make_error()
+        error.url = "https://api.example.com/items"
         ok = _make_response({"results": [{"id": 1}]})
 
-        mock_session.send.side_effect = [rate_limited, ok]
+        mock_session.send.side_effect = [error, ok]
 
         client = RESTClient(base_url="https://api.example.com")
         pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
@@ -252,39 +278,32 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_500(self, MockSession, mock_sleep) -> None:
+    def test_send_request_raises_retryable_after_persistent_transient_error(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A persistent transient failure retries to the cap and re-raises as retryable.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        server_error = _make_response({"error": "internal"}, status_code=500)
-        server_error.url = "https://api.example.com/items"
-        ok = _make_response([{"id": 1}])
-
-        mock_session.send.side_effect = [server_error, ok]
-
-        client = RESTClient(base_url="https://api.example.com")
-        pages = list(client.paginate(path="/items", paginator=SinglePagePaginator()))
-
-        assert pages == [[{"id": 1}]]
-        assert mock_session.send.call_count == 2
-
-    @patch("tenacity.nap.time.sleep")
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_after_max_retries(self, MockSession, mock_sleep) -> None:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
-
-        error = _make_response({"error": "rate limited"}, status_code=429)
+        error = make_error()
         error.url = "https://api.example.com/items"
         mock_session.send.return_value = error
 
         client = RESTClient(base_url="https://api.example.com")
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
 
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
@@ -306,3 +325,74 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(90.0)
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_respects_sentry_rate_limit_reset_header(self, MockSession, mock_sleep, mock_datetime) -> None:
+        # Sentry signals its rate-limit window via ``X-Sentry-Rate-Limit-Reset``
+        # (an epoch timestamp) rather than ``Retry-After``; its fan-out endpoints
+        # sync through this generic client, so the client must honor it.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://sentry.io/api/0/projects/org/proj/users/"
+        rate_limited.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) + 45)
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://sentry.io")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+        mock_sleep.assert_called_once_with(45.0)
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_prefers_retry_after_over_sentry_reset_header(self, MockSession, mock_sleep) -> None:
+        # ``Retry-After`` is the standard, so it wins when both headers are present.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://sentry.io/api/0/projects/org/proj/users/"
+        rate_limited.headers["Retry-After"] = "12"
+        rate_limited.headers["X-Sentry-Rate-Limit-Reset"] = "9999999999"
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://sentry.io")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        mock_sleep.assert_called_once_with(12.0)
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:
+        # A reset far in the future must be clamped to MAX_RETRY_AFTER_SECONDS.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) + 10_000)
+
+        assert _parse_retry_after(response) == MAX_RETRY_AFTER_SECONDS
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) - 5)
+
+        assert _parse_retry_after(response) is None

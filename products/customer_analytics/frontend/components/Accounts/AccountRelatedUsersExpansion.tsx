@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'

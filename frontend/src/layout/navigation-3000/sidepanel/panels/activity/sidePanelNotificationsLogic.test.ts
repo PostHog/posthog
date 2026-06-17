@@ -19,6 +19,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         source_url: '',
         source_type: null,
         source_id: null,
+        metadata: null,
         target_type: 'user',
         target_id: '42',
         created_at: '2026-05-07T12:00:00Z',

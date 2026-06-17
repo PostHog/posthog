@@ -83,6 +83,7 @@
     "lint-staged": {
         ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
         ".claude/hooks/**": "sh -c 'printf \"\\n\\033[33mWarning: hooks in .claude/ are reserved for env bootstrapping (SessionStart only).\\nPrefer skills, AGENTS.md instructions, or lint-staged rules. See Agent automation in AGENTS.md.\\033[0m\\n\\n\"'",
+        "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "packages/quill/packages/*/src/**/*.{ts,tsx,css}": "sh -c 'git diff --cached --name-only | grep -q \"^packages/quill/.*AGENTS\\\\.md$\" || printf \"\\n\\033[33mWarning: quill component sources changed without an AGENTS.md update.\\nIf variants, composition, or spacing changed, update the consumer guide (packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\\033[0m\\n\\n\"'",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
@@ -139,7 +140,8 @@
             "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
             "fast-xml-parser@^4": ">=4.5.4",
             "fast-xml-parser@^5": ">=5.3.5",
-            "jest-playwright-preset>playwright-core": "1.60.0"
+            "jest-playwright-preset>playwright-core": "1.60.0",
+            "@smithy/node-http-handler": "4.4.9"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

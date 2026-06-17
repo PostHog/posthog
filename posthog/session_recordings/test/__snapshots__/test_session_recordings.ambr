@@ -556,33 +556,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1336,33 +1312,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -2112,33 +2064,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -2888,33 +2816,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -3668,33 +3572,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -4448,33 +4328,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -5228,33 +5084,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -6303,33 +6135,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -7135,33 +6943,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -8105,33 +7889,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -8951,33 +8711,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -8997,33 +8733,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -10426,33 +10138,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -10852,33 +10540,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -11239,33 +10903,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -12117,33 +11757,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -12976,33 +12592,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -13786,33 +13378,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'session_recording'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''

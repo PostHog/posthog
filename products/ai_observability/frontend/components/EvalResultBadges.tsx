@@ -4,7 +4,7 @@ import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { EvaluationRun } from '../evaluations/types'

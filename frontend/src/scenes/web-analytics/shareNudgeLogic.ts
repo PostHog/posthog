@@ -8,14 +8,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { shareNudgeLogicType } from './shareNudgeLogicType'
 
-const FLAG = FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE
+const FLAG = FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE_V2
 const DASHBOARD_SELECTOR = '[data-attr="web-analytics-dashboard"]'
 const HOVER_DWELL_MS = 2500
-
-export interface PromptAnchor {
-    x: number
-    y: number
-}
+const EXPORT_PROMPT_PROBABILITY = 0.25
 
 export const shareNudgeLogic = kea<shareNudgeLogicType>([
     path(['scenes', 'web-analytics', 'shareNudgeLogic']),
@@ -23,8 +19,9 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
         values: [organizationLogic, ['currentOrganization'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        showPrompt: (anchor: PromptAnchor) => ({ anchor }),
+        showPrompt: (source: string) => ({ source }),
         dismissForSession: true,
+        exportTriggered: true,
     }),
     reducers({
         promptVisible: [
@@ -34,10 +31,10 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                 dismissForSession: () => false,
             },
         ],
-        promptAnchor: [
-            null as PromptAnchor | null,
+        promptSource: [
+            null as string | null,
             {
-                showPrompt: (_, { anchor }) => anchor,
+                showPrompt: (_, { source }) => source,
             },
         ],
         sessionDismissed: [
@@ -65,10 +62,20 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
         ],
         emphasizeShareButton: [(s) => [s.variant], (variant): boolean => variant === 'button'],
         intentPromptEnabled: [(s) => [s.variant], (variant): boolean => variant === 'prompt'],
+        exportPromptEnabled: [(s) => [s.variant], (variant): boolean => variant === 'export'],
     }),
-    listeners(() => ({
-        showPrompt: () => {
-            posthog.capture('web analytics share nudge prompt shown')
+    listeners(({ values, actions }) => ({
+        showPrompt: ({ source }) => {
+            posthog.capture('web analytics share nudge prompt shown', { source })
+        },
+        exportTriggered: () => {
+            if (!values.exportPromptEnabled || values.sessionDismissed) {
+                return
+            }
+            if (Math.random() >= EXPORT_PROMPT_PROBABILITY) {
+                return
+            }
+            actions.showPrompt('export_prompt')
         },
     })),
     subscriptions(({ values, actions, cache }) => ({
@@ -100,8 +107,7 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                     if (!container || !container.contains(selection.anchorNode)) {
                         return
                     }
-                    const rect = selection.getRangeAt(0).getBoundingClientRect()
-                    actions.showPrompt({ x: rect.left, y: rect.bottom })
+                    actions.showPrompt('intent_prompt')
                 }
 
                 const onMouseMove = (event: MouseEvent): void => {
@@ -110,12 +116,10 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                         cache.disposables.dispose('shareNudgeHoverDwell')
                         return
                     }
-                    const x = event.clientX
-                    const y = event.clientY
                     cache.disposables.add(() => {
                         const timer = setTimeout(() => {
                             if (shouldTrigger()) {
-                                actions.showPrompt({ x, y })
+                                actions.showPrompt('intent_prompt')
                             }
                         }, HOVER_DWELL_MS)
                         return () => clearTimeout(timer)

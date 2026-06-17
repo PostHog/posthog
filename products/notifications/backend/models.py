@@ -21,6 +21,7 @@ class NotificationEvent(UUIDModel):
     target_id = models.CharField(max_length=64)
     resolved_user_ids = models.JSONField(default=list)
     archivable = models.BooleanField(default=False, db_default=False)
+    metadata = models.JSONField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

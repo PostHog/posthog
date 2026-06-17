@@ -27,6 +27,12 @@ export const EngineeringAnalyticsPrLifecycleQueryParams = /* @__PURE__ */ zod.ob
         .describe(
             "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo."
         ),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
 })
 
 /**
@@ -42,10 +48,16 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
 
 export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
 })
 
 /**
- * Per-workflow CI health over a window (default last 30 days): run count, success rate, p50/p95 duration over completed runs, and last failure time. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -58,4 +70,10 @@ export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.obje
 export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
 })

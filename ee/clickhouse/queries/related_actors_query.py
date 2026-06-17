@@ -11,6 +11,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import (
     SerializedActor,
     SerializedGroup,
@@ -64,7 +65,8 @@ class RelatedActorsQuery:
             return []
         tag_queries(name="related-people")
         person_ids = self._query_related_people_ids()
-        return get_serialized_people(self.team, person_ids)
+        with personhog_caller_tag("persons/related-actors"):
+            return get_serialized_people(self.team, person_ids)
 
     def _query_related_people_ids(self) -> list:
         return self._take_first(

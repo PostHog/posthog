@@ -52,8 +52,10 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': (req, res, ctx) =>
-                    res(ctx.json({ id: 42, ...(req.body as Partial<SubscriptionType>) } as SubscriptionType)),
+                '/api/environments/:team/subscriptions': async ({ request }) => [
+                    200,
+                    { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
+                ],
             },
         })
         initKeaTests()
@@ -202,9 +204,9 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': (req, res, ctx) => {
-                    capturedBody = req.body as Partial<SubscriptionType>
-                    return res(ctx.json({ id: 42, ...capturedBody } as SubscriptionType))
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 42, ...capturedBody } as SubscriptionType]
                 },
             },
         })
@@ -231,9 +233,9 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': (req, res, ctx) => {
-                    capturedBody = req.body as Partial<SubscriptionType>
-                    return res(ctx.json({ id: 43, ...capturedBody } as SubscriptionType))
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 43, ...capturedBody } as SubscriptionType]
                 },
             },
         })
