@@ -248,6 +248,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -303,6 +304,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -336,6 +338,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -604,6 +607,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -659,6 +663,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -692,6 +697,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -1371,6 +1377,7 @@ export interface AgentSessionPrincipalApi {
 /**
  * * `queued` - queued
  * * `running` - running
+ * * `waiting` - waiting
  * * `completed` - completed
  * * `closed` - closed
  * * `cancelled` - cancelled
@@ -1381,6 +1388,7 @@ export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof t
 export const AgentSessionStateEnumApi = {
     Queued: 'queued',
     Running: 'running',
+    Waiting: 'waiting',
     Completed: 'completed',
     Closed: 'closed',
     Cancelled: 'cancelled',
@@ -1415,6 +1423,11 @@ export interface AgentSessionSummaryApi {
      */
     preview: string | null
     retry_count: number
+    /**
+     * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise. Render a 'sleeping until <wake_at>' affordance for `waiting` sessions.
+     * @nullable
+     */
+    wake_at?: string | null
     created_at: string
     updated_at: string
 }
@@ -1530,6 +1543,11 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
     pending_inputs: AgentConversationMessageApi[]
     /** Times the janitor has re-queued this session after a stuck-running detection. */
     retry_count: number
+    /**
+     * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise.
+     * @nullable
+     */
+    wake_at?: string | null
     created_at: string
     updated_at: string
     /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -1563,7 +1581,7 @@ export interface SetEnvRequestApi {
 }
 
 export interface AgentAggregateStatsApi {
-    /** Sessions currently in a live state (queued / running). */
+    /** Sessions currently in a live state (queued / running / waiting). */
     liveCount: number
     /** Sessions created within the `since` window across all states. */
     sessionsInWindowCount: number
@@ -1608,6 +1626,11 @@ export interface AgentFleetLiveSessionSummaryApi {
      * @nullable
      */
     preview: string | null
+    /**
+     * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise. Render a 'sleeping until <wake_at>' affordance for `waiting` sessions.
+     * @nullable
+     */
+    wake_at?: string | null
     created_at: string
     updated_at: string
 }
@@ -1793,7 +1816,7 @@ export type AgentApplicationsSessionsListParams = {
      */
     revision_id?: string
     /**
-     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, closed, cancelled, failed.
      */
     state?: string
 }

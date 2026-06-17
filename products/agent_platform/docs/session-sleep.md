@@ -91,28 +91,59 @@ to always-on later is a one-line change (add the id to
 
 ## Files
 
-- `agent-tools/src/tools/meta.ts` — `sleepTool` + `MAX_SLEEP_MINUTES`.
-- `agent-tools/src/registry.ts` — register + re-export the cap.
+- `agent-tools/src/tools/meta.ts` — `sleepTool` + `MAX_SLEEP_MINUTES` +
+  `MAX_CUMULATIVE_SLEEP_MINUTES`.
+- `agent-tools/src/registry.ts` — register + re-export both caps.
 - `agent-runner/src/loop/build-agent-tools.ts` — `MetaControl` sleep kind,
-  `CONTROL_FLOW_IDS`, `makeControlFlowTool` clamp + control.
-- `agent-runner/src/loop/driver.ts` — `RunOutcome` waiting kind, outcome
-  derivation, wake-notice injection.
-- `agent-runner/src/workers/worker.ts` — outcome → `waiting` state persist.
-- `agent-shared/src/spec/spec.ts` — `waiting` state, `wake_at`/`slept_at` fields.
+  `CONTROL_FLOW_IDS`, `makeControlFlowTool` clamp + control + cumulative-cap
+  deny/clamp (reads `deps.session.slept_total_minutes`).
+- `agent-runner/src/loop/driver.ts` — `RunOutcome` waiting kind (carries
+  `requestedMinutes`), outcome derivation, wake-notice injection.
+- `agent-runner/src/workers/worker.ts` — outcome → `waiting` state persist +
+  `slept_total_minutes` accrual.
+- `agent-ingress/src/enqueue/enqueue.ts`, `triggers/chat.ts`, `triggers/mcp.ts`
+  — reset `slept_total_minutes` to 0 on fresh external input.
+- `agent-shared/src/spec/spec.ts` — `waiting` state, `wake_at`/`slept_at`/
+  `slept_total_minutes` fields.
 - `agent-shared/src/persistence/queue.ts` — `LIVE_SESSION_STATES`,
   `wakeReadyWaiting`.
 - `agent-shared/src/persistence/pg-queue.ts` — SELECT/insert/update/claim-clear,
   `rowToSession`, `wakeReadyWaiting`.
 - `agent-shared/src/persistence/test-reset.ts` — test DDL columns + index.
 - `agent-shared/src/runtime/bus.ts` — `sleeping` event kind.
-- `agent-janitor/src/sweep.ts` — Policy 6: wake ready waiting sessions.
-- `backend/models.py` + new migration — `wake_at`/`slept_at` columns + index.
+- `agent-janitor/src/sweep.ts` — Policy 1b: wake ready waiting sessions.
+- `agent-janitor/src/server.ts` — `wake_at` on the session list/live summaries.
+- `backend/presentation/views.py` — `waiting` in the state enum, `wake_at` on the
+  session serializers, `liveCount` doc.
+- `backend/models.py` + migrations `0004` (`wake_at`/`slept_at` + index) and
+  `0005` (`slept_total_minutes`).
+- `agent-tests/src/cases/session-sleep.test.ts` — full lifecycle e2e coverage.
 
-## Guardrails / follow-ups
+## Guardrails
 
-- 60-min cap enforced in the runner.
-- Sleep-loop abuse (sleep → wake → sleep forever) is not yet bounded — a
-  cumulative cap is a follow-up.
+- **Single-sleep cap**: 60 min, clamped in the runner
+  (`MAX_SLEEP_MINUTES`).
+- **Cumulative-sleep cap**: `MAX_CUMULATIVE_SLEEP_MINUTES` (7 days) bounds a
+  self-scheduling `sleep → wake → sleep` runaway. `agent_session.slept_total_minutes`
+  accrues the requested duration each time the session parks. Once the budget is
+  exhausted the runner **denies** the sleep with a non-terminating result
+  (`{ sleep_denied: true, reason: 'cumulative_sleep_budget_exhausted' }`) so the
+  model continues or ends instead of parking; the final sleep before the cap is
+  clamped to the remaining budget rather than denied. The counter **resets to 0
+  on fresh external input** — every resume path that appends a real message
+  (chat `/send`, the `external_key` resume in `enqueueOrResume`, MCP
+  continuation) zeroes it, so only a purely autonomous loop accrues toward the
+  cap. A timer self-wake (`wakeReadyWaiting`) deliberately does **not** reset it.
 - `waiting` is excluded from the idle-`completed` close sweep (that sweep
   targets `state='completed'` only) and from the stuck-`running` reaper.
 - `waiting` is added to `LIVE_SESSION_STATES` so rollups count it as live.
+
+## Observability
+
+`waiting` is a first-class session state across the read surface: the Django
+`AgentSession.state` enum (`_AGENT_SESSION_STATE_VALUES`), the session-list /
+session-detail / fleet-live serializers, and the regenerated frontend +
+MCP types all know it. The session summary, detail, and fleet-live payloads
+carry `wake_at` (populated while parked, null otherwise) so a console can render
+a "sleeping until &lt;wake_at&gt;" affordance. The `liveCount` rollup counts
+`waiting` sessions as live.

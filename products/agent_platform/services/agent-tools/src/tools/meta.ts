@@ -30,6 +30,18 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
  */
 export const MAX_SLEEP_MINUTES = 60
 
+/**
+ * Cumulative cap across all `meta-sleep` calls in one session — the backstop
+ * against a self-scheduling sleep→wake→sleep loop running unbounded. Enforced in
+ * the runner (`makeControlFlowTool`): once a session has accrued this many
+ * requested minutes, further sleeps are denied (a non-terminating result that
+ * tells the model to continue or end). The counter resets whenever fresh
+ * external input (a /send) resumes the session, so only a purely autonomous
+ * runaway hits the cap. 7 days is generous enough for legitimate long-horizon
+ * polling / scheduled-followup agents while still bounding a true runaway.
+ */
+export const MAX_CUMULATIVE_SLEEP_MINUTES = 7 * 24 * 60
+
 export const endTurnTool = defineNativeTool({
     id: '@posthog/meta-end-turn',
     description:

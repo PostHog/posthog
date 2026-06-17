@@ -224,8 +224,8 @@ export type RunOutcome =
     | { state: 'closed'; summary?: string; turns: number }
     | { state: 'suspended'; reason: 'shutdown'; turns: number }
     | { state: 'failed'; reason: string; turns: number }
-    /** `meta-sleep`: park the session until `wakeAt`. `sleptAt` is persisted so the resume notice can report actual-vs-requested. */
-    | { state: 'waiting'; wakeAt: string; sleptAt: string; turns: number }
+    /** `meta-sleep`: park the session until `wakeAt`. `sleptAt` is persisted so the resume notice can report actual-vs-requested; `requestedMinutes` is added to the session's cumulative-sleep counter. */
+    | { state: 'waiting'; wakeAt: string; sleptAt: string; requestedMinutes: number; turns: number }
 
 /**
  * One-shot notice injected when a session resumes from `meta-sleep`. Tells the
@@ -1201,7 +1201,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 requested_minutes: lastControl.requestedMinutes,
                 ...(lastControl.reason ? { reason: lastControl.reason } : {}),
             })
-            outcome = { state: 'waiting', wakeAt: lastControl.wakeAt, sleptAt: lastControl.sleptAt, turns: turn }
+            outcome = {
+                state: 'waiting',
+                wakeAt: lastControl.wakeAt,
+                sleptAt: lastControl.sleptAt,
+                requestedMinutes: lastControl.requestedMinutes,
+                turns: turn,
+            }
         } else if (lastStopReason === 'error') {
             runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
             await emitFailure(lastError ?? 'model_error', { turns: turn, ...errorContext() })

@@ -561,11 +561,19 @@ export class Worker {
             // pending_inputs intentionally omitted — see onTurnPersist above.
             // Sleep markers are written only for a `waiting` outcome; every other
             // terminal/open state leaves them null (the claim already cleared them).
+            // The requested duration also accrues onto the cumulative-sleep
+            // counter the meta-sleep cap reads (reset on external resume).
             await this.deps.queue.update(session.id, {
                 state: newState,
                 conversation: session.conversation,
                 usage_total: session.usage_total,
-                ...(outcome.state === 'waiting' ? { wake_at: outcome.wakeAt, slept_at: outcome.sleptAt } : {}),
+                ...(outcome.state === 'waiting'
+                    ? {
+                          wake_at: outcome.wakeAt,
+                          slept_at: outcome.sleptAt,
+                          slept_total_minutes: (session.slept_total_minutes ?? 0) + outcome.requestedMinutes,
+                      }
+                    : {}),
             })
         } catch (err) {
             // Pre-runSession failures (revision load, secrets, sandbox acquire,

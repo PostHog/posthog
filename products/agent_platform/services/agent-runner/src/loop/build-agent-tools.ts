@@ -41,7 +41,7 @@ import {
     Sandbox,
     ToolContext,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool, MAX_SLEEP_MINUTES } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, MAX_CUMULATIVE_SLEEP_MINUTES, MAX_SLEEP_MINUTES } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -203,7 +203,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         seen.add(t.id)
 
         if (CONTROL_FLOW_IDS.has(t.id)) {
-            tools.push(makeControlFlowTool(t.id))
+            tools.push(makeControlFlowTool(t.id, deps))
             continue
         }
         if (t.kind === 'native') {
@@ -294,7 +294,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)) }
 }
 
-function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> {
+function makeControlFlowTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, ToolResultDetails> {
     const native = getNativeTool(id)
     return {
         name: id,
@@ -304,10 +304,35 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             if (id === SLEEP_TOOL_ID) {
                 const a = args as { duration_minutes?: number; reason?: string }
+                // Cumulative-sleep backstop: deny once the session has accrued the
+                // cap so a self-scheduling sleep→wake→sleep loop can't run forever.
+                // The counter resets on external input (/send), so this only bites
+                // a purely autonomous runaway. Non-terminating result → the model
+                // sees the denial mid-turn and continues (or ends) instead.
+                const alreadySleptMinutes = deps.session.slept_total_minutes ?? 0
+                const remainingBudget = MAX_CUMULATIVE_SLEEP_MINUTES - alreadySleptMinutes
+                if (remainingBudget <= 0) {
+                    const denied = {
+                        sleep_denied: true,
+                        reason: 'cumulative_sleep_budget_exhausted',
+                        total_slept_minutes: alreadySleptMinutes,
+                        cap_minutes: MAX_CUMULATIVE_SLEEP_MINUTES,
+                        message:
+                            'This session has reached its cumulative sleep budget without new input. ' +
+                            'Continue your work now or end the session — do not call meta-sleep again.',
+                    }
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(denied) }],
+                        details: { output: denied },
+                    }
+                }
                 // Clamp in code: TypeBox bounds on args aren't enforced at call
-                // time, so a model could ask for 0 or 10_000. Floor at 1 minute.
+                // time, so a model could ask for 0 or 10_000. Floor at 1 minute,
+                // ceil at the single-sleep cap, and at the remaining budget so the
+                // final sleep before the cap is shortened rather than denied.
                 const requestedMinutes = Math.min(
                     MAX_SLEEP_MINUTES,
+                    remainingBudget,
                     Math.max(1, Math.round(typeof a.duration_minutes === 'number' ? a.duration_minutes : 1))
                 )
                 const now = Date.now()

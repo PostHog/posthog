@@ -1095,6 +1095,15 @@ export interface AgentSession {
      * alongside `wake_at`. Null/absent when not resuming from a sleep.
      */
     slept_at?: string | null
+    /**
+     * Cumulative minutes this session has requested via `meta-sleep` — the
+     * backstop against an unbounded autonomous sleep→wake→sleep loop. Bumped by
+     * the requested duration each time the session parks; reset to 0 when fresh
+     * external input resumes it (a /send), so only a purely self-scheduling
+     * runaway accrues toward `MAX_CUMULATIVE_SLEEP_MINUTES`. Optional/absent for
+     * rows predating the column; the PG layer always populates it (default 0).
+     */
+    slept_total_minutes?: number
     created_at: string
     updated_at: string
 }

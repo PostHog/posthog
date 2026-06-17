@@ -139,7 +139,10 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
             sender: incomingPrincipal,
         })
     }
-    await deps.queue.update(sessionId, { state: 'queued' })
+    // Fresh external input resets the cumulative-sleep budget (meta-sleep cap):
+    // a /send means a human/client is driving the session, not an autonomous
+    // sleep→wake→sleep loop. A timer self-wake (wakeReadyWaiting) keeps accruing.
+    await deps.queue.update(sessionId, { state: 'queued', slept_total_minutes: 0 })
     // Refresh broker creds with whatever the client just supplied — OAuth
     // tokens may have rotated since /run, and the worker may have evicted the
     // prior entry.

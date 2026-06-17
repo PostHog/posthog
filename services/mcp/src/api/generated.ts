@@ -7176,7 +7176,7 @@ export namespace Schemas {
     }
 
     export interface AgentAggregateStats {
-      /** Sessions currently in a live state (queued / running). */
+      /** Sessions currently in a live state (queued / running / waiting). */
       liveCount: number;
       /** Sessions created within the `since` window across all states. */
       sessionsInWindowCount: number;
@@ -7447,6 +7447,7 @@ export namespace Schemas {
     /**
      * * `queued` - queued
      * * `running` - running
+     * * `waiting` - waiting
      * * `completed` - completed
      * * `closed` - closed
      * * `cancelled` - cancelled
@@ -7458,6 +7459,7 @@ export namespace Schemas {
     export const AgentSessionStateEnum = {
       Queued: 'queued',
       Running: 'running',
+      Waiting: 'waiting',
       Completed: 'completed',
       Closed: 'closed',
       Cancelled: 'cancelled',
@@ -7492,6 +7494,11 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
+      /**
+         * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise. Render a 'sleeping until <wake_at>' affordance for `waiting` sessions.
+         * @nullable
+         */
+      wake_at?: string | null;
       created_at: string;
       updated_at: string;
     }
@@ -7605,6 +7612,11 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
+      /**
+         * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise.
+         * @nullable
+         */
+      wake_at?: string | null;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7678,6 +7690,11 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
+      /**
+         * When a `waiting` (slept) session is scheduled to resume. Set while the session is parked by meta-sleep; null otherwise. Render a 'sleeping until <wake_at>' affordance for `waiting` sessions.
+         * @nullable
+         */
+      wake_at?: string | null;
       created_at: string;
       updated_at: string;
     }
@@ -7832,6 +7849,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7879,6 +7897,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7905,6 +7924,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32417,6 +32437,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32464,6 +32485,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32490,6 +32512,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -54279,7 +54302,7 @@ export namespace Schemas {
      */
     revision_id?: string;
     /**
-     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, closed, cancelled, failed.
      */
     state?: string;
     };

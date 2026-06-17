@@ -132,7 +132,12 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
                 }
             }
             await deps.queue.appendPendingInput(existing.id, input.seed)
-            await deps.queue.update(existing.id, { state: 'queued' })
+            // Fresh external input resets the cumulative-sleep budget: the
+            // meta-sleep cap only guards against a purely autonomous
+            // sleep→wake→sleep runaway, not a human/system driving the session
+            // forward. (A timer self-wake goes through wakeReadyWaiting, not
+            // here, so it correctly keeps accruing toward the cap.)
+            await deps.queue.update(existing.id, { state: 'queued', slept_total_minutes: 0 })
             return { kind: 'resumed', sessionId: existing.id, isResume: true }
         }
     }

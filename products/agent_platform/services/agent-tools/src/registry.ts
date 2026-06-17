@@ -23,7 +23,7 @@ import {
 } from './tools/memory'
 import { endSessionTool, endTurnTool, emitEventTool, sleepTool } from './tools/meta'
 
-export { MAX_SLEEP_MINUTES } from './tools/meta'
+export { MAX_SLEEP_MINUTES, MAX_CUMULATIVE_SLEEP_MINUTES } from './tools/meta'
 import {
     posthogAgentApplicationsCreateV1,
     posthogAgentApplicationsEnvKeysGetV1,

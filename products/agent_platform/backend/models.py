@@ -182,6 +182,11 @@ class AgentSession(ProductTeamModel, UUIDModel):
     # slept vs. requested. Both are cleared on claim. See docs/session-sleep.md.
     wake_at = models.DateTimeField(null=True, blank=True)
     slept_at = models.DateTimeField(null=True, blank=True)
+    # Cumulative minutes the session has requested via `meta-sleep`, the backstop
+    # against a self-scheduling sleep→wake→sleep loop running unbounded. Reset to
+    # 0 whenever fresh external input resumes the session (a /send), so only a
+    # purely autonomous runaway accumulates toward the cap. See docs/session-sleep.md.
+    slept_total_minutes = models.IntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 

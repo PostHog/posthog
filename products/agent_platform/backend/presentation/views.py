@@ -450,7 +450,8 @@ _AGENT_SESSION_PRINCIPAL = inline_serializer(
 )
 
 # Runtime `AgentSession.state` enum. Mirrors agent-shared spec.ts.
-_AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "cancelled", "failed"]
+# `waiting` is a slept session (parked by meta-sleep until wake_at); it counts as live.
+_AGENT_SESSION_STATE_VALUES = ["queued", "running", "waiting", "completed", "closed", "cancelled", "failed"]
 
 # Roll-up shape returned by the janitor's `/sessions/stats` and `/fleet/stats`
 # endpoints. Used both by the per-application action and the fleet viewset.
@@ -458,7 +459,7 @@ _AGENT_AGGREGATE_STATS = inline_serializer(
     name="AgentAggregateStats",
     fields={
         "liveCount": drf_serializers.IntegerField(
-            help_text="Sessions currently in a live state (queued / running).",
+            help_text="Sessions currently in a live state (queued / running / waiting).",
         ),
         "sessionsInWindowCount": drf_serializers.IntegerField(
             help_text="Sessions created within the `since` window across all states.",
@@ -1009,7 +1010,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description=(
                     "Filter by session state. Comma-separated list accepted "
                     "(e.g. `completed,failed`). Valid values: queued, running, "
-                    "completed, closed, cancelled, failed."
+                    "waiting, completed, closed, cancelled, failed."
                 ),
             ),
             OpenApiParameter(
@@ -1069,6 +1070,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
                                 "retry_count": drf_serializers.IntegerField(),
+                                "wake_at": drf_serializers.DateTimeField(
+                                    allow_null=True,
+                                    required=False,
+                                    help_text=(
+                                        "When a `waiting` (slept) session is scheduled to resume. Set while the "
+                                        "session is parked by meta-sleep; null otherwise. Render a 'sleeping until "
+                                        "<wake_at>' affordance for `waiting` sessions."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },
@@ -1170,6 +1180,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         help_text="Times the janitor has re-queued this session after a stuck-running detection.",
                     ),
                     "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                    "wake_at": drf_serializers.DateTimeField(
+                        allow_null=True,
+                        required=False,
+                        help_text=(
+                            "When a `waiting` (slept) session is scheduled to resume. Set while the session is "
+                            "parked by meta-sleep; null otherwise."
+                        ),
+                    ),
                     "created_at": drf_serializers.DateTimeField(),
                     "updated_at": drf_serializers.DateTimeField(),
                     "conversation_trimmed": drf_serializers.BooleanField(
@@ -2729,6 +2747,15 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                                "wake_at": drf_serializers.DateTimeField(
+                                    allow_null=True,
+                                    required=False,
+                                    help_text=(
+                                        "When a `waiting` (slept) session is scheduled to resume. Set while the "
+                                        "session is parked by meta-sleep; null otherwise. Render a 'sleeping until "
+                                        "<wake_at>' affordance for `waiting` sessions."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },

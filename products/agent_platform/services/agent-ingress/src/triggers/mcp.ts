@@ -212,7 +212,9 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     timestamp: Date.now(),
                     sender: principal,
                 })
-                await deps.queue.update(continuationId, { state: 'queued' })
+                // Fresh external input resets the cumulative-sleep budget — see
+                // the chat /send path; only an autonomous timer self-wake accrues.
+                await deps.queue.update(continuationId, { state: 'queued', slept_total_minutes: 0 })
                 res.json(
                     reply({
                         content: [

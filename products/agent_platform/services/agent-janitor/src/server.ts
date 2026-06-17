@@ -357,6 +357,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
+                wake_at: s.wake_at ?? null,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
@@ -414,6 +415,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 turns: s.conversation.length,
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
+                wake_at: s.wake_at ?? null,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))

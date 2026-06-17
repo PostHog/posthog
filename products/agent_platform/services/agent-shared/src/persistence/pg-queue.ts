@@ -31,7 +31,7 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      idempotency_key, trigger_metadata, state,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests,
-                     wake_at, slept_at, created_at, updated_at`
+                     wake_at, slept_at, slept_total_minutes, created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -43,9 +43,9 @@ export class PgSessionQueue implements SessionQueue {
                  idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
                  usage_total, acl, pending_elevation_requests,
-                 created_at, updated_at, wake_at, slept_at)
+                 created_at, updated_at, wake_at, slept_at, slept_total_minutes)
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
-                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19)
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19, $20)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -76,6 +76,7 @@ export class PgSessionQueue implements SessionQueue {
                 session.updated_at,
                 session.wake_at ?? null,
                 session.slept_at ?? null,
+                session.slept_total_minutes ?? 0,
             ]
         )
     }
@@ -171,6 +172,10 @@ export class PgSessionQueue implements SessionQueue {
         if (patch.slept_at !== undefined) {
             sets.push(`slept_at = $${i++}`)
             params.push(patch.slept_at)
+        }
+        if (patch.slept_total_minutes !== undefined) {
+            sets.push(`slept_total_minutes = $${i++}`)
+            params.push(patch.slept_total_minutes)
         }
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
@@ -586,6 +591,7 @@ interface DbRow {
     pending_elevation_requests: unknown
     wake_at: Date | null
     slept_at: Date | null
+    slept_total_minutes: number | null
     created_at: Date
     updated_at: Date
 }
@@ -639,6 +645,7 @@ function rowToSession(row: DbRow): AgentSession {
             : [],
         wake_at: row.wake_at ? row.wake_at.toISOString() : null,
         slept_at: row.slept_at ? row.slept_at.toISOString() : null,
+        slept_total_minutes: row.slept_total_minutes ?? 0,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }
