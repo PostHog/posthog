@@ -114,7 +114,7 @@ describe('AddWidgetModal', () => {
         expect(screen.queryByText("You haven't captured any exceptions")).not.toBeInTheDocument()
     })
 
-    it('shows a group-level product nudge with an explore CTA for products the team has not adopted', () => {
+    it('shows a group-level product nudge when the setup requirement is unmet', () => {
         renderAddWidgetModal()
 
         expect(screen.getByRole('link', { name: /Explore error tracking/i })).toHaveAttribute(
@@ -123,23 +123,16 @@ describe('AddWidgetModal', () => {
         )
     })
 
-    it('does not show the nudge for products the team has already adopted', () => {
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            has_completed_onboarding_for: { ...MOCK_DEFAULT_TEAM.has_completed_onboarding_for, error_tracking: true },
-        })
+    it('does not show the nudge once the setup requirement is met', () => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: true })
         renderAddWidgetModal()
 
         expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
     })
 
-    it('treats a product as adopted when the team has shown intent for it', () => {
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            product_intents: [{ product_type: 'error_tracking', created_at: '2020-01-01T00:00:00Z' }],
-        })
+    it('does not nudge for product areas without a setup requirement', () => {
         renderAddWidgetModal()
 
-        expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: /Explore experiments/i })).not.toBeInTheDocument()
     })
 })

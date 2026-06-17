@@ -107,8 +107,9 @@ type DashboardWidgetGroupProductIntroConfig = {
 }
 
 /**
- * Products that can be surfaced to teams that haven't adopted them yet, keyed by catalog `groupId`.
- * The `activity` group is intentionally omitted — it's core and always available.
+ * Pitch shown next to a group heading when the product's setup requirement (see `availability`) is unmet.
+ * Keyed by catalog `groupId`; only products that gate on a project setting belong here — areas with no
+ * setup requirement (e.g. `experiments`, `activity`) are intentionally omitted.
  */
 export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
     error_tracking: {
@@ -122,12 +123,6 @@ export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
         valueProp: 'Watch real sessions to see exactly where users get stuck.',
         ctaLabel: 'Explore session replay',
         docsHref: 'https://posthog.com/docs/session-replay',
-    },
-    experiments: {
-        productKey: ProductKey.EXPERIMENTS,
-        valueProp: 'Stop guessing — prove a change actually helps your users before you roll it out.',
-        ctaLabel: 'Explore experiments',
-        docsHref: 'https://posthog.com/docs/experiments',
     },
 } as const satisfies Partial<Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, DashboardWidgetGroupProductIntroConfig>>
 

@@ -21,13 +21,13 @@ import {
     getDashboardWidgetGroupIcon,
     getDashboardWidgetGroupProductIntro,
 } from '../widget_types/catalog'
+import { getWidgetAvailabilityStatus, type WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 import {
     type AddWidgetPayload,
     getAddButtonLabel,
     getAddWidgetDisabledReason,
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
-import { teamHasAdoptedProduct } from './widgetProductIntro'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
 export type { AddWidgetPayload }
@@ -133,9 +133,14 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                 >
                     {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
-                        const productIsNew = productIntro
-                            ? !teamHasAdoptedProduct(currentTeam, productIntro.productKey)
-                            : false
+                        // Nudge only when the product's setup requirement (a project setting) is unmet.
+                        const availabilityConfig = group.widgets
+                            .map(({ entry }) => entry.availability)
+                            .find((availability): availability is WidgetAvailabilityConfig => !!availability)
+                        const showProductIntro =
+                            !!productIntro &&
+                            !!availabilityConfig &&
+                            !getWidgetAvailabilityStatus(availabilityConfig, currentTeam).isAvailable
                         const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
 
                         return (
@@ -146,7 +151,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                         {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
                                         {group.groupLabel}
                                     </h5>
-                                    {productIsNew && productIntro ? (
+                                    {showProductIntro && productIntro ? (
                                         <div className="ml-auto flex items-start gap-2 rounded bg-accent-highlight-secondary px-2 py-1.5 text-xs">
                                             <IconLightBulb className="mt-0.5 shrink-0 text-base text-accent" />
                                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
