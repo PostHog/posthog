@@ -114,25 +114,23 @@ describe('AddWidgetModal', () => {
         expect(screen.queryByText("You haven't captured any exceptions")).not.toBeInTheDocument()
     })
 
-    it('shows a group-level learn-more banner for products the team has not adopted', () => {
+    it('shows a group-level product nudge with an explore CTA for products the team has not adopted', () => {
         renderAddWidgetModal()
 
-        expect(screen.getByText('Error tracking is new for your team.')).toBeInTheDocument()
-
-        const docsLink = screen
-            .getAllByRole('link', { name: /Learn more/i })
-            .find((link) => link.getAttribute('href') === 'https://posthog.com/docs/error-tracking')
-        expect(docsLink).toBeDefined()
+        expect(screen.getByRole('link', { name: /Explore error tracking/i })).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/error-tracking'
+        )
     })
 
-    it('does not show the banner for products the team has already adopted', () => {
+    it('does not show the nudge for products the team has already adopted', () => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             has_completed_onboarding_for: { ...MOCK_DEFAULT_TEAM.has_completed_onboarding_for, error_tracking: true },
         })
         renderAddWidgetModal()
 
-        expect(screen.queryByText('Error tracking is new for your team.')).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
     })
 
     it('treats a product as adopted when the team has shown intent for it', () => {
@@ -142,6 +140,6 @@ describe('AddWidgetModal', () => {
         })
         renderAddWidgetModal()
 
-        expect(screen.queryByText('Error tracking is new for your team.')).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
     })
 })

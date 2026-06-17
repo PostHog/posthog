@@ -81,17 +81,39 @@ export function getDashboardWidgetGroupLabel(groupId: string): string {
     return DASHBOARD_WIDGET_GROUP_LABELS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_LABELS] ?? groupId
 }
 
+type DashboardWidgetGroupProductIntroConfig = {
+    productKey: ProductKey
+    /** One-liner pitching why the product is worth a look — shown up front in the picker nudge. */
+    valueProp: string
+    /** Label for the CTA link (e.g. "Explore error tracking"). */
+    ctaLabel: string
+    docsHref: string
+}
+
 /**
- * Products that can be surfaced as "new" in the Add widget picker for teams that haven't adopted them yet,
- * keyed by catalog `groupId`. The `activity` group is intentionally omitted — it's core and always available.
+ * Products that can be surfaced to teams that haven't adopted them yet, keyed by catalog `groupId`.
+ * The `activity` group is intentionally omitted — it's core and always available.
  */
 export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
-    error_tracking: { productKey: ProductKey.ERROR_TRACKING, docsHref: 'https://posthog.com/docs/error-tracking' },
-    session_replay: { productKey: ProductKey.SESSION_REPLAY, docsHref: 'https://posthog.com/docs/session-replay' },
-    experiments: { productKey: ProductKey.EXPERIMENTS, docsHref: 'https://posthog.com/docs/experiments' },
-} as const satisfies Partial<
-    Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, { productKey: ProductKey; docsHref: string }>
->
+    error_tracking: {
+        productKey: ProductKey.ERROR_TRACKING,
+        valueProp: 'Catch and resolve the errors hurting your users — right alongside the rest of your dashboard.',
+        ctaLabel: 'Explore error tracking',
+        docsHref: 'https://posthog.com/docs/error-tracking',
+    },
+    session_replay: {
+        productKey: ProductKey.SESSION_REPLAY,
+        valueProp: 'Watch real sessions to see exactly where users get stuck.',
+        ctaLabel: 'Explore session replay',
+        docsHref: 'https://posthog.com/docs/session-replay',
+    },
+    experiments: {
+        productKey: ProductKey.EXPERIMENTS,
+        valueProp: 'Run A/B tests to measure the impact of everything you ship.',
+        ctaLabel: 'Explore experiments',
+        docsHref: 'https://posthog.com/docs/experiments',
+    },
+} as const satisfies Partial<Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, DashboardWidgetGroupProductIntroConfig>>
 
 export type DashboardWidgetGroupProductIntro =
     (typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO)[keyof typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO]

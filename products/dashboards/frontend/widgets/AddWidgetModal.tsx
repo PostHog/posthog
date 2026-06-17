@@ -137,14 +137,14 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
                                 <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
                                 {productIsNew && productIntro ? (
-                                    <div className="col-span-full -mt-2 flex items-center gap-2 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
-                                        <span className="text-secondary">{group.groupLabel} is new for your team.</span>
+                                    <div className="col-span-full -mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
+                                        <span className="text-primary">{productIntro.valueProp}</span>
                                         <Link
                                             to={productIntro.docsHref}
                                             target="_blank"
                                             onClick={() => handleLearnMoreClicked(group.groupId)}
                                         >
-                                            Learn more
+                                            {productIntro.ctaLabel}
                                         </Link>
                                     </div>
                                 ) : null}

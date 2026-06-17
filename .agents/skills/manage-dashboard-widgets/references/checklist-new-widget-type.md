@@ -98,7 +98,7 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)
-- [ ] Optional **`DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO`** entry in `catalog.ts` (`{ productKey, docsHref }`) — surfaces a "New" badge + learn-more banner in the Add widget picker for teams that haven't adopted the product yet (skip for core areas like `activity`)
+- [ ] Optional **`DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO`** entry in `catalog.ts` (`{ productKey, valueProp, ctaLabel, docsHref }`) — surfaces a group-level nudge in the Add widget picker (value-prop one-liner + explore CTA) for teams that haven't adopted the product yet (skip for core areas like `activity`)
 - [ ] Net-new product: see [`products/README.md`](../../../products/README.md) for product bootstrap before wiring the widget
 
 ## 5. Frontend widget component
