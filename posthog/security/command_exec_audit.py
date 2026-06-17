@@ -38,7 +38,7 @@ _SECRET_HINTS = (
     "accesskey",
     "credential",
     "private_key",
-    "auth",
+    "authorization",
 )
 # Only these env var names keep their value in the log; everything else is counted but redacted.
 _ENV_ALLOWLIST = frozenset({"PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "HOME", "USER", "SHELL", "PWD"})
@@ -86,7 +86,8 @@ def _is_sensitive(token: str) -> bool:
 def _scrub_args(tokens: Any) -> list[str]:
     result: list[str] = []
     redact_next = False
-    seq = list(tokens)[:_MAX_ARGS]
+    full = list(tokens)
+    seq = full[:_MAX_ARGS]
     for raw in seq:
         token = _coerce_str(raw)
         if redact_next:
@@ -105,7 +106,7 @@ def _scrub_args(tokens: Any) -> list[str]:
             redact_next = True
         else:
             result.append(_REDACTED)
-    extra = len(list(tokens)) - len(seq)
+    extra = len(full) - len(seq)
     if extra > 0:
         result.append(f"...(+{extra} args truncated)")
     return result
@@ -311,17 +312,24 @@ def _make_exec_wrapper(sink: str, *, takes_env: bool):  # type: ignore[no-untype
 
 
 def _wrap(module: Any, name: str, wrapper: Any) -> None:
-    """Attach a wrapt wrapper, skipping targets that are missing or already wrapped by us."""
-    obj = module
-    *path, attr = name.split(".")
-    for part in path:
-        obj = getattr(obj, part, None)
-        if obj is None:
+    """Attach a wrapt wrapper, skipping targets that are missing or already wrapped by us.
+
+    Never raises: a sink that can't be wrapped (platform restriction, CPython internal
+    change) degrades to "unaudited" with a warning rather than crashing startup.
+    """
+    try:
+        obj = module
+        *path, attr = name.split(".")
+        for part in path:
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return
+        target = getattr(obj, attr, None)
+        if target is None or isinstance(target, wrapt.ObjectProxy):
             return
-    target = getattr(obj, attr, None)
-    if target is None or isinstance(target, wrapt.ObjectProxy):
-        return
-    wrapt.wrap_function_wrapper(module, name, wrapper)
+        wrapt.wrap_function_wrapper(module, name, wrapper)
+    except Exception:
+        logger.warning("command_exec_audit_wrap_failed", target=name, exc_info=True)
 
 
 def install() -> None:
@@ -329,7 +337,6 @@ def install() -> None:
     global _installed
     if _installed:
         return
-    _installed = True
 
     _wrap(subprocess, "Popen.__init__", _popen_wrapper)
     _wrap(os, "system", _system_wrapper)
@@ -339,3 +346,7 @@ def install() -> None:
     _wrap(os, "posix_spawnp", _make_posix_spawn_wrapper("os.posix_spawnp"))
     _wrap(os, "execv", _make_exec_wrapper("os.execv", takes_env=False))
     _wrap(os, "execve", _make_exec_wrapper("os.execve", takes_env=True))
+
+    # Set only after every sink has been attempted, so a mid-install failure doesn't
+    # permanently mark the audit "done" with sinks left unwrapped.
+    _installed = True

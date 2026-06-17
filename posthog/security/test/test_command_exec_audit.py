@@ -54,6 +54,8 @@ class TestCommandExecAuditScrubbing(TestCase):
                 ["mycli", "--token", "--verbose"],
                 ["mycli", "--token", _R],
             ),
+            # "auth" must not over-match common non-secret flags like git's --author.
+            ("author_not_redacted", ["git", "log", "--author=Jane"], ["git", "log", "--author=Jane"]),
         ]
     )
     def test_scrub_args(self, _name: str, args: list[str], expected: list[str]) -> None:
@@ -63,6 +65,11 @@ class TestCommandExecAuditScrubbing(TestCase):
         result = _scrub_args([f"a{i}" for i in range(200)])
         self.assertEqual(len(result), command_exec_audit._MAX_ARGS + 1)
         self.assertIn("truncated", result[-1])
+
+    def test_scrub_args_truncation_count_correct_for_iterator(self) -> None:
+        # A single-pass iterable must still report the right truncated count.
+        result = _scrub_args(iter([f"a{i}" for i in range(200)]))
+        self.assertEqual(result[-1], f"...(+{200 - command_exec_audit._MAX_ARGS} args truncated)")
 
     def test_scrub_command_string_redacts_secret(self) -> None:
         self.assertEqual(_scrub_command_string("psql --password supersecret db"), f"psql --password {_R} db")
