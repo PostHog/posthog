@@ -2721,7 +2721,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         if payload.get("errors"):
             return {"success": False, "error": f"Failed to create signed commit: {payload['errors']}"}
 
-        commit = payload["data"]["createCommitOnBranch"]["commit"]
+        commit = ((payload.get("data") or {}).get("createCommitOnBranch") or {}).get("commit") or {}
+        if "oid" not in commit or "url" not in commit:
+            return {"success": False, "error": "Unexpected response structure from GitHub GraphQL API"}
         return {"success": True, "commit_sha": commit["oid"], "commit_url": commit["url"]}
 
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:

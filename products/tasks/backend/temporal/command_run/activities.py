@@ -136,7 +136,7 @@ def run_command_in_sandbox(input: RunCommandInSandboxInput) -> RunCommandOutput:
 
     command = input.command
     if input.repository:
-        org, repo = input.repository.lower().split("/")
+        org, repo = input.repository.lower().split("/", 1)
         repo_path = f"{WORKING_DIR}/repos/{org}/{repo}"
         command = f"cd {shlex.quote(repo_path)} && {input.command}"
 
@@ -147,6 +147,8 @@ def run_command_in_sandbox(input: RunCommandInSandboxInput) -> RunCommandOutput:
         log_with_activity_context("command_run_output", run_id=input.run_id, line=line[:2000])
     result = stream.wait()
 
+    if result.stderr:
+        log_with_activity_context("command_run_stderr", run_id=input.run_id, stderr=result.stderr[:4000])
     log_with_activity_context("command_run_finished", run_id=input.run_id, exit_code=result.exit_code)
     return RunCommandOutput(exit_code=result.exit_code)
 
