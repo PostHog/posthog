@@ -83,7 +83,6 @@ describe('FunnelLineChart', () => {
                     query: buildFunnelsQuery({
                         breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
                     }),
-                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
                 })
 
                 const tooltip = await chart.hoverTooltip(2)
