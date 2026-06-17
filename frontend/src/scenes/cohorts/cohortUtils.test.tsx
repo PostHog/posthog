@@ -91,11 +91,7 @@ describe('validateGroup', () => {
 
 describe('determineFilterType', () => {
     it('preserves PersonMetadata across the negation flow', () => {
-        const negated = determineFilterType(
-            BehavioralFilterKey.PersonMetadata,
-            BehavioralEventType.HaveProperty,
-            true
-        )
+        const negated = determineFilterType(BehavioralFilterKey.PersonMetadata, BehavioralEventType.HaveProperty, true)
         expect(negated.type).toBe(BehavioralFilterKey.PersonMetadata)
     })
 
@@ -131,6 +127,19 @@ describe('cleanBehavioralTypeCriteria', () => {
         const criteria: AnyCohortCriteriaType = {
             type: BehavioralFilterKey.Person,
             value: BehavioralEventType.HaveProperty,
+        }
+        expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.Person)
+    })
+
+    it('downgrades a PersonMetadata criterion to Person when the user switches to a plain person property', () => {
+        // The picker merges the new selection's event_type onto the old criteria, so a
+        // stale PersonMetadata `type` arrives alongside `event_type: PersonProperties`. The
+        // fresh event_type must win, otherwise the criterion saves as `person_metadata` with
+        // a non-metadata key and the server rejects the whole cohort.
+        const criteria: AnyCohortCriteriaType = {
+            type: BehavioralFilterKey.PersonMetadata,
+            value: BehavioralEventType.HaveProperty,
+            event_type: TaxonomicFilterGroupType.PersonProperties,
         }
         expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.Person)
     })

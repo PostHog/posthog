@@ -5,7 +5,7 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
-from typing import Annotated, Any, Literal, Optional, Union, cast
+from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
@@ -290,12 +290,14 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 DATE_OPERATORS = ("is_date_after", "is_date_before")
 
 
-class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
-    type: Literal["person"]
-    key: str
+class PersonValueValidationMixin(BaseModel):
+    """Shared value/operator presence and date-value validation for the person and
+    person_metadata filter variants. `_filter_noun` names the variant in error messages."""
+
+    _filter_noun: ClassVar[str]
+
     operator: str | None = None  # accept any legacy operator
     value: Any | None = None  # mostly likely it's list[str], str, or None
-    negation: bool = False
 
     @model_validator(mode="after")
     def _missing_keys_check(self):
@@ -311,7 +313,7 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
             missing.append("operator")
 
         if missing:
-            raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
+            raise ValueError(f"Missing required keys for {self._filter_noun} filter: {', '.join(missing)}")
 
         return self
 
@@ -328,14 +330,22 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
         return self
 
 
-class PersonMetadataFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
+class PersonFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbid"):
+    _filter_noun: ClassVar[str] = "person"
+
+    type: Literal["person"]
+    key: str
+    negation: bool = False
+
+
+class PersonMetadataFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbid"):
     """Filter on a top-level persons-table column (e.g. created_at) rather than the
     properties JSON. The matching key must be one of PERSON_METADATA_FIELDS."""
 
+    _filter_noun: ClassVar[str] = "person_metadata"
+
     type: Literal["person_metadata"]
     key: str
-    operator: str | None = None
-    value: Any | None = None
     negation: bool = False
 
     @model_validator(mode="after")
@@ -343,28 +353,6 @@ class PersonMetadataFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
         if self.key not in PERSON_METADATA_FIELDS:
             allowed = ", ".join(sorted(PERSON_METADATA_FIELDS))
             raise ValueError(f"Unsupported person_metadata key '{self.key}'. Allowed keys: {allowed}.")
-        return self
-
-    @model_validator(mode="after")
-    def _missing_keys_check(self):
-        missing: list[str] = []
-        if self.value is None and self.operator not in ("is_set", "is_not_set"):
-            missing.append("value")
-        if self.operator is None:
-            missing.append("operator")
-        if missing:
-            raise ValueError(f"Missing required keys for person_metadata filter: {', '.join(missing)}")
-        return self
-
-    @model_validator(mode="after")
-    def _validate_date_value(self):
-        if self.operator in DATE_OPERATORS and self.value is not None:
-            parsed_date = determine_parsed_date_for_property_matching(self.value)
-            if not parsed_date:
-                raise ValueError(
-                    f"Invalid date value '{self.value}' for operator '{self.operator}'. "
-                    f"Expected a relative date (e.g., '-7d', '30d') or an ISO 8601 date (e.g., '2024-01-15')."
-                )
         return self
 
 

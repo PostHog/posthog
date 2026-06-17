@@ -2608,4 +2608,45 @@ mod tests {
         assert!(!properties.contains_key("$initial_email"));
         assert!(!properties.contains_key("$initial_name"));
     }
+
+    #[test]
+    fn test_apply_person_cohort_to_state_injects_person_metadata_sentinel_key() {
+        use crate::properties::property_matching::person_metadata_key;
+        use chrono::{TimeZone, Utc};
+        use uuid::Uuid;
+
+        let created_at = Utc.with_ymd_and_hms(2024, 1, 15, 9, 30, 0).unwrap();
+        // Capture the expected RFC3339 value before `person` is moved into the result.
+        let expected = created_at.to_rfc3339();
+
+        let person = Person {
+            id: 1,
+            created_at,
+            team_id: 1,
+            uuid: Uuid::new_v4(),
+            properties: json!({}),
+            is_identified: true,
+            is_user_id: None,
+            version: Some(0),
+        };
+
+        let mut state = FlagEvaluationState::default();
+        let result = PersonCohortResult {
+            person: Some(person),
+            cohort_matches: None,
+        };
+
+        apply_person_cohort_to_state(&mut state, result);
+
+        // The injection arm writes Person.created_at under the sentinel prefix so that
+        // person_metadata filters resolve against it (see match_property). If this arm
+        // regresses, the filter silently matches nobody.
+        let props = state
+            .get_person_properties()
+            .expect("person properties should be set");
+        assert_eq!(
+            props.get(&person_metadata_key("created_at")),
+            Some(&Value::String(expected))
+        );
+    }
 }

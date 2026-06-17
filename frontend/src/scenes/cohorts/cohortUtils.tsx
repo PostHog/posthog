@@ -37,6 +37,33 @@ import {
     TimeUnitType,
 } from '~/types'
 
+/**
+ * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
+ * top-level persons-table column (PersonMetadata) or the JSON properties blob (Person).
+ *
+ * `event_type` is the transient taxonomic-group hint set when the user picks a property: it
+ * wins when present, so a freshly-picked property derives the right key immediately. Once
+ * that hint has been dropped (e.g. a cohort loaded from the API), the durable `type` carries
+ * the answer. We only fall back to a PersonMetadata `type` when `event_type` is absent — so
+ * switching away from a PersonMetadata property to a plain person property (which arrives
+ * with `event_type === PersonProperties`) correctly downgrades to Person rather than
+ * persisting a `person_metadata` criterion the server would reject.
+ */
+export function behavioralKeyForPersonProperty(criteria: {
+    type?: BehavioralFilterKey | null
+    event_type?: TaxonomicFilterGroupType | null
+}): BehavioralFilterKey.Person | BehavioralFilterKey.PersonMetadata {
+    return criteria.event_type === TaxonomicFilterGroupType.PersonMetadata ||
+        (criteria.type === BehavioralFilterKey.PersonMetadata && !criteria.event_type)
+        ? BehavioralFilterKey.PersonMetadata
+        : BehavioralFilterKey.Person
+}
+
+/** True for either flavor of person-property criterion (JSON-blob lookup or persons-table column). */
+export function isPersonPropertyFilterKey(type: BehavioralFilterKey | undefined): boolean {
+    return type === BehavioralFilterKey.Person || type === BehavioralFilterKey.PersonMetadata
+}
+
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
     if (
@@ -65,18 +92,7 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             criteria.value as BehavioralEventType
         )
     ) {
-        // `event_type` records which taxonomic group the user picked the property from.
-        // It's a transient UI hint that lets us derive the durable `type` once on first
-        // selection. Subsequent cleanCriteria passes (and the negation flow in
-        // determineFilterType) key on `criteria.type`, which is what gets persisted.
-        // We also preserve an already-durable PersonMetadata `type`, so a later cleanup
-        // pass on a loaded cohort (where `event_type` has since been dropped) doesn't
-        // downgrade the criterion back to a plain Person property lookup.
-        type =
-            criteria.event_type === TaxonomicFilterGroupType.PersonMetadata ||
-            criteria.type === BehavioralFilterKey.PersonMetadata
-                ? BehavioralFilterKey.PersonMetadata
-                : BehavioralFilterKey.Person
+        type = behavioralKeyForPersonProperty(criteria)
     }
     return {
         ...criteria,
@@ -388,7 +404,7 @@ export function validateGroup(
                         fieldKey === 'value_property' &&
                         'key' in c &&
                         'type' in c &&
-                        (c.type === BehavioralFilterKey.Person || c.type === BehavioralFilterKey.PersonMetadata)
+                        isPersonPropertyFilterKey(c.type)
                     ) {
                         const propertyKey = c.key as string
                         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(
@@ -446,7 +462,7 @@ export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType):
         if (criteria.value === BehavioralEventType.PerformEvent) {
             return BehavioralEventType.NotPerformedEvent
         }
-        if (criteria.type === BehavioralFilterKey.Person || criteria.type === BehavioralFilterKey.PersonMetadata) {
+        if (isPersonPropertyFilterKey(criteria.type)) {
             return BehavioralEventType.NotHaveProperty
         }
         if (criteria.type === BehavioralFilterKey.Cohort) {
@@ -491,10 +507,7 @@ export function determineFilterType(
             // filter targets the persons-table column or the JSON properties blob.
             // Without this, a negated PersonMetadata criterion silently degrades to
             // a JSON-blob lookup on every cleanCriteria pass.
-            type:
-                type === BehavioralFilterKey.PersonMetadata
-                    ? BehavioralFilterKey.PersonMetadata
-                    : BehavioralFilterKey.Person,
+            type: behavioralKeyForPersonProperty({ type }),
             value: BehavioralEventType.HaveProperty,
             negation: true,
         }

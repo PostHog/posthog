@@ -531,6 +531,20 @@ class HogQLCohortQuery:
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # type = "person_metadata"
+        # key = "created_at" (a top-level column on the persons table, not properties JSON)
+        actors_query = ActorsQuery(
+            properties=[
+                PersonMetadataPropertyFilter(
+                    key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT
+                )
+            ],
+            select=["id"],
+        )
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return query_runner.to_query()
+
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
         # prop.value is normally a cohort pk, but an internal cohort property smuggled through the
@@ -561,20 +575,6 @@ class HogQLCohortQuery:
                 {"cohort_id": ast.Constant(value=cohort_id), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
-
-    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
-        # type = "person_metadata"
-        # key = "created_at" (a top-level column on the persons table, not properties JSON)
-        actors_query = ActorsQuery(
-            properties=[
-                PersonMetadataPropertyFilter(
-                    key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT
-                )
-            ],
-            select=["id"],
-        )
-        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
 
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         if prop.type == "behavioral":
