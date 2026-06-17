@@ -7,7 +7,12 @@ from parameterized import parameterized
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
 from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
-from posthog.migration_helpers import SafeAddIndexConcurrently, SafeRemoveIndexConcurrently
+from posthog.migration_helpers import (
+    AddConstraintNotValid,
+    SafeAddIndexConcurrently,
+    SafeRemoveIndexConcurrently,
+    ValidateConstraint,
+)
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -484,6 +489,27 @@ class TestRunSQLOperations:
         assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "validate" in risk.reason.lower()
+
+    def test_add_constraint_not_valid_helper_scores_safe(self):
+        """The helper scores like the hand-written ADD CONSTRAINT ... NOT VALID (safe)."""
+        op = AddConstraintNotValid(
+            model_name="dashboard",
+            constraint=models.CheckConstraint(condition=models.Q(amount__gte=0), name="dash_amount_chk"),
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+
+    def test_validate_constraint_helper_scores_needs_review(self):
+        """The helper scores like the hand-written VALIDATE CONSTRAINT (slow, non-blocking)."""
+        op = ValidateConstraint(model_name="dashboard", name="dash_amount_chk")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_run_sql_drop_constraint(self):
         """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""

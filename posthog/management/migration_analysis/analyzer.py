@@ -3,6 +3,7 @@
 from posthog.management.migration_analysis.models import MigrationRisk, OperationRisk
 from posthog.management.migration_analysis.operations import (
     AddConstraintAnalyzer,
+    AddConstraintNotValidAnalyzer,
     AddFieldAnalyzer,
     AddIndexAnalyzer,
     AddIndexConcurrentlyAnalyzer,
@@ -24,6 +25,7 @@ from posthog.management.migration_analysis.operations import (
     SafeAddIndexConcurrentlyAnalyzer,
     SafeRemoveIndexConcurrentlyAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
+    ValidateConstraintAnalyzer,
     is_unmanaged_model,
 )
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
@@ -64,6 +66,8 @@ class RiskAnalyzer:
         "DropIndexConcurrently": DropIndexConcurrentlyAnalyzer(),
         "SafeAddIndexConcurrently": SafeAddIndexConcurrentlyAnalyzer(),
         "SafeRemoveIndexConcurrently": SafeRemoveIndexConcurrentlyAnalyzer(),
+        "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
+        "ValidateConstraint": ValidateConstraintAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
     }
 

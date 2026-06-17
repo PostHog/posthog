@@ -455,44 +455,45 @@ helper.
 
 ### Safe Approach: NOT VALID Pattern
 
-Add constraints in two phases - add without validation, then validate separately.
+Add CHECK constraints in two phases — add without validation, then validate separately — using the `posthog.migration_helpers` helpers.
+They take a `model_name` + Django constraint (so Django builds the SQL and tracks model state, no `SeparateDatabaseAndState` and no hand-written SQL), and both phases are idempotent under `bin/migrate` retries (the add skips if the constraint exists, the validate skips if it's already validated).
 
-**Example: CHECK Constraint**
-
-**Step 1: Add constraint with NOT VALID**
+**Step 1: Add the constraint with NOT VALID** — brief lock, no table scan, enforces new/changed rows only.
 
 ```python
+from django.db import migrations, models
+from django.db.models import Q
+
+from posthog.migration_helpers import AddConstraintNotValid
+
+
 class Migration(migrations.Migration):
     operations = [
-        migrations.RunSQL(
-            sql="""
-                ALTER TABLE mymodel
-                ADD CONSTRAINT mymodel_field_check
-                CHECK (field_value > 0)
-                NOT VALID
-            """,
-            reverse_sql="ALTER TABLE mymodel DROP CONSTRAINT mymodel_field_check",
+        AddConstraintNotValid(
+            model_name="mymodel",
+            constraint=models.CheckConstraint(condition=Q(field_value__gt=0), name="mymodel_field_check"),
         ),
     ]
 ```
 
-This adds the constraint but only validates NEW rows (instant operation).
-
-**Step 2: Validate constraint in separate migration**
+**Step 2: Validate the constraint in a separate migration** — scans existing rows under `SHARE UPDATE EXCLUSIVE` (allows normal reads/writes).
 
 ```python
+from django.db import migrations
+
+from posthog.migration_helpers import ValidateConstraint
+
+
 class Migration(migrations.Migration):
     operations = [
-        migrations.RunSQL(
-            sql="ALTER TABLE mymodel VALIDATE CONSTRAINT mymodel_field_check",
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        ValidateConstraint(model_name="mymodel", name="mymodel_field_check"),
     ]
 ```
 
-Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUSIVE` lock which allows normal reads and writes but blocks other schema changes on that table.
+Keep the two phases in **separate migrations** (so the add's brief `ACCESS EXCLUSIVE` lock isn't held through the validate scan), or in the same migration with `atomic = False`.
+If validation fails, Django marks the migration unapplied — clean the offending rows and re-run.
 
-**Note:** This pattern applies to `FOREIGN KEY` constraints on existing columns. New nullable FK columns don't need it - the column starts empty, so there's nothing to validate.
+**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints on existing columns; there's no helper for that yet, so hand-write the `RunSQL` (`ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID` then `VALIDATE CONSTRAINT`). New nullable FK columns don't need it — the column starts empty, so there's nothing to validate.
 
 ### Key Points
 
