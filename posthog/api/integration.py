@@ -14,7 +14,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,7 +31,7 @@ from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -1235,6 +1235,11 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=False, url_path="request_access")
     def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Notify project admins that a member is requesting an integration be connected."""
+        # Members only — admins can connect integrations themselves, so there's nobody to ask.
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level >= OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only members can request access; admins can connect integrations directly.")
+
         serializer = IntegrationAccessRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         send_integration_access_request.delay(

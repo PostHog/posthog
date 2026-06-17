@@ -3666,14 +3666,17 @@ class TestIntegrationDeletionHogFunctionGuard:
 
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The endpoint is members-only, so default the requester to a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/integrations/request_access/"
 
     @patch("posthog.api.integration.send_integration_access_request")
     def test_member_can_request_access(self, mock_task):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
         response = self.client.post(self._url(), {"kind": "slack", "reason": "We need Slack alerts"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -3685,17 +3688,23 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
             reason="We need Slack alerts",
         )
 
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
     @patch("posthog.api.integration.send_integration_access_request")
-    def test_admin_can_request_access(self, mock_task):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    def test_admins_cannot_request_access(self, _name, level, mock_task):
+        self.organization_membership.level = level
         self.organization_membership.save()
 
         response = self.client.post(
             self._url(), {"kind": "github", "reason": "Link issues from error tracking"}, format="json"
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
-        mock_task.delay.assert_called_once()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_task.delay.assert_not_called()
 
     @parameterized.expand(
         [
