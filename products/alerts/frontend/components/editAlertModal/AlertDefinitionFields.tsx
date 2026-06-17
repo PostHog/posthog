@@ -64,7 +64,11 @@ export function TrendsDefinitionFields({
  * can be set against a real value before the first check. */
 function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
-        return null
+        return (
+            <LemonBanner type="info" className="w-full">
+                Load the insight to preview the conversion rate this alert will evaluate.
+            </LemonBanner>
+        )
     }
     if (preview.status === 'no-data') {
         return (
