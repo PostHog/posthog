@@ -1,9 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropsWithChildren, useRef, useState } from 'react'
+import { PropsWithChildren, ReactNode, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSegmentedButton, PopoverReferenceContext } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonSegmentedButton, Popover, PopoverReferenceContext } from '@posthog/lemon-ui'
 
 import { quickFiltersLogic, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
@@ -14,9 +14,10 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAssignee, QuickFilterContext } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     PropertyFilterType,
@@ -26,9 +27,12 @@ import {
 } from '~/types'
 
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
+import { AssigneeDropdown } from '../Assignee/AssigneeDropdown'
+import { assigneeSelectLogic } from '../Assignee/assigneeSelectLogic'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
+import { ErrorTrackingStatusSelectValue, STATUS_OPTIONS, statusOptionLabelWithDescription } from './Status'
 
 export const FilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
@@ -198,22 +202,54 @@ export const UniversalFilterGroup = ({
     )
 }
 
-export const FilterChip = ({ onClear, children }: PropsWithChildren<{ onClear: () => void }>): JSX.Element => (
-    <div className="UniversalFilterButton UniversalFilterButton--closeable inline-flex items-center">
-        <span className="UniversalFilterButton-content flex flex-1 items-center truncate gap-1">{children}</span>
-        <PopoverReferenceContext.Provider value={null}>
-            <LemonButton
-                size="xsmall"
-                icon={<IconX className="w-3 h-3" />}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    onClear()
-                }}
-                className="p-0.5"
-            />
-        </PopoverReferenceContext.Provider>
-    </div>
-)
+export const FilterChip = ({
+    onClear,
+    overlay,
+    children,
+}: PropsWithChildren<{
+    onClear: () => void
+    /** When provided, clicking the chip body opens this editor in a popover below the chip. */
+    overlay?: (close: () => void) => ReactNode
+}>): JSX.Element => {
+    const [open, setOpen] = useState<boolean>(false)
+    const editable = !!overlay
+
+    const chip = (
+        <div
+            className={cn('UniversalFilterButton UniversalFilterButton--closeable inline-flex items-center', {
+                'UniversalFilterButton--clickable': editable,
+            })}
+        >
+            <span
+                className="UniversalFilterButton-content flex flex-1 items-center truncate gap-1"
+                onClick={editable ? () => setOpen((o) => !o) : undefined}
+            >
+                {children}
+            </span>
+            <PopoverReferenceContext.Provider value={null}>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX className="w-3 h-3" />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClear()
+                    }}
+                    className="p-0.5"
+                />
+            </PopoverReferenceContext.Provider>
+        </div>
+    )
+
+    if (!editable) {
+        return chip
+    }
+
+    return (
+        <Popover visible={open} onClickOutside={() => setOpen(false)} overlay={overlay(() => setOpen(false))}>
+            {chip}
+        </Popover>
+    )
+}
 
 export const QuickFilterChips = ({
     context,
@@ -249,6 +285,53 @@ export const QuickFilterChips = ({
     )
 }
 
+const StatusEditor = ({
+    value,
+    onChange,
+}: {
+    value: ErrorTrackingStatusSelectValue
+    onChange: (value: ErrorTrackingStatusSelectValue) => void
+}): JSX.Element => (
+    <div className="flex flex-col gap-px min-w-[240px]">
+        {STATUS_OPTIONS.map((option) => (
+            <LemonButton
+                key={option}
+                fullWidth
+                size="small"
+                active={value === option}
+                sideIcon={value === option ? <IconCheck /> : undefined}
+                onClick={() => onChange(option)}
+            >
+                {statusOptionLabelWithDescription(option)}
+            </LemonButton>
+        ))}
+    </div>
+)
+
+const AssigneeEditor = ({
+    assignee,
+    onChange,
+}: {
+    assignee: ErrorTrackingIssueAssignee | null
+    onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
+}): JSX.Element => {
+    const { ensureAssigneeTypesLoaded, setSearch } = useActions(assigneeSelectLogic)
+
+    useEffect(() => {
+        ensureAssigneeTypesLoaded()
+    }, [ensureAssigneeTypesLoaded])
+
+    return (
+        <AssigneeDropdown
+            assignee={assignee}
+            onChange={(value) => {
+                setSearch('')
+                onChange(value)
+            }}
+        />
+    )
+}
+
 export const IssueFilterChips = (): JSX.Element | null => {
     const { status, assignee } = useValues(issueQueryOptionsLogic)
     const { setStatus, setAssignee } = useActions(issueQueryOptionsLogic)
@@ -264,14 +347,36 @@ export const IssueFilterChips = (): JSX.Element | null => {
     return (
         <>
             {showStatus && (
-                <FilterChip onClear={() => setStatus('all')}>
+                <FilterChip
+                    onClear={() => setStatus('all')}
+                    overlay={(close) => (
+                        <StatusEditor
+                            value={resolvedStatus}
+                            onChange={(next) => {
+                                setStatus(next)
+                                close()
+                            }}
+                        />
+                    )}
+                >
                     Status is {capitalizeFirstLetter(resolvedStatus)}
                 </FilterChip>
             )}
             {showAssignee && (
                 <AssigneeResolver assignee={assignee}>
                     {({ assignee: resolvedAssignee }) => (
-                        <FilterChip onClear={() => setAssignee(null)}>
+                        <FilterChip
+                            onClear={() => setAssignee(null)}
+                            overlay={(close) => (
+                                <AssigneeEditor
+                                    assignee={assignee}
+                                    onChange={(value) => {
+                                        setAssignee(value)
+                                        close()
+                                    }}
+                                />
+                            )}
+                        >
                             Assignee is <AssigneeLabelDisplay assignee={resolvedAssignee} size="xsmall" />
                         </FilterChip>
                     )}

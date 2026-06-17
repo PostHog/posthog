@@ -51,7 +51,7 @@ import {
 } from './FilterGroup'
 import { issueFiltersLogic } from './issueFiltersLogic'
 import { SortControl } from './SortControl'
-import { STATUS_OPTIONS, statusOptionLabel } from './Status'
+import { STATUS_OPTIONS, statusOptionLabelWithDescription } from './Status'
 
 // Synthetic group for the "Search … matching …" action row. No getValue on
 // purpose — a null value keeps search commits out of taxonomic recents.
@@ -281,9 +281,11 @@ const IssueControlMenuItems = ({ close }: { close: () => void }): JSX.Element =>
                 <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                     {STATUS_OPTIONS.map((option) => (
-                        <DropdownMenuItem key={option} onClick={() => setStatus(option)}>
-                            {statusOptionLabel(option)}
-                            {(status ?? 'active') === option && <IconCheck className="ml-auto size-3.5" />}
+                        <DropdownMenuItem key={option} onClick={() => setStatus(option)} className="!h-auto">
+                            {statusOptionLabelWithDescription(option)}
+                            {(status ?? 'active') === option && (
+                                <IconCheck className="ml-auto size-3.5 self-start mt-2 shrink-0" />
+                            )}
                         </DropdownMenuItem>
                     ))}
                 </DropdownMenuSubContent>

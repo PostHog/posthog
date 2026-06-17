@@ -42,7 +42,7 @@ export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorPro
     )
 })
 
-const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
     archived: 'Archived',
     resolved: 'Resolved',
@@ -50,7 +50,7 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     suppressed: 'Suppressed',
 }
 
-const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
+export const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
     active: 'warning',
     archived: 'muted',
     resolved: 'success',
