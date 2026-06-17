@@ -24,17 +24,8 @@ from products.conversations.backend.temporal.pipeline import (
 
 
 @pytest.fixture
-def sample_chunks() -> list[dict]:
-    return [
-        {
-            "chunk_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "document_id": "11111111-2222-3333-4444-555555555555",
-            "document_title": "Getting Started",
-            "heading_path": "Setup > Installation",
-            "content": "Install via pip install posthog",
-            "source_name": "docs",
-        }
-    ]
+def sample_chunk_ids() -> list[str]:
+    return ["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
 
 
 @pytest.fixture
@@ -48,10 +39,10 @@ PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
-@patch(f"{PIPELINE_MODULE}._validate_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._retrieve_sync")
-@patch(f"{PIPELINE_MODULE}._refine_queries_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._build_context_sync")
 async def test_workflow_persists_on_high_score(
     mock_build,
@@ -61,14 +52,14 @@ async def test_workflow_persists_on_high_score(
     mock_validate,
     mock_persist,
     workflow_input,
-    sample_chunks,
+    sample_chunk_ids,
 ):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
     mock_build.return_value = BuildContextOutput(ticket_context="Customer asks about setup", ticket_title="Setup help")
     mock_refine.return_value = RefineQueriesOutput(queries=["how to install"])
-    mock_retrieve.return_value = RetrieveOutput(chunks=sample_chunks)
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
     mock_draft.return_value = DraftOutput(
         reply="You can install via pip.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
@@ -106,10 +97,10 @@ async def test_workflow_persists_on_high_score(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
-@patch(f"{PIPELINE_MODULE}._validate_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._retrieve_sync")
-@patch(f"{PIPELINE_MODULE}._refine_queries_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._build_context_sync")
 async def test_workflow_widens_on_low_score(
     mock_build,
@@ -119,14 +110,14 @@ async def test_workflow_widens_on_low_score(
     mock_validate,
     mock_persist,
     workflow_input,
-    sample_chunks,
+    sample_chunk_ids,
 ):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
     mock_build.return_value = BuildContextOutput(ticket_context="Question about pricing", ticket_title="Pricing")
     mock_refine.return_value = RefineQueriesOutput(queries=["pricing", "plans"])
-    mock_retrieve.return_value = RetrieveOutput(chunks=sample_chunks)
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
     mock_draft.return_value = DraftOutput(
         reply="Here's pricing info.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
@@ -172,10 +163,10 @@ async def test_workflow_widens_on_low_score(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
-@patch(f"{PIPELINE_MODULE}._validate_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._retrieve_sync")
-@patch(f"{PIPELINE_MODULE}._refine_queries_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._build_context_sync")
 async def test_workflow_escalates_after_max_attempts(
     mock_build,
@@ -185,14 +176,14 @@ async def test_workflow_escalates_after_max_attempts(
     mock_validate,
     mock_persist,
     workflow_input,
-    sample_chunks,
+    sample_chunk_ids,
 ):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
     mock_build.return_value = BuildContextOutput(ticket_context="Complex question", ticket_title="Complex")
     mock_refine.return_value = RefineQueriesOutput(queries=["complex topic"])
-    mock_retrieve.return_value = RetrieveOutput(chunks=sample_chunks)
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
     mock_draft.return_value = DraftOutput(
         reply="Partial answer.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
@@ -229,10 +220,10 @@ async def test_workflow_escalates_after_max_attempts(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
-@patch(f"{PIPELINE_MODULE}._validate_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._retrieve_sync")
-@patch(f"{PIPELINE_MODULE}._refine_queries_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._build_context_sync")
 async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
     mock_build,
@@ -249,7 +240,7 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
     mock_build.return_value = BuildContextOutput(ticket_context="Off-topic question", ticket_title="Off-topic")
     mock_refine.return_value = RefineQueriesOutput(queries=["unrelated"])
     # Empty seed retrieval must NOT short-circuit — the draft agent has MCP tools and runs anyway.
-    mock_retrieve.return_value = RetrieveOutput(chunks=[])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=[])
     mock_draft.return_value = DraftOutput(reply="I cannot answer this.", citations=[], confidence=0.0)
     mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.0, confidence=0.0, missing=["everything"])
 
@@ -337,7 +328,18 @@ class TestStripJsonFence:
         assert _strip_json_fence(input_text) == expected
 
 
-@pytest.mark.django_db
+def _mock_gateway_client(text: str) -> MagicMock:
+    """Build a mock Anthropic gateway client whose messages.create returns `text`."""
+    block = MagicMock()
+    block.type = "text"
+    block.text = text
+    message = MagicMock()
+    message.content = [block]
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value=message)
+    return client
+
+
 class TestValidateActivity:
     @parameterized.expand(
         [
@@ -367,8 +369,8 @@ class TestValidateActivity:
             ),
         ]
     )
-    @patch(f"{PIPELINE_MODULE}.MaxChatAnthropic")
-    def test_parses_llm_response(
+    @pytest.mark.asyncio
+    async def test_parses_llm_response(
         self,
         _name,
         llm_response,
@@ -376,30 +378,23 @@ class TestValidateActivity:
         expected_coverage,
         expected_confidence,
         expected_missing,
-        mock_llm_cls,
     ):
-        from posthog.models.organization import Organization
-        from posthog.models.team.team import Team
-        from posthog.models.user import User
+        from products.conversations.backend.temporal.pipeline import _validate
 
-        from products.conversations.backend.temporal.pipeline import _validate_sync
-
-        org = Organization.objects.create(name=f"Validate Org {_name}")
-        team = Team.objects.create(organization=org, name=f"Validate Team {_name}")
-        user = User.objects.create(email=f"validate-{_name}@test.com", first_name="Test")
-        org.members.add(user)
-
-        mock_llm = MagicMock()
-        mock_llm_cls.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(content=llm_response)
-
-        result = _validate_sync(
-            team_id=team.id,
-            ticket_context="How to deploy?",
-            reply="Use docker compose.",
-            citations=["chunk-1"],
-            chunks=[{"chunk_id": "chunk-1", "content": "Docker compose deployment guide"}],
-        )
+        cited = [{"chunk_id": "chunk-1", "content": "Docker compose deployment guide"}]
+        with (
+            patch(
+                f"{PIPELINE_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_gateway_client(llm_response)
+            ),
+            patch(f"{PIPELINE_MODULE}._hydrate_chunks", return_value=cited),
+        ):
+            result = await _validate(
+                team_id=1,
+                ticket_context="How to deploy?",
+                reply="Use docker compose.",
+                citations=["chunk-1"],
+                chunk_ids=["chunk-1"],
+            )
 
         assert result.grounded is expected_grounded
         assert result.coverage == expected_coverage
@@ -414,30 +409,23 @@ class TestValidateActivity:
             ("truncated_json", '{"grounded": true, "coverage":'),
         ]
     )
-    @patch(f"{PIPELINE_MODULE}.MaxChatAnthropic")
-    def test_returns_zero_on_parse_failure(self, _name, llm_response, mock_llm_cls):
-        from posthog.models.organization import Organization
-        from posthog.models.team.team import Team
-        from posthog.models.user import User
+    @pytest.mark.asyncio
+    async def test_returns_zero_on_parse_failure(self, _name, llm_response):
+        from products.conversations.backend.temporal.pipeline import _validate
 
-        from products.conversations.backend.temporal.pipeline import _validate_sync
-
-        org = Organization.objects.create(name=f"Parse Fail Org {_name}")
-        team = Team.objects.create(organization=org, name=f"Parse Fail Team {_name}")
-        user = User.objects.create(email=f"parsefail-{_name}@test.com", first_name="Test")
-        org.members.add(user)
-
-        mock_llm = MagicMock()
-        mock_llm_cls.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(content=llm_response)
-
-        result = _validate_sync(
-            team_id=team.id,
-            ticket_context="Question",
-            reply="Answer",
-            citations=[],
-            chunks=[],
-        )
+        with (
+            patch(
+                f"{PIPELINE_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_gateway_client(llm_response)
+            ),
+            patch(f"{PIPELINE_MODULE}._hydrate_chunks", return_value=[]),
+        ):
+            result = await _validate(
+                team_id=1,
+                ticket_context="Question",
+                reply="Answer",
+                citations=[],
+                chunk_ids=[],
+            )
 
         assert result.grounded is False
         assert result.confidence == 0.0

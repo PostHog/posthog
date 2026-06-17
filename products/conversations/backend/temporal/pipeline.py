@@ -15,16 +15,21 @@ from temporalio.common import RetryPolicy
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     import structlog
-    from langchain_core.messages import HumanMessage, SystemMessage
     from pydantic import BaseModel, Field
 
+    from posthog.llm.gateway_client import get_async_anthropic_gateway_client
     from posthog.models.comment import Comment
-    from posthog.models.organization import OrganizationMembership
     from posthog.models.team.team import Team
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
+    from posthog.temporal.common.utils import close_db_connections
 
-    from products.business_knowledge.backend.logic import get_document_window, rerank_chunks, search_knowledge_for_team
+    from products.business_knowledge.backend.logic import (
+        get_chunks_by_ids,
+        get_document_window,
+        rerank_chunks,
+        search_knowledge_for_team,
+    )
     from products.business_knowledge.backend.models import KnowledgeChunk
     from products.conversations.backend.ai.suggest import _build_ticket_context
     from products.conversations.backend.models import Ticket
@@ -36,8 +41,6 @@ with workflow.unsafe.imports_passed_through():
     from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
-    from ee.hogai.llm import MaxChatAnthropic
-
 logger = structlog.get_logger(__name__)
 
 MAX_ATTEMPTS = 5
@@ -46,6 +49,28 @@ RERANK_TOP_K = 5
 RETRIEVE_LIMIT = 15
 DRAFT_POLL_SECONDS = 600
 WIDEN_RADIUS = 3
+
+# Temporal records every activity input/output in workflow history (per-payload limit ~2 MiB,
+# total history limit ~50 MiB). This loop replays ticket_context + chunks into refine/draft/
+# validate across up to MAX_ATTEMPTS iterations, so bound both at the source to keep history
+# small. Downstream prompts already slice harder than these caps, so nothing useful is lost.
+MAX_TICKET_CONTEXT_CHARS = 16000
+MAX_CHUNK_CONTENT_CHARS = 2000
+MAX_CHUNKS = 25
+# The draft's `sources` are model-controlled (count + excerpt length), so bound them before
+# they flow into validate's input and the workflow's best-so-far tracking.
+MAX_SOURCES = 25
+MAX_EXCERPT_CHARS = 1000
+
+# Plain-LLM utility calls (refine, validate) go through the internal LLM gateway via the
+# raw Anthropic SDK — the gateway captures $ai_generation itself, so no langchain wrapper.
+UTILITY_MODEL = "claude-haiku-4-5"
+GATEWAY_PRODUCT = "conversations"
+
+
+def _anthropic_text(message: Any) -> str:
+    """Concatenate the text blocks of an Anthropic Messages response."""
+    return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
 
 
 # ---------------------------------------------------------------------------
@@ -87,14 +112,16 @@ class RetrieveInput:
 
 @dataclass
 class RetrieveOutput:
-    chunks: list[dict[str, Any]]
+    # Only chunk ids cross the activity boundary — content is rehydrated from the DB
+    # (deterministic) where it's needed, to keep workflow history small.
+    chunk_ids: list[str]
 
 
 @dataclass
 class DraftInput:
     team_id: int
     ticket_context: str
-    chunks: list[dict[str, Any]]
+    chunk_ids: list[str]
     # Refinement feedback from the previous attempt so the agent improves a good draft
     # instead of re-rolling blind (which tends to drift to a worse, less-grounded answer).
     prior_reply: str = ""
@@ -117,7 +144,7 @@ class ValidateInput:
     ticket_context: str
     reply: str
     citations: list[str]
-    chunks: list[dict[str, Any]]
+    chunk_ids: list[str]
     sources: list[dict[str, str]] = field(default_factory=list)
 
 
@@ -159,6 +186,7 @@ class SupportReplyDraft(BaseModel):
 
 
 @activity.defn
+@close_db_connections
 async def build_context_activity(input: SupportReplyInput) -> BuildContextOutput:
     """Build the full ticket context string reusing the existing suggest.py helper."""
     async with Heartbeater():
@@ -177,7 +205,7 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
         .exclude(item_context__is_private=True)
         .order_by("created_at")
     )
-    context = _build_ticket_context(ticket, comments, team)
+    context = _build_ticket_context(ticket, comments, team)[:MAX_TICKET_CONTEXT_CHARS]
     title = getattr(ticket, "title", "") or f"Ticket {ticket_id}"
     return BuildContextOutput(ticket_context=context, ticket_title=title)
 
@@ -186,22 +214,10 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
 async def refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
     async with Heartbeater():
-        return await database_sync_to_async(_refine_queries_sync, thread_sensitive=False)(
-            input.team_id, input.ticket_context, input.missing
-        )
+        return await _refine_queries(input.team_id, input.ticket_context, input.missing)
 
 
-def _refine_queries_sync(team_id: int, ticket_context: str, missing: list[str]) -> RefineQueriesOutput:
-    team = Team.objects.select_related("organization").get(id=team_id)
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
-        .order_by("id")
-        .first()
-    )
-    if not membership:
-        return RefineQueriesOutput(queries=["help"])
-
+async def _refine_queries(team_id: int, ticket_context: str, missing: list[str]) -> RefineQueriesOutput:
     system = """You are a search query generator for a customer support knowledge base.
 Given a customer ticket and optionally a list of missing information from a previous attempt,
 generate 2-4 concise search queries that would find the most relevant documentation.
@@ -211,29 +227,20 @@ Return ONLY the queries, one per line. No numbering, no explanation."""
     if missing:
         user_parts.append("\nMissing from previous attempt:\n" + "\n".join(f"- {m}" for m in missing))
 
-    llm = MaxChatAnthropic(
-        model="claude-haiku-4-5",
-        streaming=False,
-        user=membership.user,
-        team=team,
+    client = get_async_anthropic_gateway_client(product=GATEWAY_PRODUCT, team_id=team_id)
+    message = await client.messages.create(
+        model=UTILITY_MODEL,
         max_tokens=512,
-        billable=False,
-        inject_context=False,
+        system=system,
+        messages=[{"role": "user", "content": "\n".join(user_parts)}],
     )
-    response = llm.invoke(
-        [
-            SystemMessage(content=system),
-            HumanMessage(content="\n".join(user_parts)),
-        ]
-    )
-    content = response.content
-    if isinstance(content, list):
-        content = "".join(str(item) for item in content)
-    queries = [line.strip() for line in str(content).strip().split("\n") if line.strip()]
+    content = _anthropic_text(message)
+    queries = [line.strip() for line in content.strip().split("\n") if line.strip()]
     return RefineQueriesOutput(queries=queries[:4] if queries else ["help"])
 
 
 @activity.defn
+@close_db_connections
 async def retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
     async with Heartbeater():
@@ -285,36 +292,47 @@ def _retrieve_sync(
             except Exception:
                 logger.warning("support_reply_widen_failed", chunk_id=cid_str, exc_info=True)
 
-    chunks = [
+    return RetrieveOutput(chunk_ids=[str(r.chunk_id) for r in all_results[:MAX_CHUNKS]])
+
+
+def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
+    """Rehydrate chunk content + context from the DB for the ids passed across the workflow.
+
+    Deterministic re-fetch — keeps content out of Temporal history. Content is capped here
+    (not in the DB) since this is the only place it's materialized for prompts/validation.
+    """
+    results = get_chunks_by_ids(team_id, [UUID(cid) for cid in chunk_ids])
+    return [
         {
             "chunk_id": str(r.chunk_id),
             "document_id": str(r.document_id),
             "document_title": r.document_title,
             "heading_path": r.heading_path,
-            "content": r.content,
+            "content": r.content[:MAX_CHUNK_CONTENT_CHARS],
             "source_name": r.source_name,
         }
-        for r in all_results
+        for r in results
     ]
-    return RetrieveOutput(chunks=chunks)
 
 
 @activity.defn
+@close_db_connections
 async def draft_activity(input: DraftInput) -> DraftOutput:
     """Run a sandbox session with read-only MCP to draft a reply."""
     async with Heartbeater():
         return await _draft_async(
-            input.team_id, input.ticket_context, input.chunks, input.prior_reply, input.prior_missing
+            input.team_id, input.ticket_context, input.chunk_ids, input.prior_reply, input.prior_missing
         )
 
 
 async def _draft_async(
     team_id: int,
     ticket_context: str,
-    chunks: list[dict[str, Any]],
+    chunk_ids: list[str],
     prior_reply: str = "",
     prior_missing: list[str] | None = None,
 ) -> DraftOutput:
+    chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
 
@@ -385,7 +403,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             reply=result.reply,
             citations=result.citations,
             confidence=result.confidence,
-            sources=[{"ref": s.ref, "excerpt": s.excerpt} for s in result.sources],
+            sources=[{"ref": s.ref, "excerpt": s.excerpt[:MAX_EXCERPT_CHARS]} for s in result.sources[:MAX_SOURCES]],
         )
     finally:
         if session is not None:
@@ -396,8 +414,8 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
 async def validate_activity(input: ValidateInput) -> ValidateOutput:
     """Validate the draft reply against the source chunks for groundedness and coverage."""
     async with Heartbeater():
-        return await database_sync_to_async(_validate_sync, thread_sensitive=False)(
-            input.team_id, input.ticket_context, input.reply, input.citations, input.chunks, input.sources
+        return await _validate(
+            input.team_id, input.ticket_context, input.reply, input.citations, input.chunk_ids, input.sources
         )
 
 
@@ -414,25 +432,17 @@ def _strip_json_fence(text: str) -> str:
     return s.strip()
 
 
-def _validate_sync(
+async def _validate(
     team_id: int,
     ticket_context: str,
     reply: str,
     citations: list[str],
-    chunks: list[dict[str, Any]],
+    chunk_ids: list[str],
     sources: list[dict[str, str]] | None = None,
 ) -> ValidateOutput:
-    team = Team.objects.select_related("organization").get(id=team_id)
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
-        .order_by("id")
-        .first()
-    )
-    if not membership:
-        return ValidateOutput(grounded=False, coverage=0.0, confidence=0.0, missing=["no_active_user"])
-
-    cited_chunks = [c for c in chunks if c["chunk_id"] in set(citations)]
+    # Only the cited chunks need rehydrating — fetch their content from the DB by id.
+    cited_ids = [cid for cid in chunk_ids if cid in set(citations)]
+    cited_chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, cited_ids)
     evidence_parts = [f"[{c['chunk_id']}] {c['content'][:500]}" for c in cited_chunks]
     # Ground against evidence the agent gathered via MCP tools too (e.g. docs-search URLs),
     # not just the seed chunks — otherwise docs-based answers always look unsupported.
@@ -463,27 +473,17 @@ REPLY:
 CITED CHUNKS:
 {chunks_text[:6000]}"""
 
-    llm = MaxChatAnthropic(
-        model="claude-haiku-4-5",
-        streaming=False,
-        user=membership.user,
-        team=team,
+    client = get_async_anthropic_gateway_client(product=GATEWAY_PRODUCT, team_id=team_id)
+    message = await client.messages.create(
+        model=UTILITY_MODEL,
         max_tokens=1024,
-        billable=False,
-        inject_context=False,
+        system=system,
+        messages=[{"role": "user", "content": user_content}],
     )
-    response = llm.invoke(
-        [
-            SystemMessage(content=system),
-            HumanMessage(content=user_content),
-        ]
-    )
-    content = response.content
-    if isinstance(content, list):
-        content = "".join(str(item) for item in content)
+    content = _anthropic_text(message)
 
     try:
-        parsed = json_module.loads(_strip_json_fence(str(content)))
+        parsed = json_module.loads(_strip_json_fence(content))
         return ValidateOutput(
             grounded=bool(parsed.get("grounded", False)),
             coverage=float(parsed.get("coverage", 0.0)),
@@ -496,6 +496,7 @@ CITED CHUNKS:
 
 
 @activity.defn
+@close_db_connections
 async def persist_reply_activity(input: PersistReplyInput) -> None:
     """Persist the validated reply as a private AI comment on the ticket."""
     async with Heartbeater():
@@ -582,7 +583,7 @@ class SupportReplyWorkflow:
             # Don't short-circuit on empty in-process retrieval — the draft agent has
             # read-only MCP tools (PostHog docs via docs-search, the team's business
             # knowledge) and can find sources itself. Seed chunks are just a head start.
-            if not retrieve_output.chunks:
+            if not retrieve_output.chunk_ids:
                 workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
 
             # Draft via sandbox
@@ -591,7 +592,7 @@ class SupportReplyWorkflow:
                 DraftInput(
                     team_id=input.team_id,
                     ticket_context=ctx_output.ticket_context,
-                    chunks=retrieve_output.chunks,
+                    chunk_ids=retrieve_output.chunk_ids,
                     prior_reply=prior_reply,
                     prior_missing=missing,
                 ),
@@ -607,7 +608,7 @@ class SupportReplyWorkflow:
                     ticket_context=ctx_output.ticket_context,
                     reply=draft_output.reply,
                     citations=draft_output.citations,
-                    chunks=retrieve_output.chunks,
+                    chunk_ids=retrieve_output.chunk_ids,
                     sources=draft_output.sources,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
