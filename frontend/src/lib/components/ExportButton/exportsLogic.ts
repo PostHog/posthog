@@ -37,9 +37,6 @@ export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
 
-// Single source for the per-export toast id so the show and dismiss sites can't drift.
-const exportToastId = (id: number): string => `export-${id}`
-
 export const exportsLogic = kea<exportsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'exportsLogic']),
 
@@ -119,41 +116,11 @@ export const exportsLogic = kea<exportsLogicType>([
         createExportSuccess: () => {
             actions.loadExports()
         },
-        loadExportsSuccess: async (_, breakpoint) => {
-            // Auto-download (or surface errors for) async exports we kicked off that have now finished.
-            // NB: avoid naming a local `exports` — it shadows the CommonJS module object under
-            // transpilation (jest) and throws a TDZ error.
-            const { exports: exportsList, freshUndownloadedExports } = exportsLogic.values
-            for (const fresh of freshUndownloadedExports) {
-                // The list can be format-filtered (assetFormat), so fetch directly if the tracked export isn't in it.
-                let latest = exportsList.find((asset) => asset.id === fresh.id)
-                if (!latest) {
-                    try {
-                        latest = await api.exports.get(fresh.id)
-                    } catch {
-                        continue
-                    }
-                }
-                if (!latest.has_content && !latest.exception) {
-                    continue
-                }
-                actions.removeFresh(fresh)
-                lemonToast.dismiss(exportToastId(fresh.id))
-                if (latest.has_content) {
-                    await downloadExportedAsset(latest)
-                    lemonToast.success('Export complete!')
-                } else {
-                    lemonToast.error('Export failed: ' + latest.exception)
-                }
-            }
-
-            // Keep polling while the (possibly filtered) list or any tracked async export is still unfinished.
-            const pendingInList = exportsList.some((asset) => !asset.has_content && !asset.exception)
-            const pendingFresh = exportsLogic.values.freshUndownloadedExports.length > 0
-            if (pendingInList || pendingFresh) {
-                await breakpoint(pickPollDelayMs([...exportsList, ...exportsLogic.values.freshUndownloadedExports]))
+        loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {
+            // Keep the list fresh while any export is still rendering, so the panel reflects completion.
+            if (exportsList.some((asset) => !asset.has_content && !asset.exception)) {
+                await breakpoint(pickPollDelayMs(exportsList))
                 actions.loadExports()
-                return
             }
         },
         createStaticCohort: async ({ query, name }) => {
@@ -255,17 +222,15 @@ export const exportsLogic = kea<exportsLogicType>([
                             actions.loadExportsSuccess(updatedExports)
 
                             if (response && response.has_content) {
-                                // Blocking export already finished — download and confirm.
+                                // Blocking export already finished in the request — download and confirm.
                                 await downloadExportedAsset(response)
                                 lemonToast.success('Export complete!')
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
                             } else if (response) {
-                                // Async export (e.g. video render): show a per-export toast that the
-                                // polling loop resolves to success (or error) once the render finishes.
-                                lemonToast.info('Export starting...', {
-                                    toastId: exportToastId(response.id),
-                                    autoClose: false,
+                                // Async export (e.g. video render) is a background job: acknowledge the
+                                // kickoff right away. It surfaces in the Exports panel once the render finishes.
+                                lemonToast.success('Export started', {
                                     button: {
                                         label: 'View exports',
                                         action: () => newInternalTab(urls.exports()),

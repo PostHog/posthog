@@ -115,6 +115,7 @@ export enum NodeKind {
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
+    TraceSpansSymbolStatsQuery = 'TraceSpansSymbolStatsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -3375,6 +3376,122 @@ export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQuer
 
 export type CachedTraceSpansAttributeBreakdownQueryResponse =
     CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
+
+/**
+ * A source symbol (typically a function) the client wants production latency for, identified by its
+ * declaration line range. The client supplies these from its own AST/LSP — the server does not infer
+ * function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a
+ * call site inside the body rather than the declaration line).
+ */
+export interface SourceSymbol {
+    /** Opaque identifier (e.g. the function name) echoed back on the matching result row. */
+    name?: string
+    /** First line of the symbol's range, inclusive (1-based). */
+    startLine: positive_integer
+    /** Last line of the symbol's range, inclusive (1-based). */
+    endLine: positive_integer
+}
+
+/** Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison. */
+export interface SymbolStatsPeriod {
+    /** Number of spans attributed to this symbol in the period. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+/**
+ * Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location
+ * attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The
+ * flat fields are the current period; `previous` is the immediately-preceding equal-length window. One
+ * row per bucket with spans in either period.
+ */
+export interface SymbolStatsRow {
+    /** The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode. */
+    line: integer
+    /** Echoed `name` from the requested symbol. Symbol mode only. */
+    name?: string
+    /** `endLine` of the matched symbol's range. Symbol mode only. */
+    end_line?: integer
+    /** Number of spans attributed to this bucket. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in this symbol, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: SymbolStatsPeriod
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline
+     * (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p95_duration_pct_change: number | null
+}
+
+export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
+    kind: NodeKind.TraceSpansSymbolStatsQuery
+    dateRange: DateRange
+    /**
+     * Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`).
+     * Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a
+     * recorded path carrying an extra crate/workspace prefix still matches.
+     */
+    filePath: string
+    /**
+     * Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed
+     * to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an
+     * empty list), spans are aggregated per source line (one row per instrumented line) — pass a single
+     * whole-file range for a file-level total.
+     */
+    symbols?: SourceSymbol[]
+}
+
+/** Bucketing applied to a symbol-stats result: per source line, or per requested symbol range. */
+export type SymbolStatsGranularity = 'line' | 'symbol'
+
+export interface TraceSpansSymbolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** One row per bucket, ordered by line ascending. */
+    results: SymbolStatsRow[]
+    /** Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise. */
+    granularity: SymbolStatsGranularity
+}
+
+export type CachedTraceSpansSymbolStatsQueryResponse = CachedQueryResponse<TraceSpansSymbolStatsQueryResponse>
 
 export interface FileSystemCount {
     count: number
@@ -6667,6 +6784,7 @@ export const externalDataSources = [
     'WikipediaPageviews',
     'YahooFinance',
     'Clarifai',
+    'Adapty',
     'Custom',
 ] as const
 
