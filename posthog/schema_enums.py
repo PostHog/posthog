@@ -1770,6 +1770,9 @@ class ExternalDataSourceType(StrEnum):
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
     BRAINTRUST = "Braintrust"
+    STREAM_ELEMENTS = "StreamElements"
+    STREAMLABS = "Streamlabs"
+    DATORAMA = "Datorama"
     CUSTOM = "Custom"
 
 
@@ -2946,6 +2949,7 @@ class SignalSourceProduct(StrEnum):
     SIGNALS_SCOUT = "signals_scout"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
+    REPLAY_VISION = "replay_vision"
 
 
 class SignalSourceType(StrEnum):
@@ -2963,6 +2967,7 @@ class SignalSourceType(StrEnum):
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
+    SCANNER_FINDING = "scanner_finding"
 
 
 class Severity(StrEnum):

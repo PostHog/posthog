@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('fs')
+const { parse, pathMatchesPattern } = require('./codeowners')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
 // place so adjusting noise levels doesn't require re-reading the logic. All
@@ -38,29 +39,9 @@ function parseCodeowners(codeownersPath) {
     if (!fs.existsSync(codeownersPath)) {
         throw new Error(`No CODEOWNERS file found at "${codeownersPath}"`)
     }
-
-    const content = fs.readFileSync(codeownersPath, 'utf8')
-    const rules = []
-
-    for (const line of content.split('\n')) {
-        const trimmed = line.trim()
-
-        if (!trimmed || trimmed.startsWith('#')) {
-            continue
-        }
-
-        const tokens = trimmed.split(/\s+/)
-        if (tokens.length < 2) {
-            continue
-        }
-
-        const pattern = tokens[0]
-        const owners = tokens.slice(1)
-
-        rules.push({ pattern, owners })
-    }
-
-    return rules
+    // Rules with no owner are reset directives that only matter for hard/soft
+    // precedence (see ownership.js); the assigner only cares about owned rules.
+    return parse(fs.readFileSync(codeownersPath, 'utf8')).rules.filter((rule) => rule.owners.length > 0)
 }
 
 // Minimal parser for the `owners:` list in products/<name>/product.yaml.
@@ -147,27 +128,17 @@ function loadProductYamlRules(productsDir = 'products') {
     return rules
 }
 
-function globToRegex(pattern) {
-    let regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '__DOUBLESTAR__')
-        .replace(/\*/g, '[^/]*')
-        .replace(/__DOUBLESTAR__/g, '.*')
-
-    // A trailing-slash pattern is a directory: keep the slash so it matches only
-    // files inside the directory, not sibling paths sharing the name as a prefix
-    // (e.g. `models/ai/` must not match `models/ai_events/`). Mirrors GitHub's
-    // own CODEOWNERS semantics, where `dir/` is a directory boundary.
-    if (pattern.endsWith('/')) {
-        regex = regex + '.*'
-    }
-
-    return new RegExp(`^${regex}$`)
-}
-
+// Glob matching lives in the vendored, GitHub-faithful matcher (./codeowners.js,
+// a JS port of hmarr/codeowners). Thin wrapper so the rest of the assigner reads
+// naturally and the (filePath, pattern) argument order is stable. A malformed
+// pattern (e.g. a `***` typo) degrades to "no match" rather than aborting the
+// whole run, matching how the vendored CodeOwners class treats batch rules.
 function fileMatchesPattern(filePath, pattern) {
-    const regex = globToRegex(pattern)
-    return regex.test(filePath)
+    try {
+        return pathMatchesPattern(pattern, filePath)
+    } catch {
+        return false
+    }
 }
 
 function isExcludedFile(filePath, excludedPatterns = CONFIG.excludedPatterns) {

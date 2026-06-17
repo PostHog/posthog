@@ -6786,6 +6786,9 @@ export const externalDataSources = [
     'Clarifai',
     'Adapty',
     'Braintrust',
+    'StreamElements',
+    'Streamlabs',
+    'Datorama',
     'Custom',
 ] as const
 
