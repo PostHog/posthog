@@ -437,6 +437,9 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        // second-window incremental for the multi-window case
+        const w2inc = (timestamp: number): RecordingSnapshot =>
+            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -588,6 +591,15 @@ describe('sessionRecordingPlayerLogic', () => {
                 firstSourceSnapshots: [inc(START), fs(START + 5000)],
                 secondSourceSnapshots: [inc(LATE_FS_TS)],
                 expectedLeadingUnplayableMs: 5000,
+                expectedHasLate: false,
+            },
+            {
+                // multi-window: the first window renders from its own start, so a later window
+                // lacking a full snapshot must not extend the leading unplayable span
+                description: 'does not flag when the first window renders but a later window lacks a full snapshot',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },
         ])(

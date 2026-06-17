@@ -1141,15 +1141,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
         // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
         // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
+        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
+        // loaded (and so can't later flip to `renderable`), so it gates itself — surfacing the marker as
+        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
         leadingUnplayableMs: [
-            (s) => [s.sessionPlayerData, s.seekRenderability, s.allSourcesLoaded],
+            (s) => [s.sessionPlayerData, s.seekRenderability],
             (
                 sessionPlayerData: SessionPlayerData,
-                seekRenderability: (timestamp: number) => SeekRenderability,
-                allSourcesLoaded: boolean
+                seekRenderability: (timestamp: number) => SeekRenderability
             ): number => {
                 const start = sessionPlayerData.start?.valueOf()
-                if (!allSourcesLoaded || start == null) {
+                if (start == null) {
                     return 0
                 }
                 const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')

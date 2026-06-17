@@ -140,7 +140,7 @@ export function Seekbar(): JSX.Element {
                         <Tooltip
                             title={`The first ${humanFriendlyDuration(leadingUnplayableMs / 1000, {
                                 maxUnits: 2,
-                            })} can't be played — no full snapshot was recorded yet`}
+                            })} can't be played — the initial screen snapshot arrived late`}
                             placement="top"
                         >
                             <div
