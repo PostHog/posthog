@@ -20,6 +20,7 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
+common-posthog = { path = "../common/posthog" }
 cymbal-proto = { path = "../cymbal-proto" }
 posthog-symbol-data = { path = "../common/symbol_data" }
 hogvm = { path = "../common/hogvm" }
@@ -39,7 +40,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
-common-posthog = { path = "../common/posthog" }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
