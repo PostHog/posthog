@@ -85,7 +85,7 @@ const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
 const E2E_LATENCY_BUCKETS: &[f64] = &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
 /// Seconds buckets for the build-duration histogram. Our histograms are
 /// seconds-shaped, so both are overridden off `common_metrics`' ms-shaped default.
-const BUILD_DURATION_BUCKETS: &[f64] = &[0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+const BUILD_DURATION_BUCKETS: &[f64] = &[0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0];
 
 /// `product` global label for per-product metric cost attribution.
 const METRICS_PRODUCT: &str = "feature_flags";
@@ -501,10 +501,14 @@ async fn build_once(
 /// Cap an error string to `DLQ_ERROR_HEADER_MAX` bytes for use as a Kafka header
 /// value, truncating on a char boundary so the result stays valid UTF-8.
 fn truncate_for_header(error: &str) -> String {
+    const ELLIPSIS: &str = "…";
+    const _: () = assert!(
+        DLQ_ERROR_HEADER_MAX > ELLIPSIS.len(),
+        "DLQ_ERROR_HEADER_MAX must be larger than the ellipsis marker"
+    );
     if error.len() <= DLQ_ERROR_HEADER_MAX {
         return error.to_string();
     }
-    const ELLIPSIS: &str = "…";
     // Reserve room for the ellipsis so the result — marker included — stays within
     // the byte cap. The ellipsis is 3 bytes, so slicing to the cap and appending it
     // would otherwise overshoot.
