@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.replay_vision.backend.models import ReplayObservation, ReplayScanner, VisionAction, VisionActionRun
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
@@ -104,48 +106,37 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 5)
 
-    def test_aborts_without_ai_consent(self) -> None:
-        self._observation("something")
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save()
-        action = self._action()
-        run = self._run_for(action)
+    @parameterized.expand(
+        [
+            ("no_consent", SynthesisStatus.ABORTED_NO_CONSENT),
+            ("no_creator", SynthesisStatus.ABORTED_NO_USER),
+            ("over_budget", SynthesisStatus.SKIPPED_OVER_BUDGET),
+            ("empty_window", SynthesisStatus.SKIPPED_EMPTY),
+        ]
+    )
+    def test_short_circuit_gates(self, gate: str, expected: SynthesisStatus) -> None:
+        # Each gate must return early without persisting markdown and without ever touching the LLM.
+        if gate == "empty_window":
+            obs = self._observation("old news")
+            ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(days=10))
+            action = self._action(selection={"scanner_type": "summarizer", "window_days": 1})
+        else:
+            self._observation("something")
+            action = self._action(created_by=None if gate == "no_creator" else self.user)
 
-        result = self._synthesize(action, run)
-        self.assertEqual(result.status, SynthesisStatus.ABORTED_NO_CONSENT)
-        run.refresh_from_db()
-        self.assertEqual(run.synthesized_markdown, "")
+        if gate == "no_consent":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
 
-    def test_aborts_without_creator(self) -> None:
-        self._observation("something")
-        action = self._action(created_by=None)
-        run = self._run_for(action)
-
-        result = self._synthesize(action, run)
-        self.assertEqual(result.status, SynthesisStatus.ABORTED_NO_USER)
-
-    def test_skips_when_over_credit_budget(self) -> None:
-        self._observation("something")
-        action = self._action()
         run = self._run_for(action)
 
         with (
-            patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=True),
+            patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
             patch(f"{_SYNTH_PATH}.MaxChatOpenAI", side_effect=AssertionError("LLM should not be called")),
         ):
             result = _synthesize(SynthesizeActionInputs(vision_action_id=action.id, run_id=run.id))
 
-        self.assertEqual(result.status, SynthesisStatus.SKIPPED_OVER_BUDGET)
-
-    def test_skips_empty_window(self) -> None:
-        # Observation exists but falls outside the 1-day window.
-        obs = self._observation("old news")
-        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(days=10))
-        action = self._action(selection={"scanner_type": "summarizer", "window_days": 1})
-        run = self._run_for(action)
-
-        result = self._synthesize(action, run)
-        self.assertEqual(result.status, SynthesisStatus.SKIPPED_EMPTY)
+        self.assertEqual(result.status, expected)
         run.refresh_from_db()
         self.assertEqual(run.synthesized_markdown, "")
 
