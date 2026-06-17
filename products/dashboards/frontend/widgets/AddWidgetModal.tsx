@@ -2,12 +2,16 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
+import { IconSparkles } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     DASHBOARD_WIDGET_CATALOG_GROUPS,
@@ -85,8 +89,8 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         onClose()
     }
 
-    function handleLearnMoreClicked(groupId: string): void {
-        posthog.capture('dashboard add widget modal - learn more clicked', { widget_group: groupId })
+    function handleProductIntroClicked(productType: ProductKey): void {
+        posthog.capture('dashboard add widget modal - product intro clicked', { product_type: productType })
     }
 
     return (
@@ -137,12 +141,13 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
                                 <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
                                 {productIsNew && productIntro ? (
-                                    <div className="col-span-full -mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
+                                    <div className="col-span-full -mt-2 flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
+                                        <IconSparkles className="shrink-0 text-base text-accent" />
                                         <span className="text-primary">{productIntro.valueProp}</span>
                                         <Link
                                             to={productIntro.docsHref}
                                             target="_blank"
-                                            onClick={() => handleLearnMoreClicked(group.groupId)}
+                                            onClick={() => handleProductIntroClicked(productIntro.productKey)}
                                         >
                                             {productIntro.ctaLabel}
                                         </Link>
