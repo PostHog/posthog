@@ -29,9 +29,10 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -906,7 +907,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), newEarlyAccessFeature],
+                        features: [
+                            ...(state.features || []),
+                            {
+                                id: newEarlyAccessFeature.id,
+                                name: newEarlyAccessFeature.name,
+                                description: newEarlyAccessFeature.description,
+                                stage: newEarlyAccessFeature.stage,
+                                documentationUrl: newEarlyAccessFeature.documentation_url,
+                                flagKey: newEarlyAccessFeature.feature_flag?.key ?? null,
+                                payload: newEarlyAccessFeature.payload,
+                            },
+                        ],
                     }
                 },
                 createSurveySuccess: (state, { newSurvey }) => {
@@ -1851,13 +1863,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update', {
-                entityName: featureFlag.key,
-            })
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+
+            const isCreate = props.id === 'new'
+            const rolloutPercent = featureFlag.filters?.groups?.[0]?.rollout_percentage ?? null
+            const flagKey = featureFlag.key || featureFlag.name || 'this-flag'
+            const derivedPrompt = isCreate
+                ? rolloutPercent != null
+                    ? `Create a feature flag called ${flagKey} rolled out to ${rolloutPercent}% of users`
+                    : `Create a feature flag called ${flagKey}`
+                : rolloutPercent != null
+                  ? `Bump rollout for ${flagKey} to ${rolloutPercent}%`
+                  : `Update the ${flagKey} flag`
+            tryShowMCPHint(isCreate ? 'feature_flags.create' : 'feature_flags.update', { derivedPrompt })
 
             // Collect all completed setup tasks
             const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]

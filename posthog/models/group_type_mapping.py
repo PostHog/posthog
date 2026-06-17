@@ -8,8 +8,10 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.personhog_client.client import PersonHogClient
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import DatabaseError, models
+from django.db.models import Count
 from django.utils import timezone
 
 import structlog
@@ -289,14 +291,15 @@ def _fetch_group_types_for_projects_via_personhog(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdsRequest
 
-    resp = client.get_group_type_mappings_by_project_ids(
-        GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids)
-    )
     result: dict[int, list[dict[str, Any]]] = {}
-    for batch in resp.results:
-        mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
-        mappings.sort(key=lambda d: d["group_type_index"])
-        result[batch.key] = mappings
+    for i in range(0, len(project_ids), settings.PERSONHOG_BATCH_SIZE):
+        resp = client.get_group_type_mappings_by_project_ids(
+            GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE])
+        )
+        for batch in resp.results:
+            mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
+            mappings.sort(key=lambda d: d["group_type_index"])
+            result[batch.key] = mappings
     return result
 
 
@@ -426,6 +429,42 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
 
     _populate_projects_stale_cache(result)
     return result
+
+
+def count_group_type_mappings_per_team() -> list[dict[str, int]]:
+    """Count group type mappings per team via personhog, falling back to ORM."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.count_group_type_mappings(CountGroupTypeMappingsRequest())
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="count_group_type_mappings_per_team", source="personhog", client_name=get_client_name()
+            ).inc()
+            return [{"team_id": c.team_id, "total": c.count} for c in resp.counts]
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="count_group_type_mappings_per_team",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_count_group_type_mappings_failure", exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="count_group_type_mappings_per_team", source="django_orm", client_name=get_client_name()
+    ).inc()
+    try:
+        return list(
+            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+            .annotate(total=Count("id"))
+            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+        )
+    except DatabaseError:
+        logger.warning("count_group_type_mappings_orm_failure", exc_info=True)
+        return []
 
 
 def project_has_group_types_authoritatively(project_id: int) -> bool:

@@ -1,20 +1,20 @@
+use std::hash::Hasher;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{
-    create_kafka_producer, send_keyed_iter_to_kafka, KafkaContext, KafkaProduceError,
+    create_kafka_producer, send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding,
+    KafkaContext, KafkaProduceError,
 };
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
+use siphasher::sip::SipHasher13;
 use thiserror::Error;
 use tracing::warn;
 
 use crate::types::{PropertyType, TupleKey};
-
-fn str_is_empty(s: &&str) -> bool {
-    s.is_empty()
-}
+use crate::wire;
 
 #[derive(serde::Serialize)]
 pub(crate) struct Outgoing<'a> {
@@ -23,11 +23,25 @@ pub(crate) struct Outgoing<'a> {
     pub property_key: &'a str,
     pub property_value: &'a str,
     pub property_count: u64,
-    // Omitted when empty so flag-off (and person/group) messages are identical
-    // to before this field existed, letting the service ship ahead of the
-    // ClickHouse column that reads it.
-    #[serde(skip_serializing_if = "str_is_empty")]
-    pub event_name: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WireFormat {
+    #[default]
+    Json,
+    Binary,
+}
+
+impl std::str::FromStr for WireFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "json" => Ok(WireFormat::Json),
+            "binary" => Ok(WireFormat::Binary),
+            _ => Err(format!("Unknown WireFormat: {s}")),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -53,7 +67,11 @@ pub struct AggregatedProducer {
     inner: FutureProducer<KafkaContext>,
     output_topic: String,
     produce_timeout: Duration,
-    serialize_event_name: bool,
+    // Envelope encoding for the produced payloads. Only `Lz4`-safe for the
+    // intermediate topic, which the merger consumes; the output topic is read
+    // by ClickHouse and must stay `None`.
+    encoding: EnvelopeEncoding,
+    format: WireFormat,
 }
 
 impl AggregatedProducer {
@@ -62,7 +80,8 @@ impl AggregatedProducer {
         liveness: L,
         output_topic: String,
         produce_timeout: Duration,
-        serialize_event_name: bool,
+        encoding: EnvelopeEncoding,
+        format: WireFormat,
     ) -> Result<Self, KafkaError>
     where
         L: common_liveness::SyncLivenessReporter + Clone + 'static,
@@ -72,9 +91,28 @@ impl AggregatedProducer {
             inner,
             output_topic,
             produce_timeout,
-            serialize_event_name,
+            encoding,
+            format,
         })
     }
+}
+
+/// Fixed-width partition key: a stable hash of the tuple. The same
+/// (team, type, key, value) tuple from any pod always lands on the same
+/// partition, so the merger can merge the per-pod duplicates that the
+/// events/groups workers emit across replicas. Hashing instead of embedding
+/// the full tuple keeps the key off the wire-bytes bill; collisions only
+/// co-locate unrelated tuples on a partition, which is harmless.
+pub(crate) fn partition_key(m: &Outgoing) -> String {
+    let mut hasher = SipHasher13::new_with_keys(0, 0);
+    hasher.write(m.team_id.to_string().as_bytes());
+    hasher.write(b":");
+    hasher.write(m.property_type.as_kafka_key_segment().as_bytes());
+    hasher.write(b":");
+    hasher.write(m.property_key.as_bytes());
+    hasher.write(b":");
+    hasher.write(m.property_value.as_bytes());
+    format!("{:016x}", hasher.finish())
 }
 
 #[async_trait]
@@ -85,39 +123,39 @@ impl Producer for AggregatedProducer {
         }
         let total = items.len();
 
-        let messages: Vec<Outgoing> = items
+        let format = self.format;
+        let payloads: Vec<(Option<String>, Vec<u8>)> = items
             .iter()
-            .map(|(tuple, count)| Outgoing {
-                team_id: tuple.team_id,
-                property_type: tuple.property_type,
-                property_key: &tuple.property_key,
-                property_value: &tuple.property_value,
-                property_count: *count,
-                event_name: if self.serialize_event_name {
-                    &tuple.event_name
-                } else {
-                    ""
-                },
+            .map(|(tuple, count)| {
+                let message = Outgoing {
+                    team_id: tuple.team_id,
+                    property_type: tuple.property_type,
+                    property_key: &tuple.property_key,
+                    property_value: &tuple.property_value,
+                    property_count: *count,
+                };
+                let key = Some(partition_key(&message));
+                let payload = match format {
+                    WireFormat::Json => {
+                        serde_json::to_vec(&message).expect("Outgoing serialization is infallible")
+                    }
+                    WireFormat::Binary => wire::encode(
+                        message.team_id,
+                        message.property_type,
+                        message.property_key,
+                        message.property_value,
+                        message.property_count,
+                    ),
+                };
+                (key, payload)
             })
             .collect();
 
-        // Full-tuple partition key. The same (team, type, key, value) tuple
-        // from any pod always lands on the same partition, so the merger on
-        // the consuming side can merge the per-pod duplicates that the
-        // events/groups workers emit across replicas.
-        let send_fut = send_keyed_iter_to_kafka(
+        let send_fut = send_keyed_payloads_to_kafka_with_encoding(
             &self.inner,
             &self.output_topic,
-            |m| {
-                Some(format!(
-                    "{}:{}:{}:{}",
-                    m.team_id,
-                    m.property_type.as_kafka_key_segment(),
-                    m.property_key,
-                    m.property_value,
-                ))
-            },
-            messages,
+            self.encoding,
+            payloads,
         );
 
         let results = match tokio::time::timeout(self.produce_timeout, send_fut).await {
@@ -137,5 +175,30 @@ impl Producer for AggregatedProducer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outgoing<'a>(value: &'a str) -> Outgoing<'a> {
+        Outgoing {
+            team_id: 2,
+            property_type: PropertyType::Event,
+            property_key: "$current_url",
+            property_value: value,
+            property_count: 1,
+        }
+    }
+
+    #[test]
+    fn partition_key_is_stable_and_tuple_specific() {
+        let a = partition_key(&outgoing("https://posthog.com/a"));
+        let b = partition_key(&outgoing("https://posthog.com/a"));
+        let c = partition_key(&outgoing("https://posthog.com/b"));
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.len(), 16);
     }
 }

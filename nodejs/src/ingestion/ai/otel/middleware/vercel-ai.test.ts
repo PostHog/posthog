@@ -131,6 +131,9 @@ describe('vercel-ai middleware', () => {
         it.each([
             ['posthog_distinct_id', 'user-1'],
             ['$ai_session_id', 'session-123'],
+            ['$ai_prompt_name', 'my-prompt'],
+            ['$ai_prompt_version', 'v2'],
+            ['$ai_prompt_version', 2],
         ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
@@ -165,15 +168,29 @@ describe('vercel-ai middleware', () => {
             expect(event.distinct_id).toBe('user-123')
         })
 
-        it('ignores empty $ai_session_id metadata', () => {
+        it.each(['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version'])(
+            'ignores empty ai.telemetry.metadata.%s',
+            (key) => {
+                const event = createEvent('$ai_generation', {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    [`ai.telemetry.metadata.${key}`]: '',
+                })
+                convertOtelEvent(event)
+
+                expect(event.properties![key]).toBeUndefined()
+                expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
+            }
+        )
+
+        it.each([0, -1, 1.5])('ignores invalid numeric ai.telemetry.metadata.$ai_prompt_version=%s', (value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.$ai_session_id': '',
+                'ai.telemetry.metadata.$ai_prompt_version': value,
             })
             convertOtelEvent(event)
 
-            expect(event.properties!['$ai_session_id']).toBeUndefined()
-            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
+            expect(event.properties!['$ai_prompt_version']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
         })
     })
 
@@ -259,6 +276,75 @@ describe('vercel-ai middleware', () => {
             })
             convertOtelEvent(event)
             expect(event.properties!['$ai_input_state']).toBe('not json')
+        })
+    })
+
+    describe('functionId as $ai_span_name', () => {
+        it('overrides the generic name on a top-level wrapper span promoted to $ai_trace', () => {
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateText',
+                'ai.telemetry.functionId': 'my-func',
+                $ai_span_name: 'ai.generateText',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_span_name']).toBe('my-func')
+        })
+
+        it('overrides the generic name on a $ai_trace event', () => {
+            const event = createEvent('$ai_trace', {
+                'ai.operationId': 'ai.generateText',
+                'ai.telemetry.functionId': 'my-func',
+                $ai_span_name: 'ai.generateText',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('my-func')
+        })
+
+        it('leaves $ai_span_name untouched when functionId is empty', () => {
+            const event = createEvent('$ai_trace', {
+                'ai.operationId': 'ai.generateText',
+                'ai.telemetry.functionId': '',
+                $ai_span_name: 'ai.generateText',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('ai.generateText')
+        })
+
+        it('leaves $ai_span_name untouched when no functionId is set', () => {
+            const event = createEvent('$ai_trace', {
+                'ai.operationId': 'ai.generateText',
+                $ai_span_name: 'ai.generateText',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('ai.generateText')
+        })
+
+        it('does not override $ai_span_name on a .doGenerate generation span', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.functionId': 'my-func',
+                $ai_span_name: 'ai.generateText.doGenerate',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('ai.generateText.doGenerate')
+        })
+
+        it('preserves the tool name on an ai.toolCall span carrying functionId', () => {
+            const event = createEvent('$ai_span', {
+                $ai_parent_id: 'parent-1',
+                'ai.operationId': 'ai.toolCall',
+                'ai.telemetry.functionId': 'my-func',
+                'ai.toolCall.name': 'get_weather',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('get_weather')
         })
     })
 

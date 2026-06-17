@@ -1,4 +1,4 @@
-import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
@@ -200,6 +200,9 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 
     // separate runner
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
+
+    // separate runner — only the two range endpoints, cached on its own key
+    [ChartDisplayType.SlopeGraph]: ChartDisplayType.SlopeGraph,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
@@ -255,6 +258,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             stacked: undefined,
             detailedResultsAggregationType: undefined,
             excludeBoxPlotOutliers: undefined,
+            showAnnotations: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,

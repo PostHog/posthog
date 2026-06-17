@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.access import has_tasks_access
 
@@ -38,6 +39,7 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 
 
 @activity.defn
+@close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
@@ -97,7 +99,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
-                handler.update_reaction("hedgehog")
+                # Task is still running (PR opened mid-run) — keep the :eyes: reaction
+                # so the thread reads as in-progress until it genuinely completes.
+                handler.update_reaction("eyes")
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
@@ -121,11 +125,25 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
     return status_map.get(status, "In progress...")
 
 
-def _post_pr_opened_notification_once(task_run, handler, pr_url: str, task_url: str | None) -> None:
+def _post_pr_opened_notification_once(
+    task_run,
+    handler,
+    pr_url: str,
+    task_url: str | None,
+) -> None:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
     if _is_pr_opened_notified(task_run, pr_url):
         return
 
-    handler.post_pr_opened(pr_url, task_url)
+    # Resolve the reply target from the live mapping so the PR notification
+    # tags the current actor instead of the thread starter.
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+    reply_target_slack_user_id = (
+        (mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id) if mapping else None
+    )
+
+    handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
     _mark_pr_opened_notified(task_run, pr_url)
 

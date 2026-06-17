@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+from collections import defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -21,9 +22,6 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -31,6 +29,10 @@ from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -38,11 +40,13 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.experiments.backend.result_serialization import strip_step_sessions
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -67,29 +71,6 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
-
-
-def _strip_step_sessions(result: Any) -> Any:
-    """Remove the per-session funnel actors payload from a stored experiment metric result.
-
-    `step_sessions` powers the frontend's "view sessions per step" affordance off
-    a separate per-metric query, not this timeseries endpoint. Carrying it through
-    here multiplies the response by sessions × steps × variants and pushes MCP
-    consumers past their context window with no benefit.
-    """
-    if not isinstance(result, Mapping):
-        return result
-    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
-    baseline = cleaned.get("baseline")
-    if isinstance(baseline, dict):
-        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
-    variants = cleaned.get("variant_results")
-    if isinstance(variants, list):
-        cleaned["variant_results"] = [
-            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
-            for variant in variants
-        ]
-    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -227,6 +208,53 @@ class ExperimentService:
 
         if not variant_keys - set(excluded_variants) - {baseline_key}:
             raise ValidationError("at least one test variant must remain in analysis")
+
+    RUNNING_TIME_CALCULATION_KEYS = (
+        "minimum_detectable_effect",
+        "recommended_running_time",
+        "recommended_sample_size",
+        "exposure_estimate_config",
+    )
+
+    @staticmethod
+    def validate_running_time_calculation(value: dict | None) -> None:
+        """Validate the running-time calculator config accepted by the API layer."""
+        if not value:
+            return
+        if not isinstance(value, dict):
+            raise ValidationError("running_time_calculation must be an object")
+
+        unknown = set(value.keys()) - set(ExperimentService.RUNNING_TIME_CALCULATION_KEYS)
+        if unknown:
+            raise ValidationError(f"running_time_calculation got unknown keys: {sorted(unknown)}")
+
+        for key in ("minimum_detectable_effect", "recommended_running_time", "recommended_sample_size"):
+            number = value.get(key)
+            if number is not None and (isinstance(number, bool) or not isinstance(number, int | float)):
+                raise ValidationError(f"{key} must be a number")
+
+        exposure_estimate_config = value.get("exposure_estimate_config")
+        if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
+            raise ValidationError("exposure_estimate_config must be an object")
+
+    @staticmethod
+    def _running_time_calculation_from_parameters(parameters: dict | None) -> dict:
+        return {
+            key: (parameters or {})[key]
+            for key in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
+            if key in (parameters or {})
+        }
+
+    @staticmethod
+    def _merge_running_time_calculation_into_parameters(parameters: dict | None, calculation: dict | None) -> dict:
+        """Replace the legacy calculator keys in `parameters` with the canonical calculation values."""
+        merged = {
+            key: value
+            for key, value in (parameters or {}).items()
+            if key not in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
+        }
+        merged.update(calculation or {})
+        return merged
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -442,8 +470,14 @@ class ExperimentService:
     }
 
     @classmethod
-    def validate_stats_config(cls, stats_config: dict | None) -> None:
-        """Validate stats_config shape and method value."""
+    def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
+        """Validate stats_config shape, method value, and baseline variant key.
+
+        When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
+        ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
+        baseline validation is skipped (the caller couldn't supply the keys).
+        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        """
         if not stats_config:
             return
         method = stats_config.get("method")
@@ -451,6 +485,29 @@ class ExperimentService:
             raise ValidationError(
                 f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
             )
+        baseline_variant_key = stats_config.get("baseline_variant_key")
+        if baseline_variant_key is not None and variant_keys and baseline_variant_key not in variant_keys:
+            raise ValidationError(
+                f"Invalid baseline_variant_key: '{baseline_variant_key}'. "
+                f"Must be one of: {', '.join(sorted(variant_keys))}"
+            )
+
+    @staticmethod
+    def _variant_keys(variants: list | None) -> list[str]:
+        """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
+        return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]
+
+    @classmethod
+    def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
+        """Variant keys the experiment will have after this update.
+
+        Prefer the variants the PATCH sets; otherwise resolve from the linked flag,
+        which is the source of truth for variants.
+        """
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if update_variants is None:
+            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+        return cls._variant_keys(update_variants)
 
     @staticmethod
     def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
@@ -635,6 +692,7 @@ class ExperimentService:
         description: str = "",
         type: str = "product",
         parameters: dict | None = None,
+        running_time_calculation: dict | None = None,
         metrics: list[dict] | None = None,
         metrics_secondary: list[dict] | None = None,
         secondary_metrics: list[dict] | None = None,
@@ -673,6 +731,13 @@ class ExperimentService:
         metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
+        self.validate_running_time_calculation(running_time_calculation)
+        # Dual-write during the parameters deprecation window: running_time_calculation is
+        # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
+        if running_time_calculation is not None:
+            parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
+        else:
+            running_time_calculation = self._running_time_calculation_from_parameters(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -680,7 +745,6 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        self.validate_stats_config(stats_config)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -693,6 +757,13 @@ class ExperimentService:
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
         )
+
+        # Validate the baseline against the variants the flag actually ends up with.
+        # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
+        # raw parameters payload may omit. This runs inside the @transaction.atomic
+        # create, so a raise rolls back the just-created flag.
+        used_variant_keys = self._variant_keys(used_variants)
+        self.validate_stats_config(stats_config, used_variant_keys)
 
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
@@ -749,6 +820,7 @@ class ExperimentService:
             "description": description,
             "type": type,
             "parameters": parameters,
+            "running_time_calculation": running_time_calculation,
             "metrics": metrics if metrics is not None else [],
             "metrics_secondary": metrics_secondary if metrics_secondary is not None else [],
             "secondary_metrics": secondary_metrics if secondary_metrics is not None else [],
@@ -915,6 +987,11 @@ class ExperimentService:
 
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
+
+    def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
+        """A deleted flag distributes no traffic, so an experiment can never go live on it."""
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -1182,8 +1259,7 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        if feature_flag.deleted:
-            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1892,8 +1968,15 @@ class ExperimentService:
                 existing_flag_serializer.save()
 
         # --- validate updated fields ------------------------------------------
-        if "stats_config" in update_data:
-            self.validate_stats_config(update_data["stats_config"])
+        # Revalidate the baseline whenever either side of the constraint changes:
+        # the stats_config itself, or the variant set it references. A variants-only
+        # PATCH (e.g. updateDistribution) that renames/removes the current baseline
+        # must not leave a dangling baseline_variant_key behind.
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if "stats_config" in update_data or update_variants is not None:
+            variant_keys = self._resolved_variant_keys(experiment, update_data)
+            effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+            self.validate_stats_config(effective_stats_config, variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
@@ -1938,6 +2021,21 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
+        # --- running-time calculation dual-write ----------------------------
+        # During the parameters deprecation window, keep running_time_calculation and
+        # the legacy calculator keys in `parameters` in sync. `parameters` is replaced
+        # wholesale on update, so derive the counterpart from whichever side this
+        # update carries (running_time_calculation wins when both are sent).
+        if "running_time_calculation" in update_data:
+            update_data["parameters"] = self._merge_running_time_calculation_into_parameters(
+                update_data.get("parameters", experiment.parameters),
+                update_data["running_time_calculation"],
+            )
+        elif "parameters" in update_data:
+            update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
+                update_data["parameters"]
+            )
+
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
@@ -1953,6 +2051,13 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
+        # run the same flag guards as the dedicated launch_experiment action: flag not
+        # deleted, and a valid control/variant configuration.
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_not_deleted_for_launch(feature_flag)
+            self._validate_existing_flag(feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
@@ -1983,6 +2088,7 @@ class ExperimentService:
             "end_date",
             "filters",
             "parameters",
+            "running_time_calculation",
             "archived",
             "deleted",
             "secondary_metrics",
@@ -2006,6 +2112,8 @@ class ExperimentService:
 
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
+
+        self.validate_running_time_calculation(update_data.get("running_time_calculation"))
 
         if not experiment.is_draft:
             if "feature_flag_variants" in update_data.get("parameters", {}):
@@ -2051,14 +2159,20 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Reuse variants from an existing flag in the target project.
+        # Variants come from the source experiment's feature flag (the source of truth),
+        # not the stale copy denormalized into parameters.
+        source_variants = source_experiment.feature_flag.variants
+        if source_variants:
+            parameters["feature_flag_variants"] = deepcopy(source_variants)
+
+        # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
+            if existing_flag and existing_flag.variants:
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.variants)
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
@@ -2251,6 +2365,46 @@ class ExperimentService:
     # Experiment list/querying
     # ------------------------------------------------------------------
 
+    def _experiments_matching_event(self, queryset: QuerySet[Experiment], event: str) -> list[int]:
+        """Return PKs of experiments whose metrics reference the given event.
+
+        Reads only the metric columns — no model hydration or prefetches, so the
+        caller's prefetch-heavy queryset isn't materialized twice — and resolves
+        every referenced action in a single batched query to avoid an N+1.
+        """
+        inline_metrics = list(queryset.values_list("pk", "metrics", "metrics_secondary"))
+        pks = [pk for pk, _, _ in inline_metrics]
+
+        saved_queries_by_experiment: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for experiment_id, query in ExperimentToSavedMetric.objects.filter(experiment_id__in=pks).values_list(
+            "experiment_id", "saved_metric__query"
+        ):
+            if query:
+                saved_queries_by_experiment[experiment_id].append(query)
+
+        per_experiment: list[tuple[int, set[str], set[int]]] = []
+        all_action_ids: set[int] = set()
+        for pk, metrics, metrics_secondary in inline_metrics:
+            combined: list[dict[str, Any]] = [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *saved_queries_by_experiment.get(pk, []),
+            ]
+            events, action_ids = collect_metric_events_and_action_ids(combined)
+            per_experiment.append((pk, events, action_ids))
+            all_action_ids |= action_ids
+
+        action_events = resolve_action_events(all_action_ids, self.team)
+
+        matching_ids: list[int] = []
+        for pk, events, action_ids in per_experiment:
+            resolved = set(events)
+            for action_id in action_ids:
+                resolved |= action_events.get(action_id, set())
+            if event in resolved:
+                matching_ids.append(pk)
+        return matching_ids
+
     def filter_experiments_queryset(
         self,
         queryset: QuerySet[Experiment],
@@ -2312,7 +2466,9 @@ class ExperimentService:
 
             created_by_id = query_params.get("created_by_id")
             if created_by_id:
-                queryset = queryset.filter(created_by_id=created_by_id)
+                user_ids = parse_created_by_ids(created_by_id)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
 
             archived = query_params.get("archived")
             if archived is not None:
@@ -2331,6 +2487,12 @@ class ExperimentService:
             prompt_name = query_params.get("prompt_name")
             if prompt_name:
                 queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
+
+            event = query_params.get("event")
+            if event:
+                # Event references live deep in the metrics JSON, so filter in Python and
+                # narrow the queryset by primary key to preserve ordering and pagination.
+                queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
         search = query_params.get("search")
         if search:
@@ -2447,7 +2609,9 @@ class ExperimentService:
             queryset = queryset.filter(active=active_bool)
 
         if created_by_id:
-            queryset = queryset.filter(created_by_id=created_by_id)
+            user_ids = parse_created_by_ids(created_by_id)
+            if user_ids:
+                queryset = queryset.filter(created_by_id__in=user_ids)
 
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
@@ -2541,7 +2705,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
+                    timeseries[date_key] = strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:

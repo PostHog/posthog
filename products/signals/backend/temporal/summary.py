@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -10,7 +11,8 @@ import temporalio
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
@@ -18,6 +20,7 @@ from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -30,6 +33,10 @@ from products.signals.backend.temporal.agentic.report import (
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
+)
+from products.signals.backend.temporal.inbox_notification import (
+    InboxNotificationInput,
+    SignalReportInboxNotificationWorkflow,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
@@ -329,23 +336,37 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
-                # Slack notifications to suggested reviewers — separate from the Kafka
-                # publish above so a Slack outage doesn't suppress the inbox event,
-                # and a Kafka outage doesn't suppress Slack delivery.
+                # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
+                # patched(): summary workflows already in flight at deploy replay the prior inline path.
                 try:
-                    await workflow.execute_activity(
-                        dispatch_inbox_slack_notifications_activity,
-                        DispatchInboxSlackNotificationsInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            source_products=source_products,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
+                    if workflow.patched("signals-deferred-inbox-notification"):
+                        await workflow.start_child_workflow(
+                            SignalReportInboxNotificationWorkflow.run,
+                            InboxNotificationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            id=SignalReportInboxNotificationWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                            parent_close_policy=ParentClosePolicy.ABANDON,
+                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                            execution_timeout=timedelta(
+                                seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600
+                            ),
+                        )
+                    else:
+                        await workflow.execute_activity(
+                            dispatch_inbox_slack_notifications_activity,
+                            DispatchInboxSlackNotificationsInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                source_products=source_products,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                except temporalio.exceptions.WorkflowAlreadyStartedError:
+                    pass
                 except Exception:
                     workflow.logger.exception(
-                        f"Failed to dispatch inbox Slack notifications for {inputs.report_id}",
+                        f"Failed to dispatch inbox notification for {inputs.report_id}",
                     )
             return has_new_signals
         except Exception as e:
@@ -375,6 +396,7 @@ class MarkReportInProgressInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -437,6 +459,7 @@ class MarkReportReadyInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -507,6 +530,7 @@ class MarkReportFailedInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -567,6 +591,7 @@ class MarkReportPendingInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -626,6 +651,7 @@ class ResetReportToPotentialInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
@@ -679,17 +705,11 @@ class DispatchInboxSlackNotificationsInput:
     source_products: list[str] = field(default_factory=list)
 
 
+# Deprecated: replaced by SignalReportInboxNotificationWorkflow (see the "signals-deferred-inbox-notification"
+# patch above). Retained one release so summary workflows in flight at deploy can replay the old path.
 @temporalio.activity.defn
 @scoped_temporal()
-async def dispatch_inbox_slack_notifications_activity(
-    input: DispatchInboxSlackNotificationsInput,
-) -> int:
-    """Send Slack notifications for a newly-READY report to suggested reviewers
-    who have configured Slack notifications in their signal autonomy config.
-
-    Returns the number of messages dispatched (informational; failures are
-    swallowed inside the dispatcher and logged).
-    """
+async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackNotificationsInput) -> int:
     from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
 
     return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(

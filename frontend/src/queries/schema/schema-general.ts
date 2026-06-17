@@ -53,6 +53,8 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SimpleIntervalType,
+    SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,6 +63,10 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
+// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -108,6 +114,8 @@ export enum NodeKind {
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
+    TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
+    TraceSpansSymbolStatsQuery = 'TraceSpansSymbolStatsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -233,6 +241,7 @@ export type AnyDataNode =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -335,6 +344,7 @@ export type QuerySchema =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -396,6 +406,7 @@ export type AnyResponseType =
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
+    | TraceSpansAttributeBreakdownQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -449,6 +460,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -1479,6 +1491,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1510,6 +1524,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1672,10 +1687,27 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /**
+     * Whether to show a legend describing the series. The legend only renders when the funnel has
+     * multiple series. Only applies to historical-trends funnels.
+     * @default false
+     */
+    showLegend?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
+    /**
+     * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
+     * tail of the trend isn't dragged down by entrants who still have time to convert.
+     * @default false
+     */
+    hideIncompleteConversionWindowPeriods?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1688,6 +1720,8 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
@@ -1918,6 +1952,9 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
+     *  `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
@@ -2089,6 +2126,8 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponse
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
@@ -2283,8 +2322,6 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     metricsResults?: (number | null)[]
 }
 
-export type AccountsRoleAssignmentFilter = integer | 'unassigned'
-
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
@@ -2292,9 +2329,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    csm?: AccountsRoleAssignmentFilter
-    accountExecutive?: AccountsRoleAssignmentFilter
-    accountOwner?: AccountsRoleAssignmentFilter
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -2761,12 +2797,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    /** @deprecated Ignored — V2 query path was removed. Kept so requests from older clients still validate. */
     useQueryV2?: boolean
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    /** @deprecated Ignored — V3 is the only query path. Kept so requests from older clients still validate. */
     useQueryV3?: boolean
     /**
-     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery.
      * The backend caps the list at 50 entries; extras are dropped silently.
      * @type array
      */
@@ -3035,6 +3071,9 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/** Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`). */
+export type TraceOrderColumn = 'timestamp' | 'duration'
+
 /**
  * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
  * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
@@ -3062,6 +3101,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3172,16 +3213,29 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     dateRange: DateRange
     limit?: integer
     offset?: integer
-    orderBy?: LogsOrderBy
+    /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+    orderBy?: TraceOrderColumn
+    /** Order direction. Defaults to DESC. */
+    orderDirection?: 'ASC' | 'DESC'
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
+    /**
+     * Return the matching spans themselves, one row per span (root and child), instead of the
+     * whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every
+     * matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays
+     * bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace
+     * waterfall never sets this.
+     */
+    flatSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3246,6 +3300,13 @@ export interface SpanTreeNode {
      * flame graph.
      */
     avg_start_offset_nano: number
+    /**
+     * How many times this child runs per parent invocation (edge count / parent span
+     * count). Separates fan-out volume from per-call cost: a child can dominate
+     * total_duration_nano purely by running many times per parent. Null for root edges
+     * (no parent invocation to ratio against).
+     */
+    calls_per_parent_invocation?: number | null
 }
 
 export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
@@ -3276,6 +3337,161 @@ export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase 
 }
 
 export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
+/**
+ * One row of a span attribute breakdown: the spans matching the filters, grouped by one
+ * attribute's value. Spans without the attribute group under `value = ''`.
+ */
+export interface AttributeBreakdownRow {
+    value: string
+    count: integer
+    error_count: integer
+    p50_duration_nano: number
+    p95_duration_nano: number
+}
+
+export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
+
+export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
+    kind: NodeKind.TraceSpansAttributeBreakdownQuery
+    dateRange: DateRange
+    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    breakdownKey: string
+    /** Where the key lives: span-level attributes or resource-level attributes. */
+    breakdownType: TraceSpanBreakdownType
+    /** Order rows by span count or error count, descending. Defaults to count. */
+    orderBy?: TraceSpanBreakdownOrderBy
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: AttributeBreakdownRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AttributeBreakdownRow[]
+}
+
+export type CachedTraceSpansAttributeBreakdownQueryResponse =
+    CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
+
+/**
+ * A source symbol (typically a function) the client wants production latency for, identified by its
+ * declaration line range. The client supplies these from its own AST/LSP — the server does not infer
+ * function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a
+ * call site inside the body rather than the declaration line).
+ */
+export interface SourceSymbol {
+    /** Opaque identifier (e.g. the function name) echoed back on the matching result row. */
+    name?: string
+    /** First line of the symbol's range, inclusive (1-based). */
+    startLine: positive_integer
+    /** Last line of the symbol's range, inclusive (1-based). */
+    endLine: positive_integer
+}
+
+/** Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison. */
+export interface SymbolStatsPeriod {
+    /** Number of spans attributed to this symbol in the period. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+/**
+ * Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location
+ * attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The
+ * flat fields are the current period; `previous` is the immediately-preceding equal-length window. One
+ * row per bucket with spans in either period.
+ */
+export interface SymbolStatsRow {
+    /** The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode. */
+    line: integer
+    /** Echoed `name` from the requested symbol. Symbol mode only. */
+    name?: string
+    /** `endLine` of the matched symbol's range. Symbol mode only. */
+    end_line?: integer
+    /** Number of spans attributed to this bucket. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in this symbol, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: SymbolStatsPeriod
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline
+     * (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p95_duration_pct_change: number | null
+}
+
+export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
+    kind: NodeKind.TraceSpansSymbolStatsQuery
+    dateRange: DateRange
+    /**
+     * Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`).
+     * Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a
+     * recorded path carrying an extra crate/workspace prefix still matches.
+     */
+    filePath: string
+    /**
+     * Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed
+     * to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an
+     * empty list), spans are aggregated per source line (one row per instrumented line) — pass a single
+     * whole-file range for a file-level total.
+     */
+    symbols?: SourceSymbol[]
+}
+
+/** Bucketing applied to a symbol-stats result: per source line, or per requested symbol range. */
+export type SymbolStatsGranularity = 'line' | 'symbol'
+
+export interface TraceSpansSymbolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** One row per bucket, ordered by line ascending. */
+    results: SymbolStatsRow[]
+    /** Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise. */
+    granularity: SymbolStatsGranularity
+}
+
+export type CachedTraceSpansSymbolStatsQueryResponse = CachedQueryResponse<TraceSpansSymbolStatsQueryResponse>
 
 export interface FileSystemCount {
     count: number
@@ -3379,7 +3595,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
@@ -3415,6 +3631,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row */
+    pinnedByDefault?: boolean
 }
 
 export interface FileSystemViewLogEntry {
@@ -3686,11 +3904,40 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Exposure estimate settings for the experiment running-time calculator. */
+export interface ExperimentExposureEstimateConfig {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: 'manual' | 'automatic'
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number
+}
+
+/** Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`. */
+export interface ExperimentRunningTimeCalculation {
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilter[]
 }
@@ -5841,6 +6088,25 @@ export interface SuggestedTable {
     tooltip?: string | null
 }
 
+export const dataWarehouseSourceCategories = [
+    'Databases',
+    'File storage',
+    'Advertising',
+    'Marketing & email',
+    'CRM',
+    'Sales',
+    'Customer support',
+    'Payments & billing',
+    'Finance & accounting',
+    'Analytics',
+    'Engineering & monitoring',
+    'Productivity',
+    'HR & recruiting',
+    'Communication',
+    'E-commerce',
+] as const
+export type DataWarehouseSourceCategory = (typeof dataWarehouseSourceCategories)[number]
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -5883,6 +6149,19 @@ export interface SourceConfig {
      * @default false
      */
     supportsColumnSelection?: boolean
+
+    /**
+     * Catalog bucket this source is grouped under in the new-source wizard. Optional at the
+     * type level so partial/in-progress sources don't break, but every registered source must
+     * set one (enforced by a test). See `dataWarehouseSourceCategories`.
+     */
+    category?: DataWarehouseSourceCategory
+
+    /**
+     * Extra search terms (alternate spellings, acronyms) for the catalog search, e.g.
+     * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
+     */
+    keywords?: string[]
 }
 
 export const externalDataSources = [
@@ -5905,6 +6184,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleSearchConsole',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
@@ -6032,6 +6312,479 @@ export const externalDataSources = [
     'Resend',
     'PgAnalyze',
     'WorkOS',
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'Databricks',
+    'Dynamics365',
+    'SalesforceMarketingCloud',
+    'Db2',
+    'Heap',
+    'AdobeAnalytics',
+    'Matomo',
+    'Optimizely',
+    'Adyen',
+    'GoCardless',
+    'Mollie',
+    'CheckoutCom',
+    'Branch',
+    'Criteo',
+    'Outbrain',
+    'Taboola',
+    'AdRoll',
+    'DisplayVideo360',
+    'GoogleAdManager',
+    'CampaignManager360',
+    'SearchAds360',
+    'AdobeCommerce',
+    'AmazonSellingPartner',
+    'Ebay',
+    'Commercetools',
+    'LightspeedRetail',
+    'ShipStation',
+    'ConstantContact',
+    'Mailgun',
+    'Eloqua',
+    'Sailthru',
+    'Ortto',
+    'Attentive',
+    'Kustomer',
+    'Dixa',
+    'Gladly',
+    'Qualtrics',
+    'Delighted',
+    'AzureDevOps',
+    'Rollbar',
+    'Opsgenie',
+    'IncidentIo',
+    'Pingdom',
+    'Cloudflare',
+    'CosmosDB',
+    'PlanetScale',
+    'SapHana',
+    'Rippling',
+    'HiBob',
+    'Personio',
+    'Deel',
+    'AdpWorkforceNow',
+    'Paylocity',
+    'Gusto',
+    'CultureAmp',
+    'Lattice',
+    'SageIntacct',
+    'FreshBooks',
+    'Expensify',
+    'Ramp',
+    'Brex',
+    'Coupa',
+    'SapConcur',
+    'Apollo',
+    'Crunchbase',
+    'ZoomInfo',
+    'Clari',
+    'Chorus',
+    'Coda',
+    'Guru',
+    'Dropbox',
+    'Docusign',
+    'PandaDoc',
+    'SapErp',
+    'SapSuccessFactors',
+    'OracleEbs',
+    'OracleFusion',
+    'AmazonSNS',
+    'AmazonEventBridge',
+    'AmazonSQS',
+    'AmazonKinesis',
+    'AmazonCloudWatch',
+    'OpenAIAds',
+    'OneHundredMs',
+    'SevenShifts',
+    'AcuityScheduling',
+    'AgileCRM',
+    'Aha',
+    'Airbyte',
+    'Akeneo',
+    'Algolia',
+    'AlpacaBrokerAPI',
+    'ApifyDataset',
+    'Appcues',
+    'Appfigures',
+    'Appfollow',
+    'Apptivo',
+    'AssemblyAI',
+    'Awin',
+    'AwsCloudTrail',
+    'AzureTableStorage',
+    'Babelforce',
+    'Basecamp',
+    'Beamer',
+    'BigMailer',
+    'Bluetally',
+    'BoldSign',
+    'BreezyHR',
+    'Bugsnag',
+    'Buildkite',
+    'Bunny',
+    'Buzzsprout',
+    'CalCom',
+    'CallRail',
+    'Campayn',
+    'Canny',
+    'CapsuleCRM',
+    'CaptainData',
+    'CartCom',
+    'CastorEDC',
+    'Chameleon',
+    'Chargedesk',
+    'Chargify',
+    'Chift',
+    'Churnkey',
+    'Cin7',
+    'CiscoMeraki',
+    'Clazar',
+    'Clockify',
+    'Clockodo',
+    'Cloudbeds',
+    'Coassemble',
+    'Codefresh',
+    'Concord',
+    'ConfigCat',
+    'Couchbase',
+    'Curve',
+    'Customerly',
+    'Datascope',
+    'Dbt',
+    'Deputy',
+    'DevinAI',
+    'Docuseal',
+    'Dolibarr',
+    'Dremio',
+    'DropboxSign',
+    'Dwolla',
+    'EConomic',
+    'Easypost',
+    'Easypromos',
+    'Elasticemail',
+    'EmailOctopus',
+    'EmploymentHero',
+    'Encharge',
+    'Eventee',
+    'Eventzilla',
+    'Everhour',
+    'EZOfficeInventory',
+    'Factorial',
+    'Fastbill',
+    'Fastly',
+    'Fauna',
+    'Feishu',
+    'Fillout',
+    'Finage',
+    'Firebolt',
+    'FireHydrant',
+    'Fleetio',
+    'Flexmail',
+    'Flexport',
+    'FloatApp',
+    'Flowlu',
+    'Formbricks',
+    'FreeAgent',
+    'Freightview',
+    'Freshcaller',
+    'Freshchat',
+    'Freshservice',
+    'Fulcrum',
+    'GainsightPx',
+    'GitBook',
+    'Glassfrog',
+    'Goldcast',
+    'GoLogin',
+    'Grafana',
+    'GreytHr',
+    'Gridly',
+    'Harness',
+    'Height',
+    'Hellobaton',
+    'HighLevel',
+    'HoorayHR',
+    'Hubplanner',
+    'Humanitix',
+    'Huntr',
+    'Inflowinventory',
+    'InforNexus',
+    'Insightful',
+    'Insightly',
+    'Instatus',
+    'Intruder',
+    'Invoiced',
+    'Invoiceninja',
+    'JamfPro',
+    'JobNimbus',
+    'Jotform',
+    'JudgeMeReviews',
+    'JustCall',
+    'JustSift',
+    'K6Cloud',
+    'Katana',
+    'Keka',
+    'Kisi',
+    'Kissmetrics',
+    'Klarna',
+    'Klaus',
+    'Lago',
+    'Leadfeeder',
+    'Lemlist',
+    'LessAnnoyingCRM',
+    'LinkedinPages',
+    'Linkrunner',
+    'Linnworks',
+    'Lob',
+    'Lokalise',
+    'Looker',
+    'Luma',
+    'MailerSend',
+    'Mailosaur',
+    'Mailtrap',
+    'Mantle',
+    'Mention',
+    'MercadoAds',
+    'Merge',
+    'Metabase',
+    'Metricool',
+    'MicrosoftDataverse',
+    'MicrosoftEntraId',
+    'MicrosoftLists',
+    'Miro',
+    'Missive',
+    'MixMax',
+    'Mode',
+    'Mux',
+    'MyHours',
+    'N8n',
+    'Navan',
+    'NebiusAI',
+    'Nexiopay',
+    'NinjaOneRMM',
+    'NoCRM',
+    'NorthpassLMS',
+    'Nutshell',
+    'Nylas',
+    'Oncehub',
+    'Onepagecrm',
+    'OneSignal',
+    'Onfleet',
+    'OpinionStage',
+    'OPUSWatch',
+    'Orb',
+    'Orbit',
+    'Oura',
+    'Oveit',
+    'PabblySubscriptionsBilling',
+    'Paperform',
+    'Papersign',
+    'Partnerize',
+    'PartnerStack',
+    'PayFit',
+    'Paystack',
+    'Pennylane',
+    'Perk',
+    'PersistIq',
+    'Persona',
+    'Phyllo',
+    'Picqer',
+    'Pipeliner',
+    'PivotalTracker',
+    'Piwik',
+    'Planhat',
+    'Plausible',
+    'Poplar',
+    'PrestaShop',
+    'Pretix',
+    'Primetric',
+    'Printify',
+    'Productive',
+    'Pylon',
+    'Qonto',
+    'Qualaroo',
+    'Railz',
+    'RDStationMarketing',
+    'Recruitee',
+    'Reddit',
+    'ReferralHero',
+    'RentCast',
+    'Repairshopr',
+    'ReplyIo',
+    'RetailExpress',
+    'Retently',
+    'RevolutMerchant',
+    'RocketChat',
+    'Rocketlane',
+    'Rootly',
+    'Ruddr',
+    'SafetyCulture',
+    'SageHR',
+    'Salesflare',
+    'SAPFieldglass',
+    'SavvyCal',
+    'Secoda',
+    'Segment',
+    'Sendowl',
+    'SendPulse',
+    'Senseforce',
+    'Serpstat',
+    'Sharetribe',
+    'Shippo',
+    'ShopWired',
+    'Shortio',
+    'Shutterstock',
+    'SigmaComputing',
+    'SignNow',
+    'SimpleCast',
+    'Simplesat',
+    'Smaily',
+    'SmartEngage',
+    'Smartreach',
+    'Smartwaiver',
+    'SolarwindsServiceDesk',
+    'SonarCloud',
+    'SparkPost',
+    'SplitIo',
+    'SpotifyAds',
+    'SpotlerCRM',
+    'Squarespace',
+    'Statsig',
+    'Statuspage',
+    'Stigg',
+    'Strava',
+    'SurveySparrow',
+    'Survicate',
+    'Svix',
+    'Systeme',
+    'Tavus',
+    'Teamtailor',
+    'Teamwork',
+    'Tempo',
+    'Testrail',
+    'Thinkific',
+    'ThinkificCourses',
+    'ThriveLearning',
+    'Ticketmaster',
+    'TicketTailor',
+    'TickTick',
+    'Timely',
+    'Tinyemail',
+    'Todoist',
+    'Toggl',
+    'TrackPMS',
+    'Tremendous',
+    'TrustPilot',
+    'Twitter',
+    'TyntecSMS',
+    'Unleash',
+    'UpPromote',
+    'Uptick',
+    'Uservoice',
+    'Vantage',
+    'Veeqo',
+    'Vercel',
+    'VismaEconomic',
+    'VWO',
+    'Waiteraid',
+    'Wasabi',
+    'WhenIWork',
+    'Wordpress',
+    'Workable',
+    'Workflowmax',
+    'Workramp',
+    'Wufoo',
+    'Xsolla',
+    'YandexMetrica',
+    'Yotpo',
+    'Ynab',
+    'Younium',
+    'YouSign',
+    'YoutubeData',
+    'ZapierSupportedStorage',
+    'ZapSign',
+    'ZendeskSell',
+    'ZendeskSunshine',
+    'Zenefits',
+    'Zenloop',
+    'ZohoAnalytics',
+    'ZohoBigin',
+    'ZohoBilling',
+    'ZohoBooks',
+    'ZohoCampaign',
+    'ZohoDesk',
+    'ZohoExpense',
+    'ZohoInventory',
+    'ZohoInvoice',
+    'ZonkaFeedback',
+    'AlphaVantage',
+    'Aviationstack',
+    'Bitly',
+    'Blogger',
+    'Breezometer',
+    'CareQualityCommission',
+    'Cimis',
+    'CoinApi',
+    'CoinGecko',
+    'CoinMarketCap',
+    'DingConnect',
+    'Dockerhub',
+    'ExchangeRatesApi',
+    'FinancialModelling',
+    'Finnhub',
+    'Finnworlds',
+    'Giphy',
+    'Gmail',
+    'GNews',
+    'GoogleCalendar',
+    'GoogleClassroom',
+    'GoogleDirectory',
+    'GoogleForms',
+    'GooglePageSpeedInsights',
+    'GoogleTasks',
+    'GoogleWebfonts',
+    'GoogleWorkspaceAdminReports',
+    'HuggingFace',
+    'IlluminaBasespace',
+    'Imagga',
+    'Interzoid',
+    'IP2Whois',
+    'KYVE',
+    'Marketstack',
+    'Mendeley',
+    'Nasa',
+    'NewYorkTimes',
+    'NewsApi',
+    'NewsData',
+    'OpenDataDc',
+    'OpenExchangeRates',
+    'OpenAQ',
+    'OpenFDA',
+    'OpenWeather',
+    'Outlook',
+    'Perigon',
+    'Pexels',
+    'Pocket',
+    'Polygon',
+    'PyPI',
+    'Recreation',
+    'RKICovid',
+    'Rss',
+    'SimFin',
+    'StockData',
+    'Guardian',
+    'TMDb',
+    'TVMaze',
+    'TwelveData',
+    'Ubidots',
+    'USCensus',
+    'Watchmode',
+    'WikipediaPageviews',
+    'YahooFinance',
+    'Clarifai',
+    'Adapty',
     'Custom',
 ] as const
 
@@ -6183,7 +6936,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it
@@ -6329,6 +7082,11 @@ export enum DashboardAutoRefreshInterval {
 /** Subscriptions a free-tier team may create. */
 export enum SubscriptionFreeTierLimit {
     COUNT = 5,
+}
+
+/** Maximum length, in characters, of an AI subscription prompt. */
+export enum SubscriptionAIPromptMaxLength {
+    CHARACTERS = 4000,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -6542,6 +7300,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
@@ -6572,6 +7331,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
+    SKILLS = 'skills',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',

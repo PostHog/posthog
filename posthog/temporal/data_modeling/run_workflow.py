@@ -494,10 +494,6 @@ async def materialize_model(
     """
     await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
-    query_columns = saved_query.columns
-    if not query_columns:
-        query_columns = await database_sync_to_async(saved_query.get_columns)()
-
     if not isinstance(saved_query.query, dict):
         raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
 
@@ -546,6 +542,7 @@ async def materialize_model(
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _force_nullable(batch)
 
             if index == 0:
                 await logger.adebug(
@@ -840,7 +837,12 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     await logger.adebug(f"Running count query: {printed}")
 
     async with get_client() as client:
-        result = await client.read_query(printed, query_parameters=context.values)
+        async with client.apost_query(
+            query=printed,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+        ) as response:
+            result = await response.content.read()
         count = int(result.decode("utf-8").strip())
         return count
 
@@ -1175,6 +1177,25 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     )
 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Mark every column nullable so batch schemas don't diverge across delta commits.
+
+    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
+    and non-Nullable source columns. When such a query spans more than one batch, the first
+    batch's overwrite pins a non-nullable delta schema and the later append routes through
+    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
+    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
+    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
+    nullable keeps each batch's schema identical to the first overwrite, so the append never
+    triggers that path and camelCase column names survive.
+    """
+    nullable_schema = pa.schema(
+        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return batch.cast(nullable_schema)
 
 
 def _get_credentials():

@@ -2,9 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
+    api_proxy,
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
@@ -25,6 +26,8 @@ pub struct Cli {
     #[arg(long, default_value = "false")]
     no_fail: bool,
 
+    /// Skip SSL certificate verification when talking to the PostHog API. Use only with
+    /// self-signed certificates.
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
 
@@ -32,8 +35,10 @@ pub struct Cli {
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
 
-    /// Load PostHog credentials from this dotenv-style file when not present in the process environment.
-    #[arg(long, value_name = "PATH")]
+    /// Load PostHog credentials from this dotenv-style file when not present in the process
+    /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
+    /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
+    #[arg(long = "dotenv-file", alias = "env-file", value_name = "PATH")]
     env_file: Option<PathBuf>,
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
@@ -114,6 +119,32 @@ pub enum Commands {
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
+    },
+
+    #[command(
+        about = "Agent-first PostHog API tools",
+        long_about = "Agent-first PostHog API tools.\n\n\
+            Exposes PostHog's MCP tool catalog through a shell-friendly interface so coding \
+            agents (and the humans driving them) can discover, inspect, and call PostHog API \
+            tools without loading every schema into context upfront.",
+        after_help = "Commands:\n  \
+            tools                                              List every available tool\n  \
+            search <regex>                                     Find tools by name, title, or description\n  \
+            info [--json] <tool>                               Show a tool's description and input schema\n  \
+            schema <tool> [field.path]                         Drill into a nested schema field\n  \
+            call [--json] [--dry-run] [--confirm] <tool> '<json>'  Execute a tool with JSON input\n  \
+            skill list [--json]                                List installable PostHog agent skills\n  \
+            skill install [--force] <skill-id>                 Install a skill into .agents/skills/\n  \
+            agents-md install [--path AGENTS.md]               Install the PostHog steering snippet\n\n\
+            Run `posthog-cli api --agent-help` for the full agent-facing usage guide.\n\n\
+            This command group is experimental: pass `--experimental` after `api`, or set \
+            POSTHOG_CLI_EXPERIMENTAL_API=1.\n\
+            Destructive tools require --confirm. Use --dry-run before mutations.",
+        trailing_var_arg = true
+    )]
+    Api {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -217,6 +248,7 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
                 }
@@ -283,6 +315,21 @@ impl Cli {
                     crate::download::extract(&args)?;
                 }
             },
+            Commands::Api { args } => {
+                let api_context = match init_context(
+                    self.host.clone(),
+                    self.skip_ssl_verification,
+                    self.rate_limit,
+                    self.env_file.clone(),
+                ) {
+                    Ok(_) => Some(context()),
+                    Err(error) => {
+                        debug!("API CLI proxy running without invocation context: {error:?}");
+                        None
+                    }
+                };
+                api_proxy::run(args, self.host, api_context)?;
+            }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,

@@ -1,20 +1,32 @@
 import json
-from typing import Any
+import datetime as dt
+from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_ADS_MAX_HISTORY_DAYS,
+    META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
+    _earliest_supported_since,
+    _is_permanent_auth_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
     _next_smaller_limit,
     _override_limit,
     _strip_access_token,
+    get_integration,
+    meta_ads_source,
 )
 from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _mock_response(status: int, body: dict) -> mock.MagicMock:
@@ -188,6 +200,88 @@ class TestSimplePagination:
         # Initial request should be the original URL with params, not the stale next_url.
         assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
         assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+
+
+class TestSimplePaginationLimitFallback:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    # Mirrors production params from `meta_ads_source`: a default page limit is always set.
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+    REDUCE_BODY: dict[str, Any] = {
+        "error": {"code": 1, "message": "Please reduce the amount of data you're asking for, then retry your request"}
+    }
+
+    def test_initial_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial request at the default limit is rejected as too large.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry at the next-smaller limit succeeds.
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        # First attempt used the default 500 limit.
+        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"]["limit"] == 500
+        # Retry re-issues the same initial URL with the limit reduced to the next rung (100).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"]["limit"] == 100
+
+    def test_cursor_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Page 1 succeeds and hands back a cursor.
+            _mock_response(
+                200,
+                {"data": [{"id": "1"}], "paging": {"next": "https://graph.facebook.com/v20/next?after=p1"}},
+            ),
+            # The cursor request is rejected as too large at the default limit.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry of the SAME cursor at a smaller limit succeeds; no more pages.
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        # Cursor first tried without a limit override (still at the default).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+        # Retry uses the SAME cursor with the limit reduced to 100.
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/next?after=p1&limit=100"
+        )
+
+    def test_exhausting_limit_ladder_raises(self) -> None:
+        manager = _build_manager()
+        # Every rung in PAGE_LIMIT_FALLBACK_SIZES returns the too-much-data error.
+        responses = [_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # One attempt per rung, then it gives up.
+        assert mock_get.return_value.get.call_count == len(PAGE_LIMIT_FALLBACK_SIZES)
+
+    def test_non_timeout_error_does_not_retry(self) -> None:
+        manager = _build_manager()
+        # Transient service error (code 2) — not a too-much-data error, so no limit fallback.
+        responses = [_mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}})]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == 1
 
 
 class TestTimeRangePagination:
@@ -633,7 +727,9 @@ class TestMidChunkLimitFallback:
                     "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
                 },
             ),
-            _mock_response(401, {"error": {"message": "Invalid OAuth access token", "code": 190}}),
+            # Transient service error (code 2) — not a timeout and not an auth error, so it
+            # neither retries-with-smaller-limit nor gets reclassified as permanent.
+            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
         ]
 
         with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
@@ -642,10 +738,39 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Meta API request failed: 401"):
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
                 list(gen)
 
         # Exactly two requests: initial + the failed cursor. No retry happened.
+        assert mock_get.return_value.get.call_count == 2
+
+    def test_permanent_auth_error_raises_clean_message_and_does_not_retry(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # code 190 — invalidated session. Re-auth is the only fix, so no retry should happen.
+            _mock_response(
+                400,
+                {"error": {"message": "Error validating access token", "type": "OAuthException", "code": 190}},
+            ),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+            )
+            assert next(gen) == [{"ad_id": "1"}]
+            with pytest.raises(Exception, match="Please re-authorize the integration"):
+                list(gen)
+
+        # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
         assert mock_get.return_value.get.call_count == 2
 
 
@@ -662,6 +787,15 @@ class TestNonRetryableErrors:
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+            # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
+            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
+            'instructions given.","type":"OAuthException","code":190,"error_subcode":459}})',
+            # code 190 / subcode 460 — session invalidated after a password change.
+            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Error validating access token: The session has been invalidated because the '
+            "user changed their password or Facebook has changed the session for security "
+            'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:
@@ -669,3 +803,133 @@ class TestNonRetryableErrors:
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            # Permanent auth/permission failures.
+            ({"error": {"code": 190, "error_subcode": 459}}, True),
+            ({"error": {"code": 190, "error_subcode": 460}}, True),
+            ({"error": {"code": 102}}, True),
+            ({"error": {"code": 10}}, True),
+            ({"error": {"code": 200}}, True),
+            ({"error": {"code": 299}}, True),
+            # Transient / retryable errors — Meta still tags some of these OAuthException.
+            ({"error": {"code": 2, "type": "OAuthException"}}, False),
+            ({"error": {"code": 1, "error_subcode": 99}}, False),
+            ({"error": {"code": 4}}, False),
+            ({"error": {}}, False),
+            ({}, False),
+        ],
+    )
+    def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
+        assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+@freeze_time("2026-06-16")
+class TestTimeRangeClamping:
+    """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
+
+    The `since` we build must stay inside Meta's supported window, even when it is
+    derived from an aged incremental cursor.
+
+    The date is frozen so the ``today`` captured in the test and the
+    ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
+    """
+
+    def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, Any] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["time_range"] = time_range
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        config = mock.MagicMock()
+        config.account_id = "act_123"
+        config.meta_ads_integration_id = 1
+        config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+
+        response = meta_ads_source(
+            resource_name="campaign_stats",
+            config=config,
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            **source_kwargs,
+        )
+        list(cast(Any, response.items()))
+        return captured["time_range"]
+
+    @pytest.mark.parametrize(
+        "days_ago,should_clamp",
+        [
+            # A dormant account's stored cursor has aged past Meta's 37-month limit.
+            (META_ADS_MAX_HISTORY_DAYS + 200, True),
+            # A recent cursor sits comfortably inside the supported window.
+            (5, False),
+        ],
+    )
+    def test_incremental_cursor_clamping(self, monkeypatch, days_ago: int, should_clamp: bool) -> None:
+        today = dt.date.today()
+        cursor = today - dt.timedelta(days=days_ago)
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=cursor,
+        )
+
+        assert time_range is not None
+        expected_since = _earliest_supported_since(today) if should_clamp else cursor
+        assert time_range["since"] == expected_since.strftime("%Y-%m-%d")
+        assert time_range["until"] == today.strftime("%Y-%m-%d")
+
+    def test_stats_lookback_is_clamped_to_supported_window(self, monkeypatch) -> None:
+        today = dt.date.today()
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            sync_lookback_days=10_000,  # capped to META_ADS_MAX_HISTORY_DAYS upstream
+            should_use_incremental_field=False,
+        )
+
+        assert time_range is not None
+        assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
+
+
+class TestGetIntegration:
+    def test_refreshes_stale_db_connection_before_query(self, monkeypatch) -> None:
+        # `get_integration` runs lazily inside `get_rows` on a worker thread whose
+        # pooled Django connection may have been closed server-side, surfacing as
+        # `OperationalError: the connection is closed`. We must drop the stale
+        # connection before querying, so the read happens on a fresh connection.
+        calls: list[str] = []
+
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+        integration = mock.MagicMock()
+
+        def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
+            calls.append("Integration.objects.get")
+            return integration
+
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", fake_get)
+
+        meta_ads_integration = mock.MagicMock()
+        meta_ads_integration.integration = integration
+        integration.errors = None
+        monkeypatch.setattr(meta_ads_module, "MetaAdsIntegration", lambda _integration: meta_ads_integration)
+
+        config = MetaAdsSourceConfig(account_id="act_123", meta_ads_integration_id=42)
+        result = get_integration(config, team_id=1)
+
+        assert calls == ["close_old_connections", "Integration.objects.get"]
+        meta_ads_integration.refresh_access_token.assert_called_once()
+        assert result is integration

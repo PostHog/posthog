@@ -161,6 +161,7 @@ describe('DashboardItems', () => {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
                     dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -241,7 +242,7 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('hides widget tiles on public dashboards', () => {
+    it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
             widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
@@ -281,7 +282,7 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { queryByTestId } = render(<DashboardItems />)
-        expect(queryByTestId('widget-card')).not.toBeInTheDocument()
+        const { getByTestId } = render(<DashboardItems />)
+        expect(getByTestId('widget-card')).toBeInTheDocument()
     })
 })

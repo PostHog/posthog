@@ -11,6 +11,8 @@ import type { sourceMapsFixWizardLogicType } from './sourceMapsFixWizardLogicTyp
 export type WizardRating = 'good' | 'bad'
 export type WizardOpenSource = 'issues_list' | 'recommendations'
 
+export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
+
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.
 const FEEDBACK_REVEAL_DELAY_MS = 1000
@@ -108,7 +110,7 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
         wizardCommand: [
             () => [preflightLogic.selectors.preflight],
             (preflight): string =>
-                `npx -y @posthog/wizard@latest upload-sourcemaps${preflight?.region === Region.EU ? ' --region eu' : ''}`,
+                `npx -y @posthog/wizard@latest upload-source-maps${preflight?.region === Region.EU ? ' --region eu' : ''}`,
         ],
     }),
 

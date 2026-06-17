@@ -1,4 +1,3 @@
-import { arrayMove } from '@dnd-kit/sortable'
 import equal from 'fast-deep-equal'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
@@ -11,12 +10,11 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
-import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
+import { getRelativeNextPath } from 'lib/utils/url'
 import {
     emptySceneParams,
     forwardedRedirectQueryParams,
@@ -38,7 +36,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
@@ -52,20 +49,6 @@ import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
-
-export type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
-export type TabCloseSource =
-    | 'close_button'
-    | 'context_menu'
-    | 'keyboard_shortcut'
-    | 'middle_click'
-    | 'open_in_side_panel'
-    | 'unknown'
-
-export interface PersistedPinnedState {
-    tabs: SceneTab[]
-    homepage: SceneTab | null
-}
 
 interface MountedTabLogic {
     logic: SceneExport['logic']
@@ -98,8 +81,11 @@ const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
     return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
-const persistTabs = (_tabs: SceneTab[], _homepage: SceneTab | null): void => {
-    // PostHog tabs were removed — no longer persist tab state to storage.
+// Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
+// before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
+const getBootstrappedHomepage = (): SceneTab | null => {
+    const homepage = getAppContext()?.homepage
+    return homepage ? sanitizeTabForPersistence(homepage) : null
 }
 
 const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneTab[] } => {
@@ -120,21 +106,6 @@ const sortTabsPinnedFirst = (tabs: SceneTab[]): SceneTab[] => {
     return [...pinned, ...unpinned]
 }
 
-const updateTabPinnedState = (tabs: SceneTab[], tabId: string, pinned: boolean): SceneTab[] => {
-    const index = tabs.findIndex((tab) => tab.id === tabId)
-    if (index === -1) {
-        return tabs
-    }
-
-    const newTabs = [...tabs]
-    newTabs[index] = {
-        ...tabs[index],
-        pinned,
-    }
-
-    return ensureActiveTab(sortTabsPinnedFirst(newTabs))
-}
-
 const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
     if (!tabs.some((tab) => tab.active)) {
         if (tabs.length > 0) {
@@ -142,33 +113,6 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
         }
     }
     return tabs
-}
-
-export const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
-    if (!storedPinned) {
-        return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
-    }
-
-    const storedTabs = storedPinned.tabs ?? []
-
-    // sceneParams is stripped during persistence (see tabToPersistableSnapshot) because it can be
-    // deep/cyclic. Restore it from in-memory tabs so `paramsToProps` doesn't run against an empty bag.
-    const fallbackById = new Map<string, SceneTab>()
-    for (const tab of fallbackPinned) {
-        fallbackById.set(tab.id, tab)
-    }
-
-    return storedTabs.map((tab) => {
-        const id = tab.id || generateTabId()
-        const fallback = fallbackById.get(id)
-        return {
-            ...tab,
-            id,
-            pinned: true,
-            active: fallback?.active ?? false,
-            sceneParams: fallback?.sceneParams ?? tab.sceneParams,
-        }
-    })
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -199,6 +143,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/cli',
     '/startups',
     '/coupons',
+    '/legal',
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -224,6 +169,44 @@ const restoreMainContentScrollTop = (scrollTop: number, onlyIfTabId?: string): v
     })
 }
 
+/**
+ * Forwards whitelisted query parameters from the current URL to the redirect URL.
+ * Only forwards params that exist in the current URL and don't already exist in the redirect URL.
+ * This is specifically used for scene redirects to maintain important query parameters across redirects.
+ */
+export function withForwardedSearchParams(
+    redirectUrl: string,
+    currentSearchParams: Params,
+    forwardedQueryParams: string[]
+): string {
+    // If no params to forward, return the original URL
+    if (!forwardedQueryParams?.length) {
+        return redirectUrl
+    }
+
+    const redirectUrlObj = new URL(redirectUrl, window.location.origin)
+    const redirectSearchParams = new URLSearchParams(redirectUrlObj.search)
+    let paramsWereForwarded = false
+
+    // For each whitelisted param that exists in current URL
+    forwardedQueryParams.forEach((param) => {
+        if (currentSearchParams[param] !== undefined && !redirectSearchParams.has(param)) {
+            redirectSearchParams.set(param, currentSearchParams[param])
+            paramsWereForwarded = true
+        }
+    })
+
+    // Only modify the URL if we actually forwarded any params
+    if (!paramsWereForwarded) {
+        return redirectUrl
+    }
+
+    // Reconstruct the URL with the forwarded params
+    redirectUrlObj.search = redirectSearchParams.toString()
+    // Return just the pathname and search to avoid origin being included
+    return redirectUrlObj.pathname + redirectUrlObj.search + redirectUrlObj.hash
+}
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -241,7 +224,6 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.mountedTabLogic = {} as Record<string, MountedTabLogic>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
-        cache.lastRegisteredTabCount = null as number | null
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -304,10 +286,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (
-            href?: string | null,
-            options?: { activate?: boolean; skipNavigate?: boolean; id?: string; source?: TabOpenSource }
-        ) => {
+        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => {
             const tabId = options?.id ?? generateTabId()
             return {
                 href,
@@ -321,22 +300,7 @@ export const sceneLogic = kea<sceneLogicType>([
             iconType,
         }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
-        closeTabId: (tabId: string, options?: { source?: TabCloseSource }) => ({ tabId, options }),
-        removeTab: (tab: SceneTab, options?: { source?: TabCloseSource }) => ({ tab, options }),
-        activateTab: (tab: SceneTab) => ({ tab }),
-        clickOnTab: (tab: SceneTab) => ({ tab }),
-        reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
-        duplicateTab: (tab: SceneTab) => ({ tab }),
-        renameTab: (tab: SceneTab) => ({ tab }),
-        startTabEdit: (tab: SceneTab) => ({ tab }),
-        endTabEdit: true,
-        saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
-        pinTab: (tabId: string) => ({ tabId }),
-        unpinTab: (tabId: string) => ({ tabId }),
         setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
-        setFrozenWidths: (widths: Record<string, number> | null) => ({ widths }),
-        clearFrozenWidths: true,
-        freezeTabWidths: true,
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -362,133 +326,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                     return sortTabsPinnedFirst([...baseTabs, newTab])
                 },
-                removeTab: (state, { tab }) => {
-                    let index = state.findIndex((t) => t === tab)
-                    if (index === -1) {
-                        console.error('Tab to remove not found', tab)
-                        return state
-                    }
-                    let newState = state.filter((_, i) => i !== index)
-                    if (!newState.find((t) => t.active)) {
-                        const newActiveIndex = Math.max(index - 1, 0)
-                        newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
-                    }
-                    if (newState.length === 0) {
-                        newState.push({
-                            id: generateTabId(),
-                            active: true,
-                            pathname: '/new',
-                            search: '',
-                            hash: '',
-                            title: 'Search',
-                            iconType: 'search',
-                            pinned: false,
-                        })
-                    }
-                    return ensureActiveTab(sortTabsPinnedFirst(newState))
-                },
-                activateTab: (state, { tab }) => {
-                    const newState = state.map((t) =>
-                        t === tab
-                            ? !t.active
-                                ? { ...t, active: true, badge: false }
-                                : t
-                            : t.active
-                              ? {
-                                    ...t,
-                                    active: false,
-                                }
-                              : t
-                    )
-                    return sortTabsPinnedFirst(newState)
-                },
-                reorderTabs: (state, { activeId, overId }) => {
-                    const activeIndex = state.findIndex((t) => t.id === activeId)
-                    const overIndex = state.findIndex((t) => t.id === overId)
-                    if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) {
-                        return state
-                    }
-
-                    const activeTab = state[activeIndex]
-                    const overTab = state[overIndex]
-                    if (!!activeTab?.pinned !== !!overTab?.pinned) {
-                        return state
-                    }
-
-                    const { pinned, unpinned } = partitionTabs(state)
-
-                    if (activeTab?.pinned && overTab?.pinned) {
-                        const from = pinned.findIndex((tab) => tab.id === activeId)
-                        const to = pinned.findIndex((tab) => tab.id === overId)
-                        if (from === -1 || to === -1 || from === to) {
-                            return state
-                        }
-                        const reordered = arrayMove(pinned, from, to)
-                        return [...reordered, ...unpinned]
-                    }
-
-                    const from = unpinned.findIndex((tab) => tab.id === activeId)
-                    const to = unpinned.findIndex((tab) => tab.id === overId)
-                    if (from === -1 || to === -1 || from === to) {
-                        return state
-                    }
-                    const newUnpinned = arrayMove(unpinned, from, to)
-                    return [...pinned, ...newUnpinned]
-                },
-                duplicateTab: (state, { tab }) => {
-                    const idx = state.findIndex((t) => t === tab || t.id === tab.id)
-                    const source = idx !== -1 ? state[idx] : tab
-
-                    const cloned: SceneTab = {
-                        id: generateTabId(),
-                        pathname: source.pathname,
-                        search: source.search,
-                        hash: source.hash,
-                        title: source.title,
-                        customTitle: source.customTitle,
-                        iconType: source.iconType,
-                        active: false,
-                        pinned: !!source.pinned,
-                    }
-
-                    const { pinned, unpinned } = partitionTabs(state)
-
-                    if (cloned.pinned) {
-                        const sourceIndex = pinned.findIndex((t) => t.id === source.id)
-                        const sanitizedCloned = { ...cloned, pinned: true }
-                        const updated =
-                            sourceIndex === -1
-                                ? [...pinned, sanitizedCloned]
-                                : [
-                                      ...pinned.slice(0, sourceIndex + 1),
-                                      sanitizedCloned,
-                                      ...pinned.slice(sourceIndex + 1),
-                                  ]
-                        return [...updated, ...unpinned]
-                    }
-
-                    const sourceIndex = unpinned.findIndex((t) => t.id === source.id)
-                    const sanitizedCloned = { ...cloned, pinned: false }
-                    const newUnpinned =
-                        sourceIndex === -1
-                            ? [...unpinned, sanitizedCloned]
-                            : [
-                                  ...unpinned.slice(0, sourceIndex + 1),
-                                  sanitizedCloned,
-                                  ...unpinned.slice(sourceIndex + 1),
-                              ]
-                    return [...pinned, ...newUnpinned]
-                },
-                saveTabEdit: (state, { tab, name }) => {
-                    return state.map((t) =>
-                        t.id === tab.id
-                            ? {
-                                  ...t,
-                                  customTitle: name.trim() === '' ? undefined : name.trim(),
-                              }
-                            : t
-                    )
-                },
                 setScene: (state, { sceneId, sceneKey, tabId, params }) => {
                     return state.map((tab) =>
                         tab.id === tabId
@@ -513,16 +350,6 @@ export const sceneLogic = kea<sceneLogicType>([
                             : tab
                     )
                 },
-                pinTab: (state, { tabId }) => updateTabPinnedState(state, tabId, true),
-                unpinTab: (state, { tabId }) => updateTabPinnedState(state, tabId, false),
-            },
-        ],
-        editingTabId: [
-            null as string | null,
-            {
-                startTabEdit: (_, { tab }) => tab.id,
-                endTabEdit: () => null,
-                saveTabEdit: () => null,
             },
         ],
         exportedScenes: [
@@ -566,10 +393,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ...state,
                     [tabId]: scrollTop,
                 }),
-                removeTab: (state, { tab }) => {
-                    const { [tab.id]: removed, ...rest } = state
-                    return rest
-                },
                 setTabs: (state, { tabs }) => {
                     // remove those no longer present
                     return tabs.reduce(
@@ -584,22 +407,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 },
             },
         ],
-        frozenWidths: [
-            null as Record<string, number> | null,
-            {
-                setFrozenWidths: (_, { widths }) => widths,
-                clearFrozenWidths: () => null,
-            },
-        ],
     }),
-    reducers({
+    // Function form so the bootstrapped default is read at build time (per kea context),
+    // not once at module import — production sets APP_CONTEXT before the bundle loads either way.
+    reducers(() => ({
         homepage: [
-            null as SceneTab | null,
+            getBootstrappedHomepage(),
             {
                 setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
             },
         ],
-    }),
+    })),
     selectors({
         activeTab: [
             (s) => [s.tabs],
@@ -805,63 +623,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 window.setTimeout(() => router.actions.refreshRouterState(), 1)
             }
         },
-        freezeTabWidths: () => {
-            const tabRow = document.querySelector('.scene-tab-row')
-            if (!tabRow) {
-                return
-            }
-            const widths: Record<string, number> = {}
-            tabRow.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
-                const id = el.getAttribute('data-tab-id')
-                if (id) {
-                    widths[id] = el.getBoundingClientRect().width
-                }
-            })
-            actions.setFrozenWidths(widths)
-        },
-        newTab: ({ href, options, tabId }) => {
-            const newTab = values.tabs.find((tab) => tab.id === tabId)
-            const fallbackUrl = combineUrl(href || '/new')
-            const openSource = options?.source ?? 'unknown'
-            posthog.capture('tab opened', {
-                tab_id: tabId,
-                pathname: newTab?.pathname ?? fallbackUrl.pathname,
-                search: newTab?.search ?? fallbackUrl.search,
-                hash: newTab?.hash ?? fallbackUrl.hash,
-                pinned: newTab?.pinned ?? false,
-                active: newTab?.active ?? options?.activate ?? true,
-                scene_id: newTab?.sceneId,
-                scene_key: newTab?.sceneKey,
-                open_source: openSource,
-            })
-            persistTabs(values.tabs, values.homepage)
+        newTab: ({ href, options }) => {
             if (!(options?.skipNavigate ?? false)) {
                 router.actions.push(href || urls.newTab())
             }
         },
-        setTabs: () => persistTabs(values.tabs, values.homepage),
-        activateTab: ({ tab }, _, __, previousState) => {
-            const previousActiveTabId = selectors.activeTabId(previousState)
-            if (previousActiveTabId && previousActiveTabId !== tab.id) {
-                sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(previousActiveTabId, tab.id)
-            }
-            persistTabs(values.tabs, values.homepage)
-        },
-        duplicateTab: () => persistTabs(values.tabs, values.homepage),
-        renameTab: ({ tab }) => {
-            actions.startTabEdit(tab)
-        },
-        pinTab: () => persistTabs(values.tabs, values.homepage),
-        unpinTab: ({ tabId }) => {
-            if (values.homepage?.id === tabId) {
-                actions.setHomepage(null)
-            } else {
-                persistTabs(values.tabs, values.homepage)
-            }
-        },
         setHomepage: ({ tab }) => {
-            if (isSharedView() || cache.skipNextHomepageSync) {
-                cache.skipNextHomepageSync = false
+            if (isSharedView()) {
                 return
             }
             api.update('api/user_home_settings/@me/', {
@@ -869,53 +637,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }).catch((error) => {
                 console.error('Failed to persist homepage', error)
             })
-        },
-        closeTabId: ({ tabId, options }) => {
-            const tab = values.tabs.find(({ id }) => id === tabId)
-            if (tab) {
-                actions.removeTab(tab, { source: options?.source })
-            }
-        },
-        removeTab: ({ tab, options }) => {
-            tabUiStateLogic.findMounted()?.actions.clearTabUiState(tab.id)
-            const closeSource = options?.source ?? 'unknown'
-            posthog.capture('tab closed', {
-                tab_id: tab.id,
-                pathname: tab.pathname,
-                search: tab.search,
-                hash: tab.hash,
-                pinned: tab.pinned,
-                active: tab.active,
-                scene_id: tab.sceneId,
-                scene_key: tab.sceneKey,
-                close_source: closeSource,
-            })
-            const isHomepageTab = values.homepage?.id === tab.id
-            if (tab.active) {
-                // values.activeTab will already be the new active tab from the reducer
-                const { activeTab } = values
-                if (activeTab) {
-                    router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
-                } else if (!isHomepageTab) {
-                    persistTabs(values.tabs, values.homepage)
-                }
-            } else if (!isHomepageTab) {
-                persistTabs(values.tabs, values.homepage)
-            }
-
-            if (isHomepageTab) {
-                actions.setHomepage(null)
-            }
-        },
-        clickOnTab: ({ tab }) => {
-            if (!tab.active) {
-                actions.activateTab(tab)
-            }
-            router.actions.push(tab.pathname, tab.search, tab.hash)
-            persistTabs(values.tabs, values.homepage)
-        },
-        reorderTabs: () => {
-            persistTabs(values.tabs, values.homepage)
         },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
@@ -949,7 +670,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs, values.homepage)
         },
         locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
@@ -986,7 +706,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs, values.homepage)
 
             // Remove trailing slash from the address bar. Route matching itself is handled
             // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
@@ -1017,10 +736,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             if (tabId !== lastTabId) {
-                if (lastTabId) {
-                    sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(lastTabId, tabId)
-                }
-
                 const scrollTop = values.tabScrollDepths[tabId] ?? 0
                 window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
                 window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)
@@ -1300,21 +1015,6 @@ export const sceneLogic = kea<sceneLogicType>([
             ])
             cache.initialNavigationTabCreated = true
         }
-
-        if (!isSharedView() && !cache.homepageLoaded) {
-            cache.homepageLoaded = true
-            ;(async () => {
-                try {
-                    const response = await api.get<{ homepage?: SceneTab | null }>('api/user_home_settings/@me/')
-                    if (response?.homepage) {
-                        cache.skipNextHomepageSync = true
-                        actions.setHomepage(response.homepage)
-                    }
-                } catch (error) {
-                    console.error('Failed to load homepage', error)
-                }
-            })()
-        }
     }),
 
     urlToAction(({ actions, values, cache }) => {
@@ -1369,37 +1069,49 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         }
-        mapping['/'] = (_params, searchParams) => {
+        // The Home button (via `/`) and a direct visit to /home should both land on the user's
+        // configured homepage (set in the Configure home modal). Redirect there unless we're
+        // already at it, which also guards against loops when the homepage is the launchpad itself.
+        const redirectToConfiguredHomepage = (searchParams: Params): boolean => {
             const homepage = values.homepage
-
-            if (homepage) {
-                let targetPathname = homepage.pathname
-                    ? addProjectIdIfMissing(homepage.pathname)
-                    : urls.projectHomepage()
-                if (targetPathname === '/') {
-                    targetPathname = urls.projectHomepage()
-                }
-                const targetSearch = homepage.search || ''
-                const targetHash = homepage.hash || ''
-                const loc = router.values.currentLocation
-                // Already at homepage: skip replace or replaceState loops (e.g. homepage === project root).
-                const alreadyAtHomepage =
-                    addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
-                    (loc.search || '') === targetSearch &&
-                    (loc.hash || '') === targetHash
-                if (!alreadyAtHomepage) {
-                    router.actions.replace(targetPathname, targetSearch, targetHash)
-                    return
-                }
+            if (!homepage) {
+                return false
             }
+            let targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+            if (removeProjectIdIfPresent(targetPathname) === '/') {
+                targetPathname = addProjectIdIfMissing(urls.projectHomepage())
+            }
+            // Forward allow-listed params (e.g. modal) onto the homepage the same way the launchpad
+            // redirect does, and compare against that final target so a forwarded param can't loop.
+            const target = withForwardedSearchParams(
+                targetPathname + (homepage.search || '') + (homepage.hash || ''),
+                searchParams,
+                forwardedRedirectQueryParams
+            )
+            const loc = router.values.currentLocation
+            if (addProjectIdIfMissing(loc.pathname) + (loc.search || '') + (loc.hash || '') === target) {
+                return false
+            }
+            router.actions.replace(target)
+            return true
+        }
 
+        mapping['/'] = (_params, searchParams) => {
+            if (redirectToConfiguredHomepage(searchParams)) {
+                return
+            }
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
         }
 
+        const projectHomepagePath = urls.projectHomepage()
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = (params, searchParams, hashParams, { method }) => {
+                // A direct visit to /home honors the configured homepage just like the Home button.
+                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
+                    return
+                }
                 const tabId = ensureNavigationTabId()
                 actions.openScene(
                     scene,
@@ -1455,11 +1167,6 @@ export const sceneLogic = kea<sceneLogicType>([
             tabs: () => {
                 cache.initialNavigationTabCreated =
                     cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
-                const tabCount = values.tabs.length
-                if (cache.lastRegisteredTabCount !== tabCount) {
-                    posthog.register({ tab_count: tabCount })
-                    cache.lastRegisteredTabCount = tabCount
-                }
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {

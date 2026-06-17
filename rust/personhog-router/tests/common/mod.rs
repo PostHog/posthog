@@ -39,12 +39,12 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
 use personhog_router::config::RetryConfig;
 use personhog_router::proxy::RawProxyService;
@@ -446,6 +446,13 @@ impl PersonHogReplica for TestReplicaService {
             deleted_count: 0,
         }))
     }
+
+    async fn split_person(
+        &self,
+        _request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        Ok(Response::new(SplitPersonResponse { splits: vec![] }))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -537,7 +544,7 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(ReplicaBackendConfig {
+    let backend = ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: replica_url,
         timeout: Duration::from_secs(5),
         retry_config,
@@ -546,7 +553,6 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     });
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
@@ -781,7 +787,7 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(ReplicaBackendConfig {
+    let replica = ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: replica_url,
         timeout: Duration::from_secs(5),
         retry_config,
@@ -790,7 +796,6 @@ pub async fn start_test_router_with_leader(
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     });
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
@@ -841,7 +846,7 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
+    Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: format!("http://{}", replica_addr),
         timeout: Duration::from_secs(5),
         retry_config,
@@ -850,7 +855,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     }))
 }
 

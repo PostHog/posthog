@@ -22,8 +22,11 @@ export interface EmailConfigStatus {
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'loadCurrentTeam']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
+        ],
     })),
     actions({
         generateNewToken: true,
@@ -57,6 +60,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackBotIconUrlValue: (value: string | null) => ({ value }),
         setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
         saveSlackBotSettings: true,
+        setSlackNotifyOnJoin: (enabled: boolean) => ({ enabled }),
+        setSlackNotifyOnLeave: (enabled: boolean) => ({ enabled }),
+        setSlackAlertChannel: (channelId: string | null) => ({ channelId }),
         disconnectSlack: true,
         // Teams channel settings
         connectTeams: (nextPath: string) => ({ nextPath }),
@@ -93,6 +99,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         disconnectGithub: true,
         setGithubRepos: (repos: string[]) => ({ repos }),
         loadGithubRepos: true,
+        // AI suggestions
+        setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
+        setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -238,6 +247,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 disconnectTeams: () => null,
             },
         ],
+        aiSuggestionsLoading: [
+            false,
+            {
+                setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -378,6 +395,18 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
+        slackNotifyOnJoin: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_join,
+        ],
+        slackNotifyOnLeave: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_leave,
+        ],
+        slackAlertChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_alert_channel_id ?? null,
+        ],
         emailConnected: [(s) => [s.emailConfigs], (emailConfigs): boolean => emailConfigs.length > 0],
         teamsConnected: [
             (s) => [s.currentTeam],
@@ -406,6 +435,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         githubSelectedRepos: [
             (s) => [s.currentTeam],
             (currentTeam): string[] => currentTeam?.conversations_settings?.github_repos || [],
+        ],
+        aiSuggestionsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -517,6 +550,30 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     // Transitional: keep legacy key for old frontend bundles
                     slack_channel_id: channelIds[0] ?? null,
                     slack_channel_name: null,
+                },
+            })
+        },
+        setSlackNotifyOnJoin: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_notify_on_join: enabled,
+                },
+            })
+        },
+        setSlackNotifyOnLeave: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_notify_on_leave: enabled,
+                },
+            })
+        },
+        setSlackAlertChannel: ({ channelId }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_alert_channel_id: channelId,
                 },
             })
         },
@@ -751,6 +808,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return
             }
             actions.loadCurrentTeam()
+        },
+        setAiSuggestionsEnabled: ({ enabled }) => {
+            actions.setAiSuggestionsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_suggestions_enabled: enabled,
+                },
+            })
         },
         connectGithub: async ({ integrationId }) => {
             try {

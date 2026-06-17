@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -87,7 +87,7 @@ export interface ThresholdApi {
     readonly created_at: string
     /** Optional name for the threshold. */
     name?: string
-    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
 }
 
@@ -105,9 +105,9 @@ export interface AlertConditionApi {
 
 /**
  * * `Firing` - Firing
- * `Not firing` - Not firing
- * `Errored` - Errored
- * `Snoozed` - Snoozed
+ * * `Not firing` - Not firing
+ * * `Errored` - Errored
+ * * `Snoozed` - Snoozed
  */
 export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
@@ -120,10 +120,10 @@ export const AlertCheckStateEnumApi = {
 
 /**
  * * `pending` - pending
- * `running` - running
- * `done` - done
- * `failed` - failed
- * `skipped` - skipped
+ * * `running` - running
+ * * `done` - done
+ * * `failed` - failed
+ * * `skipped` - skipped
  */
 export type InvestigationStatusEnumApi = (typeof InvestigationStatusEnumApi)[keyof typeof InvestigationStatusEnumApi]
 
@@ -137,8 +137,8 @@ export const InvestigationStatusEnumApi = {
 
 /**
  * * `true_positive` - true_positive
- * `false_positive` - false_positive
- * `inconclusive` - inconclusive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
  */
 export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
 
@@ -382,10 +382,10 @@ export type DetectorConfigApi =
 
 /**
  * * `every_15_minutes` - every_15_minutes
- * `hourly` - hourly
- * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
+ * * `hourly` - hourly
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
  */
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
@@ -411,7 +411,7 @@ export interface AlertScheduleRestrictionApi {
 
 /**
  * * `notify` - Notify
- * `suppress` - Suppress
+ * * `suppress` - Suppress
  */
 export type InvestigationInconclusiveActionEnumApi =
     (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
@@ -419,6 +419,13 @@ export type InvestigationInconclusiveActionEnumApi =
 export const InvestigationInconclusiveActionEnumApi = {
     Notify: 'notify',
     Suppress: 'suppress',
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
 } as const
 
 export interface AlertApi {
@@ -456,12 +463,12 @@ export interface AlertApi {
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -485,10 +492,12 @@ export interface AlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedAlertListApi {
@@ -535,12 +544,12 @@ export interface PatchedAlertApi {
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -564,10 +573,12 @@ export interface PatchedAlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface AlertSimulateApi {
@@ -640,7 +651,7 @@ export interface ThresholdWithAlertApi {
     readonly created_at: string
     /** Optional name for the threshold. */
     name?: string
-    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
     readonly alerts: readonly AlertApi[]
 }
@@ -656,6 +667,14 @@ export interface PaginatedThresholdWithAlertListApi {
 
 export type AlertsListParams = {
     /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -663,6 +682,10 @@ export type AlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type AlertsRetrieveParams = {

@@ -52,6 +52,7 @@ members = [
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
+  "affected-services",
   "property-vals-rs",
 ]
 
@@ -94,6 +95,7 @@ async-compression = { version = "0.4", features = [
   "tokio",
   "gzip",
   "deflate",
+  "zlib",
   "brotli",
   "zstd",
 ] }

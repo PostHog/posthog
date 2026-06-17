@@ -60,6 +60,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "SplitPerson",
     "UpdateGroup",
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",
@@ -288,7 +289,7 @@ impl RawProxyInner {
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let mut channel = self.replica.next_raw_channel_for(&method);
+            let mut channel = self.replica.channel();
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {

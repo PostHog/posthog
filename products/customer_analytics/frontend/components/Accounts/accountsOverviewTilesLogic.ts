@@ -1,5 +1,8 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
+
+import { objectsEqual } from 'lib/utils/objects'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
@@ -8,7 +11,8 @@ import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
-    ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
+    AccountsEvents,
     AccountsOverviewThresholdOperator,
     DEFAULT_TILES,
     MAX_ACCOUNTS_OVERVIEW_TILES,
@@ -132,6 +136,46 @@ function reconcileTilesAgainstSchema(
     })
 }
 
+export function diffOverviewTiles(
+    before: AccountsOverviewTile[],
+    after: AccountsOverviewTile[]
+): { changed: boolean; added: number; removed: number; updated: number; reordered: boolean } {
+    const beforeById = new Map(before.map((tile) => [tile.id, tile]))
+    const afterById = new Map(after.map((tile) => [tile.id, tile]))
+    const added = after.filter((tile) => !beforeById.has(tile.id)).length
+    const removed = before.filter((tile) => !afterById.has(tile.id)).length
+    const updated = after.filter((tile) => {
+        const previous = beforeById.get(tile.id)
+        return !!previous && !objectsEqual(previous, tile)
+    }).length
+    const reordered = !objectsEqual(
+        before.filter((tile) => afterById.has(tile.id)).map((tile) => tile.id),
+        after.filter((tile) => beforeById.has(tile.id)).map((tile) => tile.id)
+    )
+    return { changed: added > 0 || removed > 0 || updated > 0 || reordered, added, removed, updated, reordered }
+}
+
+// Read-only access to the legacy per-team localStorage tiles (see ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX
+// in constants.ts). We never write this key; we read any pre-existing CUSTOM value once on mount to
+// seed the working state and emit a tombstone, so the localStorage read path can eventually be removed.
+function readLegacyOverviewTiles(): AccountsOverviewTile[] | null {
+    try {
+        const key = Object.keys(window.localStorage).find(
+            (k) => k.startsWith(ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX) && k.endsWith('.tiles')
+        )
+        if (!key) {
+            return null
+        }
+        const parsed = JSON.parse(window.localStorage.getItem(key) ?? 'null')
+        if (Array.isArray(parsed) && parsed.length > 0 && !objectsEqual(parsed, DEFAULT_TILES)) {
+            return parsed as AccountsOverviewTile[]
+        }
+    } catch {
+        // Inaccessible or malformed localStorage — fall back to defaults.
+    }
+    return null
+}
+
 export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),
     connect(() => ({
@@ -147,6 +191,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         updateTile: (id: string, tile: Omit<AccountsOverviewTile, 'id'>) => ({ id, tile }),
         removeTile: (id: string) => ({ id }),
         moveTile: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        setTiles: (tiles: AccountsOverviewTile[]) => ({ tiles }),
         toggleTileSelection: (tile: AccountsOverviewTile) => ({ tile }),
         setTileFilter: (filter: TileFilter | null) => ({ filter }),
         resetTiles: true,
@@ -156,7 +201,6 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     reducers(() => ({
         tiles: [
             DEFAULT_TILES,
-            ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
             {
                 addTile: (
                     state: AccountsOverviewTile[],
@@ -182,6 +226,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                     next.splice(newIndex, 0, removed)
                     return next
                 },
+                setTiles: (_state: AccountsOverviewTile[], { tiles }: { tiles: AccountsOverviewTile[] }) => tiles,
                 resetTiles: () => [...DEFAULT_TILES],
             },
         ],
@@ -225,7 +270,28 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         tilesLoading: [(s) => [s.accountsResponseLoading], (loading: boolean): boolean => loading],
         selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        showEditor: () => {
+            cache.tilesSnapshot = values.tiles
+        },
+        hideEditor: () => {
+            const before: AccountsOverviewTile[] | undefined = cache.tilesSnapshot
+            cache.tilesSnapshot = undefined
+            if (!before) {
+                return
+            }
+            const diff = diffOverviewTiles(before, values.tiles)
+            if (diff.changed) {
+                posthog.capture(AccountsEvents.OverviewTilesEdited, {
+                    tiles_added: diff.added,
+                    tiles_removed: diff.removed,
+                    tiles_updated: diff.updated,
+                    reordered: diff.reordered,
+                    tile_count_before: before.length,
+                    tile_count_after: values.tiles.length,
+                })
+            }
+        },
         removeTile: ({ id }) => {
             if (values.tileFilter?.tileId === id) {
                 actions.setTileFilter(null)
@@ -250,4 +316,13 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             actions.setTileFilter(values.tileFilter?.tileId === tile.id ? null : next)
         },
     })),
+    afterMount(({ actions }) => {
+        // Seed from any legacy localStorage tiles (read-only) and emit a tombstone so we can tell
+        // when the localStorage read path is safe to remove. Saved views are the durable store.
+        const legacyTiles = readLegacyOverviewTiles()
+        if (legacyTiles) {
+            actions.setTiles(legacyTiles)
+            posthog.capture(AccountsEvents.OverviewTilesLocalStorageRead, { tile_count: legacyTiles.length })
+        }
+    }),
 ])

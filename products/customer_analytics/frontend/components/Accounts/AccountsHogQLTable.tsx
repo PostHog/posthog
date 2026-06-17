@@ -17,6 +17,7 @@ import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
@@ -82,7 +83,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     const name = cell?.name ?? ''
     const externalId = cell?.external_id ?? ''
     return (
-        <div className="flex flex-col min-w-40">
+        <div className="flex flex-col min-w-40" data-account-id={cell?.id}>
             <span className="font-medium">{name}</span>
             {externalId ? (
                 <CopyToClipboardInline
@@ -242,16 +243,36 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { expandedAccountIds } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     return useMemo(
         () => ({
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
+            isRowExpanded: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                return !!cell && expandedAccountIds.includes(cell.id)
+            },
+            onRowExpand: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
+            onRowCollapse: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
             expandedRowRender: ({ result }) => {
-                const accountId = getNameCell(result, visibleColumnNames)?.id
-                return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
+                const cell = getNameCell(result, visibleColumnNames)
+                return cell ? (
+                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
+                ) : null
             },
         }),
-        [visibleColumnNames]
+        [visibleColumnNames, expandedAccountIds, toggleAccountExpanded]
     )
 }
 

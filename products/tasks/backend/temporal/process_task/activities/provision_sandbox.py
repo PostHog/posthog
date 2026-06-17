@@ -8,16 +8,16 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE
+from products.tasks.backend.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
@@ -105,6 +105,22 @@ class InjectFreshTokensOnResumeInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str | None
+
+
+def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
+    """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
+
+    Modal fences the whole sandbox, so union in the infra (and local tunnel) domains
+    the agent needs, and drop loopback aliases Modal rejects as invalid domains.
+    """
+    domains = list(allowed_domains)
+    extra = list(INFRASTRUCTURE_DOMAINS)
+    if settings.DEBUG:
+        extra += _get_debug_only_domains()
+    for domain in extra:
+        if domain not in domains:
+            domains.append(domain)
+    return [d for d in domains if "." in d and d != "host.docker.internal"]
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -276,9 +292,10 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         run_state = parse_run_state(ctx.state)
-        # When Modal resume snapshots are disabled, ignore any snapshot_external_id
-        # baked into TaskRun state — resume falls back to the agent server's
-        # git-checkpoint flow (POSTHOG_RESUME_RUN_ID continues to be set above).
+        # VM and gVisor both resume from filesystem snapshots. A run's resume
+        # snapshot is taken from the same task's sandbox, so its base image
+        # matches the runtime provisioned here (the earlier disable was for
+        # gVisor memory snapshots, which cannot restore into the VM runtime).
         resume_snapshot_external_id = (
             run_state.snapshot_external_id if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS else None
         )
@@ -349,17 +366,45 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             f"Provisioning sandbox from {prepared.image_source_label} (image build may take a few minutes on first run)",
         )
 
+        # The VM template bakes in Docker (and forces the VM runtime), so the agent
+        # can run nested containers; the default template has neither.
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
             metadata={"task_id": ctx.task_id},
+            vm_runtime=use_vm_sandbox,
+            **ctx.sandbox_resource_overrides(),
         )
+
+        # Request a small slice and let the box burst up to the configured size. The decision is
+        # captured once in the context at workflow start, so it's stable across activity retries.
+        if ctx.burstable_sandbox_resources_enabled:
+            config.burstable_resources = True
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Burstable resources enabled: requesting {config.cpu_request_cores} CPU / "
+                f"{config.memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
+                f"{int(config.memory_gb * 1024)} MiB",
+            )
+
+        # gVisor only — Modal's domain allowlist breaks vm_runtime.
+        if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:
+            config.outbound_domain_allowlist = _to_modal_domain_allowlist(ctx.allowed_domains)
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
+            )
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
             sandbox = Sandbox.create(config)
+
+        increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
 
         credentials = sandbox.get_connect_credentials()
 

@@ -29,7 +29,7 @@ from products.exports.backend.models.subscription import (
 from products.product_analytics.backend.models.insight import Insight
 
 
-@patch.object(settings, "SECRET_KEY", "not-so-secret")
+@patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
@@ -100,6 +100,24 @@ class TestSubscription(BaseTest):
         subscription = self._create_subscription()
         with self.assertRaises(ValueError):
             _ = subscription.resource_type
+
+    @parameterized.expand(
+        [
+            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
+            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+        ]
+    )
+    def test_derive_resource_type(
+        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+    ):
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+
+    @parameterized.expand([("all_none", None), ("empty_prompt", "")])
+    def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
+        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+            Subscription.derive_resource_type(None, None, prompt)
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()

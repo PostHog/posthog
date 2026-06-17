@@ -18,14 +18,12 @@ from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
-from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.group_type_mapping import (
@@ -44,9 +42,11 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
@@ -400,7 +400,11 @@ def team_api_test_factory():
             )
 
         @freeze_time("2022-02-08")
-        def test_delete_team_activity_log(self):
+        @mock.patch(
+            "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
+            return_value="test",
+        )
+        def test_delete_team_activity_log(self, _mock_variant):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -431,7 +435,7 @@ def team_api_test_factory():
                     "item_id": ANY,
                     "scope": "Dashboard",
                     "detail": {
-                        "name": "My App Dashboard",
+                        "name": "Your starter dashboard",
                         "type": "dashboard",
                         "changes": [],
                         "context": None,
@@ -511,6 +515,8 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
+            # create_with_data fires a starter-dashboard exposure capture; only assert delete-time events
+            mock_capture.reset_mock()
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -560,12 +566,10 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-
-            from posthog.models.cohort import Cohort, CohortPeople
-
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
 
+            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
@@ -628,7 +632,12 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(temporal):
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -674,7 +683,12 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(temporal):
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -2920,12 +2934,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_teams_causes_403(self):
         # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
@@ -2956,12 +2964,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
 
@@ -3472,17 +3474,17 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         token_after = get_or_mint_live_events_token(self.team, second_user_id)
         assert token_before != token_after
 
-    def test_secret_key_rotation_partitions_the_cache_namespace(self) -> None:
-        # SECRET_KEY rotation must invalidate cached tokens automatically — otherwise
+    def test_signing_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # JWT signing-key rotation must invalidate cached tokens automatically — otherwise
         # the livestream service would reject the cached old-key signatures for up
-        # to the cache TTL. We embed a fingerprint of SECRET_KEY in the cache key so
+        # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
         from posthog.api.team import get_or_mint_live_events_token
 
-        token_old_secret = get_or_mint_live_events_token(self.team, self.user.id)
-        with override_settings(SECRET_KEY="completely-different-rotated-secret"):
-            token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
-        assert token_old_secret != token_new_secret
+        token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
+            token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_key != token_new_key
 
 
 # Sensitive Team/Project settings the frontend gates behind

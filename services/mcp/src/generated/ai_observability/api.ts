@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 61 enabled ops
+ * PostHog API - MCP 51 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -60,9 +60,9 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
 
 /**
  * Create a new evaluation run.
-
-This endpoint validates the request and enqueues a Temporal workflow
-to asynchronously execute the evaluation.
+ *
+ * This endpoint validates the request and enqueues a Temporal workflow
+ * to asynchronously execute the evaluation.
  */
 export const EvaluationRunsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -120,6 +120,12 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -166,10 +172,33 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -220,6 +249,12 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -268,10 +303,33 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -676,19 +734,19 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 
 /**
  *
-Generate an AI-powered summary of evaluation results.
-
-This endpoint analyzes evaluation runs and identifies patterns in passing
-and failing evaluations, providing actionable recommendations.
-
-Data is fetched server-side by evaluation ID to ensure data integrity.
-
-**Use Cases:**
-- Understand why evaluations are passing or failing
-- Identify systematic issues in LLM responses
-- Get recommendations for improving response quality
-- Review patterns across many evaluation runs at once
-
+ * Generate an AI-powered summary of evaluation results.
+ *
+ * This endpoint analyzes evaluation runs and identifies patterns in passing
+ * and failing evaluations, providing actionable recommendations.
+ *
+ * Data is fetched server-side by evaluation ID to ensure data integrity.
+ *
+ * **Use Cases:**
+ * - Understand why evaluations are passing or failing
+ * - Identify systematic issues in LLM responses
+ * - Get recommendations for improving response quality
+ * - Review patterns across many evaluation runs at once
+ *
  */
 export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1131,27 +1189,27 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  *
-Generate an AI-powered summary of an LLM trace or event.
-
-This endpoint analyzes the provided trace/event, generates a line-numbered text
-representation, and uses an LLM to create a concise summary with line references.
-
-**Two ways to use this endpoint:**
-
-1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
-   The backend fetches the data automatically. `summarize_type` is inferred.
-2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
-   This is how the frontend uses it.
-
-**Summary Format:**
-- Title (concise, max 10 words)
-- Mermaid flow diagram showing the main flow
-- 3-10 summary bullets with line references
-- "Interesting Notes" section for failures, successes, or unusual patterns
-- Line references in [L45] or [L45-52] format pointing to relevant sections
-
-The response includes the structured summary, the text representation, and metadata.
-
+ * Generate an AI-powered summary of an LLM trace or event.
+ *
+ * This endpoint analyzes the provided trace/event, generates a line-numbered text
+ * representation, and uses an LLM to create a concise summary with line references.
+ *
+ * **Two ways to use this endpoint:**
+ *
+ * 1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+ *    The backend fetches the data automatically. `summarize_type` is inferred.
+ * 2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+ *    This is how the frontend uses it.
+ *
+ * **Summary Format:**
+ * - Title (concise, max 10 words)
+ * - Mermaid flow diagram showing the main flow
+ * - 3-10 summary bullets with line references
+ * - "Interesting Notes" section for failures, successes, or unusual patterns
+ * - Line references in [L45] or [L45-52] format pointing to relevant sections
+ *
+ * The response includes the structured summary, the text representation, and metadata.
+ *
  */
 export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1476,355 +1534,6 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
-        ),
-})
-
-export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
-    created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
-})
-
-export const LlmSkillsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const llmSkillsCreateBodyNameMax = 64
-
-export const llmSkillsCreateBodyDescriptionMax = 4096
-
-export const llmSkillsCreateBodyLicenseMax = 255
-
-export const llmSkillsCreateBodyCompatibilityMax = 500
-
-export const llmSkillsCreateBodyFilesItemPathMax = 500
-
-export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
-export const llmSkillsCreateBodyFilesItemContentTypeMax = 100
-
-export const LlmSkillsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(llmSkillsCreateBodyNameMax)
-            .describe('Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.'),
-        description: zod
-            .string()
-            .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
-        body: zod.string().describe('The SKILL.md instruction content (markdown).'),
-        license: zod
-            .string()
-            .max(llmSkillsCreateBodyLicenseMax)
-            .optional()
-            .describe('License name or reference to a bundled license file.'),
-        compatibility: zod
-            .string()
-            .max(llmSkillsCreateBodyCompatibilityMax)
-            .optional()
-            .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-        allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-        metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
-        files: zod
-            .array(
-                zod.object({
-                    path: zod
-                        .string()
-                        .max(llmSkillsCreateBodyFilesItemPathMax)
-                        .describe(
-                            "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."
-                        ),
-                    content: zod.string().describe('Text content of the file.'),
-                    content_type: zod
-                        .string()
-                        .max(llmSkillsCreateBodyFilesItemContentTypeMax)
-                        .default(llmSkillsCreateBodyFilesItemContentTypeDefault)
-                        .describe('MIME type of the file content.'),
-                })
-            )
-            .optional()
-            .describe('Bundled files to include with the initial version (scripts, references, assets).'),
-    })
-    .describe('Create serializer — accepts bundled files as write-only input on POST.')
-
-export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameRetrievePathSkillNameRegExp),
-})
-
-export const LlmSkillsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
-})
-
-export const llmSkillsNamePartialUpdatePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNamePartialUpdatePathSkillNameRegExp),
-})
-
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
-
-export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
-
-export const llmSkillsNamePartialUpdateBodyCompatibilityMax = 500
-
-export const llmSkillsNamePartialUpdateBodyFilesItemPathMax = 500
-
-export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/plain`
-export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
-
-export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
-
-export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
-    body: zod
-        .string()
-        .optional()
-        .describe(
-            'Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.'
-        ),
-    edits: zod
-        .array(
-            zod.object({
-                old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
-                new: zod.string().describe('Replacement text.'),
-            })
-        )
-        .optional()
-        .describe(
-            "List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body."
-        ),
-    description: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyDescriptionMax)
-        .optional()
-        .describe('Updated description for the new version.'),
-    license: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyLicenseMax)
-        .optional()
-        .describe('License name or reference.'),
-    compatibility: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyCompatibilityMax)
-        .optional()
-        .describe('Environment requirements.'),
-    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
-    files: zod
-        .array(
-            zod.object({
-                path: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFilesItemPathMax)
-                    .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
-                content: zod.string().describe('Text content of the file.'),
-                content_type: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax)
-                    .default(llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault)
-                    .describe('MIME type of the file content.'),
-            })
-        )
-        .optional()
-        .describe(
-            'Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits.'
-        ),
-    file_edits: zod
-        .array(
-            zod.object({
-                path: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFileEditsItemPathMax)
-                    .describe(
-                        'Path of the bundled file to edit. Must match an existing file on the current skill version.'
-                    ),
-                edits: zod
-                    .array(
-                        zod.object({
-                            old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
-                            new: zod.string().describe('Replacement text.'),
-                        })
-                    )
-                    .describe("Sequential find/replace operations to apply to this file's content."),
-            })
-        )
-        .optional()
-        .describe(
-            "Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
-        ),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
-})
-
-export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameArchiveCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameArchiveCreatePathSkillNameRegExp),
-})
-
-export const llmSkillsNameDuplicateCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameDuplicateCreatePathSkillNameRegExp),
-})
-
-export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64
-
-export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
-    new_name: zod
-        .string()
-        .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
-        .describe('Name for the duplicated skill. Must be unique.'),
-})
-
-export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameFilesCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameFilesCreatePathSkillNameRegExp),
-})
-
-export const llmSkillsNameFilesCreateBodyPathMax = 500
-
-export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
-export const llmSkillsNameFilesCreateBodyContentTypeMax = 100
-
-export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
-    path: zod
-        .string()
-        .max(llmSkillsNameFilesCreateBodyPathMax)
-        .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
-    content: zod.string().describe('Text content of the file.'),
-    content_type: zod
-        .string()
-        .max(llmSkillsNameFilesCreateBodyContentTypeMax)
-        .default(llmSkillsNameFilesCreateBodyContentTypeDefault)
-        .describe('MIME type of the file content.'),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
-        ),
-})
-
-export const llmSkillsNameFilesRenameCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameFilesRenameCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameFilesRenameCreatePathSkillNameRegExp),
-})
-
-export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
-
-export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
-
-export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
-    old_path: zod.string().max(llmSkillsNameFilesRenameCreateBodyOldPathMax).describe('Current file path to rename.'),
-    new_path: zod
-        .string()
-        .max(llmSkillsNameFilesRenameCreateBodyNewPathMax)
-        .describe('New file path. Must not already exist in the skill.'),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
-        ),
-})
-
-export const llmSkillsNameFilesRetrievePathFilePathRegExp = new RegExp('^.+$')
-export const llmSkillsNameFilesRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameFilesRetrieveParams = /* @__PURE__ */ zod.object({
-    file_path: zod.string().regex(llmSkillsNameFilesRetrievePathFilePathRegExp),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameFilesRetrievePathSkillNameRegExp),
-})
-
-export const LlmSkillsNameFilesRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
-})
-
-export const llmSkillsNameFilesDestroyPathFilePathRegExp = new RegExp('^.+$')
-export const llmSkillsNameFilesDestroyPathSkillNameRegExp = new RegExp('^[^/]+$')
-
-export const LlmSkillsNameFilesDestroyParams = /* @__PURE__ */ zod.object({
-    file_path: zod.string().regex(llmSkillsNameFilesDestroyPathFilePathRegExp),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_name: zod.string().regex(llmSkillsNameFilesDestroyPathSkillNameRegExp),
-})
-
-export const LlmSkillsNameFilesDestroyQueryParams = /* @__PURE__ */ zod.object({
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
 

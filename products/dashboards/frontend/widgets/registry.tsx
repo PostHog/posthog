@@ -1,15 +1,33 @@
 import posthog from 'posthog-js'
 import type { ComponentType } from 'react'
 
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
+export type DashboardWidgetTileFiltersProps = {
+    tileId: number
+    config: Record<string, unknown>
+    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
+    disabledReason?: string | null
+    canMutateErrorTrackingIssues?: boolean
+}
+import { ActivityEventsWidget } from './activity/ActivityEventsWidget'
+import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { ActivityEventsWidgetTileFilters } from './activity/ActivityEventsWidgetTileFilters'
+import { EditActivityEventsWidgetModal } from './activity/EditActivityEventsWidgetModal'
+import type {
+    WidgetIssueMetadataContext,
+    WidgetIssueMetadataDelta,
+} from './error_tracking/applyWidgetIssueMetadataChange'
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
+import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWidgetTileFilters'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
-import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
+import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
+import { SessionReplayWidgetTileFilters } from './session_replay/SessionReplayWidgetTileFilters'
 
 export type DashboardWidgetConfigApiErrorParser = (
     error: unknown,
@@ -60,7 +78,9 @@ function reportMissingDashboardWidgetRegistryEntry(
 
 export type DashboardWidgetDefinition = {
     Component: ComponentType<DashboardWidgetComponentProps>
+    TileFilters?: ComponentType<DashboardWidgetTileFiltersProps>
     EditModal?: ComponentType<DashboardWidgetEditModalProps>
+    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
     productAccess?: DashboardWidgetProductAccess
     /** Maps dashboard PATCH API errors to edit-modal field errors for this widget type. */
     parseConfigApiError: DashboardWidgetConfigApiErrorParser
@@ -75,6 +95,16 @@ export type DashboardWidgetComponentProps = {
     loading: boolean
     error?: string | null
     onRefresh?: () => void
+    /** Debounced run_widgets refresh after tile data changes (filters). */
+    onRefreshData?: () => void
+    /** Error tracking list only — optimistic row patch after status/assignee edits. */
+    onApplyIssueMetadataChange?: (
+        issueId: string,
+        delta: WidgetIssueMetadataDelta,
+        context: WidgetIssueMetadataContext
+    ) => void
+    /** Error tracking list only — status/assignee controls when false stay read-only. */
+    canMutateErrorTrackingIssues?: boolean
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
 }
 
@@ -99,15 +129,24 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    activity_events_list: {
+        Component: ActivityEventsWidget,
+        TileFilters: ActivityEventsWidgetTileFilters,
+        EditModal: EditActivityEventsWidgetModal,
+        parseConfigApiError: parseActivityEventsWidgetConfigApiError,
+    },
     error_tracking_list: {
         Component: ErrorTrackingWidget,
+        TileFilters: ErrorTrackingWidgetTileFilters,
         EditModal: EditErrorTrackingWidgetModal,
         productAccess: 'error_tracking',
         parseConfigApiError: parseErrorTrackingWidgetConfigApiError,
     },
     session_replay_list: {
         Component: SessionReplayWidget,
+        TileFilters: SessionReplayWidgetTileFilters,
         EditModal: EditSessionReplayWidgetModal,
+        TopHeading: SessionReplayWidgetTopHeading,
         productAccess: 'session_recording',
         parseConfigApiError: parseSessionReplayWidgetConfigApiError,
     },

@@ -34,8 +34,8 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -44,7 +44,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -105,19 +104,18 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
-    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
-    const modelLogic = llmPlaygroundModelLogic({ tabId })
-    const runLogic = llmPlaygroundRunLogic({ tabId })
+export function AIObservabilityPlaygroundScene(): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic()
+    const modelLogic = llmPlaygroundModelLogic()
+    const runLogic = llmPlaygroundRunLogic()
 
-    // Attach child logics to the prompts logic so they persist across tab switches
     useAttachedLogic(modelLogic, promptsLogic)
     useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
-            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
-                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{}}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{}}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{}}>
                     <SceneContent className="h-full">
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.AIObservabilityPlayground].name}
@@ -127,7 +125,6 @@ export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): J
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>

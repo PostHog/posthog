@@ -35,9 +35,10 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
@@ -650,8 +651,10 @@ export const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, includeStaleEvents } = useValues(taxonomicFilterLogic)
-    const { setIncludeStaleEvents } = useActions(taxonomicFilterLogic)
+    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, infiniteListCounts, eventNames } =
+        useValues(taxonomicFilterLogic)
+    const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
         useValues(infiniteListLogic)
@@ -662,6 +665,15 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
+
+    // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
+    // jump there so the user doesn't have to guess which tab their match lives in.
+    const allSectionHasResults = (infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters] ?? 0) > 0
+    const canOfferAllSwitch =
+        !emptySearchQuery &&
+        !isSuggestedFilters &&
+        taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+        allSectionHasResults
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -701,6 +713,22 @@ function InfiniteListEmptyState(): JSX.Element {
                             onClick={() => setIncludeStaleEvents(true)}
                         >
                             Include stale events
+                        </LemonButton>
+                    )}
+                    {canOfferAllSwitch && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-switch-to-all"
+                            onClick={() => {
+                                reportTaxonomicFilterCategorySelected(
+                                    TaxonomicFilterGroupType.SuggestedFilters,
+                                    eventNames?.[0]
+                                )
+                                setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
+                            }}
+                        >
+                            See results from other categories
                         </LemonButton>
                     )}
                 </>

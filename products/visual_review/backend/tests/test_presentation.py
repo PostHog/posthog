@@ -142,6 +142,44 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
 
+    @parameterized.expand(
+        [
+            ("excluded_by_default", "", {"Card"}),
+            ("included_when_requested", "?include_quarantined=true", {"Button", "Card"}),
+        ]
+    )
+    def test_get_run_snapshots_quarantine_visibility(self, _name, query, expected_identifiers):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button", content_hash="h1"),
+                    SnapshotManifestItem(identifier="Card", content_hash="h2"),
+                ],
+            ),
+            team_id=self.team.id,
+        )
+        logic.quarantine_identifier(
+            repo_id=self.vr_project.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/{query}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert {s["identifier"] for s in data["results"]} == expected_identifiers
+        assert data["quarantined_count"] == 1
+
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
         """Runs with no changes complete immediately without triggering diff task."""
@@ -231,6 +269,58 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["run"]["approved"])
+
+    @parameterized.expand(
+        [
+            ("add_images_true", {"approve_all": True, "add_images_to_comment_on_pr": True}, True),
+            ("add_images_false", {"approve_all": True, "add_images_to_comment_on_pr": False}, False),
+            ("add_images_default", {"approve_all": True}, False),
+        ]
+    )
+    def test_finalize_run_always_comments_and_forwards_add_images(
+        self, _name: str, body: dict, expect_add_images: bool
+    ):
+        logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
+        )
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=self.team.id,
+        )
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
+
+        with (
+            patch("products.visual_review.backend.logic._post_commit_status"),
+            patch("products.visual_review.backend.logic.transaction.on_commit", side_effect=lambda fn, *a, **k: fn()),
+            patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay") as delay,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/finalize/",
+                body,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The comment is always dispatched; the flag only forwards whether to embed images.
+        self.assertTrue(delay.called)
+        self.assertEqual(delay.call_args.args[2], expect_add_images)
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(
@@ -413,3 +503,35 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(self._history_url("Components-Button--default v2.0"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
+
+
+class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=77777, repo_full_name="org/scope-test")
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_finalize_allowed_with_visual_review_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["visual_review:write"])
+        # Target a non-existent UUID; a 404 proves the scope gate was passed.
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["visual_review:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_finalize_rejected_without_visual_review_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

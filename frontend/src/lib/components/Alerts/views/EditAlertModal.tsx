@@ -12,7 +12,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -90,9 +90,17 @@ export function EditAlertModal({
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
+        thresholdBoundsFormError,
     } = useValues(formLogic)
-    const { deleteAlert, snoozeAlert, clearSnooze, simulateAlert, clearSimulation, setSimulationDateFrom } =
-        useActions(formLogic)
+    const {
+        deleteAlert,
+        snoozeAlert,
+        clearSnooze,
+        simulateAlert,
+        clearSimulation,
+        setSimulationDateFrom,
+        setAlertFormSubmitAttempted,
+    } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -219,6 +227,7 @@ export function EditAlertModal({
                                     <AlertDefinitionSection
                                         alertForm={alertForm}
                                         alertMode={alertMode}
+                                        thresholdBoundsFormError={thresholdBoundsFormError}
                                         isBreakdownValid={isBreakdownValid}
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
@@ -318,6 +327,7 @@ export function EditAlertModal({
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
                             disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
+                            onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}
                         </LemonButton>

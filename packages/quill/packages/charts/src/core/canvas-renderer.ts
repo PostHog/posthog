@@ -1,8 +1,8 @@
 import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
-import { barColorAt } from './color-utils'
+import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -24,6 +24,11 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
+    if (drawFractionalTailDash(drawCtx, series, data)) {
+        ctx.setLineDash([])
+        return
+    }
+
     for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
         ctx.beginPath()
         ctx.setLineDash(pattern)
@@ -31,6 +36,45 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
         ctx.stroke()
     }
     ctx.setLineDash([])
+}
+
+/** Dashes only the tail of the final segment, split at `stroke.partial.fromFraction`. Draws the line
+ *  solid up to the split pixel, then dashed to the last point. Returns false (no-op) when the option
+ *  is unset or the final segment's endpoints aren't both drawable, so the caller falls back to the
+ *  index-based stroke plan. */
+function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, data: number[]): boolean {
+    const fraction = series.stroke?.partial?.fromFraction
+    if (fraction == null || data.length < 2) {
+        return false
+    }
+    const { ctx, xScale, yScale, labels } = drawCtx
+    const last = data.length - 1
+    const x0 = xScale(labels[last - 1])
+    const y0 = yScale(data[last - 1])
+    const x1 = xScale(labels[last])
+    const y1 = yScale(data[last])
+    if (x0 == null || x1 == null || !isFinite(y0) || !isFinite(y1)) {
+        return false
+    }
+
+    const f = Math.max(0, Math.min(1, fraction))
+    const splitX = x0 + (x1 - x0) * f
+    const splitY = y0 + (y1 - y0) * f
+
+    // Solid: every leading point through to the split pixel inside the final segment.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.pattern ?? [])
+    tracePath(drawCtx, data, 0, last - 1)
+    ctx.lineTo(splitX, splitY)
+    ctx.stroke()
+
+    // Dashed: the split pixel out to the final point.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.moveTo(splitX, splitY)
+    ctx.lineTo(x1, y1)
+    ctx.stroke()
+    return true
 }
 
 /** One contiguous stroke: indices [start, end] inclusive, rendered with `pattern`. */
@@ -301,6 +345,32 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+export interface DrawAxesOptions {
+    axisColor?: string
+}
+
+/** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
+ *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
+export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+    const { ctx, dimensions } = drawCtx
+    ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    // +0.5 / -0.5 pixel snapping keeps the 1px strokes crisp and inside the plot rect (see drawGrid).
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+    // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
+    // even when plotLeft/plotHeight are fractional.
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, axisY)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(axisX, axisY)
+    ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+    ctx.stroke()
+}
+
 export interface DrawGridOptions {
     gridColor?: string
     orientation?: 'vertical' | 'horizontal'
@@ -479,11 +549,96 @@ export interface BarRect {
 
 export const DEFAULT_BAR_CORNER_RADIUS = 4
 
+/** d3 `.darker()` factor for a bar's hover highlight — shared by BarChart and ComboChart so the
+ *  hovered-bar shade stays consistent. */
+export const BAR_HIGHLIGHT_DARKEN = 0.6
+
+/** Run `draw` with the canvas clipped to the plot area vertically (full width, padded `pad` px top
+ *  and bottom). Keeps out-of-domain values (e.g. a trendline below 0) out of the axis gutters while
+ *  leaving the left/right edges unclipped so line caps and edge point markers render whole. Shared
+ *  by LineChart and ComboChart. `restore` always runs, even if `draw` throws. */
+export function withVerticalClip(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    draw: () => void,
+    pad = 8
+): void {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, dimensions.plotTop - pad, dimensions.width, dimensions.plotHeight + pad * 2)
+    ctx.clip()
+    try {
+        draw()
+    } finally {
+        ctx.restore()
+    }
+}
+
+/** Draw hover highlight rings for line/area series at the hovered index. Skips excluded,
+ *  fill-between (`fill.lowerData`), and overlay series (trendlines/moving averages opt out of hover
+ *  points). `pointFor` lets each chart supply its own anchor — LineChart resolves the point x and
+ *  stacked-top y per series; ComboChart anchors at the band center with raw values. Returns whether
+ *  any point was drawn. Shared by LineChart and ComboChart. */
+export function drawLineHoverPoints(
+    ctx: CanvasRenderingContext2D,
+    series: readonly ResolvedSeries[],
+    backgroundColor: string,
+    pointFor: (s: ResolvedSeries) => { x: number; y: number } | null
+): boolean {
+    let drew = false
+    for (const s of series) {
+        if (s.visibility?.excluded || s.fill?.lowerData || s.overlay) {
+            continue
+        }
+        const point = pointFor(s)
+        if (point && isFinite(point.x) && isFinite(point.y)) {
+            drawHighlightPoint(ctx, point.x, point.y, s.color, backgroundColor)
+            drew = true
+        }
+    }
+    return drew
+}
+
 export interface BarShadow {
     color: string
     blur: number
     offsetX?: number
     offsetY?: number
+}
+
+const BAR_FILL_LIGHTEN = 0.22
+const BAR_FILL_DARKEN = 0.16
+
+/** Bar fill for a given style. `gradient` is a diagonal (top-left → bottom-right) light→dark sheen
+ *  matching the PostHog logo's light direction; `gloss` is a curved radial highlight. */
+function makeBarFill(
+    ctx: CanvasRenderingContext2D,
+    color: string,
+    bar: BarRect,
+    style: BarFillStyle
+): string | CanvasGradient {
+    if (style === 'flat') {
+        return color
+    }
+    const light = mixColors(color, '#ffffff', BAR_FILL_LIGHTEN)
+    const dark = mixColors(color, '#000000', BAR_FILL_DARKEN)
+    if (style === 'gloss') {
+        // Curved highlight: a radial sheen rising from a focus near the top, so the light falls off
+        // in arcs for a glassy, rounded look rather than a flat linear band.
+        const cx = bar.x + bar.width * 0.5
+        const cy = bar.y + bar.height * 0.12
+        const radius = Math.max(bar.width, bar.height) * 0.95
+        const radial = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+        radial.addColorStop(0, light)
+        radial.addColorStop(0.45, color)
+        radial.addColorStop(1, dark)
+        return radial
+    }
+    // gradient — smooth diagonal light → dark
+    const gradient = ctx.createLinearGradient(bar.x, bar.y, bar.x + bar.width, bar.y + bar.height)
+    gradient.addColorStop(0, light)
+    gradient.addColorStop(1, dark)
+    return gradient
 }
 
 /** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`. Any ctx
@@ -492,7 +647,8 @@ export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
     bars: BarRect[],
-    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS,
+    fillStyle: BarFillStyle = 'flat'
 ): void {
     const { ctx } = drawCtx
     if (bars.length === 0) {
@@ -511,7 +667,7 @@ export function drawBars(
         const useHatch =
             hatch !== null &&
             ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : barColorAt(series, bar.dataIndex)
+        ctx.fillStyle = useHatch ? hatch : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
@@ -644,20 +800,6 @@ export interface DrawBoxOptions {
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
-}
-
-/** A laid-out box-and-whisker for a single (series, x) slot. Same shape contract as
- *  {@link BarRect} — pre-computed pixel coordinates so the draw primitives don't touch scales. */
-export interface BoxRect {
-    x: number
-    width: number
-    top: number
-    bottom: number
-    medianY: number
-    mean: { x: number; y: number }
-    whiskerTop: number
-    whiskerBottom: number
-    dataIndex: number
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of

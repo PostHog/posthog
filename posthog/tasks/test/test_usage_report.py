@@ -1,6 +1,7 @@
 import gzip
 import json
 import base64
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -43,10 +44,12 @@ from posthog.models import Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
+from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     OrgReport,
+    UsageReportCounters,
     _add_team_report_to_org_reports,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
@@ -56,13 +59,20 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     capture_event,
     get_instance_metadata,
+    get_teams_with_query_metric,
+    has_non_zero_usage,
     send_all_org_usage_reports,
 )
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -299,6 +309,22 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
             )
 
+            # Conversations widget events — excluded from billing
+            _create_event(
+                distinct_id=distinct_id,
+                event="$conversations_loaded",
+                properties={"$lib": "web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$conversations_widget_loaded",
+                properties={"$lib": "web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Events before the period
             for _ in range(0, 10):
                 _create_event(
@@ -420,6 +446,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "web",
                 "js",
                 "posthog-node",
+                "posthog-edge",
+                "posthog-convex",
                 "posthog-android",
                 "posthog-flutter",
                 "posthog-ios",
@@ -444,6 +472,23 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
+
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$conversations_loaded",
+                properties={"$lib": "posthog-node", "$ai_lib": "posthog-openclaw", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$conversations_widget_loaded",
+                properties={"$lib": "posthog-node", "$ai_lib": "@posthog/pi", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
 
             # Events for org 1 team 2
             distinct_id = str(uuid4())
@@ -572,8 +617,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 42,
-                    "enhanced_persons_event_count_in_period": 41,
+                    "event_count_in_period": 44,
+                    "enhanced_persons_event_count_in_period": 43,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -582,6 +627,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
+                    "openclaw_events_count_in_period": 1,
+                    "posthog_pi_events_count_in_period": 1,
+                    "edge_events_count_in_period": 1,
+                    "convex_events_count_in_period": 1,
                     "android_events_count_in_period": 1,
                     "flutter_events_count_in_period": 1,
                     "ios_events_count_in_period": 1,
@@ -642,8 +691,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 31,
-                            "enhanced_persons_event_count_in_period": 30,
+                            "event_count_in_period": 33,
+                            "enhanced_persons_event_count_in_period": 32,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -652,6 +701,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
+                            "openclaw_events_count_in_period": 1,
+                            "posthog_pi_events_count_in_period": 1,
+                            "edge_events_count_in_period": 1,
+                            "convex_events_count_in_period": 1,
                             "android_events_count_in_period": 1,
                             "flutter_events_count_in_period": 1,
                             "ios_events_count_in_period": 1,
@@ -716,6 +769,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 12,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "openclaw_events_count_in_period": 0,
+                            "posthog_pi_events_count_in_period": 0,
+                            "edge_events_count_in_period": 0,
+                            "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
@@ -803,6 +860,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 11,
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
+                    "openclaw_events_count_in_period": 0,
+                    "posthog_pi_events_count_in_period": 0,
+                    "edge_events_count_in_period": 0,
+                    "convex_events_count_in_period": 0,
                     "android_events_count_in_period": 0,
                     "flutter_events_count_in_period": 0,
                     "ios_events_count_in_period": 0,
@@ -873,6 +934,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 11,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "openclaw_events_count_in_period": 0,
+                            "posthog_pi_events_count_in_period": 0,
+                            "edge_events_count_in_period": 0,
+                            "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
@@ -1273,6 +1338,30 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
             assert report.event_explorer_api_rows_read == 100
             assert report.api_queries_query_count == 2
             assert report.api_queries_bytes_read > 16000  # locally it's about 16753
+
+
+class TestQueryUsageReportSQL:
+    @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
+    def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+
+        result = get_teams_with_query_metric(
+            begin=begin,
+            end=end,
+            query_types=["EventsQuery"],
+            access_method="personal_api_key",
+            metric="read_bytes",
+        )
+
+        assert result == [(1, 100)]
+        query = mock_sync_execute.call_args.args[0]
+        params = mock_sync_execute.call_args.args[1]
+        assert "AND event_time >= %(begin)s AND event_time < %(event_time_end)s" in query
+        assert "AND query_start_time >= %(begin)s AND query_start_time < %(end)s" in query
+        assert params["begin"] == begin
+        assert params["end"] == end
+        assert params["event_time_end"] == end + timedelta(hours=6)
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -1748,6 +1837,30 @@ class TestTrimOversizeUsageReportPayload(TestCase):
         assert result["event_count_in_period"] == 7_777
         assert result["organization_name"] == "Big Customer"
         assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+
+class TestHasNonZeroUsage(TestCase):
+    def _zeroed_counters(self) -> UsageReportCounters:
+        zero_values: dict[str, Any] = {}
+        for field in dataclasses.fields(UsageReportCounters):
+            zero_values[field.name] = 0.0 if field.type is float else 0
+        return UsageReportCounters(**zero_values)
+
+    @parameterized.expand(
+        [
+            ("empty", None),
+            ("events", "event_count_in_period"),
+            ("logs_bytes", "logs_bytes_in_period"),
+        ]
+    )
+    def test_has_non_zero_usage(self, _name: str, non_zero_field: str | None) -> None:
+        report = self._zeroed_counters()
+        if non_zero_field is None:
+            assert has_non_zero_usage(report) is False
+            return
+
+        setattr(report, non_zero_field, 1)
+        assert has_non_zero_usage(report) is True
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -2245,9 +2358,30 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             model=BatchExport.Model.EVENTS,
         )
 
+        batch_export_on_demand_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+            config={"format": "Parquet"},
+        )
+        with team_scope(team_id=3, canonical=True):
+            batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExport.Model.EVENTS,
+            )
+
         for i in range(3):
             BatchExportRun.objects.create(
                 batch_export=batch_export,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export_on_demand=batch_export_on_demand,
                 data_interval_end=now() - timedelta(hours=i),
                 data_interval_start=now() - timedelta(hours=i + 1),
                 finished_at=now(),
@@ -2266,8 +2400,68 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["rows_exported_in_period"] == 600
-        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 600
+        assert org_1_report["rows_exported_in_period"] == 1200
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 1200
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_batch_export_rows_exported_in_period_excludes_workflows(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.WORKFLOWS,
+            config={},
+        )
+        batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.EVENTS,
+        )
+
+        with team_scope(team_id=3, canonical=True):
+            batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_destination,
+                model=BatchExport.Model.EVENTS,
+            )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export=batch_export,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export_on_demand=batch_export_on_demand,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_exported_in_period"] == 0
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 0
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2749,38 +2943,85 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
 
+    @parameterized.expand(
+        [
+            # A team that changed retention 14d -> 30d mid-period: 1.5 GB total split across both tiers
+            # (0.5 GB at 14d, 1.0 GB at 30d).
+            (
+                "split_retention_14d_to_30d",
+                {
+                    "bytes_ingested": 1_500_000_000,
+                    "bytes_ingested_retention_14d": 500_000_000,
+                    "bytes_ingested_retention_30d": 1_000_000_000,
+                    "records_ingested": 1000,
+                },
+                {
+                    "logs_bytes_in_period": 1_500_000_000,
+                    "logs_records_in_period": 1000,
+                    "logs_mb_in_period": 1500,
+                    "logs_retention_14d_mb_in_period": 500,
+                    "logs_retention_30d_mb_in_period": 1000,
+                    "logs_retention_90d_mb_in_period": 0,
+                },
+            ),
+            # A team on a single tier the whole period: 2.5 GB, all under 90d retention.
+            (
+                "single_tier_90d",
+                {
+                    "bytes_ingested": 2_500_000_000,
+                    "bytes_ingested_retention_90d": 2_500_000_000,
+                    "records_ingested": 2000,
+                },
+                {
+                    "logs_bytes_in_period": 2_500_000_000,
+                    "logs_records_in_period": 2000,
+                    "logs_mb_in_period": 2500,
+                    "logs_retention_14d_mb_in_period": 0,
+                    "logs_retention_30d_mb_in_period": 0,
+                    "logs_retention_90d_mb_in_period": 2500,
+                },
+            ),
+            # Sub-MB bytes split across tiers: each tier is floored to whole MB independently, so both
+            # tier counters drop to 0 even though the total (1.2 MB) rounds down to 1 MB. The tiers can
+            # sum to less than logs_mb_in_period.
+            (
+                "sub_mb_split_floors_to_zero",
+                {
+                    "bytes_ingested": 1_200_000,
+                    "bytes_ingested_retention_14d": 600_000,
+                    "bytes_ingested_retention_30d": 600_000,
+                    "records_ingested": 5,
+                },
+                {
+                    "logs_bytes_in_period": 1_200_000,
+                    "logs_records_in_period": 5,
+                    "logs_mb_in_period": 1,
+                    "logs_retention_14d_mb_in_period": 0,
+                    "logs_retention_30d_mb_in_period": 0,
+                    "logs_retention_90d_mb_in_period": 0,
+                },
+            ),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_logs_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+    def test_logs_usage_metrics(
+        self,
+        _name: str,
+        metrics: dict[str, int],
+        expected: dict[str, int],
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
         self._setup_teams()
 
-        # Create logs metrics for org 1 team 1: 1.5 GB
-        create_app_metric2(
-            team_id=self.org_1_team_1.id,
-            app_source="logs",
-            metric_name="bytes_ingested",
-            count=1_500_000_000,
-        )
-        create_app_metric2(
-            team_id=self.org_1_team_1.id,
-            app_source="logs",
-            metric_name="records_ingested",
-            count=1000,
-        )
-
-        # Create logs metrics for org 1 team 2: 2.5 GB
-        create_app_metric2(
-            team_id=self.org_1_team_2.id,
-            app_source="logs",
-            metric_name="bytes_ingested",
-            count=2_500_000_000,
-        )
-        create_app_metric2(
-            team_id=self.org_1_team_2.id,
-            app_source="logs",
-            metric_name="records_ingested",
-            count=2000,
-        )
+        for metric_name, count in metrics.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="logs",
+                metric_name=metric_name,
+                count=count,
+            )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -2792,20 +3033,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
 
-        # Test org-level logs metrics (sum of both teams)
-        assert org_1_report["logs_bytes_in_period"] == 4_000_000_000  # 1.5B + 2.5B
-        assert org_1_report["logs_records_in_period"] == 3000  # 1000 + 2000
-        assert org_1_report["logs_mb_in_period"] == 4000  # 1500 + 2500
-
-        # Test team 1 logs metrics
-        assert org_1_report["teams"]["3"]["logs_bytes_in_period"] == 1_500_000_000
-        assert org_1_report["teams"]["3"]["logs_records_in_period"] == 1000
-        assert org_1_report["teams"]["3"]["logs_mb_in_period"] == 1500
-
-        # Test team 2 logs metrics
-        assert org_1_report["teams"]["4"]["logs_bytes_in_period"] == 2_500_000_000
-        assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
-        assert org_1_report["teams"]["4"]["logs_mb_in_period"] == 2500
+        # Only org_1_team_1 has logs, so the org-level rollup equals that single team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
 
     def _logs_records_json(self, team_id: int, sdk_name: str | None, count: int) -> str:
         resource_attributes = {"telemetry.sdk.name": sdk_name} if sdk_name is not None else {}
@@ -3129,6 +3361,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3190,6 +3423,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_free",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3250,6 +3484,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_summarize",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3310,6 +3545,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_mixed_excluded",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3373,6 +3609,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_mixed_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3435,6 +3672,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable_search",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3515,6 +3753,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_multi_turn",
                 "$ai_total_cost_usd": 1.5,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3566,6 +3805,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3596,6 +3836,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3611,6 +3852,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": -1.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3669,6 +3911,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_no_tools",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3762,6 +4005,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_us",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -3777,6 +4021,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_eu_in_us",
                 "$ai_total_cost_usd": 5.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "https://eu.posthog.com",
             },
         )
@@ -3853,6 +4098,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_eu",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "not-the-instance-group",
                 "$group_2": "https://eu.posthog.com",
             },
@@ -3869,6 +4115,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_us_in_eu",
                 "$ai_total_cost_usd": 3.0,
                 "$ai_billable": True,
+                "ai_product": "posthog_ai",
                 "$group_1": "not-the-instance-group",
                 "$group_2": "https://us.posthog.com",
             },
@@ -3883,6 +4130,335 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 240)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_signals_ai_product_excluded_from_ai_credits(self, mock_region: MagicMock) -> None:
+        """Generations tagged ai_product='signals' must not count toward PostHog AI credits."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Billable generation tagged as signals — should be excluded
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_signals",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_signals",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "ai_product": "signals",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(result, [])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_excludes_events_without_ai_product(self, mock_region: MagicMock) -> None:
+        """Generations missing the ai_product property are NOT billed — billing whitelists ai_product."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Matching billable trace — isolates that exclusion is due to the missing ai_product,
+        # not a missing trace.
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_legacy",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_legacy",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        # Untagged generation (no ai_product) — excluded by the ai_product whitelist.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_legacy",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_legacy",
+                "$ai_total_cost_usd": 1.0,
+                "$group_1": "https://us.posthog.com",
+                "$ai_billable": True,
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(result, [])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_signals_credits_only_counts_signals_events(self, mock_region: MagicMock) -> None:
+        """The signals query only counts generations tagged ai_product='signals' for the same team."""
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_credits_used_in_period,
+            get_teams_with_signals_credits_used_in_period,
+        )
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Signals event — should appear only in signals credits
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_signals",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_signals",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "ai_product": "signals",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        # Max AI event — should appear only in ai credits. Max AI is billed via its paired
+        # $ai_trace (unlike signals, which never emits one), so create a matching billable trace.
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_max",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_max",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_max",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_max",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        signals_result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
+        ai_result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # signals: 2.0 USD * 100 * 1.2 = 240
+        self.assertEqual(signals_result, [(self.org_1_team_1.id, 240)])
+        # ai (posthog_ai only): 1.0 USD * 100 * 1.2 = 120
+        self.assertEqual(ai_result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
+        """A billable generation with no matching $ai_trace bills via the empty-trace fallback.
+
+        The predicate is uniform across products: bill when the trace is billable OR there is no
+        trace. So a billable posthog_ai generation whose $ai_trace was not captured still bills.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Billable posthog_ai generation with NO matching $ai_trace event.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_orphan",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_orphan",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # 3.0 USD * 100 * 1.2 = 360
+        self.assertEqual(result, [(self.org_1_team_1.id, 360)])
+
+    @parameterized.expand(
+        [
+            ("slack_app",),
+            ("product_analytics",),
+            ("surveys",),
+            ("subscriptions",),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_traceless_whitelisted_product_bills_as_ai_credits(self, ai_product: str, mock_region: MagicMock) -> None:
+        """A traceless whitelisted product (e.g. slack_app, product_analytics) bills via the empty-trace fallback."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # These products emit no $ai_trace — billed via the empty-trace fallback, not a paired trace.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id=f"user_{ai_product}",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": f"trace_{ai_product}",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": ai_product,
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # 1.0 USD * 100 * 1.2 = 120
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_signals_credits_counts_traceless_generation(self, mock_region: MagicMock) -> None:
+        """A billable signals generation with no $ai_trace IS billed via the empty-trace fallback.
+
+        Signals never emits $ai_trace events, so the LEFT JOIN never matches; the fallback is
+        what makes signals billable at all.
+        """
+        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_signals",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_signals",
+                "$ai_total_cost_usd": 4.0,
+                "$ai_billable": True,
+                "ai_product": "signals",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
+
+        # 4.0 USD * 100 * 1.2 = 480
+        self.assertEqual(result, [(self.org_1_team_1.id, 480)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_signals_credits_excludes_non_billable_generation(self, mock_region: MagicMock) -> None:
+        """A signals generation tagged $ai_billable=false is not counted, even for signals."""
+        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_signals",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_signals",
+                "$ai_total_cost_usd": 4.0,
+                "$ai_billable": False,
+                "ai_product": "signals",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(result, [])
+
+    def test_has_non_zero_usage_counts_signals_credits(self) -> None:
+        """A signals-only org must survive has_non_zero_usage so its report still reaches billing."""
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
+        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "signals_credits_used_in_period": 5})))
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -4753,6 +5329,35 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_final[0][1], baseline_count + 1)
+
+    def test_conversations_events_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget events are excluded from billable event counts."""
+        from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
+
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+
+        for event_name in (
+            "$conversations_loaded",
+            "$conversations_widget_loaded",
+            "$conversations_message_sent",
+            "$conversations_user_identified",
+            "$conversations_restore_link_requested",
+            "$conversations_widget_state_changed",
+            "$conversations_back_to_tickets",
+        ):
+            _create_event(
+                event=event_name,
+                team=self.team,
+                distinct_id="widget_user",
+                timestamp=self.begin + relativedelta(hours=6),
+                properties={"$lib": "web"},
+            )
+
+        flush_persons_and_events()
+
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        self.assertEqual(billable_result_after[0][1], baseline_count)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

@@ -14,6 +14,8 @@ import {
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -44,7 +46,6 @@ export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
     id: string
-    tabId?: string
 }
 
 export function getDefaultDataWarehouseSourceSceneTab(id?: string): SourceSceneTab {
@@ -63,7 +64,7 @@ export function shouldShowManagedSourceSyncsTab(
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
     props({} as SourceSceneProps),
-    key(({ id, tabId }: SourceSceneProps) => (tabId ? `${id}-${tabId}` : id)),
+    key(({ id }: SourceSceneProps) => id),
     path((key) => ['products', 'dataWarehouse', 'sourceSceneLogic', key]),
     actions({
         setCurrentTab: (tab: SourceSceneTab) => ({ tab }),
@@ -157,8 +158,8 @@ export const scene: SceneExport<(typeof sourceSceneLogic)['props']> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function SourceScene({ id, tabId }: SourceSceneProps): JSX.Element {
-    const logic = sourceSceneLogic({ id, tabId })
+export function SourceScene({ id }: SourceSceneProps): JSX.Element {
+    const logic = sourceSceneLogic({ id })
     const { currentTab, breadcrumbName } = useValues(logic)
     const { setCurrentTab } = useActions(logic)
 
@@ -182,7 +183,6 @@ export function SourceScene({ id, tabId }: SourceSceneProps): JSX.Element {
                     currentTab={currentTab}
                     setCurrentTab={setCurrentTab}
                     attachTo={logic}
-                    tabId={tabId}
                 />
             ) : (
                 <LemonTabs
@@ -207,17 +207,15 @@ function ManagedSourceTabs({
     currentTab,
     setCurrentTab,
     attachTo,
-    tabId,
 }: {
     sourceId: string
     currentTab: SourceSceneTab
     setCurrentTab: (tab: SourceSceneTab) => void
     attachTo: BuiltLogic | LogicWrapper
-    tabId?: string
 }): JSX.Element {
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
-    const { source } = useValues(settingsLogic)
+    const { source, sourceLoading } = useValues(settingsLogic)
 
     useAttachedLogic(settingsLogic, attachTo)
 
@@ -226,6 +224,13 @@ function ManagedSourceTabs({
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
+        // Wait until the source has loaded before deciding a tab is unavailable.
+        // While `source` is null, showSyncsTab/showWebhookTab are false, so a tab
+        // selected via URL (e.g. "syncs") would get bounced to "schemas" and push
+        // a bogus history entry over the URL the user actually navigated to.
+        if (!source) {
+            return
+        }
         if (!showSyncsTab && currentTab === 'syncs') {
             setCurrentTab('schemas')
         }
@@ -235,7 +240,11 @@ function ManagedSourceTabs({
         if (!showMetricsTab && currentTab === 'metrics') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+    }, [source, showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+
+    if (sourceLoading && !source) {
+        return <LemonSkeleton className="w-full h-12" />
+    }
 
     const tabs: LemonTab<SourceSceneTab>[] = [
         { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },
@@ -255,7 +264,7 @@ function ManagedSourceTabs({
         tabs.push({
             label: 'Webhook',
             key: 'webhook',
-            content: <WebhookTab id={sourceId} tabId={tabId} />,
+            content: <WebhookTab id={sourceId} />,
         })
     }
 

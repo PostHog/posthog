@@ -5,6 +5,8 @@ import collections.abc
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.db import close_old_connections
+
 from requests import Response
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
@@ -17,9 +19,23 @@ from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHE
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-# Meta Ads API only supports data from the last 3 years
+# Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
+# reject a `time_range` whose start is beyond ~37 months from today with error code
+# 3018 ("The start date of the time range cannot be beyond 37 months from the current
+# date"); 3 * 365 days stays comfortably inside that window.
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
 DEFAULT_SYNC_LOOKBACK_DAYS = 90
+
+
+def _earliest_supported_since(today: dt.date) -> dt.date:
+    """Earliest ``since`` date Meta will accept for an insights ``time_range``.
+
+    Meta rejects insights queries whose start is beyond ~37 months from today with
+    error code 3018. We clamp to ``META_ADS_MAX_HISTORY_DAYS`` (kept safely under that
+    limit) so a `since` derived from an aged incremental cursor — or from a dormant
+    account whose latest activity sits near the boundary — never trips it.
+    """
+    return today - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)
 
 
 @dataclass
@@ -91,6 +107,12 @@ def _clean_account_id(s: str | None) -> str | None:
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     """Get the Meta Ads integration."""
+    # Temporal activities run in a thread pool where Django DB connections can go
+    # stale between uses (Postgres closes the connection server-side). This is
+    # invoked lazily from inside `get_rows`, so the connection has often been idle
+    # for minutes by the time we reach it, surfacing as
+    # `OperationalError: the connection is closed` — drop any stale connection first.
+    close_old_connections()
     integration = Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
     meta_ads_integration.refresh_access_token()
@@ -206,26 +228,112 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
+# Meta error codes that indicate a permanent auth or permission problem — the
+# only fix is for the user to re-authorize the integration, so retrying the job
+# is pointless. We key off the numeric ``code`` rather than the error ``type``:
+# Meta returns ``type: "OAuthException"`` for transient service errors too (e.g.
+# code 2, "Service temporarily unavailable"), so the type alone is not reliable.
+#   190 — access token expired/invalid/revoked, checkpoint required, password
+#         changed, etc. (the dominant variant for this source).
+#   102 — invalid or expired session.
+#   10 and 200-299 — permission denied.
+# https://developers.facebook.com/docs/graph-api/guides/error-handling
+META_AUTH_ERROR_CODES = {102, 190}
+META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
+
+META_AUTH_ERROR_MESSAGE = (
+    "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+)
+
+
+def _is_permanent_auth_error(response: Response) -> bool:
+    """Return True for Meta errors that only re-authorization can fix.
+
+    Covers expired/invalid/revoked access tokens, invalidated sessions, and
+    permission denials. These are terminal: retrying the sync keeps failing
+    until the user reconnects the integration.
+    """
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    code = error.get("code")
+    if not isinstance(code, int):
+        return False
+    return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+
+
+def _raise_meta_api_error(response: Response) -> typing.NoReturn:
+    """Raise a descriptive exception for a non-200 Meta API response.
+
+    Permanent auth/permission failures raise a clean, user-actionable message
+    that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
+    fast instead of burning retries. The raw response is appended for debugging.
+    Everything else raises the raw response and stays retryable.
+    """
+    if _is_permanent_auth_error(response):
+        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+
 def _iter_simple_pagination(
     initial_url: str,
     params: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
     On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
     injected at request time, so the initial request is skipped.
+
+    Like the stats path, this adapts to Meta's "reduce the amount of data" 500s
+    by shrinking the per-page ``limit`` (``PAGE_LIMIT_FALLBACK_SIZES``) and
+    retrying the same request. Entity endpoints (campaigns/adsets/ads) carry
+    heavy fields like ``targeting`` and ``creative``, so a default-sized page
+    can be too large for Meta to serve; without this fallback the whole sync
+    fails on those accounts. Retrying the same URL at a smaller limit never
+    re-emits already-yielded rows — the initial request has yielded nothing
+    yet, and a cursor points at the start of the next (not-yet-yielded) page.
     """
     access_token = params["access_token"]
+    current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+
+    # None while on the initial request; set to the active ``paging.next``
+    # cursor once we start following pages. Used to retry-at-smaller-limit.
+    cursor_url: str | None = None
     if resume_config is not None and resume_config.next_url and resume_config.end_date is None:
-        response = _fetch_paging_url(resume_config.next_url, access_token)
-    else:
-        response = make_tracked_session().get(initial_url, params=params)
+        cursor_url = resume_config.next_url
+
+    def _issue() -> Response:
+        # Only rewrite the request once the limit has actually been shrunk, so
+        # healthy syncs keep their original request shape (saved cursor URLs and
+        # the caller's params already encode the default limit).
+        if cursor_url is not None:
+            url = (
+                _override_limit(cursor_url, current_limit)
+                if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
+                else cursor_url
+            )
+            return _fetch_paging_url(url, access_token)
+        if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
+            return make_tracked_session().get(initial_url, params={**params, "limit": current_limit})
+        return make_tracked_session().get(initial_url, params=params)
+
+    response = _issue()
 
     while True:
         if response.status_code != 200:
-            raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+            # Too-much-data: shrink the page limit and retry the same request.
+            # Re-issuing the same URL/cursor at a smaller limit is safe — no
+            # already-yielded rows are re-emitted.
+            if _is_timeout_error(response):
+                smaller = _next_smaller_limit(current_limit)
+                if smaller is not None:
+                    current_limit = smaller
+                    response = _issue()
+                    continue
+            _raise_meta_api_error(response)
 
         response_payload = response.json()
         yield response_payload.get("data", [])
@@ -238,9 +346,9 @@ def _iter_simple_pagination(
         # the already-yielded page is not re-emitted (primary keys would dedupe it anyway).
         # Strip access_token from the URL before using it so we don't end up with a
         # duplicated `access_token` query param (requests merges `params=...` into the URL).
-        stripped_next_url = _strip_access_token(next_url)
-        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=stripped_next_url))
-        response = _fetch_paging_url(stripped_next_url, access_token)
+        cursor_url = _strip_access_token(next_url)
+        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=cursor_url))
+        response = _issue()
 
 
 def _iter_time_range_pagination(
@@ -249,7 +357,7 @@ def _iter_time_range_pagination(
     time_range: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate an insights-style request by chunked date ranges.
 
     The outer loop walks adaptive date chunks (30/7/1 days). The inner loop
@@ -330,7 +438,7 @@ def _iter_time_range_pagination(
                     if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
                         chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
                         continue
-                raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+                _raise_meta_api_error(response)
 
         while True:
             if response.status_code != 200:
@@ -344,7 +452,7 @@ def _iter_time_range_pagination(
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
                         continue
-                raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+                _raise_meta_api_error(response)
 
             response_payload = response.json()
             yield response_payload.get("data", [])
@@ -376,7 +484,7 @@ def _make_paginated_api_request(
     access_token: str,
     time_range: dict | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
     1. Standard pagination: Uses Meta's paging.next URLs to fetch all pages of results
@@ -419,6 +527,11 @@ def meta_ads_source(
             raise ValueError("Access token is required for Meta Ads integration")
 
         # Determine date range for incremental sync
+        today = dt.date.today()
+        # Never request data older than Meta will serve, otherwise it returns a hard
+        # 400 (code 3018) and the whole sync fails instead of importing the supported
+        # window. Data beyond this point is unavailable from Meta regardless.
+        earliest_since = _earliest_supported_since(today)
         time_range = None
 
         if should_use_incremental_field:
@@ -426,21 +539,22 @@ def meta_ads_source(
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: dt.date = dt.date.today() - dt.timedelta(days=sync_lookback_days)
+                last_value: dt.date = today - dt.timedelta(days=sync_lookback_days)
             else:
                 last_value = db_incremental_field_last_value
 
-            start_date = last_value.strftime("%Y-%m-%d")
-            # Meta Ads API is day based so only import if the day is complete
-            end_date = dt.date.today().strftime("%Y-%m-%d")
+            since = last_value.date() if isinstance(last_value, dt.datetime) else last_value
+            since = max(since, earliest_since)
             time_range = {
-                "since": start_date,
-                "until": end_date,
+                "since": since.strftime("%Y-%m-%d"),
+                # Meta Ads API is day based so only import if the day is complete
+                "until": today.strftime("%Y-%m-%d"),
             }
         elif schema.is_stats:
+            since = max(today - dt.timedelta(days=sync_lookback_days), earliest_since)
             time_range = {
-                "since": (dt.date.today() - dt.timedelta(days=sync_lookback_days)).strftime("%Y-%m-%d"),
-                "until": dt.date.today().strftime("%Y-%m-%d"),
+                "since": since.strftime("%Y-%m-%d"),
+                "until": today.strftime("%Y-%m-%d"),
             }
 
         formatted_url = schema.url.format(

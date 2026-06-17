@@ -1,18 +1,30 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
     EventTriggerConfig,
-    LinkedFeatureFlag,
     SessionRecordingTriggerGroup,
     SessionRecordingTriggerGroupsConfig,
-    UrlTriggerConfig,
 } from '~/lib/components/IngestionControls/types'
 
 import type { replayTriggersV2LogicType } from './replayTriggersV2LogicType'
+
+/**
+ * A conditionless group at 100% sample rate matches every session, so it's the explicit "record
+ * everything" state in V2. We keep teams on this rather than dropping to zero groups (which would
+ * fall back to legacy V1 config) so V2 stays the source of truth.
+ */
+export function buildRecordEverythingGroup(): SessionRecordingTriggerGroup {
+    return {
+        id: uuid(),
+        name: 'Record all sessions',
+        sampleRate: 1,
+        conditions: { matchType: 'all' },
+    }
+}
 
 export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
     path(['lib', 'components', 'IngestionControls', 'triggers', 'triggerGroups', 'replayTriggersV2Logic']),
@@ -91,9 +103,12 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                     if (!state) {
                         return state
                     }
+                    const groups = state.groups.filter((g) => g.id !== id)
+                    // Stay on V2 when the last group is removed: a record-everything group keeps the
+                    // team on trigger groups (record all) instead of falling back to legacy V1 config.
                     return {
                         ...state,
-                        groups: state.groups.filter((g) => g.id !== id),
+                        groups: groups.length === 0 ? [buildRecordEverythingGroup()] : groups,
                     }
                 },
                 updateTriggerGroup: (state, { id, updates }) => {
@@ -253,34 +268,6 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                         },
                     },
                 ]
-            },
-        ],
-        legacyTriggersPreview: [
-            (s) => [s.currentTeam],
-            (
-                team
-            ): {
-                sampleRate: number
-                minDurationMs: number | undefined
-                matchType: 'any' | 'all'
-                urls: UrlTriggerConfig[]
-                events: string[]
-                flag: string | LinkedFeatureFlag | null
-                hasConditions: boolean
-            } => {
-                const sampleRate = team?.session_recording_sample_rate
-                    ? parseFloat(team.session_recording_sample_rate)
-                    : 1
-                const minDurationMs = team?.session_recording_minimum_duration_milliseconds ?? undefined
-                const matchType = team?.session_recording_trigger_match_type_config || 'all'
-                const urls = team?.session_recording_url_trigger_config || []
-                const events: string[] = (team?.session_recording_event_trigger_config || []).filter(
-                    (e): e is string => typeof e === 'string' && e.length > 0
-                )
-                const flag = team?.session_recording_linked_flag || null
-                const hasConditions = urls.length > 0 || events.length > 0 || !!flag
-
-                return { sampleRate, minDurationMs, matchType, urls, events, flag, hasConditions }
             },
         ],
     }),

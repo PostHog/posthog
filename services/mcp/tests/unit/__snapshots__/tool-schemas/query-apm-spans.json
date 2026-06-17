@@ -5,7 +5,7 @@
             "description": "The tracing spans query to execute.",
             "properties": {
                 "after": {
-                    "description": "Pagination cursor from previous response.",
+                    "description": "Keyset pagination cursor from a previous timestamp-ordered response.",
                     "type": "string"
                 },
                 "dateRange": {
@@ -36,13 +36,18 @@
                     },
                     "type": "object"
                 },
+                "excludeAttributes": {
+                    "default": false,
+                    "description": "Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+                    "type": "boolean"
+                },
                 "filterGroup": {
                     "default": [],
                     "description": "Property filters for the query.",
                     "items": {
                         "properties": {
                             "key": {
-                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
                                 "type": "string"
                             },
                             "operator": {
@@ -75,14 +80,29 @@
                     },
                     "type": "array"
                 },
+                "flatSpans": {
+                    "default": false,
+                    "description": "Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false.",
+                    "type": "boolean"
+                },
                 "limit": {
                     "default": 100,
                     "description": "Max results (1-1000). Defaults to 100.",
                     "type": "number"
                 },
+                "offset": {
+                    "description": "Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.",
+                    "minimum": 0,
+                    "type": "number"
+                },
                 "orderBy": {
-                    "description": "Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest",
-                    "enum": ["latest", "earliest"],
+                    "description": "Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.\n\n* `timestamp` - timestamp\n* `duration` - duration",
+                    "enum": ["timestamp", "duration"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "description": "Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).\n\n* `ASC` - ASC\n* `DESC` - DESC",
+                    "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
                 "prefetchSpans": {
@@ -102,7 +122,7 @@
                     "type": "array"
                 },
                 "statusCodes": {
-                    "description": "Filter by HTTP status codes.",
+                    "description": "Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
                     "items": {
                         "type": "number"
                     },

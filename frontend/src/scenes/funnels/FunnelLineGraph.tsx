@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getDatumTitle } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -133,7 +133,7 @@ export function FunnelLineGraph({
                               })
                           }
                 }
-                hideAnnotations={inSharedMode}
+                hideAnnotations={inSharedMode || funnelsFilter?.showAnnotations === false}
             />
         </LineGraphWrapper>
     )

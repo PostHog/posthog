@@ -14,7 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
@@ -22,7 +22,7 @@ import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { ColumnSelectionPicker } from '../../../scenes/SourceScene/tabs/ColumnSelectionModal'
-import { splitDirectQueryTableName } from './directQuerySchemaUtils'
+import { splitQualifiedTableName } from './schemaGroupingUtils'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export function getDirectQuerySelectionDescription(selectedSchema?: string | null): string {
@@ -55,8 +55,8 @@ export default function SchemaForm(): JSX.Element {
         toggleSchemaShouldSync,
         toggleAllTables,
         openSyncMethodModal,
-        toggleDirectQuerySchemaGroup,
-        setExpandedDirectQuerySchemaKeys,
+        toggleSchemaGroup,
+        setExpandedSchemaGroupKeys,
         setSchemaNameFilter,
         setSchemaSyncedColumns,
     } = useActions(sourceWizardLogic)
@@ -70,8 +70,8 @@ export default function SchemaForm(): JSX.Element {
         tablesAllToggledOn,
         source,
         selectedConnector,
-        groupedDirectQueryDatabaseSchema,
-        expandedDirectQuerySchemaKeys,
+        groupedDatabaseSchema,
+        expandedSchemaGroupKeys,
     } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -154,6 +154,14 @@ export default function SchemaForm(): JSX.Element {
                             <Tooltip title={tooltip} placement="top">
                                 <LemonTag type="primary" className="cursor-help">
                                     Suggested
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {schema.rls_warning && (
+                            <Tooltip title={schema.rls_warning} placement="top">
+                                <LemonTag type="warning" className="cursor-help">
+                                    <IconWarning className="mr-1" />
+                                    RLS may hide rows
                                 </LemonTag>
                             </Tooltip>
                         )}
@@ -378,20 +386,18 @@ export default function SchemaForm(): JSX.Element {
                 )}
                 <div className="flex-1 min-h-0 overflow-y-auto">
                     {isDirectQueryMode ? (
-                        groupedDirectQueryDatabaseSchema.length > 0 ? (
+                        groupedDatabaseSchema.length > 0 ? (
                             <div className="border rounded bg-bg-light">
                                 <LemonCollapse
                                     multiple
                                     embedded
                                     activeKeys={
-                                        groupedDirectQueryDatabaseSchema.length === 1
-                                            ? groupedDirectQueryDatabaseSchema.map(
-                                                  (g: { schemaName: string }) => g.schemaName
-                                              )
-                                            : expandedDirectQuerySchemaKeys
+                                        groupedDatabaseSchema.length === 1
+                                            ? groupedDatabaseSchema.map((g: { schemaName: string }) => g.schemaName)
+                                            : expandedSchemaGroupKeys
                                     }
-                                    onChange={setExpandedDirectQuerySchemaKeys}
-                                    panels={groupedDirectQueryDatabaseSchema.map(({ schemaName, tables }) => {
+                                    onChange={setExpandedSchemaGroupKeys}
+                                    panels={groupedDatabaseSchema.map(({ schemaName, tables }) => {
                                         const selectedTablesCount = tables.filter((table) => table.should_sync).length
 
                                         return {
@@ -403,7 +409,7 @@ export default function SchemaForm(): JSX.Element {
                                                             checked={getSchemaSelectionState(tables)}
                                                             stopPropagation
                                                             onChange={(checked) =>
-                                                                toggleDirectQuerySchemaGroup(schemaName, checked)
+                                                                toggleSchemaGroup(schemaName, checked)
                                                             }
                                                         />
                                                         <span className="font-semibold truncate">{schemaName}</span>
@@ -422,7 +428,7 @@ export default function SchemaForm(): JSX.Element {
                                                             const tooltip =
                                                                 suggestedTablesMap[schema.table] ??
                                                                 'This table is suggested to be enabled for this source'
-                                                            const { tableName } = splitDirectQueryTableName(
+                                                            const { tableName } = splitQualifiedTableName(
                                                                 schema.table,
                                                                 source.payload.schema
                                                             )
@@ -520,14 +526,14 @@ export default function SchemaForm(): JSX.Element {
                         ) : (
                             <div className="border rounded px-4 py-8 text-center text-muted-alt">No tables found</div>
                         )
-                    ) : groupedDirectQueryDatabaseSchema.length > 1 ? (
+                    ) : groupedDatabaseSchema.length > 1 ? (
                         <div className="border rounded bg-bg-light">
                             <LemonCollapse
                                 multiple
                                 embedded
-                                activeKeys={expandedDirectQuerySchemaKeys}
-                                onChange={setExpandedDirectQuerySchemaKeys}
-                                panels={groupedDirectQueryDatabaseSchema.map(
+                                activeKeys={expandedSchemaGroupKeys}
+                                onChange={setExpandedSchemaGroupKeys}
+                                panels={groupedDatabaseSchema.map(
                                     ({
                                         schemaName,
                                         tables,
@@ -542,9 +548,7 @@ export default function SchemaForm(): JSX.Element {
                                                     <LemonCheckbox
                                                         checked={getSchemaSelectionState(tables)}
                                                         stopPropagation
-                                                        onChange={(checked) =>
-                                                            toggleDirectQuerySchemaGroup(schemaName, checked)
-                                                        }
+                                                        onChange={(checked) => toggleSchemaGroup(schemaName, checked)}
                                                     />
                                                     <span className="font-semibold truncate">{schemaName}</span>
                                                 </div>

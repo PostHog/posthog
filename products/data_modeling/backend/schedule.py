@@ -41,10 +41,10 @@ async def get_v2_scheduled_dag_ids() -> set[str]:
     """
     temporal = await async_connect()
     dag_ids: set[str] = set()
-    # Pre-filter server-side so we don't page through every v1 `data-modeling-run` schedule;
-    # keep the client-side check as a safety net since visibility data is eventually consistent.
-    query = f"WorkflowType = '{DATA_MODELING_EXECUTE_DAG_WORKFLOW}'"
-    async for listing in await temporal.list_schedules(query=query):
+    # The schedule visibility store does not support filtering on WorkflowType (it raises
+    # "cannot filter on WorkflowType"), unlike workflow visibility. So we list all schedules and
+    # filter client-side on the action's workflow type.
+    async for listing in await temporal.list_schedules():
         action = listing.schedule.action if listing.schedule else None
         if (
             isinstance(action, ScheduleListActionStartWorkflow)

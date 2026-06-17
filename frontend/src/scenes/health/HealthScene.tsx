@@ -1,22 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconBell,
-    IconCheck,
-    IconCode,
-    IconDatabase,
-    IconEllipsis,
-    IconRefresh,
-    IconSparkles,
-    IconSupport,
-    IconWarning,
-} from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconBell, IconCheck, IconEllipsis, IconRefresh, IconSparkles, IconSupport } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -31,75 +21,7 @@ import { PlatformStatusBanner } from './components/PlatformStatusBanner'
 import { healthSceneLogic } from './healthSceneLogic'
 import { buildHealthOverviewPrompt, HEALTH_OVERVIEW_QUESTIONS } from './healthUtils'
 
-const HealthCard = ({
-    title,
-    description,
-    icon,
-    to,
-}: {
-    title: string
-    description: string
-    icon: React.ReactNode
-    to: string
-}): JSX.Element => {
-    return (
-        <Link
-            to={to}
-            className="flex flex-col gap-4 justify-between border border-primary bg-surface-primary rounded p-8 transition-colors cursor-pointer h-full shadow hover:border-accent"
-        >
-            <div className="size-8 flex items-center justify-center text-primary">{icon}</div>
-            <div>
-                <h3 className="text-sm font-semibold line-clamp-2 flex-1 mb-0">{title}</h3>
-                <p className="text-sm text-text-tertiary mb-0">{description}</p>
-            </div>
-        </Link>
-    )
-}
-
-const DetailedViewCards = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
-
-    return (
-        <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
-            <HealthCard
-                title="Ingestion warnings"
-                description="Click to view"
-                icon={<IconWarning className="size-6" />}
-                to={urls.ingestionWarnings()}
-            />
-            <HealthCard
-                title="SDK health"
-                description="Click to view"
-                icon={<IconCode className="size-6" />}
-                to={urls.sdkDoctor()}
-            />
-            {pipelineStatusEnabled && (
-                <HealthCard
-                    title="Pipelines status"
-                    description="Click to view"
-                    icon={<IconDatabase className="size-6" />}
-                    to={urls.pipelineStatus()}
-                />
-            )}
-        </div>
-    )
-}
-
-const LegacyHealthScene = (): JSX.Element => {
-    return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Health"
-                description="See an at-a-glance view of the health of your project."
-                resourceType={{ type: 'health' }}
-            />
-            <DetailedViewCards />
-        </SceneContent>
-    )
-}
-
-const UnifiedHealthScene = (): JSX.Element => {
+export const HealthScene = (): JSX.Element => {
     const { showDismissed, healthIssuesLoading, isRefreshInFlight, nextRefreshAvailableAt, issues } =
         useValues(healthSceneLogic)
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
@@ -204,11 +126,6 @@ const UnifiedHealthScene = (): JSX.Element => {
             </div>
         </SceneContent>
     )
-}
-
-export const HealthScene = (): JSX.Element => {
-    const { unifiedHealthPageEnabled } = useValues(healthSceneLogic)
-    return unifiedHealthPageEnabled ? <UnifiedHealthScene /> : <LegacyHealthScene />
 }
 
 export const scene: SceneExport = {

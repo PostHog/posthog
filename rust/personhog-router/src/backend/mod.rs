@@ -1,10 +1,11 @@
+pub mod discovery;
 mod leader;
 mod replica;
 mod retry;
 mod stash;
 
 pub use leader::{AddressResolver, LeaderBackend, LeaderBackendConfig};
-pub use replica::{ReplicaBackend, ReplicaBackendConfig};
+pub use replica::{ReplicaBackend, ReplicaDnsConfig};
 pub use stash::{StashDecision, StashTable, StashedRequest};
 
 use async_trait::async_trait;
@@ -31,9 +32,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -111,6 +112,12 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: DeletePersonsBatchForTeamRequest,
     ) -> Result<DeletePersonsBatchForTeamResponse, Status>;
+
+    // Person split
+    async fn split_person(
+        &self,
+        request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status>;
 
     // Cohort membership
     async fn check_cohort_membership(

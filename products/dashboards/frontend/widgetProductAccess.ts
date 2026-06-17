@@ -16,3 +16,8 @@ export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidg
     }
     return WIDGET_PRODUCT_ACCESS_CHECKS[productAccess]()
 }
+
+/** In-tile issue row edits and assignee filter picker: dashboard editor or Error tracking editor. */
+export function userCanMutateErrorTrackingIssuesOnDashboard(canEditDashboard: boolean): boolean {
+    return canEditDashboard || userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
+}

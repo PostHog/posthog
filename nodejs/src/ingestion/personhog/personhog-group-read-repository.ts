@@ -1,4 +1,4 @@
-import { GroupTypeIndex, TeamId } from '../../types'
+import { GroupTypeIndex, ProjectId, TeamId } from '../../types'
 import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
@@ -28,10 +28,14 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
             group_properties: Record<string, any>
         }[]
     > {
-        return withRetry('PersonHogGroupReadRepository.fetchGroupsByKeys', () =>
-            timedGrpc(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
-            )
+        const method = 'fetchGroupsByKeys'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                ),
+            this.clientLabel,
+            method
         )
     }
 
@@ -39,10 +43,29 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
         teamIds: TeamId[],
         callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        return withRetry('PersonHogGroupReadRepository.fetchGroupTypesByTeamIds', () =>
-            timedGrpc(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds, callerTag)
-            )
+        const method = 'fetchGroupTypesByTeamIds'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds, callerTag)
+                ),
+            this.clientLabel,
+            method
+        )
+    }
+
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        callerTag?: string
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        const method = 'fetchGroupTypesByProjectIds'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.groups.fetchGroupTypesByProjectIds(projectIds, callerTag)
+                ),
+            this.clientLabel,
+            method
         )
     }
 }

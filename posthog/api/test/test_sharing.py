@@ -7,14 +7,22 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 
-from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
+from posthog.api.sharing import (
+    SHARING_RESOURCE_EDIT_CHECKS,
+    _assert_every_shareable_resource_is_gated,
+    _log_share_password_attempt,
+    check_can_edit_sharing_configuration,
+    shared_url_as_png,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.filters.filter import Filter
@@ -23,6 +31,8 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.product_analytics.backend.models.insight import Insight
 
@@ -595,6 +605,77 @@ class TestSharing(APIBaseTest):
         original_config.refresh_from_db()
         assert original_config.expires_at is not None
         assert original_config.expires_at > timezone.now()  # Should be in the future
+
+    @parameterized.expand(
+        [
+            # action, expected active configs after the call: reads leave duplicates alone,
+            # authorized writes (patch/refresh) collapse them to one.
+            ("get", 2),
+            ("patch", 1),
+            ("refresh", 1),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_sharing_endpoints_succeed_with_duplicate_active_configs(
+        self, action: str, expected_active_configs: int, _patched_exporter_task: Mock
+    ) -> None:
+        share_settings = {"whitelabel": True, "hideExtraDetails": True}
+        dashboard = Dashboard.objects.create(team=self.team, name="duplicate sharing dashboard", created_by=self.user)
+        for token in ("duplicate_token_one", "duplicate_token_two"):
+            SharingConfiguration.objects.create(
+                team=self.team,
+                dashboard=dashboard,
+                enabled=True,
+                access_token=token,
+                settings=share_settings,
+            )
+
+        base_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
+        if action == "get":
+            response = self.client.get(base_url)
+        elif action == "patch":
+            response = self.client.patch(base_url, {"enabled": True})
+        else:
+            response = self.client.post(f"{base_url}/refresh/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (
+            SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count()
+            == expected_active_configs
+        )
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["settings"] == share_settings
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_legacy_dashboard_share_token_does_not_500_when_token_already_used(
+        self, _patched_exporter_task: Mock
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="legacy token dashboard", created_by=self.user)
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=True,
+            access_token="active_token",
+        )
+        expired_config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=True,
+            access_token="legacy_token",
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        dashboard.share_token = expired_config.access_token
+        dashboard.is_shared = True
+        dashboard.save(update_fields=["share_token", "is_shared"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == status.HTTP_200_OK
+        dashboard.refresh_from_db()
+        assert dashboard.share_token == "active_token"
+        assert dashboard.is_shared is True
+        assert response.json()["access_token"] == "active_token"
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_sharing_configuration_settings_field_defaults(self, patched_exporter_task: Mock):
@@ -1384,7 +1465,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(team=self.team, name="Power users")
         other_cohort = Cohort.objects.create(team=self.team, name="Churned users")  # not referenced
@@ -1431,8 +1512,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
     @mock_exporter_template
     def test_shared_dashboard_collects_cohorts_across_tiles(self):
-        from posthog.models.cohort import Cohort
-
+        from products.cohorts.backend.models.cohort import Cohort
         from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
         cohort_a = Cohort.objects.create(team=self.team, name="Cohort A")
@@ -1471,11 +1551,86 @@ class TestSharedCohortInlining(APIBaseTest):
         )
 
     @staticmethod
-    def _parse_exported_cohorts(html: str) -> list[dict]:
+    def _parse_exported_data(html: str) -> dict:
         # mock_exporter_template embeds the exported_data JSON inside this <script> tag.
         start_marker = '<script id="posthog-exported-data" type="application/json">'
         start = html.index(start_marker) + len(start_marker)
         end = html.index("</script>", start)
         outer = json.loads(html[start:end])
         inner = json.loads(outer) if isinstance(outer, str) else outer
-        return inner.get("cohorts", [])
+        return inner
+
+    @staticmethod
+    def _parse_exported_cohorts(html: str) -> list[dict]:
+        return TestSharedCohortInlining._parse_exported_data(html).get("cohorts", [])
+
+    @mock_exporter_template
+    def test_shared_dashboard_includes_widget_metadata_only(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
+        widget = DashboardWidget.all_teams.create(
+            team_id=self.team.id,
+            widget_type="error_tracking_list",
+            name="Top errors",
+            config={"limit": 10},
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            team_id=self.team.id,
+            widget=widget,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported = self._parse_exported_data(response.content.decode())
+        widget_tiles = [tile for tile in exported["dashboard"]["tiles"] if tile.get("widget")]
+        assert len(widget_tiles) == 1
+
+        widget_data = widget_tiles[0]["widget"]
+        assert set(widget_data.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert widget_data["widget_type"] == "error_tracking_list"
+        assert widget_data["config"]["limit"] == 10
+        assert "created_by" not in widget_data
+
+
+class TestSharingResourceEditChecks(APIBaseTest):
+    def test_every_shareable_resource_has_an_edit_check(self):
+        assert set(SHARING_RESOURCE_EDIT_CHECKS) == SharingConfiguration.shareable_resource_fields()
+
+    @parameterized.expand(
+        [
+            ("a shareable resource has no registered edit check", "recording", None),
+            ("the registry references a non-existent field", None, "made_up_resource"),
+        ]
+    )
+    def test_assertion_rejects_a_registry_out_of_sync_with_the_model(self, _name, drop_key, add_key):
+        mutated = dict(SHARING_RESOURCE_EDIT_CHECKS)
+        if drop_key:
+            mutated.pop(drop_key)
+        if add_key:
+            mutated[add_key] = None
+
+        with patch.dict("posthog.api.sharing.SHARING_RESOURCE_EDIT_CHECKS", mutated, clear=True):
+            with self.assertRaises(ImproperlyConfigured):
+                _assert_every_shareable_resource_is_gated()
+
+    @patch("posthog.api.sharing.UserAccessControl")
+    def test_gate_fails_closed_for_a_resource_with_no_edit_check(self, _mock_user_access_control):
+        sharing = Mock(spec=SharingConfiguration)
+        for field_name in SharingConfiguration.shareable_resource_fields():
+            setattr(sharing, field_name, None)
+        sharing.interviewee_context = Mock()
+        sharing.team = self.team
+
+        request = Mock(method="PATCH", data={})
+        request.user = self.user
+        view = Mock(team=self.team)
+
+        with self.assertRaises(PermissionDenied) as caught:
+            check_can_edit_sharing_configuration(view, request, sharing)
+
+        assert "cannot be shared through this endpoint" in str(caught.exception)

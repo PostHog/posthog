@@ -43,6 +43,8 @@ from posthog.models.integration import (
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.workflows.backend.providers import SESProvider
+
 
 def get_db_field_value(field, model_id):
     cursor = connection.cursor()
@@ -641,152 +643,11 @@ class TestOauthIntegrationModel(BaseTest):
     def test_stripe_authorize_url_uses_live_client_id_by_default(self):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
             STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
             STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
         ):
             url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
             assert "client_id=ca_live_clientid" in url
-            assert "client_id=ca_sandbox_clientid" not in url
-
-    def test_stripe_authorize_url_uses_sandbox_client_id_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
-        ):
-            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
-            assert "client_id=ca_sandbox_clientid" in url
-            assert "client_id=ca_live_clientid" not in url
-
-    def test_stripe_oauth_config_uses_sandbox_secret_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            live_cfg = OauthIntegration.oauth_config_for_kind("stripe")
-            sandbox_cfg = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=True)
-            assert live_cfg.client_secret == "sk_live_secret"
-            assert sandbox_cfg.client_secret == "sk_test_sandbox_secret"
-
-    def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    def test_stripe_authorize_url_raises_when_sandbox_secret_missing(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_falls_back_to_sandbox_on_does_not_belong_error(self, mock_post):
-        # First call (live secret) returns 400 with the marker error - second call should
-        # retry with sandbox config and succeed.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {
-            "error": "invalid_grant",
-            "error_description": "Authorization code provided does not belong to you",
-        }
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_123",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert mock_post.call_count == 2
-        first_call_secret = mock_post.call_args_list[0].kwargs["auth"].username
-        second_call_secret = mock_post.call_args_list[1].kwargs["auth"].username
-        assert first_call_secret == "sk_live_secret"
-        assert second_call_secret == "sk_test_sandbox_secret"
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_sandbox_secret_unset(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_only_sandbox_secret_set(self, mock_post):
-        # If the sandbox secret is set but the sandbox client_id is not, the retry guard
-        # must fail closed - oauth_config_for_kind would otherwise raise NotImplementedError
-        # and mask the original Stripe error.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -811,7 +672,7 @@ class TestOauthIntegrationModel(BaseTest):
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
     @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_false_for_live_install(self, mock_post):
+    def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
             "access_token": "FAKE_ACCESS",
@@ -832,57 +693,7 @@ class TestOauthIntegrationModel(BaseTest):
                 {"code": "ac_live_code"},
             )
 
-        assert integration.config.get("is_sandbox") is False
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_true_after_sandbox_fallback(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_1",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            integration = OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert integration.config.get("is_sandbox") is True
-
-    @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_refresh_access_token_uses_sandbox_secret_when_flag_set(self, mock_post, mock_reload):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
-
-        integration = self.create_integration(kind="stripe", config={"expires_in": 1000, "is_sandbox": True})
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration(integration).refresh_access_token()
-
-        assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
+        assert "is_sandbox" not in integration.config
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -2168,6 +1979,221 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_cross_org_guard_blocks_mixed_case_domain(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        EmailIntegration.create_native_integration(
+            {"email": "owner@example.com", "name": "Owner"},
+            team_id=other_team.id,
+            organization_id=str(other_org.id),
+            created_by=self.user,
+        )
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                {"email": "attacker@Example.com", "name": "Attacker"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        assert "already exists in another organization" in str(exc.value)
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_stored_domain_is_lowercased(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        integration = EmailIntegration.create_native_integration(
+            {"email": "user@SuccessDomain.COM", "name": "Test User", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        assert integration.config["domain"] == "successdomain.com"
+
+    @parameterized.expand(
+        [
+            ("gmail_titlecase", "user@Gmail.com"),
+            ("gmail_uppercase", "user@GMAIL.COM"),
+            ("gmail_mixed", "user@gMaIl.cOm"),
+            ("yahoo_titlecase", "user@Yahoo.com"),
+            ("hotmail_uppercase", "user@HOTMAIL.COM"),
+        ]
+    )
+    def test_free_email_block_is_case_insensitive(self, _name, email):
+        config = {"email": email, "name": "Test User"}
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                config,
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        assert "not supported" in str(exc.value)
+
+
+class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
+    def _build_ses_provider(self, tenants_for_domain: dict[str, list[str]] | None = None) -> SESProvider:
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        provider = SESProvider()
+        provider.ses_client = MagicMock()
+        provider.ses_v2_client = MagicMock()
+        provider.sts_client = MagicMock()
+        provider.sts_client.get_caller_identity.return_value = {"Account": "123456789012"}
+
+        provider.ses_client.verify_domain_identity.return_value = {"VerificationToken": "tok"}
+        provider.ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["t1", "t2", "t3"]}
+        provider.ses_client.set_identity_mail_from_domain.return_value = {}
+
+        def _list_resource_tenants(ResourceArn: str) -> dict:
+            domain = ResourceArn.split("/")[-1]
+            return {"ResourceTenants": [{"TenantName": t} for t in (tenants_for_domain or {}).get(domain, [])]}
+
+        provider.ses_v2_client.list_resource_tenants.side_effect = _list_resource_tenants
+        return provider
+
+    def _set_global_ses_success(self, provider, domain: str) -> None:
+        provider.ses_client.get_identity_verification_attributes.return_value = {
+            "VerificationAttributes": {domain: {"VerificationStatus": "Success"}}
+        }
+        provider.ses_client.get_identity_dkim_attributes.return_value = {
+            "DkimAttributes": {domain: {"DkimVerificationStatus": "Success"}}
+        }
+        provider.ses_client.get_identity_mail_from_domain_attributes.return_value = {
+            "MailFromDomainAttributes": {domain: {"MailFromDomainStatus": "Success"}}
+        }
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verify_email_domain_requires_team_tenant_association(self, mock_resolver_cls):
+        provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
+        self._set_global_ses_success(provider, "partner.com")
+        dmarc_answer = MagicMock()
+        dmarc_answer.strings = [b"v=DMARC1; p=none;"]
+        mock_resolver_cls.return_value.resolve.return_value = [dmarc_answer]
+
+        result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
+        result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)
+
+        assert result_team_a["status"] == "success"
+        assert result_team_b["status"] == "pending"
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_destroy_email_integration_deletes_ses_identity(self, mock_create_email_domain, mock_delete_identity):
+        from posthog.api.integration import IntegrationViewSet
+
+        mock_create_email_domain.return_value = {"status": "success"}
+        integration = EmailIntegration.create_native_integration(
+            {"email": "owner@partner.com", "name": "Owner"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        IntegrationViewSet().perform_destroy(integration)
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+        assert not Integration.objects.filter(pk=integration.pk).exists()
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_destroy_email_integration_skips_ses_delete_when_sibling_exists(
+        self, mock_create_email_domain, mock_delete_identity
+    ):
+        from posthog.api.integration import IntegrationViewSet
+
+        mock_create_email_domain.return_value = {"status": "success"}
+        sibling_team = Team.objects.create(organization=self.organization, name="sibling team")
+        EmailIntegration.create_native_integration(
+            {"email": "sibling@partner.com", "name": "Sibling"},
+            team_id=sibling_team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        integration = EmailIntegration.create_native_integration(
+            {"email": "owner@partner.com", "name": "Owner"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        IntegrationViewSet().perform_destroy(integration)
+
+        assert mock_delete_identity.call_count == 0
+
+    def test_create_email_domain_rejects_foreign_tenant_owner(self):
+        provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
+
+        with pytest.raises(Exception) as exc:
+            provider.create_email_domain("partner.com", "feedback", team_id=999, org_team_ids=[999])
+        assert "already associated with another organization" in str(exc.value)
+
+    def test_create_email_domain_allows_sibling_team_in_same_org(self):
+        provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
+
+        provider.create_email_domain(
+            "partner.com",
+            "feedback",
+            team_id=2,
+            org_team_ids=[1, 2, 3, 4, 5],
+        )
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_takeover_after_owner_deletes_integration_is_blocked(self, mock_create_email_domain, mock_resolver_cls):
+        from posthog.api.integration import IntegrationViewSet
+
+        mock_create_email_domain.return_value = {"status": "success"}
+        dmarc_answer = MagicMock()
+        dmarc_answer.strings = [b"v=DMARC1; p=none;"]
+        mock_resolver_cls.return_value.resolve.return_value = [dmarc_answer]
+
+        org_a = Organization.objects.create(name="org a")
+        team_a = Team.objects.create(organization=org_a, name="team a")
+        org_b = Organization.objects.create(name="org b")
+        team_b = Team.objects.create(organization=org_b, name="team b")
+
+        integration_a = EmailIntegration.create_native_integration(
+            {"email": "owner@partner.com", "name": "Owner A"},
+            team_id=team_a.id,
+            organization_id=str(org_a.id),
+            created_by=self.user,
+        )
+        with patch("products.workflows.backend.providers.SESProvider.delete_identity") as mock_delete:
+            IntegrationViewSet().perform_destroy(integration_a)
+            mock_delete.assert_called_once_with("partner.com")
+
+        integration_b = EmailIntegration.create_native_integration(
+            {"email": "attacker@partner.com", "name": "Attacker B"},
+            team_id=team_b.id,
+            organization_id=str(org_b.id),
+            created_by=self.user,
+        )
+
+        provider = self._build_ses_provider(tenants_for_domain={"partner.com": []})
+        self._set_global_ses_success(provider, "partner.com")
+
+        email_b = EmailIntegration(integration_b)
+        with patch.object(type(email_b), "ses_provider", new=provider):
+            result = email_b.verify()
+
+        assert result["status"] == "pending"
+        integration_b.refresh_from_db()
+        assert integration_b.config.get("verified") is False
+
+    def test_aws_account_id_is_cached_per_provider(self):
+        provider = self._build_ses_provider()
+        provider.sts_client.get_caller_identity.reset_mock()
+
+        for _ in range(5):
+            provider._identity_arn("partner.com")
+            provider._identity_arn("other.com")
+
+        assert provider.sts_client.get_caller_identity.call_count == 1
 
 
 class TestGitLabIntegrationSSRFProtection:
