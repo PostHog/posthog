@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import {
+    liveEventSourcesByStreamKey,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
@@ -94,6 +95,8 @@ describe('sandboxStreamLogic', () => {
     beforeEach(() => {
         initKeaTests()
         MockEventSource.reset()
+        // The live-connection registry is a module global (survives HMR), so clear it between tests.
+        liveEventSourcesByStreamKey.clear()
         ;(global as any).EventSource = MockEventSource
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
@@ -1030,6 +1033,67 @@ describe('sandboxStreamLogic', () => {
             await flushPromises()
 
             expect(logic.values.sseStatus).toEqual('error')
+        })
+    })
+
+    describe('hot-reload connection survival', () => {
+        // Simulates the orphaned connection a hot reload leaves behind: the prior build registered an
+        // EventSource but its `cache` (and the disposable that would close it) was discarded before the
+        // connection was closed. The registry survives module re-evaluation so the new build can find it.
+        function seedOrphanedConnection(): MockEventSource {
+            const orphan = new MockEventSource('orphaned-by-hot-reload')
+            liveEventSourcesByStreamKey.set('test-conversation', orphan as unknown as EventSource)
+            return orphan
+        }
+
+        it('registers the live EventSource under the stream key on open', () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+
+            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(
+                MockEventSource.latest() as unknown as EventSource
+            )
+        })
+
+        it('closes a connection orphaned by a prior build before opening a new one', () => {
+            const orphan = seedOrphanedConnection()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+
+            // The orphan that would otherwise keep streaming (and race the replay, doubling the
+            // thread) is closed, and the registry now points at the single new connection.
+            expect(orphan.closed).toEqual(true)
+            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(
+                MockEventSource.latest() as unknown as EventSource
+            )
+        })
+
+        it('reset closes an orphaned connection so the replay bootstrap is not raced', () => {
+            const orphan = seedOrphanedConnection()
+
+            logic.actions.reset()
+
+            expect(orphan.closed).toEqual(true)
+            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
+        })
+
+        it('closeSse closes an orphaned connection', () => {
+            const orphan = seedOrphanedConnection()
+
+            logic.actions.closeSse()
+
+            expect(orphan.closed).toEqual(true)
+            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
+        })
+
+        it('unregisters on disposable cleanup so the registry never points at a dead connection', () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(source as unknown as EventSource)
+
+            logic.actions.closeSse()
+
+            expect(source.closed).toEqual(true)
+            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
         })
     })
 
