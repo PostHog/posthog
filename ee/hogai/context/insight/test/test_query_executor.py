@@ -333,6 +333,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("Query failed with error", str(context.exception))
 
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_polling_with_error_and_no_message(self, mock_get_query_status, mock_process_query):
+        """A failed async query without an error_message raises a retryable error, not a masked generic one"""
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+            }
+        )
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(query)
+
+        # Must surface the real failure, not the catch-all "unknown error" mask
+        self.assertIn("Query failed without an error message", str(context.exception))
+        self.assertNotIn("unknown error", str(context.exception))
+
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_execution_mode_in_production(self, mock_process_query):

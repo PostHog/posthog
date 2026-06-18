@@ -421,7 +421,10 @@ class AssistantQueryExecutor:
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
                         raise APIException(error_message)
-                    raise Exception("Query failed")
+                    # Query failed at the ClickHouse layer without an error message. Raise a typed,
+                    # retryable error so the catch-all below doesn't mask it as a generic "unknown
+                    # error" — this lets the caller's HogQL fix-retry loop attempt a rewrite.
+                    raise MaxToolRetryableError("Query failed without an error message")
 
                 # Use the completed query results
                 response_dict = query_status["results"]
@@ -432,6 +435,7 @@ class AssistantQueryExecutor:
             HogQLNotImplementedError,
             ExposedCHQueryError,
             UserAccessControlError,
+            MaxToolRetryableError,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
