@@ -127,7 +127,7 @@ describe('exportsLogic', () => {
                 label: 'blocking export with content is downloaded and confirmed',
                 response: asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true }),
                 format: ExporterFormat.CSV,
-                toast: { fn: 'success', args: ['Export complete!'] },
+                toast: { fn: 'success', args: ['Export complete!', { pauseOnFocusLoss: false }] },
                 expectsDownload: true,
                 freshIds: [],
             },

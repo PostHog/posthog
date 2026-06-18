@@ -104,7 +104,9 @@ export const exportsLogic = kea<exportsLogicType>([
                         type: exportData.export_context.mediaType,
                     })
                     downloadBlob(blob, exportData.export_context.filename)
-                    lemonToast.success('Export complete!')
+                    // Triggering a download blurs the window, which would otherwise pause
+                    // react-toastify's auto-dismiss timer (pauseOnFocusLoss) indefinitely.
+                    lemonToast.success('Export complete!', { pauseOnFocusLoss: false })
                 } catch (e: any) {
                     lemonToast.error(`Export failed with error: ${e.message}`)
                 }
@@ -224,13 +226,18 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (response && response.has_content) {
                                 // Blocking export already finished in the request — download and confirm.
                                 await downloadExportedAsset(response)
-                                lemonToast.success('Export complete!')
+                                // The download blurs the window; disable pauseOnFocusLoss so the
+                                // toast's auto-dismiss timer isn't frozen indefinitely.
+                                lemonToast.success('Export complete!', { pauseOnFocusLoss: false })
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
                             } else if (response) {
                                 // Async export (e.g. video render) is a background job: acknowledge the
                                 // kickoff right away. It surfaces in the Exports panel once the render finishes.
                                 lemonToast.success('Export started', {
+                                    // A later download (e.g. from the Exports panel) blurs the window,
+                                    // which would otherwise freeze this toast's auto-dismiss timer.
+                                    pauseOnFocusLoss: false,
                                     button: {
                                         label: 'View exports',
                                         action: () => newInternalTab(urls.exports()),
