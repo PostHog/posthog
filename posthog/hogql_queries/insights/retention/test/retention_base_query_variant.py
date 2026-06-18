@@ -53,7 +53,5 @@ class RetentionBaseQueryVariantComparisonMixin:
         return not self._query_uses_known_retention_base_query_variant_gap(query)
 
     def _query_uses_known_retention_base_query_variant_gap(self, query: dict[str, Any]) -> bool:
-        if query.get("breakdownFilter"):
-            return True
-
+        # No known gaps remain — the variant covers every comparable query shape.
         return False
