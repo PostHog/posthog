@@ -30,6 +30,23 @@ class SquareRetryableError(Exception):
     pass
 
 
+class SquareInvalidCursorError(Exception):
+    pass
+
+
+def _is_invalid_cursor_error(response: requests.Response) -> bool:
+    """A 400 whose error payload points at the pagination cursor. Square cursors
+    have a ~5 minute lifetime, so a resumed or slowly-paginated cursor can expire
+    mid-stream and Square then rejects it as invalid/incompatible."""
+    if response.status_code != 400:
+        return False
+    try:
+        errors = response.json().get("errors", [])
+    except ValueError:
+        return False
+    return any(error.get("field") == "cursor" or error.get("code") == "INVALID_CURSOR" for error in errors)
+
+
 @dataclasses.dataclass
 class SquareResumeConfig:
     # The next-page pagination cursor returned by Square. Square cursors expire
@@ -139,17 +156,32 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise SquareRetryableError(f"Square API error (retryable): status={response.status_code}, url={url}")
 
+        if _is_invalid_cursor_error(response):
+            raise SquareInvalidCursorError(f"Square rejected the pagination cursor for {endpoint}")
+
         if not response.ok:
             logger.error(f"Square API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response.json()
 
+    restarted_after_invalid_cursor = False
     while True:
         # Square encodes the original query in the cursor, so subsequent pages are
         # requested with the cursor alone — re-sending filters/sort can error.
         params = {"cursor": cursor} if cursor else initial_params
-        data = fetch_page(params)
+        try:
+            data = fetch_page(params)
+        except SquareInvalidCursorError:
+            # An expired cursor can't be recovered by retrying it, so restart the
+            # stream from the beginning (merge dedupes on the primary key). Bounded
+            # to a single restart so a genuinely malformed query can't loop forever.
+            if cursor is None or restarted_after_invalid_cursor:
+                raise
+            logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
+            cursor = None
+            restarted_after_invalid_cursor = True
+            continue
 
         items = data.get(config.data_key, [])
         next_cursor = data.get("cursor")

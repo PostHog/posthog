@@ -2,6 +2,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -11,9 +12,11 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.square.settings import SQUARE_ENDPOINTS
 from posthog.temporal.data_imports.sources.square.square import (
     SQUARE_HOSTS,
+    SquareInvalidCursorError,
     SquareResumeConfig,
     _build_initial_params,
     _format_rfc3339,
+    _is_invalid_cursor_error,
     get_rows,
     validate_credentials,
 )
@@ -110,6 +113,26 @@ class TestBuildInitialParams:
             assert params[key] == value
         for key in expected_absent:
             assert key not in params
+
+
+class TestIsInvalidCursorError:
+    @parameterized.expand(
+        [
+            ("cursor_field", 400, {"errors": [{"field": "cursor", "code": "INVALID_VALUE"}]}, True),
+            ("invalid_cursor_code", 400, {"errors": [{"code": "INVALID_CURSOR"}]}, True),
+            ("unrelated_400", 400, {"errors": [{"field": "sort_field", "code": "INVALID_VALUE"}]}, False),
+            ("empty_400", 400, {}, False),
+            ("not_a_400", 404, {"errors": [{"field": "cursor"}]}, False),
+        ]
+    )
+    def test_detection(self, _name: str, status_code: int, body: dict[str, Any], expected: bool) -> None:
+        assert _is_invalid_cursor_error(_make_response(body, status_code=status_code)) is expected
+
+    def test_non_json_body_is_not_invalid_cursor(self) -> None:
+        resp = Response()
+        resp.status_code = 400
+        resp._content = b"<html>Bad Request</html>"
+        assert _is_invalid_cursor_error(resp) is False
 
 
 class TestValidateCredentials:
@@ -223,6 +246,40 @@ class TestGetRowsPagination:
         )
         assert len(sent_params) == 1
         manager.save_state.assert_not_called()
+
+    def test_invalid_cursor_restarts_stream_from_beginning(self) -> None:
+        # A resumed cursor that Square has expired (~5 min lifetime) 400s; the stream
+        # should restart from the beginning rather than crash.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
+
+        responses = [
+            _make_response({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400),
+            _make_response({"customers": [{"id": "c1"}], "cursor": "cur-1"}),
+            _make_response({"customers": [{"id": "c2"}]}),
+        ]
+        sent_params = self._drive("customers", manager, responses)
+
+        # First request uses the stale cursor and is rejected; the retry drops the
+        # cursor and re-issues the original query, then pages normally.
+        assert sent_params[0] == {"cursor": "stale-cursor"}
+        assert "cursor" not in sent_params[1]
+        assert sent_params[2] == {"cursor": "cur-1"}
+
+    def test_invalid_cursor_only_restarts_once(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
+
+        invalid = _make_response({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400)
+        responses = [
+            invalid,
+            _make_response({"customers": [{"id": "c1"}], "cursor": "cur-1"}),
+            invalid,
+        ]
+        with pytest.raises(SquareInvalidCursorError):
+            self._drive("customers", manager, responses)
 
     def test_yields_rows_using_endpoint_data_key(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
