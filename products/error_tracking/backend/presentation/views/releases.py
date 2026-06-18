@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 
 import structlog
@@ -37,9 +38,12 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             raise ValidationError("Hash id length cannot exceed 128 bytes")
 
         if assert_new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
-            raise ValidationError(f"Hash id {hash_id} already in use")
+            raise self.hash_id_in_use_error(hash_id)
 
         return hash_id
+
+    def hash_id_in_use_error(self, hash_id: str) -> ValidationError:
+        return ValidationError(f"Hash id {hash_id} already in use")
 
     def update(self, request, *args, **kwargs) -> Response:
         release = self.get_object()
@@ -65,7 +69,13 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             hash_id = self.validate_hash_id(hash_id, True)
             release.hash_id = hash_id
 
-        release.save()
+        try:
+            with transaction.atomic():
+                release.save()
+        except IntegrityError:
+            # Concurrent request claimed this hash_id between the pre-check and the save.
+            raise self.hash_id_in_use_error(release.hash_id)
+
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs) -> Response:
@@ -84,9 +94,15 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
 
         version = str(version)
 
-        release = ErrorTrackingRelease.objects.create(
-            id=id, team=self.team, hash_id=hash_id, metadata=metadata, project=project, version=version
-        )
+        try:
+            with transaction.atomic():
+                release = ErrorTrackingRelease.objects.create(
+                    id=id, team=self.team, hash_id=hash_id, metadata=metadata, project=project, version=version
+                )
+        except IntegrityError:
+            # Concurrent request claimed this hash_id between the pre-check and the insert
+            # (e.g. parallel CI source-map uploads). Surface a clean 400 instead of a 500.
+            raise self.hash_id_in_use_error(hash_id)
 
         serializer = ErrorTrackingReleaseSerializer(release)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

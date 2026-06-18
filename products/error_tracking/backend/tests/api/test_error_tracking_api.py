@@ -26,6 +26,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseViewSet
 
 from ee.models.rbac.role import Role
 
@@ -1123,6 +1124,45 @@ class TestErrorTracking(APIBaseTest):
     def test_fetch_release_by_hash_id_not_found(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_create_release_duplicate_hash_id_returns_400(self) -> None:
+        ErrorTrackingRelease.objects.create(team=self.team, hash_id="dupe-hash", version="1.0.0", project="my-project")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/releases",
+            data={"hash_id": "dupe-hash", "version": "2.0.0", "project": "my-project"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already in use" in str(response.json())
+
+    @patch.object(ErrorTrackingReleaseViewSet, "validate_hash_id", side_effect=lambda hash_id, assert_new: hash_id)
+    def test_create_release_concurrent_hash_id_returns_400(self, _mock_validate) -> None:
+        # Simulate the TOCTOU race: the pre-check passes (mocked away) but the row already exists,
+        # so the INSERT hits the unique constraint. This must surface as a clean 400, not a 500.
+        ErrorTrackingRelease.objects.create(team=self.team, hash_id="race-hash", version="1.0.0", project="my-project")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/releases",
+            data={"hash_id": "race-hash", "version": "2.0.0", "project": "my-project"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already in use" in str(response.json())
+
+    @patch.object(ErrorTrackingReleaseViewSet, "validate_hash_id", side_effect=lambda hash_id, assert_new: hash_id)
+    def test_update_release_concurrent_hash_id_returns_400(self, _mock_validate) -> None:
+        ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="existing-hash", version="1.0.0", project="my-project"
+        )
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="to-rename", version="1.0.0", project="my-project"
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/releases/{release.id}",
+            data={"hash_id": "existing-hash"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already in use" in str(response.json())
 
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
