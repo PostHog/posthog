@@ -236,12 +236,9 @@ const BarContents = ({
             )}
             {!isInline && <Separator />}
             <div className={cn('flex-1 min-w-0 flex items-center flex-wrap gap-1', !isInline && 'px-1')}>
-                {/* Inline variant uses the input trigger: a search box with the filter icon as a
-                    leading button — focusing/typing opens the combobox, the icon opens the menu. */}
-                <div className={cn(isInline ? 'w-[28rem] max-w-full' : 'contents')}>
+                {/* Filter trigger as its own island, sized like the date/sort groups. */}
+                <div className={cn('flex items-center shrink-0', isInline && INLINE_CLUSTER)}>
                     <TaxonomicFilterMenu
-                        triggerVariant={isInline ? 'input' : 'button'}
-                        fullWidthTrigger={isInline}
                         placeholder={
                             showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
                         }
