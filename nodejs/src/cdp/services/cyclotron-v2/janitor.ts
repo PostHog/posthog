@@ -2,6 +2,7 @@ import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '../../../utils/logger'
+import { countPromotionLag, promoteScheduledEmailJobs } from './email-promotion'
 import { CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 const janitorDeletedCounter = new Counter({
@@ -25,10 +26,23 @@ const janitorRunCounter = new Counter({
     help: 'Number of janitor cleanup runs completed',
 })
 
+const janitorPromotedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_promoted',
+    help: 'Email rows promoted to fair-dequeueable by the janitor (scheduled-time arrived or legacy NULL)',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
     labelNames: ['queue'],
+})
+
+// Number of email rows past their scheduled time still awaiting dequeue_seq
+// assignment. Should hover near 0 in steady state — sustained non-zero means
+// the janitor's promotion pass is behind or the janitor is down. Page on it.
+const promotionLagGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_promotion_lag',
+    help: 'Email rows past their scheduled time still awaiting dequeue_seq assignment',
 })
 
 export class CyclotronV2Janitor {
@@ -72,11 +86,38 @@ export class CyclotronV2Janitor {
         const deleted = await this.cleanupTerminalJobs()
         const poisoned = await this.failPoisonPills()
         const stalled = await this.resetStalledJobs()
+        const promoted = await this.promoteScheduledEmailJobs()
+        await this.measurePromotionLag()
         const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
 
-        return { deleted, stalled, poisoned, depths }
+        return { deleted, stalled, poisoned, promoted, depths }
+    }
+
+    /**
+     * Promote email rows whose `scheduled` time has arrived from
+     * `dequeue_seq IS NULL` to a fresh per-team seq, so they enter the
+     * fair-dequeue partial index and become dequeueable. Primary path for
+     * promotion; the email consumer runs a slower fallback interval.
+     */
+    private async promoteScheduledEmailJobs(): Promise<number> {
+        const promoted = await promoteScheduledEmailJobs(this.pool, this.cleanupBatchSize)
+        if (promoted > 0) {
+            janitorPromotedCounter.inc(promoted)
+            logger.info('CyclotronV2Janitor promoted scheduled email jobs', { count: promoted })
+        }
+        return promoted
+    }
+
+    private async measurePromotionLag(): Promise<void> {
+        try {
+            const lag = await countPromotionLag(this.pool)
+            promotionLagGauge.set(lag)
+        } catch (err) {
+            // Non-fatal — failing to read the lag should not break the run.
+            logger.warn('CyclotronV2Janitor promotion lag query failed', { error: String(err) })
+        }
     }
 
     private async cleanupTerminalJobs(): Promise<number> {

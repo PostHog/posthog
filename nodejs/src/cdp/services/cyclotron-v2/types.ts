@@ -107,5 +107,6 @@ export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
     poisoned: number
+    promoted: number
     depths: Map<string, number>
 }

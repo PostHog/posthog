@@ -17,4 +17,12 @@ export interface JobQueue {
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void>
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
+    /**
+     * Optional fallback for the email queue's scheduled→dequeueable transition.
+     * The cyclotron janitor is the primary promoter; the email consumer calls
+     * this on a slower interval as a safety net so a sick janitor can't
+     * silently stop email delivery. Returns the number of rows promoted.
+     * Implementations that don't back fair-dequeue can leave this undefined.
+     */
+    runScheduledPromotion?(batchSize: number): Promise<number>
 }

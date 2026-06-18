@@ -266,6 +266,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
+
+    public async runScheduledPromotion(batchSize: number): Promise<number> {
+        if (!this.worker) {
+            return 0
+        }
+        return this.worker.promoteScheduledEmailJobs(batchSize)
+    }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {

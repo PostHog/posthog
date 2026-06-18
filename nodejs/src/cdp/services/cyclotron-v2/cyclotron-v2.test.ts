@@ -993,6 +993,45 @@ describe('Cyclotron V2', () => {
                 // Only the email jobs bumped the team counter.
                 expect(await readTeamCounter(1)).toBe(2n)
             })
+
+            it('leaves dequeue_seq NULL for far-future scheduled email jobs', async () => {
+                // Far-future rows skip seq at insert so they don't pile up in
+                // the fair-dequeue index (where they'd contribute to walk-past
+                // cost without ever being dequeueable). The janitor's
+                // promoteScheduledEmailJobs pass assigns seq when their
+                // `scheduled` enters the assignment window.
+                const teamId = 7
+                const oneDay = 24 * 60 * 60 * 1000
+                const [futureId, readyId] = await manager.bulkCreateJobs([
+                    { teamId, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() + oneDay) },
+                    { teamId, queueName: EMAIL_QUEUE },
+                ])
+
+                expect(await readDequeueSeq(futureId)).toBeNull()
+                expect(await readDequeueSeq(readyId)).not.toBeNull()
+                // Only the ready row bumped the team counter.
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('assigns dequeue_seq for far-future rescheduled jobs only once promoted', async () => {
+                // Mirror of the rescheduled-into-email case but with a far-
+                // future scheduledAt — the reschedule path leaves the row
+                // NULL and defers to the janitor.
+                const teamId = 88
+                const hogJobId = await manager.createJob({ teamId, queueName: 'hog' })
+
+                const hogWorker = createWorker('hog')
+                const [hogJob] = await dequeueOneBatch(hogWorker)
+                expect(hogJob.id).toBe(hogJobId)
+                await hogJob.reschedule({
+                    queueName: EMAIL_QUEUE,
+                    scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                })
+
+                expect(await readDequeueSeq(hogJobId)).toBeNull()
+                // Counter stays at 0 — no claim happened yet.
+                expect(await readTeamCounter(teamId)).toBeNull()
+            })
         })
 
         describe('Worker: fairDequeue ordering', () => {
@@ -1171,25 +1210,42 @@ describe('Cyclotron V2', () => {
                 expect(jobs.every((j) => j.teamId === teamA)).toBe(true)
             })
 
-            it('drains legacy rows (NULL dequeue_seq) before new ones when fair is on', async () => {
-                // Simulate a row inserted before the migration ran: NULL dequeue_seq.
-                // NULLS FIRST in the ORDER BY means it should be picked up before
-                // the new fair-ordered row.
+            it('legacy NULL rows are invisible to the fair worker until the janitor promotes them', async () => {
+                // The partial-index predicate excludes `dequeue_seq IS NULL`, so
+                // a legacy pre-migration row is invisible to the fair worker
+                // until the janitor's promoteScheduledEmailJobs pass assigns
+                // it a fresh seq. The newer (already-seq'd) row is what gets
+                // dequeued first; once the janitor promotes the legacy row, it
+                // joins the fair-ordered set with a higher seq.
                 const teamId = 1
                 const [newerId, legacyId] = await manager.bulkCreateJobs([
                     { teamId, queueName: EMAIL_QUEUE },
                     { teamId, queueName: EMAIL_QUEUE },
                 ])
-                // Backdate one row by manually clearing its dequeue_seq to mimic
-                // a pre-migration row.
+                // Clear one row's dequeue_seq to mimic a pre-migration row.
                 await assertPool.query('UPDATE cyclotron_jobs SET dequeue_seq = NULL WHERE id = $1', [legacyId])
 
-                const worker = createFairWorker({ batchMaxSize: 1 })
-                const jobs = await dequeueOneBatch(worker)
+                // Without the janitor running, the fair worker only sees the
+                // row that has a seq. Ack it so the janitor's stalled-jobs
+                // sweep doesn't reset it back to 'available' before step 2.
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const firstBatch = await dequeueOneBatch(worker)
+                expect(firstBatch).toHaveLength(1)
+                expect(firstBatch[0].id).toBe(newerId)
+                await firstBatch[0].ack()
 
-                expect(jobs).toHaveLength(1)
-                expect(jobs[0].id).toBe(legacyId)
-                expect(newerId).toBeDefined() // (silences unused-var warning)
+                // Janitor promotes the legacy row.
+                const janitor = createJanitor()
+                const result = await janitor.runOnce()
+                await janitor.stop()
+                expect(result.promoted).toBe(1)
+                expect(await readDequeueSeq(legacyId)).not.toBeNull()
+
+                // Now it's dequeueable in fair order.
+                const worker2 = createFairWorker({ batchMaxSize: 2 })
+                const secondBatch = await dequeueOneBatch(worker2)
+                expect(secondBatch).toHaveLength(1)
+                expect(secondBatch[0].id).toBe(legacyId)
             })
 
             it('assigns dequeue_seq when a hog job is rescheduled into the email queue', async () => {
@@ -1234,6 +1290,157 @@ describe('Cyclotron V2', () => {
                 expect(await readDequeueSeq(id)).toBe(seqBefore)
                 // Counter stays at 1 — no new claim happened.
                 expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+        })
+
+        describe('Janitor: scheduled email promotion', () => {
+            const insertNullSeqEmailRow = async (
+                teamId: number,
+                scheduled: Date = new Date(Date.now() - 1000)
+            ): Promise<string> => {
+                const id = uuidv7()
+                const now = new Date()
+                await assertPool.query(
+                    `INSERT INTO cyclotron_jobs
+                     (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                      lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+                      parent_run_id, state, dequeue_seq)
+                     VALUES ($1, $2, NULL, 'email', 'available'::CyclotronJobStatus, 0, $3, $4,
+                             NULL, NULL, 0, 0, $4, NULL, NULL, NULL)`,
+                    [id, teamId, scheduled, now]
+                )
+                return id
+            }
+
+            it('promotes a ready-now NULL row, assigning a fresh seq', async () => {
+                const teamId = 42
+                const id = await insertNullSeqEmailRow(teamId)
+
+                const janitor = createJanitor()
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.promoted).toBe(1)
+                // First-ever for this team → counter 1, seq = 16M + team_id.
+                expect(await readDequeueSeq(id)).toBe(BigInt(16_777_216) + BigInt(teamId))
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('does not promote a far-future NULL row', async () => {
+                const teamId = 42
+                const oneDay = 24 * 60 * 60 * 1000
+                const id = await insertNullSeqEmailRow(teamId, new Date(Date.now() + oneDay))
+
+                const janitor = createJanitor()
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.promoted).toBe(0)
+                expect(await readDequeueSeq(id)).toBeNull()
+                expect(await readTeamCounter(teamId)).toBeNull()
+            })
+
+            it('promotes a row whose scheduled is within the assignment window', async () => {
+                // Inside the 30s window → ready for promotion even though
+                // technically still future. Avoids a per-row stutter at the
+                // boundary between insert-time assignment and janitor-time.
+                const teamId = 42
+                const inFiveSeconds = new Date(Date.now() + 5_000)
+                const id = await insertNullSeqEmailRow(teamId, inFiveSeconds)
+
+                const janitor = createJanitor()
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.promoted).toBe(1)
+                expect(await readDequeueSeq(id)).not.toBeNull()
+            })
+
+            it('interleaves mixed-team rows promoted in the same janitor tick', async () => {
+                // Six rows: 3 each from team A and team B. Promotion should
+                // produce a seq pattern that interleaves the teams, not
+                // all-A-then-all-B. Within-team order is by scheduled then id;
+                // across teams the per-team counters advance in lockstep,
+                // giving (A1, B1, A2, B2, A3, B3) in seq-ascending order.
+                const teamA = 100
+                const teamB = 200
+                const base = Date.now() - 5_000
+                const ids: string[] = []
+                for (let i = 0; i < 3; i++) {
+                    ids.push(await insertNullSeqEmailRow(teamA, new Date(base + i)))
+                    ids.push(await insertNullSeqEmailRow(teamB, new Date(base + i)))
+                }
+
+                const janitor = createJanitor()
+                const result = await janitor.runOnce()
+                await janitor.stop()
+                expect(result.promoted).toBe(6)
+
+                const sorted = await assertPool.query<{ id: string; team_id: number }>(
+                    `SELECT id, team_id FROM cyclotron_jobs
+                     WHERE id = ANY($1::uuid[])
+                     ORDER BY dequeue_seq ASC`,
+                    [ids]
+                )
+                const teamOrder = sorted.rows.map((r) => r.team_id)
+                // First six entries should alternate teams 1-for-1.
+                expect(teamOrder).toEqual([teamA, teamB, teamA, teamB, teamA, teamB])
+            })
+
+            it('is idempotent across runs', async () => {
+                const teamId = 42
+                await insertNullSeqEmailRow(teamId)
+
+                const janitor = createJanitor()
+                const first = await janitor.runOnce()
+                const second = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(first.promoted).toBe(1)
+                expect(second.promoted).toBe(0)
+                // Counter wasn't double-bumped.
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('honors cleanupBatchSize as the per-tick promotion cap', async () => {
+                const teamId = 42
+                const ids: string[] = []
+                for (let i = 0; i < 5; i++) {
+                    ids.push(await insertNullSeqEmailRow(teamId, new Date(Date.now() - 1000 - i)))
+                }
+
+                const janitor = createJanitor({ cleanupBatchSize: 3 })
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.promoted).toBe(3)
+                const promotedCount = await assertPool.query<{ n: string }>(
+                    `SELECT COUNT(*)::bigint AS n FROM cyclotron_jobs
+                     WHERE id = ANY($1::uuid[]) AND dequeue_seq IS NOT NULL`,
+                    [ids]
+                )
+                expect(parseInt(promotedCount.rows[0].n, 10)).toBe(3)
+            })
+
+            it('promoted row becomes dequeueable by the fair worker', async () => {
+                // End-to-end: insert NULL-seq row → janitor promotes →
+                // fair worker picks it up.
+                const teamId = 42
+                const id = await insertNullSeqEmailRow(teamId)
+
+                // Worker can't see it yet (not in tightened index).
+                const worker1 = createWorker(EMAIL_QUEUE, { fairDequeue: true, batchMaxSize: 1 })
+                const before = await dequeueOneBatch(worker1, 500)
+                expect(before).toHaveLength(0)
+
+                const janitor = createJanitor()
+                await janitor.runOnce()
+                await janitor.stop()
+
+                const worker2 = createWorker(EMAIL_QUEUE, { fairDequeue: true, batchMaxSize: 1 })
+                const after = await dequeueOneBatch(worker2)
+                expect(after).toHaveLength(1)
+                expect(after[0].id).toBe(id)
             })
         })
     })

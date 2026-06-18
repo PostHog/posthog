@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
+import { promoteScheduledEmailJobs } from './email-promotion'
 import { assignEmailDequeueSeq } from './manager'
 import {
     CyclotronV2DequeuedJob,
@@ -167,12 +168,18 @@ export class CyclotronV2Worker {
     /**
      * Fair dequeue: orders by the precomputed `dequeue_seq` so jobs interleave
      * across tenants instead of being strict FIFO. The sort key is assigned at
-     * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
-     * `cyclotron_email_team_seq`); this method just reads them back in order.
+     * insert time for ready-or-near-ready rows (see
+     * `CyclotronV2Manager.computeEmailDequeueSeqs`) and assigned lazily by the
+     * janitor / email-consumer promotion pass when a future-scheduled row's
+     * `scheduled` enters the window.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` whose
+     * predicate is `status='available' AND queue_name='email' AND
+     * dequeue_seq IS NOT NULL`. Rows with NULL seq (future-scheduled +
+     * legacy pre-migration) are not in the index, so the scan never walks
+     * past them — that's what fixes the cliff where a tenant staging a large
+     * future batch would pin the scan for every subsequent ready row whose
+     * seq sorts after the batch's block.
      *
      * Email-specific by intent — but mechanically just "ORDER BY a different
      * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
@@ -188,7 +195,8 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY dequeue_seq ASC NULLS FIRST
+                  AND dequeue_seq IS NOT NULL
+                ORDER BY dequeue_seq ASC
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -312,16 +320,22 @@ export class CyclotronV2Worker {
                 // Cross-queue routing into the email queue: assign a fresh
                 // dequeue_seq so the row participates in fair ordering. Without
                 // this, hogflow → email re-routing (via job.reschedule({
-                // queueName: 'email' })) lands the row with NULL dequeue_seq,
-                // which `NULLS FIRST` drains ahead of every fair-ordered row —
-                // defeating the per-team interleave for the most common email
-                // path. Skipped when the row was already on the email queue,
-                // so existing fair-ordered rows keep their place after retry/
-                // reschedule without bumping the counter.
+                // queueName: 'email' })) lands the row outside the fair-dequeue
+                // index entirely (its partial predicate requires
+                // `dequeue_seq IS NOT NULL`). Skipped when the row was already
+                // on the email queue, so existing fair-ordered rows keep their
+                // place after retry/reschedule without bumping the counter.
+                //
+                // For far-future reschedules `assignEmailDequeueSeq` returns
+                // null — leave the column NULL and let the janitor's
+                // promoteScheduledEmailJobs pass assign seq when `scheduled`
+                // enters the assignment window.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
-                    params.push(dequeueSeq)
-                    setClauses.push(`dequeue_seq = $${params.length}`)
+                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id, scheduled)
+                    if (dequeueSeq !== null) {
+                        params.push(dequeueSeq)
+                        setClauses.push(`dequeue_seq = $${params.length}`)
+                    }
                 }
 
                 await pool.query(
@@ -354,6 +368,15 @@ export class CyclotronV2Worker {
                 )
             },
         }
+    }
+
+    /**
+     * Run the email scheduled-seq promotion pass using this worker's pool.
+     * Used by the email consumer's fallback interval — janitor remains the
+     * primary promoter. See `email-promotion.ts promoteScheduledEmailJobs`.
+     */
+    public async promoteScheduledEmailJobs(batchSize: number): Promise<number> {
+        return promoteScheduledEmailJobs(this.pool, batchSize)
     }
 
     isHealthy(): boolean {
