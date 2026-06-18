@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class GoogleDriveSource(SimpleSource[GoogleDriveSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_DRIVE,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Google Drive",
             iconPath="/static/services/google_drive.png",
             fields=cast(list[FieldType], []),

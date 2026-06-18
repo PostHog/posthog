@@ -62,6 +62,7 @@ ActivityScope = Literal[
     "UserGroup",
     "BatchExport",
     "BatchImport",
+    "ExportedAsset",
     "Integration",
     "Annotation",
     "Tag",
@@ -432,6 +433,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "ProjectSecretAPIKey": [
         "secure_value",
+        # Gateway is team-scoped; resolving it for a diff would hit the fail-closed
+        # manager. Binding changes are audited by the gateway management API instead.
+        "gateway",
     ],
     "Person": [
         "distinct_ids",

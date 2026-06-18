@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -66,7 +67,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     config.secret_token, config.region.selection, config.region.subdomain
                 )
             except Exception as e:
-                capture_exception(e)
+                # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
+                # we can fix — the per-schema sync path already surfaces it and disables the source.
+                # Skip capturing those to avoid spamming error tracking on every discovery run, but
+                # still capture genuinely unexpected discovery failures.
+                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                    capture_exception(e)
                 definitions = []
 
             for definition in definitions:
@@ -103,6 +109,14 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
 
         return False, "Invalid credentials"
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The Vitally host is per-customer on US (`<subdomain>.rest.vitally.io`), so match on the
+        # stable status text rather than a fixed URL prefix.
+        return {
+            "401 Client Error: Unauthorized for url": "Your Vitally secret token is invalid or has been revoked. Please check your token and reconnect.",
+            "403 Client Error: Forbidden for url": "Your Vitally secret token does not have permission to access this data. Please check the token's permissions and reconnect.",
+        }
+
     def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
         items = vitally_source(
             secret_token=config.secret_token,
@@ -134,6 +148,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
+            category=DataWarehouseSourceCategory.CRM,
             iconPath="/static/services/vitally.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vitally",
             fields=cast(

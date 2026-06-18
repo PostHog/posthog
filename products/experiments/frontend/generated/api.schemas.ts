@@ -246,6 +246,43 @@ export interface ExperimentParametersApi {
     rollout_percentage?: number | null
 }
 
+export type ConversionRateInputTypeApi = (typeof ConversionRateInputTypeApi)[keyof typeof ConversionRateInputTypeApi]
+
+export const ConversionRateInputTypeApi = {
+    Manual: 'manual',
+    Automatic: 'automatic',
+} as const
+
+export type ManualMetricTypeApi = (typeof ManualMetricTypeApi)[keyof typeof ManualMetricTypeApi]
+
+export const ManualMetricTypeApi = {
+    Funnel: 'funnel',
+    MeanCount: 'mean_count',
+    MeanSumOrAvg: 'mean_sum_or_avg',
+} as const
+
+export interface ExperimentExposureEstimateConfigApi {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: ConversionRateInputTypeApi
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number | null
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number | null
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: ManualMetricTypeApi | null
+}
+
+export interface ExperimentRunningTimeCalculationApi {
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfigApi | null
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number | null
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number | null
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number | null
+}
+
 export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number
@@ -463,6 +500,8 @@ export interface ExperimentApiMetricApi {
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSourceApi | null
     start_handling?: StartHandlingApi | null
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number | null
     /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
     upper_bound_percentile?: number | null
     /** Unique identifier. Auto-generated if omitted. */
@@ -531,8 +570,10 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /**
@@ -631,8 +672,10 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /**
@@ -716,6 +759,150 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
 }
 
+/**
+ * * `manual` - manual
+ * * `experiment_launch` - experiment_launch
+ * * `experiment_stop` - experiment_stop
+ * * `experiment_update` - experiment_update
+ */
+export type RecalculateMetricsRequestTriggerEnumApi =
+    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
+
+export const RecalculateMetricsRequestTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * Request body for triggering a metrics recalculation.
+ */
+export interface RecalculateMetricsRequestApi {
+    /** What triggered this recalculation (manual is the default for user-initiated runs)
+     *
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update */
+    trigger?: RecalculateMetricsRequestTriggerEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ExperimentMetricsRecalculationStatusEnumApi =
+    (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
+
+export const ExperimentMetricsRecalculationStatusEnumApi = {
+    Pending: 'pending',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `manual` - Manual
+ * * `experiment_launch` - Experiment Launch
+ * * `experiment_stop` - Experiment Stop
+ * * `experiment_update` - Experiment Update
+ */
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * * `pending` - pending
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type MetricRecalculationResultStatusEnumApi =
+    (typeof MetricRecalculationResultStatusEnumApi)[keyof typeof MetricRecalculationResultStatusEnumApi]
+
+export const MetricRecalculationResultStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * One metric's recalculated result row, read back from ExperimentMetricResult.
+ */
+export interface MetricRecalculationResultApi {
+    /** UUID of the metric this result belongs to */
+    readonly metric_uuid: string
+    /** Status of this metric's calculation in the run
+     *
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: MetricRecalculationResultStatusEnumApi
+    /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+    readonly result: unknown
+    /**
+     * Error message when status is failed; otherwise null
+     * @nullable
+     */
+    readonly error_message: string | null
+}
+
+/**
+ * Serializer for metrics recalculation status responses.
+ */
+export interface ExperimentMetricsRecalculationApi {
+    /** Unique identifier for this recalculation job */
+    readonly id: string
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ExperimentMetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Map of metric_uuid to error details */
+    readonly metric_errors: unknown
+    /** What triggered this recalculation
+     *
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update */
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /** True if returning an existing job rather than a newly created one */
+    readonly is_existing: boolean
+    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    readonly results: readonly MetricRecalculationResultApi[]
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -734,6 +921,126 @@ export interface ShipVariantApi {
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
     release_to_everyone?: boolean
+}
+
+/**
+ * * `funnel` - funnel
+ * * `mean_count` - mean_count
+ * * `mean_sum_or_avg` - mean_sum_or_avg
+ * * `ratio` - ratio
+ * * `retention` - retention
+ */
+export type MetricTypeEnumApi = (typeof MetricTypeEnumApi)[keyof typeof MetricTypeEnumApi]
+
+export const MetricTypeEnumApi = {
+    Funnel: 'funnel',
+    MeanCount: 'mean_count',
+    MeanSumOrAvg: 'mean_sum_or_avg',
+    Ratio: 'ratio',
+    Retention: 'retention',
+} as const
+
+/**
+ * Raw control-group statistics the calculator uses to derive a baseline value and variance.
+ *
+ * Supply this when you want the server to compute the baseline value and (for ratio/retention)
+ * the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+ */
+export interface RunningTimeBaselineStatsApi {
+    /**
+     * Number of control-group samples (users/units) observed.
+     * @minimum 0
+     */
+    number_of_samples: number
+    /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
+    sum: number
+    /** Sum of squared metric values. Required for ratio/retention variance. */
+    sum_squares?: number
+    /**
+     * Sum of the denominator values. Required for ratio/retention metrics.
+     * @nullable
+     */
+    denominator_sum?: number | null
+    /**
+     * Sum of squared denominator values (ratio/retention variance).
+     * @nullable
+     */
+    denominator_sum_squares?: number | null
+    /**
+     * Sum of numerator×denominator products, used for the delta-method covariance term.
+     * @nullable
+     */
+    numerator_denominator_sum_product?: number | null
+    /** Per-step counts for funnel metrics; the last entry is the final-step count. */
+    step_counts?: number[]
+}
+
+/**
+ * Inputs for estimating the recommended sample size and running time of an experiment.
+ */
+export interface RunningTimeCalculationInputApi {
+    /** Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).
+     *
+     * * `funnel` - funnel
+     * * `mean_count` - mean_count
+     * * `mean_sum_or_avg` - mean_sum_or_avg
+     * * `ratio` - ratio
+     * * `retention` - retention */
+    metric_type: MetricTypeEnumApi
+    /**
+     * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.
+     * @minimum 0
+     */
+    minimum_detectable_effect: number
+    /**
+     * Total number of variants including control (default 2).
+     * @minimum 2
+     */
+    number_of_variants?: number
+    /**
+     * Expected exposures per day. When provided, the response includes the recommended running time.
+     * @minimum 0
+     * @nullable
+     */
+    exposure_rate_per_day?: number | null
+    /**
+     * Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.
+     * @nullable
+     */
+    baseline_value?: number | null
+    /**
+     * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+     * @nullable
+     */
+    variance?: number | null
+    /** Raw control-group statistics. When provided, the server derives baseline_value and variance. */
+    baseline_stats?: RunningTimeBaselineStatsApi | null
+}
+
+/**
+ * Estimated sample size and running time for the given inputs.
+ */
+export interface RunningTimeCalculationResultApi {
+    /**
+     * Baseline metric value used in the calculation (echoed or derived from stats).
+     * @nullable
+     */
+    baseline_value: number | null
+    /**
+     * Variance used in the calculation; null for funnel metrics (implicit in p(1-p)).
+     * @nullable
+     */
+    variance: number | null
+    /**
+     * Total recommended sample size across all variants. Null if inputs are insufficient.
+     * @nullable
+     */
+    recommended_sample_size: number | null
+    /**
+     * Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.
+     * @nullable
+     */
+    recommended_running_time_days: number | null
 }
 
 /**
@@ -805,9 +1112,9 @@ export type ExperimentsListParams = {
      */
     archived?: boolean
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number
+    created_by_id?: string
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */

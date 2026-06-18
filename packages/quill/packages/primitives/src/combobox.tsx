@@ -164,17 +164,12 @@ function ComboboxItem({
             data-slot="combobox-item"
             className={cn('quill-combobox__item', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
-            render={
-                <Button
-                    left
-                    className="min-w-0 aria-selected:pe-7 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1"
-                />
-            }
+            render={<Button left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
             <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
             <ComboboxPrimitive.ItemIndicator
-                render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
+                render={<span className="pointer-events-none absolute start-2 flex items-center justify-center" />}
             >
                 <CheckIcon className="pointer-events-none" />
             </ComboboxPrimitive.ItemIndicator>

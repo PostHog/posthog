@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-15 12:01:50 UTC
+// Generated at: 2026-06-17 20:39:18 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
+    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -16,7 +17,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
-    | 'ambient'
     | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
@@ -40,7 +40,9 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
+    | 'darkbloom'
     | 'decart-fp4'
+    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -83,6 +85,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
+    | 'moonshotai-highspeed'
     | 'moonshotai-int4'
     | 'morph'
     | 'nebius-base'

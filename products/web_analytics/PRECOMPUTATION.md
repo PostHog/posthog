@@ -107,7 +107,7 @@ The read is a single `sync_execute` call (not HogQL — see "Why bypass HogQL" b
 - `load_balancing="in_order"` — paired with the INSERT side's same setting for read-your-writes via Approach E in [CONSISTENCY.md](../../products/analytics_platform/backend/lazy_computation/CONSISTENCY.md).
 - `optimize_skip_unused_shards=1` — `job_id IN (...)` + sharding-by-`sipHash64(job_id)` lets ClickHouse prune to the right shards.
 
-Result is built into the standard `WebOverviewQueryResponse` via `_build_response_from_row`, with `usedPreAggregatedTables=True`.
+Result is built into the standard `WebOverviewQueryResponse` via `_build_response_from_row`, with `preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE`.
 
 #### Why bypass HogQL
 
@@ -180,7 +180,7 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 ### Known follow-ups
 
 - INITIAL_PAGE + bounce (entry-pathname tab) is a different SQL shape — separate precompute table or shared one with an entry-only state column.
-- `usedLazyPrecompute` is set on the response; the frontend's `PreAggregatedBadge` already keys off `usedPreAggregatedTables` so users see the badge without further wiring. Distinguishing lazy from v2 in the UI is a separate follow-up.
+- The response's `preComputeStrategy` is set to `WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE`; the frontend's `PreAggregatedBadge` keys off it (a distinct "precomputed" variant) so the lazy path is visually distinguishable from the v2 `PRE_AGGREGATED` path.
 
 ## Lazy computation for the web vitals path-breakdown tile
 

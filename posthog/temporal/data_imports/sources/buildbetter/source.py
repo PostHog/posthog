@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -90,6 +91,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BUILD_BETTER,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="BuildBetter",
             releaseStatus=ReleaseStatus.GA,
             caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",

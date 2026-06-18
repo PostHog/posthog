@@ -103,6 +103,20 @@ describe('hog-charts bar-layout', () => {
             const scales = createBarScales([visible, excluded], ['a'], dimensions, { barLayout: 'grouped' })
             expect(layoutOf({ series: excluded, scales })[0]).toBeNull()
         })
+
+        it('clamps the bar baseline into the plot when a fixed valueDomain excludes 0', () => {
+            // valueScale(0) extrapolates below the plot for domain [50, 100]; the baseline must be
+            // clamped so the bar stops at the plot edge instead of bleeding through the bottom margin.
+            const s = makeSeries({ key: 's', data: [75] })
+            const scales = createBarScales([s], ['a'], dimensions, {
+                barLayout: 'grouped',
+                valueDomain: [50, 100],
+            })
+            const bar = layoutOf({ series: s, scales })[0]!
+            const plotBottom = dimensions.plotTop + dimensions.plotHeight
+            // bottom edge of a vertical bar is y + height; it must not exceed the plot bottom.
+            expect(bar.y + bar.height).toBeLessThanOrEqual(plotBottom + 0.001)
+        })
     })
 
     describe('computeSeriesBars — stacked', () => {
@@ -206,8 +220,18 @@ describe('hog-charts bar-layout', () => {
                 stackedSeries,
             })
             const opts = { labels, scales, layout: 'stacked' as const, isHorizontal: false }
-            const lower = computeSeriesBars({ ...opts, series: a, stackedBand: stacks.get('a'), isTopOfStack: false })[0]!
-            const upper = computeSeriesBars({ ...opts, series: b, stackedBand: stacks.get('b'), isTopOfStack: true })[0]!
+            const lower = computeSeriesBars({
+                ...opts,
+                series: a,
+                stackedBand: stacks.get('a'),
+                isTopOfStack: false,
+            })[0]!
+            const upper = computeSeriesBars({
+                ...opts,
+                series: b,
+                stackedBand: stacks.get('b'),
+                isTopOfStack: true,
+            })[0]!
             // Bottom segment sits exactly on the baseline — no 0.5px overpaint past the axis.
             expect(lower.y + lower.height).toBeCloseTo(PIXEL_TEST_DIMENSIONS.plotHeight, 5)
             // Interior (upper) segment extends its baseline edge 0.5px past the lower segment's top.
@@ -503,7 +527,6 @@ describe('hog-charts bar-layout', () => {
         })
     })
 
-
     describe('bandCenter', () => {
         it.each([
             { label: 'a', expected: 50 },
@@ -526,22 +549,24 @@ describe('hog-charts bar-layout', () => {
         })
     })
 
-
     describe('groupedBarCenter', () => {
         it.each([
             { seriesKey: 'a', expected: 25 },
             { seriesKey: 'b', expected: 75 },
-        ])("returns the center $expected for series $seriesKey's sub-band in a grouped layout", ({ seriesKey, expected }) => {
-            const a = makeSeries({ key: 'a', data: [10, 20] })
-            const b = makeSeries({ key: 'b', data: [20, 10] })
-            const scales = createBarScales([a, b], ['L1', 'L2'], PIXEL_TEST_DIMENSIONS, {
-                barLayout: 'grouped',
-                bandPadding: 0,
-                groupPadding: 0,
-            })
-            // a@L1 slot x:0 w:50 → center 25; b@L1 slot x:50 w:50 → center 75 (see grouped pixel case).
-            expect(groupedBarCenter(scales, 'L1', seriesKey)).toBeCloseTo(expected, 5)
-        })
+        ])(
+            "returns the center $expected for series $seriesKey's sub-band in a grouped layout",
+            ({ seriesKey, expected }) => {
+                const a = makeSeries({ key: 'a', data: [10, 20] })
+                const b = makeSeries({ key: 'b', data: [20, 10] })
+                const scales = createBarScales([a, b], ['L1', 'L2'], PIXEL_TEST_DIMENSIONS, {
+                    barLayout: 'grouped',
+                    bandPadding: 0,
+                    groupPadding: 0,
+                })
+                // a@L1 slot x:0 w:50 → center 25; b@L1 slot x:50 w:50 → center 75 (see grouped pixel case).
+                expect(groupedBarCenter(scales, 'L1', seriesKey)).toBeCloseTo(expected, 5)
+            }
+        )
 
         it('returns undefined when the series is not in the group scale', () => {
             const a = makeSeries({ key: 'a', data: [10] })

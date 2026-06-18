@@ -47,11 +47,11 @@ only as good as its fit to the data it watches.
    without loading its body. Don't duplicate a surface a canonical scout already covers —
    adapt that one instead.
 3. **Read the closest canonical scout.** It's your template and your reference shape. Pull
-   it with `posthog:llma-skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
+   it with `posthog:skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
    read it from the repo at `products/signals/skills/signals-scout-*/`. The generalist
    (`signals-scout-general`) is the broad template; if your scope is domain-tight, pick
    the specialist closest to your surface — list the live roster with
-   `posthog:llma-skill-list {"search": "signals-scout"}` (specialists exist for most
+   `posthog:skill-list {"search": "signals-scout"}` (specialists exist for most
    product surfaces: error tracking, logs, AI observability, experiments, feature flags,
    session replay, web analytics, surveys, and more).
 4. **Skim the inbox.** `posthog:inbox-reports-list` shows what findings are actually
@@ -71,10 +71,10 @@ There are two independent decisions: **what** you're building, and **where** it 
 
 ### Where
 
-| Path                                 | Mechanism                                                                                                                                                                                                                  | Use when                                                                                                                              |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:llma-skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:signals-scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
-| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                         | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
+| Path                                 | Mechanism                                                                                                                                                                                                             | Use when                                                                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:signals-scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
+| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                    | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
 
 **Adapting-in-place tradeoff:** editing a canonical scout's row for your team marks it
 **diverged** — you stop receiving upstream improvements to that scout. If you only need an
@@ -126,11 +126,12 @@ skill with `posthog:signals-scout-config-create {"skill_name": "signals-scout-<s
 setting any of the fields below in the same call — including creating it disabled or in
 dry-run **before it ever runs**. (It's an upsert: if the coordinator already auto-registered
 the row, your fields are applied to it.) Otherwise the coordinator auto-registers an enabled
-hourly default on its next tick (up to ~30 min). For an **existing scout**, tune with
-`posthog:signals-scout-config-update` (find the `id` via `-config-list`):
+config on the default every-3-hours schedule on its next tick (up to ~30 min). For an
+**existing scout**, tune with `posthog:signals-scout-config-update` (find the `id` via
+`-config-list`):
 
-- `run_interval_minutes` — 10 to 43200. Default 60 (hourly). Slow a chatty or expensive
-  scout by raising this.
+- `run_interval_minutes` — 10 to 43200. Default 180 (every 3 hours). Slow a chatty or
+  expensive scout by raising this.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its findings straight to the inbox. The
   standard flow is to make a scout and let it emit — seeing what actually lands is the
@@ -148,15 +149,15 @@ actually lands.
 1. Ship the scout (the default `emit=true`) with a short `run_interval_minutes` so it fires
    soon — set it at creation via
    `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 10}`
-   right after `llma-skill-create`, rather than waiting for the coordinator to
-   auto-register an hourly default.
+   right after `skill-create`, rather than waiting for the coordinator to
+   auto-register the default every-3-hours schedule.
 2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
    emitted), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full
    reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 3. Refine the body — tighten the discriminator, add disqualifiers for whatever it
    false-positived on, fix the emit calibration.
 4. Once it's landing the right findings, restore the interval to something sustainable
-   (hourly+).
+   (the 3h default or longer).
 
 **Want to be extra careful?** Set `emit=false` to dry-run first — create the config with
 `emit=false` via `-config-create` so the scout never has a live first run; it runs and logs

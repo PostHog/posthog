@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
+    LlmSkillsMarketplaceInstallCommandCreateBody,
     LlmSkillsNameArchiveCreateParams,
     LlmSkillsNameDuplicateCreateBody,
     LlmSkillsNameDuplicateCreateParams,
@@ -23,16 +24,16 @@ import {
 } from '@/generated/skills/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const LlmaSkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
+const SkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
     skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe(
         'The kebab-case name of the skill to archive.'
     ),
 })
 
-const llmaSkillArchive = (): ToolBase<typeof LlmaSkillArchiveSchema, unknown> => ({
-    name: 'llma-skill-archive',
-    schema: LlmaSkillArchiveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillArchiveSchema>) => {
+const skillArchive = (): ToolBase<typeof SkillArchiveSchema, unknown> => ({
+    name: 'skill-archive',
+    schema: SkillArchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillArchiveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -42,12 +43,12 @@ const llmaSkillArchive = (): ToolBase<typeof LlmaSkillArchiveSchema, unknown> =>
     },
 })
 
-const LlmaSkillCreateSchema = LlmSkillsCreateBody
+const SkillCreateSchema = LlmSkillsCreateBody
 
-const llmaSkillCreate = (): ToolBase<typeof LlmaSkillCreateSchema, Schemas.LLMSkillCreate> => ({
-    name: 'llma-skill-create',
-    schema: LlmaSkillCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillCreateSchema>) => {
+const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkillCreate> => ({
+    name: 'skill-create',
+    schema: SkillCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -83,14 +84,14 @@ const llmaSkillCreate = (): ToolBase<typeof LlmaSkillCreateSchema, Schemas.LLMSk
     },
 })
 
-const LlmaSkillDuplicateSchema = LlmSkillsNameDuplicateCreateParams.omit({ project_id: true }).extend(
+const SkillDuplicateSchema = LlmSkillsNameDuplicateCreateParams.omit({ project_id: true }).extend(
     LlmSkillsNameDuplicateCreateBody.shape
 )
 
-const llmaSkillDuplicate = (): ToolBase<typeof LlmaSkillDuplicateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-duplicate',
-    schema: LlmaSkillDuplicateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillDuplicateSchema>) => {
+const skillDuplicate = (): ToolBase<typeof SkillDuplicateSchema, Schemas.LLMSkill> => ({
+    name: 'skill-duplicate',
+    schema: SkillDuplicateSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillDuplicateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.new_name !== undefined) {
@@ -105,14 +106,14 @@ const llmaSkillDuplicate = (): ToolBase<typeof LlmaSkillDuplicateSchema, Schemas
     },
 })
 
-const LlmaSkillFileCreateSchema = LlmSkillsNameFilesCreateParams.omit({ project_id: true }).extend(
+const SkillFileCreateSchema = LlmSkillsNameFilesCreateParams.omit({ project_id: true }).extend(
     LlmSkillsNameFilesCreateBody.shape
 )
 
-const llmaSkillFileCreate = (): ToolBase<typeof LlmaSkillFileCreateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-create',
-    schema: LlmaSkillFileCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileCreateSchema>) => {
+const skillFileCreate = (): ToolBase<typeof SkillFileCreateSchema, Schemas.LLMSkill> => ({
+    name: 'skill-file-create',
+    schema: SkillFileCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillFileCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.path !== undefined) {
@@ -136,14 +137,14 @@ const llmaSkillFileCreate = (): ToolBase<typeof LlmaSkillFileCreateSchema, Schem
     },
 })
 
-const LlmaSkillFileDeleteSchema = LlmSkillsNameFilesDestroyParams.omit({ project_id: true }).extend(
+const SkillFileDeleteSchema = LlmSkillsNameFilesDestroyParams.omit({ project_id: true }).extend(
     LlmSkillsNameFilesDestroyQueryParams.shape
 )
 
-const llmaSkillFileDelete = (): ToolBase<typeof LlmaSkillFileDeleteSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-delete',
-    schema: LlmaSkillFileDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileDeleteSchema>) => {
+const skillFileDelete = (): ToolBase<typeof SkillFileDeleteSchema, Schemas.LLMSkill> => ({
+    name: 'skill-file-delete',
+    schema: SkillFileDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillFileDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'DELETE',
@@ -156,14 +157,14 @@ const llmaSkillFileDelete = (): ToolBase<typeof LlmaSkillFileDeleteSchema, Schem
     },
 })
 
-const LlmaSkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
+const SkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
     LlmSkillsNameFilesRetrieveQueryParams.shape
 )
 
-const llmaSkillFileGet = (): ToolBase<typeof LlmaSkillFileGetSchema, Schemas.LLMSkillFile> => ({
-    name: 'llma-skill-file-get',
-    schema: LlmaSkillFileGetSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileGetSchema>) => {
+const skillFileGet = (): ToolBase<typeof SkillFileGetSchema, Schemas.LLMSkillFile> => ({
+    name: 'skill-file-get',
+    schema: SkillFileGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillFileGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LLMSkillFile>({
             method: 'GET',
@@ -176,14 +177,14 @@ const llmaSkillFileGet = (): ToolBase<typeof LlmaSkillFileGetSchema, Schemas.LLM
     },
 })
 
-const LlmaSkillFileRenameSchema = LlmSkillsNameFilesRenameCreateParams.omit({ project_id: true }).extend(
+const SkillFileRenameSchema = LlmSkillsNameFilesRenameCreateParams.omit({ project_id: true }).extend(
     LlmSkillsNameFilesRenameCreateBody.shape
 )
 
-const llmaSkillFileRename = (): ToolBase<typeof LlmaSkillFileRenameSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-rename',
-    schema: LlmaSkillFileRenameSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileRenameSchema>) => {
+const skillFileRename = (): ToolBase<typeof SkillFileRenameSchema, Schemas.LLMSkill> => ({
+    name: 'skill-file-rename',
+    schema: SkillFileRenameSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillFileRenameSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.old_path !== undefined) {
@@ -204,14 +205,14 @@ const llmaSkillFileRename = (): ToolBase<typeof LlmaSkillFileRenameSchema, Schem
     },
 })
 
-const LlmaSkillGetSchema = LlmSkillsNameRetrieveParams.omit({ project_id: true }).extend(
+const SkillGetSchema = LlmSkillsNameRetrieveParams.omit({ project_id: true }).extend(
     LlmSkillsNameRetrieveQueryParams.shape
 )
 
-const llmaSkillGet = (): ToolBase<typeof LlmaSkillGetSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-get',
-    schema: LlmaSkillGetSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillGetSchema>) => {
+const skillGet = (): ToolBase<typeof SkillGetSchema, Schemas.LLMSkill> => ({
+    name: 'skill-get',
+    schema: SkillGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'GET',
@@ -224,12 +225,12 @@ const llmaSkillGet = (): ToolBase<typeof LlmaSkillGetSchema, Schemas.LLMSkill> =
     },
 })
 
-const LlmaSkillListSchema = LlmSkillsListQueryParams
+const SkillListSchema = LlmSkillsListQueryParams
 
-const llmaSkillList = (): ToolBase<typeof LlmaSkillListSchema, Schemas.PaginatedLLMSkillListList> => ({
-    name: 'llma-skill-list',
-    schema: LlmaSkillListSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillListSchema>) => {
+const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkillListList> => ({
+    name: 'skill-list',
+    schema: SkillListSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedLLMSkillListList>({
             method: 'GET',
@@ -245,14 +246,41 @@ const llmaSkillList = (): ToolBase<typeof LlmaSkillListSchema, Schemas.Paginated
     },
 })
 
-const LlmaSkillUpdateSchema = LlmSkillsNamePartialUpdateParams.omit({ project_id: true }).extend(
+const SkillStoreInstallCommandSchema = LlmSkillsMarketplaceInstallCommandCreateBody.extend({
+    rotate: LlmSkillsMarketplaceInstallCommandCreateBody.shape['rotate'].describe(
+        "Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine): it rolls the caller's existing credential, invalidating their previous token. Leave false (default) to reuse the existing credential — the first call always mints one regardless."
+    ),
+})
+
+const skillStoreInstallCommand = (): ToolBase<
+    typeof SkillStoreInstallCommandSchema,
+    Schemas.LLMSkillMarketplaceCommand
+> => ({
+    name: 'skill-store-install-command',
+    schema: SkillStoreInstallCommandSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillStoreInstallCommandSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rotate !== undefined) {
+            body['rotate'] = params.rotate
+        }
+        const result = await context.api.request<Schemas.LLMSkillMarketplaceCommand>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/marketplace/install-command/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SkillUpdateSchema = LlmSkillsNamePartialUpdateParams.omit({ project_id: true }).extend(
     LlmSkillsNamePartialUpdateBody.shape
 )
 
-const llmaSkillUpdate = (): ToolBase<typeof LlmaSkillUpdateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-update',
-    schema: LlmaSkillUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillUpdateSchema>) => {
+const skillUpdate = (): ToolBase<typeof SkillUpdateSchema, Schemas.LLMSkill> => ({
+    name: 'skill-update',
+    schema: SkillUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof SkillUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.body !== undefined) {
@@ -295,14 +323,15 @@ const llmaSkillUpdate = (): ToolBase<typeof LlmaSkillUpdateSchema, Schemas.LLMSk
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'llma-skill-archive': llmaSkillArchive,
-    'llma-skill-create': llmaSkillCreate,
-    'llma-skill-duplicate': llmaSkillDuplicate,
-    'llma-skill-file-create': llmaSkillFileCreate,
-    'llma-skill-file-delete': llmaSkillFileDelete,
-    'llma-skill-file-get': llmaSkillFileGet,
-    'llma-skill-file-rename': llmaSkillFileRename,
-    'llma-skill-get': llmaSkillGet,
-    'llma-skill-list': llmaSkillList,
-    'llma-skill-update': llmaSkillUpdate,
+    'skill-archive': skillArchive,
+    'skill-create': skillCreate,
+    'skill-duplicate': skillDuplicate,
+    'skill-file-create': skillFileCreate,
+    'skill-file-delete': skillFileDelete,
+    'skill-file-get': skillFileGet,
+    'skill-file-rename': skillFileRename,
+    'skill-get': skillGet,
+    'skill-list': skillList,
+    'skill-store-install-command': skillStoreInstallCommand,
+    'skill-update': skillUpdate,
 }

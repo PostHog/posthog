@@ -38,6 +38,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [replay]
 
+    browser_rendering:
+        description: 'Browserless container for heatmap screenshots and image exports'
+        requires: [core_infra]
+        docker_profiles: [browserless]
+
     error_symbolication:
         description: 'Error stack trace symbolication service'
         requires: [event_ingestion]
@@ -111,6 +116,11 @@ capabilities:
 
     cyclotron:
         description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
+        requires: [core_infra]
+        docker_profiles: []
+
+    agent_runtime:
+        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
         requires: [core_infra]
         docker_profiles: []
 
@@ -283,7 +293,8 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions, property_values, livestream]
+        capabilities:
+            [event_ingestion, replay_storage, property_definitions, property_values, livestream, browser_rendering]
 
     surveys:
         description: 'User surveys and feedback collection'
@@ -385,6 +396,10 @@ intents:
         description: 'Endpoints (the product)'
         capabilities:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
+
+    agents:
+        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, plus the MCP server for authoring agents through Claude'
+        capabilities: [agent_runtime, mcp_server]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'

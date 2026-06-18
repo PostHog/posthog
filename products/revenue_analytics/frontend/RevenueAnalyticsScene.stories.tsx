@@ -51,8 +51,11 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req) => {
-                    const queryKind = getEffectiveQueryKind(req)
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as {
+                        query?: { kind?: string; source?: { kind?: string } }
+                    }
+                    const queryKind = getEffectiveQueryKind({ body })
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
@@ -99,6 +102,28 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
         addBreakdown(PRODUCT_A_BREAKDOWN)
     }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardAreaMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('area')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardBarMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('bar')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
 
     return <App />
 }

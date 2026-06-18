@@ -33,6 +33,7 @@ import {
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -43,7 +44,6 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
@@ -324,21 +324,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
-
-                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
-                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
-                    const currentTeamId = values.currentTeamId
                     const existingResults = values.remoteItems.results
-
-                    await captureTimeToSeeData(currentTeamId, {
-                        type: 'properties_load',
-                        context: 'filters',
-                        action: listGroupType,
-                        primary_interaction_id: '',
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - start),
-                        api_response_bytes: 0,
-                    })
                     cache.abortController = null
 
                     return {
@@ -349,6 +335,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         ),
                         searchQuery,
                         queryChanged,
+                        // Only the initial page times the search; "load more" (offset > 0)
+                        // would otherwise overwrite it with pagination latency.
+                        loadDurationMs: offset === 0 ? Math.floor(performance.now() - start) : undefined,
                         count:
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
@@ -738,7 +727,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = searchQuery.trim()
                     const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
-                    return hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                    return hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                 }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
@@ -898,7 +887,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // stale match from the previous query producing a shortcut for the new one.
                     const remoteIsFresh = (remoteItems.searchQuery ?? '').trim() === trimmed
                     const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
-                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                     return {
                         results,
                         count: results.length,
@@ -928,8 +917,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
+                const orderedBase = searchQuery
+                    ? promoteMatchingProperties(combinedResults, searchQuery)
+                    : combinedResults
+                // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
+                // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
+                // suggestion first. Everything else keeps its existing order.
+                const [shortcutItems, otherItems] = partitionContainsShortcuts(orderedBase, (item) => item)
+                const orderedResults = shortcutItems.length ? [...shortcutItems, ...otherItems] : orderedBase
                 return {
-                    results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
+                    results: orderedResults,
                     count:
                         keywordShortcutItems.length +
                         recentPrefix.length +

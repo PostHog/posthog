@@ -29,6 +29,20 @@
             "readOnlyHint": true
         }
     },
+    "agent-resolve-resource": {
+        "description": "Fetch an operator playbook — a markdown guide for doing a class of agent-platform operations well. These are the same skills the agent concierge loads; resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Fetch an agent-platform operator playbook (markdown).",
+        "title": "Resolve an agent operator playbook",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "experiment-results-get": {
         "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
@@ -55,6 +69,146 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-skill-archive": {
+        "description": "DEPRECATED: renamed to skill-archive. This alias forwards to skill-archive and will be removed. Call skill-archive directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-archive.",
+        "title": "Archive skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-create": {
+        "description": "DEPRECATED: renamed to skill-create. This alias forwards to skill-create and will be removed. Call skill-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-create.",
+        "title": "Create skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-duplicate": {
+        "description": "DEPRECATED: renamed to skill-duplicate. This alias forwards to skill-duplicate and will be removed. Call skill-duplicate directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-duplicate.",
+        "title": "Duplicate skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-create": {
+        "description": "DEPRECATED: renamed to skill-file-create. This alias forwards to skill-file-create and will be removed. Call skill-file-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-create.",
+        "title": "Create skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-delete": {
+        "description": "DEPRECATED: renamed to skill-file-delete. This alias forwards to skill-file-delete and will be removed. Call skill-file-delete directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-delete.",
+        "title": "Delete skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-get": {
+        "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-get.",
+        "title": "Get skill file (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-file-rename": {
+        "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-rename.",
+        "title": "Rename skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-get": {
+        "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-get.",
+        "title": "Get skill (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-list": {
+        "description": "DEPRECATED: renamed to skill-list. This alias forwards to skill-list and will be removed. Call skill-list directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-list.",
+        "title": "List skills (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-update": {
+        "description": "DEPRECATED: renamed to skill-update. This alias forwards to skill-update and will be removed. Call skill-update directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-update.",
+        "title": "Update skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "insight-query": {
@@ -467,7 +621,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",

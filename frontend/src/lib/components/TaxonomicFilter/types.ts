@@ -356,6 +356,16 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.MaxAIContext,
 ])
 
+/** Selection types that reopen on their own tab/panel rather than the default "All" surface,
+ *  because they're config/edit flows (an expression editor, a data-warehouse table/column
+ *  picker) with no simple category value to verify at a glance. Honored by the legacy
+ *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+])
+
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
 }
@@ -367,6 +377,9 @@ export interface ListStorage {
     expandedCount?: number
     queryChanged?: boolean
     first?: boolean
+    // Wall-clock duration of the remote fetch that produced this page, in ms.
+    // Only set for server-backed loads; absent for local/empty storage.
+    loadDurationMs?: number
 }
 
 export interface LoaderOptions {

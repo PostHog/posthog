@@ -41,6 +41,7 @@ ENDPOINT_RATE_LIMITED_TOTAL = Counter(
 ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(
     "posthog_endpoint_concurrency_rejected_total",
     "Endpoint executions rejected because the concurrency limit was exceeded",
+    # team_id is safe cardinality here: only teams actually hitting concurrency limits appear
     labelnames=["team_id"],
 )
 

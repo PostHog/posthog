@@ -57,7 +57,14 @@ rules:
                               AccessControl
                               |Account
                               |Action
+                              |AgentApplication
                               |AgentArtifact
+                              |AgentRevision
+                              |AgentSandboxInstance
+                              |AgentSession
+                              |AgentSessionCredential
+                              |AgentToolApprovalRequest
+                              |AgentUser
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -305,7 +312,14 @@ rules:
                         AccessControl
                         |Account
                         |Action
+                        |AgentApplication
                         |AgentArtifact
+                        |AgentRevision
+                        |AgentSandboxInstance
+                        |AgentSession
+                        |AgentSessionCredential
+                        |AgentToolApprovalRequest
+                        |AgentUser
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -893,6 +907,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -964,6 +979,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList

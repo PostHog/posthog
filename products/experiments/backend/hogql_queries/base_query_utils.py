@@ -104,6 +104,15 @@ def is_continuous(
     return False
 
 
+def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> bool:
+    """Whether a per-user value can be meaningfully compared to a threshold.
+
+    Only sum/count produce a per-user accumulation where "did the user reach N"
+    turns cleanly into a binary outcome.
+    """
+    return math_type in [ExperimentMetricMathType.SUM, ExperimentMetricMathType.TOTAL]
+
+
 def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
     """
     Returns the expression for extracting values from a given source (EventsNode, ActionsNode, or DataWarehouseNode).
