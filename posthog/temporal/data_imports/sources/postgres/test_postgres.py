@@ -986,7 +986,10 @@ class TestInvalidSSLNegotiationResponse:
         "message,expected",
         [
             ("received invalid response to SSL negotiation: I", True),
-            ('connection to server at "1.2.3.4", port 41667 failed: received invalid response to SSL negotiation: I', True),
+            (
+                'connection to server at "1.2.3.4", port 41667 failed: received invalid response to SSL negotiation: I',
+                True,
+            ),
             ("server does not support SSL, but SSL was required", False),
             ("SSL error: tlsv1 alert no application protocol", False),
             ("password authentication failed for user", False),

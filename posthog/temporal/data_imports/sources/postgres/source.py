@@ -324,7 +324,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "received invalid response to SSL negotiation": (
                 "PostHog reached the host and port you configured, but the server didn't respond "
                 'like a PostgreSQL server during the SSL handshake ("received invalid response to '
-                'SSL negotiation"). This usually means the host and port don\'t point at a '
+                "SSL negotiation\"). This usually means the host and port don't point at a "
                 "PostgreSQL server speaking SSL — for example an HTTP, proxy, or edge endpoint, the "
                 "wrong port, or a database that's paused or deleted behind a TCP proxy. Check your "
                 "host and port, then re-enable the sync."
