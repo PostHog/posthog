@@ -497,6 +497,28 @@ describe('insightVizDataLogic', () => {
                 layout: FunnelLayout.horizontal,
             })
         })
+
+        it('clears the breakdown when switching to the Metric display', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
+                    breakdown_type: 'event',
+                    breakdown: '$browser',
+                })
+            }).toFinishAllListeners()
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual({
+                breakdown_type: 'event',
+                breakdown: '$browser',
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.Metric })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                trendsFilter: { display: ChartDisplayType.Metric },
+            })
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toBeUndefined()
+        })
     })
 
     describe('activeUsersMath', () => {
