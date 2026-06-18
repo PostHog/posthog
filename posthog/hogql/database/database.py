@@ -1187,6 +1187,11 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
+        # A materialized view's backing table shares the view's name. Exclude it so the view owns
+        # the access decision - otherwise the backing table would shadow the view and stay
+        # queryable even when the view is denied.
+        backing_table_ids = {sq.table_id for sq in (*saved_queries, *endpoint_saved_queries) if sq.table_id is not None}
+
         with timings.measure("data_warehouse_tables", emit_span=True):
             with timings.measure("select", emit_span=True):
                 tables_query = (
@@ -1202,6 +1207,8 @@ class Database(BaseModel):
                     # name collisions resolve first-come-first-served when added to the table tree.
                     .order_by("-created_at")
                 )
+                if backing_table_ids:
+                    tables_query = tables_query.exclude(id__in=backing_table_ids)
                 if is_direct_query:
                     tables_query = tables_query.filter(external_data_source_id=connection_id)
                 else:

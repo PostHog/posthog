@@ -605,3 +605,59 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
+
+    def _materialize(self, view):
+        """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        backing_table = DataWarehouseTable.objects.create(
+            name=view.name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            credential=credential,
+            url_pattern=f"s3://bucket/{view.name}/*",
+            columns={"id": "String"},
+        )
+        view.table = backing_table
+        view.is_materialized = True
+        view.save(update_fields=["table", "is_materialized"])
+        return backing_table
+
+    def test_denied_materialized_view_also_blocks_backing_table(self):
+        # A materialized view's backing table shares the view's name. Denying the view must not leave
+        # the backing table queryable under that name.
+        backing_table = self._materialize(self.denied_view)
+
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_view" in database._denied_tables
+        # The backing table is excluded from the schema build, so the view owns the name and its
+        # denial is authoritative - the name must not resolve to the backing table.
+        assert not database.has_table("denied_view")
+        assert backing_table.name == "denied_view"
+
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError) as cm:
+            database.get_table("denied_view")
+        assert "don't have access" in str(cm.exception)
+        assert "Unknown" not in str(cm.exception)
+
+    def test_allowed_materialized_view_still_resolves(self):
+        # The backing table is excluded, but the view node still exposes the name (and reads the
+        # materialized data via hogql_definition), so an allowed materialized view stays queryable.
+        self._materialize(self.allowed_view)
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "allowed_view" not in database._denied_tables
+        assert database.has_table("allowed_view")
