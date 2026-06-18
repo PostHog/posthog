@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     add_table_to_publication,
     cdc_pg_connection,
     get_max_slot_wal_keep_size_mb,
+    get_publication_tables,
     is_slot_invalidation_error,
     remove_table_from_publication,
 )
@@ -127,6 +128,24 @@ class TestGetMaxSlotWalKeepSizeMb:
         cursor.fetchone.return_value = row
 
         assert get_max_slot_wal_keep_size_mb(conn) == expected
+
+
+class TestGetPublicationTables:
+    def test_returns_schema_qualified_tables(self):
+        conn, cursor = _mock_conn()
+        cursor.fetchall.return_value = [("public", "orders"), ("analytics", "events")]
+
+        tables = get_publication_tables(conn, pub_name="my_pub")
+
+        assert tables == ["public.orders", "analytics.events"]
+        sql_str = str(cursor.execute.call_args[0][0])
+        assert "pg_publication_tables" in sql_str
+
+    def test_empty_publication(self):
+        conn, cursor = _mock_conn()
+        cursor.fetchall.return_value = []
+
+        assert get_publication_tables(conn, pub_name="my_pub") == []
 
 
 class TestRemoveTableFromPublication:
