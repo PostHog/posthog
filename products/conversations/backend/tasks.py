@@ -1,7 +1,7 @@
 """Celery tasks for the conversations product."""
 
 import html as html_mod
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.utils import formataddr
 from typing import Any, cast
 from urllib.parse import quote, urlparse
@@ -43,9 +43,10 @@ from products.conversations.backend.models import (
     EmailOutboxMessage,
     GithubCommentMapping,
     TeamConversationsSlackConfig,
+    TeamConversationsTeamsChannelSync,
     TeamConversationsTeamsConfig,
 )
-from products.conversations.backend.models.constants import Status
+from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import (
     get_slack_client,
@@ -59,11 +60,16 @@ from products.conversations.backend.slack import (
 from products.conversations.backend.support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
+    get_graph_token,
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
+    store_teams_service_url,
 )
 from products.conversations.backend.teams import (
+    GRAPH_API_BASE,
     _is_bot_mention,
+    create_or_update_teams_ticket,
+    graph_message_to_activity,
     handle_teams_mention,
     handle_teams_message,
     post_help_card,
@@ -684,6 +690,15 @@ def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None
     ``reply=True`` lands the card as a thread reply (response to a "Hi"/"Help"
     command); ``reply=False`` is the proactive welcome on install.
     """
+    # Capture the tenant's serviceUrl as early as install — this is often the
+    # only inbound activity a pure-ambient shared-channel tenant ever sends, and
+    # the poller needs it to post confirmation cards / sync agent replies.
+    tenant_id = ((activity.get("channelData") or {}).get("tenant") or {}).get("id") or ""
+    try:
+        store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    except Exception:
+        pass
+
     try:
         ok = post_help_card(
             activity,
@@ -720,6 +735,14 @@ def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: s
     if not support_settings.get("teams_enabled"):
         logger.info("supporthog_teams_not_configured", team_id=team.id, tenant_id=tenant_id)
         return
+
+    # Capture the tenant's Bot Framework serviceUrl from any inbound activity so
+    # the shared-channel poller (which has no inbound activity) can post
+    # confirmation cards and route agent replies for polled tickets.
+    try:
+        store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    except Exception:
+        logger.warning("store_teams_service_url_failed", team_id=team.id, tenant_id=tenant_id)
 
     try:
         if _is_bot_mention(activity):
@@ -803,6 +826,251 @@ def post_reply_to_teams(
     except requests.RequestException as e:
         logger.exception("teams_reply_post_error", ticket_id=ticket_id, error=str(e))
         raise cast(Any, post_reply_to_teams).retry(exc=e)
+
+
+def _shared_channel_entries(support_settings: dict) -> list[dict]:
+    """Configured channels flagged as shared (the only ones the poller pulls)."""
+    entries = support_settings.get("teams_channels")
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("membership_type") == "shared"]
+
+
+def _parse_graph_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+# Bound the work per invocation so priming a long-lived channel (the first delta
+# walk returns the channel's full history before the deltaLink) can't hammer Graph
+# in a single run. Remaining pages resume on subsequent every-minute runs.
+TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
+TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _poll_one_shared_channel(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+) -> None:
+    """Pull new top-level messages for one shared channel via Graph messages/delta.
+
+    First run for a channel primes the delta cursor without ingesting (no history
+    dump); subsequent runs map each new root message onto the existing ticket path.
+    Idempotency is handled by ``create_or_update_teams_ticket`` (dedup on
+    channel + normalized conversation id), so re-delivering a message is a no-op.
+    """
+    sync, created = TeamConversationsTeamsChannelSync.objects.for_team(team.id).get_or_create(
+        channel_id=channel_id,
+        defaults={"team": team, "teams_team_id": teams_team_id},
+    )
+
+    # On first encounter, verify via Graph that the channel is actually shared.
+    # conversations_settings is client-mutable, so we don't trust its
+    # membership_type — we confirm from the authoritative source before polling.
+    if created:
+        ch_resp = requests.get(
+            f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
+        )
+        if ch_resp.status_code != 200 or ch_resp.json().get("membershipType") != "shared":
+            logger.warning(
+                "poll_teams_shared_channel_not_shared",
+                team_id=team.id,
+                channel_id=channel_id,
+                status=ch_resp.status_code,
+            )
+            sync.delete()
+            return
+
+    url: str | None = sync.delta_link or (
+        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/delta"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    new_delta_link: str | None = None
+    latest_message_at: datetime | None = None
+    pages = 0
+
+    while url and pages < TEAMS_DELTA_MAX_PAGES_PER_RUN:
+        pages += 1
+        resp = requests.get(url, headers=headers, timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS)
+
+        if resp.status_code == 410:
+            # Delta token expired/invalid: reset and re-prime on the next run.
+            sync.delta_link = None
+            sync.primed = False
+            sync.last_polled_at = timezone.now()
+            sync.save(update_fields=["delta_link", "primed", "last_polled_at", "updated_at"])
+            logger.info("poll_teams_shared_channel_resync", team_id=team.id, channel_id=channel_id)
+            return
+        if resp.status_code == 429:
+            logger.warning("poll_teams_shared_channel_throttled", team_id=team.id, channel_id=channel_id)
+            return
+        if resp.status_code in (401, 402, 403):
+            # 401: token rejected (next run refreshes if stale). 402: metered/payment
+            # gate. 403: lost channel membership / missing scope. Skip, don't crash.
+            logger.warning(
+                "poll_teams_shared_channel_denied",
+                team_id=team.id,
+                channel_id=channel_id,
+                status=resp.status_code,
+            )
+            return
+        if resp.status_code != 200:
+            logger.warning(
+                "poll_teams_shared_channel_error",
+                team_id=team.id,
+                channel_id=channel_id,
+                status=resp.status_code,
+            )
+            return
+
+        data = resp.json()
+        messages = data.get("value") or []
+
+        if sync.primed:
+            for msg in messages:
+                msg_created = _parse_graph_datetime(msg.get("createdDateTime"))
+                if msg_created and (latest_message_at is None or msg_created > latest_message_at):
+                    latest_message_at = msg_created
+                activity = graph_message_to_activity(msg, channel_id, service_url)
+                if activity is None:
+                    continue
+                try:
+                    create_or_update_teams_ticket(
+                        team=team,
+                        activity=activity,
+                        tenant_id=tenant_id,
+                        is_thread_reply=False,
+                        channel_detail=ChannelDetail.TEAMS_CHANNEL_MESSAGE,
+                    )
+                except Exception:
+                    logger.exception(
+                        "poll_teams_shared_channel_ingest_failed",
+                        team_id=team.id,
+                        channel_id=channel_id,
+                    )
+
+        delta_link = data.get("@odata.deltaLink")
+        next_link = data.get("@odata.nextLink")
+        if delta_link:
+            new_delta_link = delta_link
+            url = None
+        else:
+            url = next_link
+
+    update_fields = ["last_polled_at", "updated_at"]
+    sync.last_polled_at = timezone.now()
+
+    if new_delta_link:
+        sync.delta_link = new_delta_link
+        update_fields.append("delta_link")
+        if not sync.primed:
+            sync.primed = True
+            update_fields.append("primed")
+    elif url:
+        # Hit the per-run page budget mid-walk; resume from this nextLink next run.
+        sync.delta_link = url
+        update_fields.append("delta_link")
+
+    if latest_message_at and (sync.last_message_at is None or latest_message_at > sync.last_message_at):
+        sync.last_message_at = latest_message_at
+        update_fields.append("last_message_at")
+
+    sync.save(update_fields=update_fields)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def poll_team_shared_channels(team_id: int) -> None:
+    """Poll every configured shared channel for one team."""
+    team = Team.objects.filter(id=team_id).first()
+    if not team:
+        return
+
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("teams_enabled"):
+        return
+
+    shared_channels = _shared_channel_entries(support_settings)
+    if not shared_channels:
+        return
+
+    config = TeamConversationsTeamsConfig.objects.filter(team=team).first()
+    tenant_id = config.teams_tenant_id if config else None
+    if not tenant_id:
+        logger.warning("poll_teams_shared_channels_no_tenant", team_id=team_id)
+        return
+
+    try:
+        token = get_graph_token(team)
+    except ValueError:
+        logger.warning("poll_teams_shared_channels_no_token", team_id=team_id)
+        return
+
+    # serviceUrl is captured from inbound webhook activities (install/mention).
+    # Empty until then: polled tickets still get created, but confirmation cards
+    # and agent-reply sync stay dormant until the first inbound activity fills it.
+    service_url = (config.teams_service_url or "") if config else ""
+
+    for entry in shared_channels:
+        channel_id = entry.get("channel_id")
+        teams_team_id = entry.get("team_id")
+        if not channel_id or not teams_team_id:
+            continue
+        try:
+            _poll_one_shared_channel(
+                team=team,
+                tenant_id=tenant_id,
+                token=token,
+                teams_team_id=teams_team_id,
+                channel_id=channel_id,
+                service_url=service_url,
+            )
+        except requests.RequestException:
+            logger.warning("poll_teams_shared_channel_network_error", team_id=team_id, channel_id=channel_id)
+        except Exception:
+            logger.exception("poll_teams_shared_channel_unexpected", team_id=team_id, channel_id=channel_id)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def poll_teams_shared_channels() -> None:
+    """Fan out per-team shared-channel polling.
+
+    Shared/private Teams channels never push ambient (non-@mention) messages over
+    the bot webhook, so we pull them from Graph on a schedule. One subtask per team
+    keeps a slow or rate-limited tenant from blocking the others.
+    """
+    configs = (
+        TeamConversationsTeamsConfig.objects.filter(teams_graph_access_token__isnull=False)
+        .select_related("team")
+        .only("team__id", "team__conversations_settings", "teams_tenant_id")
+    )
+
+    team_ids: list[int] = []
+    for config in configs:
+        support_settings = config.team.conversations_settings or {}
+        if not support_settings.get("teams_enabled"):
+            continue
+        if _shared_channel_entries(support_settings):
+            team_ids.append(config.team_id)
+
+    for team_id in team_ids:
+        poll_team_shared_channels.delay(team_id)
+
+    if team_ids:
+        logger.info("poll_teams_shared_channels_fanout", team_count=len(team_ids))
 
 
 WAKE_SNOOZE_BATCH_SIZE = 100
