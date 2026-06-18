@@ -1342,6 +1342,119 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 ),
             )
 
+    def _collect_person_property_hashes(
+        self, prop_group: PropertyGroup
+    ) -> Optional[tuple[list[str], PropertyOperatorType]]:
+        """Collect all condition hashes from a flat AND/OR of person properties.
+
+        Returns (hashes, operator) if every leaf is a non-negated person property with a
+        conditionHash, None otherwise (mixed/behavioral/negated conditions fall through to
+        the multi-subquery path).
+
+        Only inspects one level of nesting: a top-level AND/OR whose children are either
+        plain Properties or single-property PropertyGroups wrapping a plain Property.
+        """
+        operator = prop_group.type
+        hashes: list[str] = []
+        for value in prop_group.values:
+            prop: Optional[Property] = None
+            if isinstance(value, Property):
+                prop = value
+            elif isinstance(value, PropertyGroup):
+                if len(value.values) == 1 and isinstance(value.values[0], Property):
+                    prop = value.values[0]
+                else:
+                    return None
+            else:
+                return None
+
+            if prop is None:
+                return None
+
+            # Must be a non-negated person property with a conditionHash
+            condition_hash = getattr(prop, "conditionHash", None)
+            if prop.type != "person" or prop.negation or not condition_hash:
+                return None
+
+            # Merged properties carry multiple hashes
+            merged = getattr(prop, "_merged_condition_hashes", None)
+            if merged:
+                hashes.extend(merged)
+            else:
+                hashes.append(condition_hash)
+
+        if not hashes:
+            return None
+        return self._deduplicate_hashes(hashes), operator
+
+    def _build_single_scan_query(self, hashes: list[str], operator: PropertyOperatorType) -> ast.SelectQuery:
+        """Emit one scan of precalculated_person_properties with argMaxIf per condition.
+
+        Instead of N separate subqueries joined by INTERSECT/UNION DISTINCT (which
+        materialises N intermediate sets), this reads the table once and aggregates per
+        person using conditional argMax.  The outer WHERE then filters by AND/OR logic.
+
+        AND: every hash must match  → HAVING countIf(argMaxIf(...) = 1) = N
+        OR:  at least one must match → HAVING countIf(argMaxIf(...) = 1) >= 1
+        """
+        num_conditions = len(hashes)
+        having_threshold = num_conditions if operator == PropertyOperatorType.AND else 1
+
+        # One scan: compute latest matches per (person, condition), then count how many
+        # conditions matched. Same countIf pattern as _build_and/or_semantics_query but
+        # generalised across different condition keys/operators in a single GROUP BY pass.
+        query_str = """
+            SELECT person_id AS id
+            FROM (
+                SELECT
+                    person_id,
+                    condition,
+                    argMax(matches, tuple(_timestamp, _offset)) AS latest_matches
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition IN {condition_hashes}
+                GROUP BY person_id, condition
+            )
+            GROUP BY person_id
+            HAVING countIf(latest_matches = 1) >= {threshold}
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes]),
+                    "threshold": ast.Constant(value=having_threshold),
+                },
+            ),
+        )
+
+    def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Override to emit a single-scan query when all conditions are person properties.
+
+        For cohorts whose top-level group contains only non-negated person properties
+        (all backed by precalculated_person_properties), the parent would produce N
+        separate subqueries joined by INTERSECT/UNION DISTINCT.  Each subquery reads the
+        full table and the set operations materialise large intermediate results — the
+        source of the 139 GiB OOM seen in production.
+
+        When the cohort qualifies, we instead do one scan with argMaxIf per condition and
+        filter in an outer WHERE, keeping peak memory proportional to the number of
+        distinct persons rather than persons × conditions.
+
+        Cohorts with mixed conditions (behavioral, dynamic-cohort, negation, deeply nested
+        groups) fall through to the parent's multi-subquery path unchanged.
+        """
+        if self.property_groups is not None:
+            result = self._collect_person_property_hashes(self.property_groups)
+            if result is not None:
+                hashes, operator = result
+                return self._build_single_scan_query(hashes, operator)
+        return super()._get_conditions()
+
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         """
         Realtime cohorts do not support static cohorts.

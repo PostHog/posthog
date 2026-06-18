@@ -960,25 +960,20 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # The 3 mergeable email icontains should be in a single merged query with IN clause
-        # Looking at the IN clause specifically
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-
-        # Should have exactly 1 IN clause for the merged conditions
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
-
-        # Should have exactly 3 single condition checks (one for each non-mergeable property)
-        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 3, "Should have exactly 3 single condition checks")
-
-        # Should use IN clause for merged conditions
+        # All 6 conditions (3 mergeable + 3 non-mergeable) collapse into one scan with a
+        # single IN clause and HAVING countIf >= 1 (OR semantics).
         self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        # OR threshold: at least one condition must match
+        self.assertIn("countif(", query_str.lower())
+        self.assertIn("greaterOrEquals", query_str)
 
         # The merged query should check for at least 1 match using countIf
         self.assertIn("countif", query_str.lower())
 
-        # Should have UNION DISTINCT since we have non-mergeable properties too
-        self.assertIn("UNION DISTINCT", query_str)
+        # Single-scan optimization: no UNION DISTINCT even for non-mergeable properties
+        self.assertNotIn("UNION DISTINCT", query_str)
 
     def test_or_group_with_nested_single_property_groups_merges(self) -> None:
         """
@@ -1639,3 +1634,132 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should NOT use INTERSECT since all properties merged into one
         self.assertNotIn("INTERSECT DISTINCT", query_str)
+
+    def test_cross_condition_and_single_scan(self) -> None:
+        """AND of person properties with different keys emits one scan, not INTERSECT DISTINCT."""
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash_email_001",
+                        },
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": "enterprise",
+                            "negation": False,
+                            "operator": "exact",
+                            "conditionHash": "hash_plan_002",
+                        },
+                        {
+                            "key": "country",
+                            "type": "person",
+                            "value": "US",
+                            "negation": False,
+                            "operator": "exact",
+                            "conditionHash": "hash_country_003",
+                        },
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Cross-Condition AND", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        # Single scan: no INTERSECT DISTINCT
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        self.assertNotIn("UNION DISTINCT", query_str)
+        # All conditions in one IN clause
+        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        # AND semantics: all 3 must match
+        self.assertIn("countif(", query_str.lower())
+        self.assertIn("equals(countif(", query_str.lower())
+
+    def test_cross_condition_or_single_scan(self) -> None:
+        """OR of person properties with different keys emits one scan, not UNION DISTINCT."""
+        cohort_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash_email_or_001",
+                        },
+                        {
+                            "key": "plan",
+                            "type": "person",
+                            "value": "enterprise",
+                            "negation": False,
+                            "operator": "exact",
+                            "conditionHash": "hash_plan_or_002",
+                        },
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Cross-Condition OR", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        # OR semantics: threshold is greaterOrEquals(..., 1)
+        self.assertIn("greaterOrEquals", query_str)
+
+    def test_mixed_behavioral_and_person_falls_through(self) -> None:
+        """Mixed behavioral + person property cohort still uses multi-subquery path."""
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "time_value": 7,
+                            "time_interval": "day",
+                            "conditionHash": "behavioral_hash_001",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "person_hash_001",
+                        },
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Mixed Falls Through", filters={"properties": cohort_filters}
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+
+        # Mixed: falls through to multi-subquery path
+        self.assertIn("INTERSECT DISTINCT", query_str)
+        self.assertIn("precalculated_events", query_str)
+        self.assertIn("precalculated_person_properties", query_str)
