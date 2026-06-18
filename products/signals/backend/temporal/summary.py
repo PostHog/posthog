@@ -25,6 +25,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
@@ -74,6 +75,10 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+
+    if event == "signal_report_completed" and result is not None:
+        metrics.increment_report_outcome(result)
+
     try:
         posthoganalytics.capture(
             event=event,

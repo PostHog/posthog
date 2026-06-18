@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import uuid
 import asyncio
 from collections import defaultdict
@@ -30,6 +31,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
@@ -88,6 +90,7 @@ class GenerateEmbeddingOutput:
 @close_db_connections
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
+    started_at = time.perf_counter()
     try:
         team = await Team.objects.aget(pk=input.team_id)
         response = await async_generate_embedding(team, input.content, model=EMBEDDING_MODEL.value)
@@ -96,8 +99,10 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
             team_id=input.team_id,
             content_length=len(input.content),
         )
+        metrics.record_embedding_call(status="success", started_at=started_at)
         return GenerateEmbeddingOutput(embedding=response.embedding)
     except Exception as e:
+        metrics.record_embedding_call(status="error", started_at=started_at)
         logger.exception(
             f"Failed to generate embedding for team {input.team_id}: {e}",
             team_id=input.team_id,
@@ -903,6 +908,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
+
+        if not matched_deleted:
+            metrics.increment_funnel_stage(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
+            if promoted:
+                metrics.increment_funnel_stage(metrics.FUNNEL_STAGE_CANDIDATE_PROMOTED, input.source_product)
+
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,

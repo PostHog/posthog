@@ -28,6 +28,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -324,6 +325,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 result,
                 input.repo_selection,
             )
+        metrics.increment_agentic_research(result.actionability.actionability.value)
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
@@ -341,6 +343,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
         )
     except Exception as error:
+        metrics.increment_agentic_research("failed")
         logger.exception(
             "signals agentic report failed",
             report_id=input.report_id,
