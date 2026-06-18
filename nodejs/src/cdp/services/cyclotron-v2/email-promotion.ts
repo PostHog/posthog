@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 
 import { EMAIL_DEQUEUE_BLOCK_SIZE } from './manager'
 
@@ -22,8 +22,9 @@ export const EMAIL_DEQUEUE_ASSIGNMENT_WINDOW_MS = 30_000
 /**
  * Bump per-team email counters atomically in one UPSERT and return the new
  * per-team counter values (the team's high watermark after the bump). Shared
- * by `manager.ts computeEmailDequeueSeqs` (insert path) and
- * `promoteScheduledEmailJobs` (janitor / email consumer fallback).
+ * by `manager.ts computeEmailDequeueSeqs` (insert path, autocommit on a
+ * Pool) and `promoteScheduledEmailJobs` (transactional, on a PoolClient that
+ * also holds the SELECT FOR UPDATE SKIP LOCKED across the multi-stage pass).
  *
  * Hatchet `p_max_assigned`: new-team rows insert at `MAX(counter) + increment`
  * so a brand-new tenant can't slot ahead of established tenants by starting
@@ -31,11 +32,11 @@ export const EMAIL_DEQUEUE_ASSIGNMENT_WINDOW_MS = 30_000
  * shift back out in the ON CONFLICT branch). MAX is computed once via the CTE.
  */
 export async function bumpTeamCounters(
-    pool: Pool,
+    poolOrClient: Pool | PoolClient,
     teamIds: number[],
     increments: number[]
 ): Promise<Map<number, bigint>> {
-    const result = await pool.query<{ team_id: number; counter: string }>(
+    const result = await poolOrClient.query<{ team_id: number; counter: string }>(
         `WITH max_counter AS (
              SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
          )
@@ -58,76 +59,96 @@ export async function bumpTeamCounters(
  *   1. Future-scheduled rows that have just entered the assignment window.
  *   2. Legacy rows from before the index-tightening migration.
  *
- * `FOR UPDATE SKIP LOCKED` makes concurrent promoters (janitor + email
- * consumer fallback) safe — each grabs a disjoint slice and the per-team
- * counter UPSERT serialises briefly per team if they happen to touch the
- * same one.
+ * Wrapped in a single explicit transaction. Row-level locks acquired by
+ * `FOR UPDATE SKIP LOCKED` in stage 1 are held until COMMIT, so a concurrent
+ * promoter (janitor + email consumer fallback overlapping) sees the rows
+ * we've claimed as locked and skips them. Without the transaction the locks
+ * release between stages and both promoters would re-pick the same rows,
+ * double-bumping the per-team counter and leaking counter range — not a
+ * correctness bug (seqs stay unique because of `+ team_id`) but it inflates
+ * the team's counter relative to the seqs actually written, unfairly
+ * demoting busier teams over time.
  *
  * Returns the number of rows promoted.
  */
 export async function promoteScheduledEmailJobs(pool: Pool, batchSize: number): Promise<number> {
-    // Stage 1: pick + lock candidates.
-    const candidates = await pool.query<{ id: string; team_id: number }>(
-        `SELECT id, team_id
-         FROM cyclotron_jobs
-         WHERE queue_name = 'email'
-           AND status = 'available'
-           AND dequeue_seq IS NULL
-           AND scheduled <= NOW() + make_interval(secs => $1::float)
-         ORDER BY scheduled ASC
-         LIMIT $2
-         FOR UPDATE SKIP LOCKED`,
-        [EMAIL_DEQUEUE_ASSIGNMENT_WINDOW_MS / 1000, batchSize]
-    )
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
 
-    if (candidates.rows.length === 0) {
-        return 0
-    }
+        // Stage 1: pick + lock candidates. Locks held until COMMIT below.
+        const candidates = await client.query<{ id: string; team_id: number }>(
+            `SELECT id, team_id
+             FROM cyclotron_jobs
+             WHERE queue_name = 'email'
+               AND status = 'available'
+               AND dequeue_seq IS NULL
+               AND scheduled <= NOW() + make_interval(secs => $1::float)
+             ORDER BY scheduled ASC
+             LIMIT $2
+             FOR UPDATE SKIP LOCKED`,
+            [EMAIL_DEQUEUE_ASSIGNMENT_WINDOW_MS / 1000, batchSize]
+        )
 
-    // Group candidates by team so each team's counter bumps once.
-    const indicesByTeam = new Map<number, number[]>()
-    for (let i = 0; i < candidates.rows.length; i++) {
-        const teamId = candidates.rows[i].team_id
-        const existing = indicesByTeam.get(teamId)
-        if (existing) {
-            existing.push(i)
-        } else {
-            indicesByTeam.set(teamId, [i])
+        if (candidates.rows.length === 0) {
+            await client.query('COMMIT')
+            return 0
         }
-    }
-    const teamIds = [...indicesByTeam.keys()]
-    const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
 
-    // Stage 2: bump per-team counters.
-    const newCounters = await bumpTeamCounters(pool, teamIds, increments)
-
-    // Stage 3: derive per-row seqs and apply a batched UPDATE.
-    const ids: string[] = new Array(candidates.rows.length)
-    const seqs: string[] = new Array(candidates.rows.length)
-    for (const [teamId, indices] of indicesByTeam) {
-        const newCounter = newCounters.get(teamId)
-        if (newCounter === undefined) {
-            continue
+        // Group candidates by team so each team's counter bumps once.
+        const indicesByTeam = new Map<number, number[]>()
+        for (let i = 0; i < candidates.rows.length; i++) {
+            const teamId = candidates.rows[i].team_id
+            const existing = indicesByTeam.get(teamId)
+            if (existing) {
+                existing.push(i)
+            } else {
+                indicesByTeam.set(teamId, [i])
+            }
         }
-        const startCounter = newCounter - BigInt(indices.length) + 1n
-        const teamIdBigInt = BigInt(teamId)
-        for (let k = 0; k < indices.length; k++) {
-            const counterForThisJob = startCounter + BigInt(k)
-            ids[indices[k]] = candidates.rows[indices[k]].id
-            // pg accepts BIGINT as string to avoid JS number precision loss
-            seqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
+        const teamIds = [...indicesByTeam.keys()]
+        const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
+
+        // Stage 2: bump per-team counters on the same client so the bump
+        // participates in this transaction.
+        const newCounters = await bumpTeamCounters(client, teamIds, increments)
+
+        // Stage 3: derive per-row seqs and apply a batched UPDATE.
+        const ids: string[] = new Array(candidates.rows.length)
+        const seqs: string[] = new Array(candidates.rows.length)
+        for (const [teamId, indices] of indicesByTeam) {
+            const newCounter = newCounters.get(teamId)
+            if (newCounter === undefined) {
+                continue
+            }
+            const startCounter = newCounter - BigInt(indices.length) + 1n
+            const teamIdBigInt = BigInt(teamId)
+            for (let k = 0; k < indices.length; k++) {
+                const counterForThisJob = startCounter + BigInt(k)
+                ids[indices[k]] = candidates.rows[indices[k]].id
+                // pg accepts BIGINT as string to avoid JS number precision loss
+                seqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
+            }
         }
+
+        await client.query(
+            `UPDATE cyclotron_jobs cj
+             SET dequeue_seq = u.seq::bigint
+             FROM unnest($1::uuid[], $2::bigint[]) AS u(id, seq)
+             WHERE cj.id = u.id`,
+            [ids, seqs]
+        )
+
+        await client.query('COMMIT')
+        return candidates.rows.length
+    } catch (err) {
+        // Best-effort rollback — if the connection itself is gone the
+        // ROLLBACK will throw; we don't want that to mask the real error.
+        await client.query('ROLLBACK').catch(() => {})
+        throw err
+    } finally {
+        client.release()
     }
-
-    await pool.query(
-        `UPDATE cyclotron_jobs cj
-         SET dequeue_seq = u.seq::bigint
-         FROM unnest($1::uuid[], $2::bigint[]) AS u(id, seq)
-         WHERE cj.id = u.id`,
-        [ids, seqs]
-    )
-
-    return candidates.rows.length
 }
 
 /**

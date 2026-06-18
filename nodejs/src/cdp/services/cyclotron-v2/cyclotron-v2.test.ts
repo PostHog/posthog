@@ -1,6 +1,7 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
+import { promoteScheduledEmailJobs } from './email-promotion'
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
@@ -1441,6 +1442,56 @@ describe('Cyclotron V2', () => {
                 const after = await dequeueOneBatch(worker2)
                 expect(after).toHaveLength(1)
                 expect(after[0].id).toBe(id)
+            })
+
+            it('concurrent promoters do not double-bump the team counter', async () => {
+                // Regression test for the race the BEGIN/COMMIT wrap fixes.
+                // Without an explicit transaction, FOR UPDATE SKIP LOCKED's
+                // row locks release between stage 1 (SELECT) and stage 2
+                // (bumpTeamCounters). Two promoters running concurrently
+                // would both pick the same rows, each bump the team's
+                // counter, and the loser's claim leaks counter range —
+                // the team counter ends up higher than the seq actually
+                // written (seqs still unique because of `+ team_id`, but
+                // the team drifts to higher seqs over time).
+                //
+                // With the transaction wrap, the second promoter's SELECT
+                // skips the locked rows and the team counter advances by
+                // exactly the number of rows promoted across both runs.
+                const teamId = 7
+                const ids: string[] = []
+                for (let i = 0; i < 20; i++) {
+                    ids.push(await insertNullSeqEmailRow(teamId, new Date(Date.now() - 1000 - i)))
+                }
+
+                const promoterPool = new Pool({ connectionString: DB_URL })
+                try {
+                    const [a, b] = await Promise.all([
+                        promoteScheduledEmailJobs(promoterPool, 20),
+                        promoteScheduledEmailJobs(promoterPool, 20),
+                    ])
+
+                    // Total rows promoted across both runs equals the
+                    // population — neither promoter touched a row already
+                    // claimed by the other.
+                    expect(a + b).toBe(20)
+
+                    // The team's counter equals the seq range we wrote: 20.
+                    // If the transaction were missing, both promoters would
+                    // have bumped — counter would be > 20.
+                    expect(await readTeamCounter(teamId)).toBe(20n)
+
+                    // All 20 rows ended up with a unique seq.
+                    const seqs = await assertPool.query<{ dequeue_seq: string }>(
+                        `SELECT dequeue_seq FROM cyclotron_jobs WHERE id = ANY($1::uuid[])`,
+                        [ids]
+                    )
+                    const seqValues = seqs.rows.map((r) => r.dequeue_seq)
+                    expect(seqValues.every((s) => s !== null)).toBe(true)
+                    expect(new Set(seqValues).size).toBe(20)
+                } finally {
+                    await promoterPool.end()
+                }
             })
         })
     })
