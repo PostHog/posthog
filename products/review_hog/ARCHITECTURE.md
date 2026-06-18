@@ -38,36 +38,101 @@ staged; keep this section updated as stages land.
 - **Rewired the sandbox runner integration** (this was the "won't run end-to-end" breakage): master deleted
   `custom_prompt_runner.py` + `custom_prompt_executor.py` and replaced them with `custom_prompt_internals.py`
   + `custom_prompt_multi_turn_runner.py`. `sandbox/executor.py` now uses `MultiTurnSession.start_raw(...)`
-  and imports `CustomPromptSandboxContext` + `extract_json_from_text` from `custom_prompt_internals`. The
-  removed `resolve_sandbox_context_for_local_dev` helper is inlined into `executor.py`. Imports cleanly under
-  Django; `tests/test_executor.py` passes (8/8); lint clean.
+  (single-turn: `start_raw` + `session.end()`) and imports `CustomPromptSandboxContext` +
+  `extract_json_from_text` from `custom_prompt_internals`. The removed `resolve_sandbox_context_for_local_dev`
+  helper is inlined into `executor.py`. The `_run_prompt` seam returns just the agent's final message — it
+  does **not** re-read the S3 log (the runner already reads `task_run.log_url` internally; the old local
+  `_logs.txt` artifact was dropped as a redundant second read). Imports cleanly under Django;
+  `tests/test_executor.py` passes (7/7); lint clean. **Note: this is still single-turn-per-call — Stage 2
+  replaces it (below).**
 - **Replaced the stale `AGENTS.md`** (it referenced a `sandbox/runner.py` that never existed) with this
   `ARCHITECTURE.md`, modeled on `products/signals/ARCHITECTURE.md`.
 
-### ⏭️ Stage 2+ — candidate next steps (not yet started)
+### ⏭️ What's next — Stage 2 (START HERE on "continue")
 
-ReviewHog now imports and runs against current `master`, but it is still an **alpha CLI tool**. Likely next
-stages, roughly ordered:
+> **Goal (agreed with the maintainer):** restructure the review into **parallel, isolated specialist
+> reviewers** — for every `(chunk × specialty)` spawn its own **single-turn** sandbox session via the
+> `MultiTurnSession` API — plus **conditional chunking**, a **per-chunk batched validator**, and **explicit
+> team/user/repo config** in place of today's hardcoded-context scaffolding.
 
-1. **Productize beyond the CLI.** Today the only entry point is `manage.py run_review --pr-url …`. Bring it
-   in line with how Signals operates: a Temporal workflow (the top of `run.py` even carries a
-   `TODO: Make it a parent workflow and spawn steps as child workflows`), triggered by an API/webhook rather
-   than a hand-run command, with run state persisted in Postgres instead of loose files under `reviews/`.
-2. **Adopt the multi-turn session properly.** Each pipeline step currently spawns a **fresh single-turn
-   sandbox** (one `MultiTurnSession.start_raw` + `end()` per call). `MultiTurnSession` is built for
-   multi-turn flows (`send_followup`) — chunk-analysis → review → validation of one chunk could share a
-   session (and its warm clone) instead of re-cloning the repo per call, the way `mts_example/runner.py` and
-   the Signals research flow do.
-3. **De-hardcode identity/config.** `executor.py` bakes in cloud `team_id=2`, `user_id=196695`,
-   `repository="posthog/posthog"`, and a personal fork `sortafreel/posthog` as the local default. These
-   should come from config/request context.
-4. **Fix the known bugs / tech debt** listed in [Known issues](#known-issues--tech-debt) — notably the
-   neutered validation parallelism, the duplicate report-generation logic, and the prompt/schema mismatches.
-5. **Tests + isolation.** The product is not isolated (no `backend:contract-check`) and has no API/models;
-   if it grows those, follow `products/architecture.md` (contracts + facade).
+**Decided design principles (do not re-litigate):**
 
-> **Scope discipline:** Stage 1 deliberately changed only what was needed for mergeability + a working
-> import. The behavioral bugs below were found during analysis and documented, **not** fixed.
+- **Isolation over reuse.** Every LLM call is its own fresh sandbox session: `MultiTurnSession.start(prompt,
+  context, model=Shape)` then `await session.end()`. A **single-turn** session is intended and fine — clean
+  isolation, no cross-talk between reviewers/chunks. We are **not** sharing a warm clone across steps, and the
+  higher sandbox count is an accepted tradeoff for isolation.
+- **Specialists run in parallel with no shared context.** The three reviewers (Logic & Correctness,
+  Contracts & Security, Performance & Reliability) run **concurrently** per chunk. Today's **sequential**
+  passes and their forward-context plumbing (`load_previous_pass_results` / `PassContext` /
+  `PREVIOUS_PASSES_CONTEXT`) are **removed** — overlap is handled by the dedupe step, not by chaining passes.
+- **`start(model=)` does the parsing.** It runs `extract_json_from_text` + `model_validate` internally, so the
+  executor stops doing manual JSON extraction.
+
+**Target pipeline:**
+
+1. **Fetch PR data** (GitHub API) — unchanged.
+2. **Chunk gate → chunk only if needed.** Chunk when `changed_files > MAX_FILES_BEFORE_CHUNKING` **OR**
+   `changed_lines > MAX_LINES_BEFORE_CHUNKING` (new tunable constants; start ~8 files / ~400 lines). Below the
+   gate, treat the whole PR as a single chunk and **skip the chunker agent entirely**. Above it, run the
+   existing meaning/area chunker (sandbox).
+3. **Per-chunk analysis** (KEEP) — one isolated analysis sandbox per chunk; its `goal` text is injected into
+   that chunk's reviewers (analysis finishes before the chunk's reviewers start).
+4. **Parallel specialist review** — for each `(chunk × specialty)` spawn an isolated single-turn sandbox
+   (≈ `3 × num_chunks`, all concurrent, bounded by the semaphore). Each reviewer gets the chunk's files + diff
+   + `@path#L…` code-context refs + the chunk analysis + its specialty focus. **No** cross-specialty /
+   cross-chunk context.
+5. **Combine** all findings (local).
+6. **Scope-clean** (KEEP, local) — drop findings off the PR's changed lines.
+7. **Dedupe** (sandbox) — across all chunks/specialties (and vs prior bot comments). This is what absorbs the
+   overlap from running specialists in parallel.
+8. **Validate — one agent per chunk** (KEEP, simplified). Group the surviving deduped in-scope issues by chunk
+   and send **all** of a chunk's issues in **one** sandbox call that returns a per-issue valid/invalid verdict
+   (`O(chunks)` calls, not `O(issues)`). Keeps each chunk's code context for accuracy.
+9. **Build report** (markdown, local).
+10. **Publish** (GitHub API).
+
+**Concrete changes vs current code:**
+
+- `tools/issues_review.py`: replace the 3 **sequential** passes with a single **parallel** fan-out over
+  `(chunk × specialty)`. Delete `load_previous_pass_results`, `PassContext`, the `PREVIOUS_PASSES_CONTEXT`
+  prompt block. **Keep** the three `prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja` as the
+  specialist focuses.
+- `run.py` (or the chunking tool): add the **chunk gate**; put `MAX_FILES_BEFORE_CHUNKING` /
+  `MAX_LINES_BEFORE_CHUNKING` in `constants.py`.
+- `tools/issue_validation.py`: rewrite from **per-issue** to **per-chunk batched** (one call, list-in /
+  list-out). Update the schema to a list of `{id, is_valid, argumentation, category}`. This also retires the
+  "neutered parallelism" bug.
+- `sandbox/executor.py`: switch `run_sandbox_review` to `MultiTurnSession.start(prompt, context, model=…)` +
+  `end()` (drop `start_raw` + the manual `extract_json_from_text` / `model_validate`). It stays as the
+  single-turn isolated-call helper.
+- Config: delete `_resolve_context`, `_resolve_context_for_local_dev`, and `_CLOUD_TEAM_ID` / `_CLOUD_USER_ID`
+  / `_CLOUD_REPOSITORY` / `_LOCAL_REPOSITORY`. Add `--team-id` / `--user-id` / `--repository` to `run_review`
+  (or settings) and thread them `run.py` → executor. The sandbox repo to clone is a real input, not a
+  `DEBUG`-switched default. *(This is the direct answer to "why do we need `_resolve_context_for_local_dev`" —
+  we don't, once ids are explicit.)*
+
+**Helpers — drop vs keep:**
+
+- **Drop:** `_resolve_context*`, the hardcoded id/repo constants, the executor's direct `extract_json_from_text`
+  import, and the sequential-pass context machinery (`load_previous_pass_results` / `PassContext`).
+- **Keep:** `sandbox/code_context.py` (`@path#L…` refs), `run_sandbox_review` (simplified to `start(model=)`),
+  the three specialist focus templates, scope-cleaning, combine, dedupe, markdown, publish.
+
+**Read these first (reference implementations):** `products/tasks/backend/services/mts_example/runner.py`
+(canonical `MultiTurnSession.start(model=)` + `end()`), and
+`products/tasks/backend/services/custom_prompt_multi_turn_runner.py` (`start(model=)` returns a validated
+model; `start_raw` for raw text). `products/signals/backend/report_generation/research.py` shows the
+production pattern — it's multi-turn; here we use the **single-turn subset**.
+
+**Acceptance:** the 3 specialists run **in parallel** (no `load_previous_pass_results`); small PRs **skip** the
+chunker (gate works); validation is **one call per chunk**; `executor.py` uses `start(model=)` and no longer
+calls `extract_json_from_text`; no `_resolve_context*` / hardcoded ids remain and `run_review` takes explicit
+team/user/repository; tests updated & green; `ruff check products/review_hog/` clean.
+
+**Out of scope for Stage 2 (later stages):** productize beyond the CLI (Temporal parent workflow / API trigger
+/ Postgres run state — `run.py` carries the `TODO: Make it a parent workflow…`); the remaining
+[Known issues](#known-issues--tech-debt) (duplicate report-generation logic; `is_directy_…` /
+`detected_in_pass` prompt-schema typos); product isolation (contracts + facade).
 
 ---
 
@@ -166,13 +231,13 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
      shared helper.)*
    - **Cloud** (`DEBUG=False`): hardcoded `team_id=2, user_id=196695, repository="posthog/posthog"`.
 4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start_raw(prompt, context, branch, step_name)`**
-   (from `products.tasks.backend.services.custom_prompt_multi_turn_runner`), reads the agent's full S3 log
-   best-effort (`object_storage.read(session.task_run.log_url)`), then **always `session.end()`s** the
-   session (the runner keeps the workflow/sandbox alive between turns, so a single-turn caller must end it).
-   Returns `(last_message, full_log)`.
-5. Writes `full_log` to `<output>_logs.txt`, then `extract_json_from_text(last_message)` →
-   `model_to_validate.model_validate(...)` → writes pretty JSON to `output_path`. On extraction/validation
-   failure it writes the raw message to `<output>_error.txt` and returns `False`.
+   (from `products.tasks.backend.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**
+   the session — the runner keeps the workflow/sandbox alive between turns, so a single-turn caller must end
+   it. Returns the agent's final message (`last_message`). The runner already persists the full agent log at
+   `task_run.log_url` (S3 / Tasks UI), so the executor does **not** re-read or copy it locally.
+5. `extract_json_from_text(last_message)` → `model_to_validate.model_validate(...)` → writes pretty JSON to
+   `output_path`. On extraction/validation failure it writes the raw message to `<output>_error.txt` and
+   returns `False`.
 
 `backend/reviewer/sandbox/code_context.py` is pure-local: `prepare_code_context(chunk_filenames, pr_files)`
 emits Claude-Code-style `@path#Lstart-end` references for the changed line ranges of each file (merging
@@ -191,14 +256,14 @@ run_sandbox_review (executor.py)
             → clone_repository(...)  +  git fetch --depth 1 origin <branch> && git checkout -B <branch> FETCH_HEAD
           → agent-server runs the prompt, streams JSONL (ACP session/update) to S3 (TaskRun.log_url)
   → MultiTurnSession polls S3 for the agent's end-of-turn message
-  → extract_json_from_text + model_validate → write output_path(.json) / _logs.txt / _error.txt
+  → extract_json_from_text + model_validate → write output_path(.json) / _error.txt (on failure)
 ```
 
 The PR-branch checkout that ReviewHog depends on is performed by master's
 `get_sandbox_for_repository.py` block (driven by `ctx.branch`, which originates from `TaskRun.branch`), **not**
 by ReviewHog. The contract surface ReviewHog binds to (and that any future merge must preserve):
 `MultiTurnSession.start_raw(...) -> (session, last_message)`, `CustomPromptSandboxContext(team_id, user_id,
-repository)`, `session.task_run.log_url`, `session.end()`, and `extract_json_from_text(text, label)`.
+repository)`, `session.end()`, and `extract_json_from_text(text, label)`.
 
 ---
 
@@ -269,8 +334,9 @@ entry `reviews/`). Per-run files:
   `deduplication_prompt.md` / `deduplicator.json` / `issues_found.json`
 - **Validation:** `…/validation/summaries/chunk-{c}-issue-{i}-validation-summary.json`
 - **Report:** `review_report.md`
-- **Sandbox side-artifacts** (next to each output JSON): `<name>_logs.txt` (full agent log) and
-  `<name>_error.txt` (raw message when JSON extraction/validation fails)
+- **Sandbox side-artifact** (next to the output JSON, on failure only): `<name>_error.txt` (raw agent
+  message when JSON extraction/validation fails). The full agent log is **not** copied locally — it lives
+  at the run's `task_run.log_url` (S3 / Tasks UI).
 
 ---
 
