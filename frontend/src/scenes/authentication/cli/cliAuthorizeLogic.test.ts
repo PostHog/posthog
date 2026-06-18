@@ -2,10 +2,20 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { API_SCOPES } from 'lib/scopes'
 
 import { initKeaTests } from '~/test/init'
 
 import { CLI_SCOPE_PRESETS, cliAuthorizeLogic } from './cliAuthorizeLogic'
+
+const getRenderableKeyCreationScopes = (): Set<string> =>
+    new Set(
+        API_SCOPES.flatMap(({ key, disabledActions }) =>
+            (['read', 'write'] as const)
+                .filter((action) => !disabledActions?.includes(action))
+                .map((action) => `${key}:${action}`)
+        )
+    )
 
 describe('cliAuthorizeLogic', () => {
     let logic: ReturnType<typeof cliAuthorizeLogic.build>
@@ -38,6 +48,9 @@ describe('cliAuthorizeLogic', () => {
         expect(scopes).not.toContain('user:write')
         // Faithful subset of the generated MCP mirror
         expect(scopes.every((scope) => (AGENT_USE_CASE_SCOPES as readonly string[]).includes(scope))).toBe(true)
+        // No hidden grants: every submitted Agent CLI scope must have a visible UI row
+        const renderableScopes = getRenderableKeyCreationScopes()
+        expect(scopes.every((scope) => renderableScopes.has(scope))).toBe(true)
     })
 
     it('filters out unknown use cases from the URL', async () => {

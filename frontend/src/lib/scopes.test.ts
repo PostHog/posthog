@@ -1,4 +1,14 @@
+import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import { AGENT_CLI_API_KEY_SCOPES, API_KEY_SCOPE_PRESETS, API_SCOPES } from 'lib/scopes'
+
+const getRenderableKeyCreationScopes = (): Set<string> =>
+    new Set(
+        API_SCOPES.flatMap(({ key, disabledActions }) =>
+            (['read', 'write'] as const)
+                .filter((action) => !disabledActions?.includes(action))
+                .map((action) => `${key}:${action}`)
+        )
+    )
 
 describe('API_KEY_SCOPE_PRESETS', () => {
     const findPreset = (value: string): (typeof API_KEY_SCOPE_PRESETS)[number] => {
@@ -47,6 +57,15 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('file_system:write')
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
+        })
+
+        it('only includes scopes the key creation UI can render', () => {
+            const renderableScopes = getRenderableKeyCreationScopes()
+
+            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
+                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
+            )
+            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
         })
     })
 })

@@ -174,16 +174,27 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
+const API_KEY_CREATION_ACTIONS = ['read', 'write'] as const
+
+// Scopes the manual key-creation UI can render and submit. This excludes actions
+// disabled for Personal API Keys and any generated scope whose object has no UI row.
+const API_KEY_CREATION_RENDERABLE_SCOPES = new Set(
+    API_SCOPES.flatMap(({ key, disabledActions }) =>
+        API_KEY_CREATION_ACTIONS.filter((action) => !disabledActions?.includes(action)).map(
+            (action) => `${key}:${action}`
+        )
+    )
+)
+
 // Actions the manual key-creation UI withholds from Personal API Keys
 // (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
-// above. The Agent CLI preset mirrors the MCP tool scope set while respecting
-// the same disabled actions as the manual picker.
+// above.
 export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
-export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter(
-    (scope) => !API_KEY_CREATION_DISABLED_SCOPES.has(scope)
+export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
+    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
 )
 
 export const API_KEY_SCOPE_PRESETS: {
