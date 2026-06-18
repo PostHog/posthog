@@ -13,8 +13,12 @@ on:
                     - latest
 
 permissions:
-    contents: write
+    contents: read
 
+# Serialized on purpose, and load-bearing for collision-safety: the bump base
+# is read live from npm, so two concurrent dispatches could read the same base
+# and collide on publish. Do not narrow the group (e.g. per-tag) or flip
+# cancel-in-progress to true — that reintroduces the race this PR closes.
 concurrency:
     group: ${{ github.workflow }}
     cancel-in-progress: false
@@ -60,11 +64,25 @@ jobs:
                   bump() {
                     local pkg_name="$1"
                     # Seed local package.json from the live npm version for this
-                    # tag; on a brand-new package `npm view` is empty, so we keep
-                    # the repo version as the base. --allow-same-version because
-                    # the seed may already match the repo.
-                    local base
-                    base=$(npm view "${pkg_name}@${NPM_TAG}" version 2>/dev/null || true)
+                    # tag. Only a genuine E404 (package/tag never published) may
+                    # fall back to the repo version as the base — any other npm
+                    # error (registry outage, auth) must fail the run rather than
+                    # silently reuse the stale repo version, which could
+                    # republish an already-published version. --allow-same-version
+                    # because the seed may already match the repo.
+                    local base npm_err
+                    if base=$(npm view "${pkg_name}@${NPM_TAG}" version 2>/tmp/npm-view-err); then
+                      :
+                    else
+                      npm_err=$(cat /tmp/npm-view-err)
+                      if printf '%s' "$npm_err" | grep -q "E404"; then
+                        base=""
+                      else
+                        echo "::error::npm view ${pkg_name}@${NPM_TAG} failed (not a 404):" >&2
+                        echo "$npm_err" >&2
+                        return 1
+                      fi
+                    fi
                     if [ -n "$base" ]; then
                       npm version "$base" --no-git-tag-version --allow-same-version >/dev/null
                     fi
