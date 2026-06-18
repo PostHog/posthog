@@ -546,6 +546,43 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 400
 
+    def test_create_source_rejects_lookback_above_60_days(self):
+        incremental_schema = SourceSchema(
+            name="Orders",
+            supports_incremental=True,
+            supports_append=False,
+            supports_webhooks=False,
+        )
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=[incremental_schema]),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Stripe",
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                        "schemas": [
+                            {
+                                "name": "Orders",
+                                "should_sync": True,
+                                "sync_type": "incremental",
+                                "incremental_field": "updated_at",
+                                "incremental_field_type": "timestamp",
+                                "incremental_field_lookback_seconds": 5_184_001,  # 60 days + 1 second
+                            },
+                        ],
+                    },
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 400
+        assert "5184000" in response.json().get("message", "")
+        assert not ExternalDataSource.objects.filter(team=self.team, source_type="Stripe").exists()
+
     @parameterized.expand(
         [
             # Stored PK from earlier discovery — reuse it; no caller override needed.

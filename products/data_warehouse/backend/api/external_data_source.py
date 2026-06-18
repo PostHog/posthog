@@ -1675,6 +1675,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
                 lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                if isinstance(lookback_seconds, int) and lookback_seconds > 5_184_000:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"incremental_field_lookback_seconds must not exceed 5184000 (60 days) for schema '{schema_name}'."
+                        },
+                    )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
