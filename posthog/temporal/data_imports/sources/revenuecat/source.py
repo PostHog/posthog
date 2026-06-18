@@ -48,6 +48,21 @@ if TYPE_CHECKING:
 
 
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
+REVENUECAT_WEBHOOK_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "tax_percentage",
+    "commission_percentage",
+    "takehome_percentage",
+)
+
+
+def _webhook_double_schema_for_rows(rows: list[dict[str, Any]]) -> pa.Schema | None:
+    present_double_fields = [field for field in REVENUECAT_WEBHOOK_DOUBLE_FIELDS if any(field in row for row in rows)]
+    if not present_double_fields:
+        return None
+
+    return pa.schema([pa.field(field, pa.float64()) for field in present_double_fields])
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
@@ -85,7 +100,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             row["created_at"] = event_ts_ms // 1000
         rows.append(row)
 
-    return table_from_py_list(rows)
+    return table_from_py_list(rows, schema=_webhook_double_schema_for_rows(rows))
 
 
 @SourceRegistry.register

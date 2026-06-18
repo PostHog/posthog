@@ -372,6 +372,82 @@ class TestRevenueCatWebhookTableTransformer:
         assert rows[0]["id"] == "evt-1"
         assert "created_at" not in rows[0]
 
+    def test_pins_documented_double_fields_to_float64_when_values_are_whole_numbers(self):
+        table = table_from_py_list(
+            [
+                {
+                    "api_version": "1.0",
+                    "event": {
+                        "id": "evt-1",
+                        "type": "INITIAL_PURCHASE",
+                        "event_timestamp_ms": 1658726374000,
+                        "price": 0,
+                        "price_in_purchased_currency": 0,
+                        "tax_percentage": 0,
+                        "commission_percentage": 30,
+                        "takehome_percentage": 70,
+                        "subscriber_attributes": {"plan": "trial"},
+                        "entitlement_ids": ["premium"],
+                    },
+                }
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+        row = result.to_pylist()[0]
+
+        assert result.field("price").type == pa.float64()
+        assert result.field("price_in_purchased_currency").type == pa.float64()
+        assert result.field("tax_percentage").type == pa.float64()
+        assert result.field("commission_percentage").type == pa.float64()
+        assert result.field("takehome_percentage").type == pa.float64()
+        assert row["price"] == 0.0
+        assert row["price_in_purchased_currency"] == 0.0
+        assert row["event_timestamp_ms"] == 1658726374000
+        assert row["created_at"] == 1658726374
+        assert row["subscriber_attributes"] == '{"plan":"trial"}'
+        assert row["entitlement_ids"] == '["premium"]'
+
+    def test_integer_price_batch_is_compatible_with_later_decimal_price_batch(self):
+        integer_batch = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-1",
+                            "type": "TEST",
+                            "price": 0,
+                            "price_in_purchased_currency": 0,
+                        },
+                    }
+                ]
+            )
+        )
+        decimal_batch = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-2",
+                            "type": "RENEWAL",
+                            "price": 19.99,
+                            "price_in_purchased_currency": 19.99,
+                        },
+                    }
+                ]
+            )
+        )
+
+        result = pa.concat_tables([integer_batch, decimal_batch])
+        rows = result.to_pylist()
+
+        assert result.field("price").type == pa.float64()
+        assert result.field("price_in_purchased_currency").type == pa.float64()
+        assert [row["price"] for row in rows] == [0.0, 19.99]
+        assert [row["price_in_purchased_currency"] for row in rows] == [0.0, 19.99]
+
     def test_handles_event_as_json_string(self):
         # Defensive: if upstream serializes `event` as a JSON string, we still
         # parse it correctly.
