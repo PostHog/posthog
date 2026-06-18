@@ -7,7 +7,7 @@ export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?
 
     const snippets: Record<string, string> = {
         javascript: dedent`
-            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+            const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
         `,
         react: dedent`
             import { useFeatureFlagPayload, useFeatureFlagEnabled } from '@posthog/react'
