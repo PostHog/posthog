@@ -1,19 +1,20 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
-import { OnboardingStepComponentType } from '../onboardingLogic'
+import { onboardingLogic, OnboardingStepComponentType } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import PlanCards from './PlanCards'
 
@@ -22,7 +23,10 @@ type OnboardingUpgradeStepProps = {
 }
 
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
-    const { billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { goToNextStep } = useActions(onboardingLogic)
+    const { reportOnboardingStepSkipped } = useActions(eventUsageLogic)
 
     if (billingLoading) {
         return (
@@ -32,30 +36,43 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
         )
     }
 
+    const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
+    const showPlatformPackages =
+        !!product.subscribed && featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test' && !!platformProduct
+    // The package the org is currently trialing, if any (billing.trial.target is the addon type; a
+    // 'paid'-plan trial won't match a platform addon, so it stays undefined here).
+    const trialAddon = platformProduct?.addons?.find((addon) => addon.type === billing?.trial?.target)
+
+    const skipPlatformPackages = (): void => {
+        reportOnboardingStepSkipped(OnboardingStepKey.PLANS)
+        goToNextStep()
+    }
+
     return (
-        <OnboardingStep title="Select a plan" stepKey={OnboardingStepKey.PLANS} showContinue={!!product.subscribed}>
+        <OnboardingStep
+            title="Select a plan"
+            stepKey={OnboardingStepKey.PLANS}
+            // The packages screen carries its own heading and an above-the-fold skip, so the
+            // "Select a plan" title (misleading once subscribed) and the bottom Next are dropped there.
+            hideTitle={showPlatformPackages}
+            showContinue={!!product.subscribed && !showPlatformPackages}
+            actions={
+                showPlatformPackages ? (
+                    <LemonButton type="secondary" onClick={skipPlatformPackages} data-attr="onboarding-skip-button">
+                        {trialAddon ? 'Continue' : 'Skip for now'}
+                    </LemonButton>
+                ) : undefined
+            }
+        >
             {!product.subscribed && <PlanCards product={product} />}
-            {product.subscribed && <ProductSubscribed product={product} />}
+            {product.subscribed && !showPlatformPackages && <SubscribedCelebration product={product} />}
+            {showPlatformPackages && platformProduct && (
+                <PlatformPackagesUpsell platformProduct={platformProduct} trialPackageName={trialAddon?.name} />
+            )}
         </OnboardingStep>
     )
 }
 OnboardingUpgradeStep.stepKey = OnboardingStepKey.PLANS
-
-const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
-    const showPlatformPackages = featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test' && platformProduct
-
-    // Split into two components so the hogfetti hook (and its window resize listener) only mounts on
-    // the celebration screen — the packages variant reloads the page on every billing action and
-    // would re-fire confetti each time, so it doesn't use it.
-    if (!showPlatformPackages) {
-        return <SubscribedCelebration product={product} />
-    }
-    return <PlatformPackagesUpsell platformProduct={platformProduct} />
-}
 
 const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
@@ -89,7 +106,13 @@ const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): 
     )
 }
 
-const PlatformPackagesUpsell = ({ platformProduct }: { platformProduct: BillingProductV2Type }): JSX.Element => {
+const PlatformPackagesUpsell = ({
+    platformProduct,
+    trialPackageName,
+}: {
+    platformProduct: BillingProductV2Type
+    trialPackageName?: string
+}): JSX.Element => {
     return (
         <div className="relative flex flex-col items-center">
             {/* Superman Hog floating animation */}
@@ -99,10 +122,23 @@ const PlatformPackagesUpsell = ({ platformProduct }: { platformProduct: BillingP
 
             <div className="w-full max-w-4xl mt-2">
                 <div className="text-center mb-6">
-                    <h3 className="text-xl font-bold mb-1">You're signed up! Now level up with a platform package</h3>
-                    <p className="text-gray-700 dark:text-gray-400 mb-0">
-                        Start a free trial of a platform package — cancel anytime, with no charge until it ends.
-                    </p>
+                    {trialPackageName ? (
+                        <>
+                            <h3 className="text-xl font-bold mb-1">You're on a trial of {trialPackageName}</h3>
+                            <p className="text-gray-700 dark:text-gray-400 mb-0">
+                                Enjoy your trial — cancel anytime before it ends, or explore the other packages below.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="text-xl font-bold mb-1">
+                                You're signed up! Now level up with a platform package
+                            </h3>
+                            <p className="text-gray-700 dark:text-gray-400 mb-0">
+                                Start a free trial of a platform package — cancel anytime, with no charge until it ends.
+                            </p>
+                        </>
+                    )}
                 </div>
                 <PlatformAddonComparison product={platformProduct} />
             </div>

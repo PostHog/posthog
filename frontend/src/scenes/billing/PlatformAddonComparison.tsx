@@ -156,12 +156,21 @@ const PlanCard = ({
                 button bottom-aligned so prices line up across cards regardless of trial state (the
                 "Start trial" label/button stack is taller than a lone "Cancel trial" button). */}
             <div className="mt-auto flex flex-col gap-3">
-                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
-                    <PlanPrice
-                        addon={addon}
-                        unit_amount_usd={pricedPlan.unit_amount_usd}
-                        unit_label={pricedPlan.unit}
-                    />
+                {addon.type === BillingPlan.Enterprise ? (
+                    // Enterprise is sales-led (no flat rate / self-serve trial) — show custom-pricing copy
+                    // in place of a price so the card isn't blank.
+                    <div>
+                        <div className="font-bold text-xl leading-none">Custom pricing</div>
+                        <div className="text-secondary text-xs mt-1">We'll reach out about pricing</div>
+                    </div>
+                ) : (
+                    pricedPlan?.flat_rate && (
+                        <PlanPrice
+                            addon={addon}
+                            unit_amount_usd={pricedPlan.unit_amount_usd}
+                            unit_label={pricedPlan.unit}
+                        />
+                    )
                 )}
                 <div className="flex min-h-16 flex-col justify-end">
                     <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
