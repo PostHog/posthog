@@ -81,7 +81,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
-from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
