@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 
 if TYPE_CHECKING:
-    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
+    HogQLQueryModifiers = Any
 
 from common.hogql import ast
 from common.hogql.base import _T_AST
@@ -48,7 +48,7 @@ get_restricted_properties_for_team = _resolve_backend_symbol(
 )
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
+def to_printed_hogql(query: ast.Expr, team: Any, modifiers: Any | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
     return prepare_and_print_ast(
         clone_expr(query),

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import posthoganalytics
 
@@ -18,10 +18,9 @@ SessionTableVersion = _resolve_backend_symbol("posthog.schema_enums", "SessionTa
 # This module loads at django.setup() via Team; posthog.schema (the pydantic models) is
 # runtime-imported in the functions that build modifier objects to keep it off that path.
 if TYPE_CHECKING:
-    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
-
-    Team = _resolve_backend_symbol("posthog.models", "Team")
-    User = _resolve_backend_symbol("posthog.models", "User")
+    HogQLQueryModifiers = Any
+    Team = Any
+    User = Any
 
 
 def create_default_modifiers_for_user(

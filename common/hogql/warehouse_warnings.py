@@ -19,12 +19,10 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterable, Iterator
 from contextvars import ContextVar, Token
-from typing import TYPE_CHECKING
-
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    DataWarehouseSyncWarning = _resolve_backend_symbol("posthog.schema", "DataWarehouseSyncWarning")
+    DataWarehouseSyncWarning = Any
 
 
 WarningKey = tuple[str, str]

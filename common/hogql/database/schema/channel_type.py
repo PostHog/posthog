@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 
 if TYPE_CHECKING:
-    CustomChannelRule = _resolve_backend_symbol("posthog.schema", "CustomChannelRule")
+    CustomChannelField = Any
+    CustomChannelOperator = Any
+    CustomChannelRule = Any
+    DefaultChannelTypes = Any
 
 from common.hogql import ast
 from common.hogql.database.models import ExpressionField
@@ -13,9 +16,10 @@ from common.hogql.parser import parse_expr
 from common.hogql.placeholders import replace_placeholders
 from common.hogql.timings import HogQLTimings
 
-CustomChannelField = _resolve_backend_symbol("posthog.schema_enums", "CustomChannelField")
-CustomChannelOperator = _resolve_backend_symbol("posthog.schema_enums", "CustomChannelOperator")
-DefaultChannelTypes = _resolve_backend_symbol("posthog.schema_enums", "DefaultChannelTypes")
+if not TYPE_CHECKING:
+    CustomChannelField = _resolve_backend_symbol("posthog.schema_enums", "CustomChannelField")
+    CustomChannelOperator = _resolve_backend_symbol("posthog.schema_enums", "CustomChannelOperator")
+    DefaultChannelTypes = _resolve_backend_symbol("posthog.schema_enums", "DefaultChannelTypes")
 
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as

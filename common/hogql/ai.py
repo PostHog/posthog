@@ -1,5 +1,5 @@
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -22,8 +22,8 @@ get_instance_region = _resolve_backend_symbol("posthog.utils", "get_instance_reg
 
 
 if TYPE_CHECKING:
-    Team = _resolve_backend_symbol("posthog.models", "Team")
-    User = _resolve_backend_symbol("posthog.models", "User")
+    Team = Any
+    User = Any
 
 openai_client = (
     OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
@@ -140,7 +140,7 @@ class PromptUnclear(Exception):
 
 
 def write_sql_from_prompt(
-    prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User", request: Optional["Request"] = None
+    prompt: str, *, current_query: Optional[str] = None, team: Any, user: Any, request: Optional["Request"] = None
 ) -> str:
     database = Database.create_for(team=team, user=user)
     context = HogQLContext(

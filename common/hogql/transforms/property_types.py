@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
@@ -356,9 +356,9 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
-        field_name = cast(TableColumn, database_field.name)
+        field_name = cast(Any, database_field.name)
         mat_col = get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name),
+            cast(Any, table_name),
             field_name,
             property_name,
         )
@@ -389,7 +389,7 @@ class PropertySwapper(CloningVisitor):
         return None
 
     @staticmethod
-    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
+    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: Any) -> bool:
         if node.name == "JSONExtractString":
             # JSONExtractString has string semantics, so it only matches a string-backed column.
             # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
@@ -710,9 +710,5 @@ class PropertySwapper(CloningVisitor):
             message=message,
         )
 
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
-        )
+    def _get_materialized_column(self, table_name: str, property_name: Any, field_name: Any) -> Any | None:
+        return get_materialized_column_for_property(cast(Any, table_name), field_name, property_name)

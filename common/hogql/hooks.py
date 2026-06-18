@@ -50,7 +50,8 @@ def get_hogql_backend_hooks() -> HogQLBackendHooks:
     finally:
         _loading_backend_hooks = False
 
-    if _backend_hooks is None:
+    hooks = _backend_hooks
+    if hooks is None:
         raise RuntimeError(f"HogQL backend hooks module {module_name!r} did not register hooks")
 
-    return _backend_hooks
+    return hooks  # type: ignore[unreachable]

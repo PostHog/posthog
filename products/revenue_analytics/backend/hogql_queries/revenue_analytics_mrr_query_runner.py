@@ -5,7 +5,6 @@ from decimal import Decimal
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
     DatabaseSchemaManagedViewTableKind,
-    HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMRRQueryResponse,
@@ -15,6 +14,7 @@ from posthog.schema import (
 from common.hogql import ast
 from common.hogql.database.models import UnknownDatabaseField
 from common.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_expr
 from common.hogql.query import execute_hogql_query
 

@@ -1,4 +1,4 @@
-from typing import Optional, Self, cast
+from typing import Any, Optional, Self, cast
 
 import posthoganalytics
 
@@ -243,7 +243,7 @@ def join_with_persons_table(
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
 
-    organization: Organization | None = context.team.organization if context.team else None
+    organization: Any | None = context.team.organization if context.team else None
     if organization is None:
         raise ResolutionError("Organization is required to join with persons table")
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up

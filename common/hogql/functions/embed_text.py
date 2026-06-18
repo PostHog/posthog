@@ -1,13 +1,18 @@
+from typing import TYPE_CHECKING, Any
+
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 
 generate_embedding = _resolve_backend_symbol("posthog.api.embedding_worker", "generate_embedding")
-Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
+if TYPE_CHECKING:
+    Team: type[Any]
+else:
+    Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
 
 
 # Takes an embed text call, calls out to the embedding worker,
 # and then returns an embedding.
-def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
+def resolve_embed_text(team: Any | int | None, node: ast.Call) -> ast.Constant:
     args = node.args
 
     if team is None:

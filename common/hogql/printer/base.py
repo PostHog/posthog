@@ -1463,7 +1463,7 @@ class BasePrinter(Visitor[str]):
         return escape_hogql_identifier(name)
 
     def _print_escaped_string(
-        self, name: bool | float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+        self, name: bool | float | int | str | list | tuple | datetime | date | UUID | None
     ) -> str:
         return escape_hogql_string(name, timezone=self._get_timezone())
 
@@ -1478,7 +1478,7 @@ class BasePrinter(Visitor[str]):
             return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
-    def _get_week_start_day(self) -> WeekStartDay:
+    def _get_week_start_day(self) -> Any:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:

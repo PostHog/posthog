@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from difflib import get_close_matches
 from logging import getLogger
-from typing import Literal
+from typing import Any, Literal
 
 from django.db import DatabaseError
 from django.db.models import QuerySet
@@ -94,7 +94,7 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
 
 
 def validate_taxonomy_references(
-    query: ast.SelectQuery | ast.SelectSetQuery, team: Team, table_names: list[str] | None = None
+    query: ast.SelectQuery | ast.SelectSetQuery, team: Any, table_names: list[str] | None = None
 ) -> list[HogQLNotice]:
     visitor = TaxonomyReferenceVisitor()
     visitor.visit(query)

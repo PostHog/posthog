@@ -3,14 +3,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import ParserMode
-
 from common.hogql import (
     ast,
     parser as parser_module,
 )
 from common.hogql.errors import SyntaxError as HogQLSyntaxError
 from common.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_expr, parse_select
+from common.hogql.parser_modes import ParserMode
 
 
 class TestParserMode(BaseTest):

@@ -5,7 +5,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.base import AST
 from common.hogql.context import HogQLContext
 from common.hogql.errors import QueryError
@@ -18,7 +17,7 @@ from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 if TYPE_CHECKING:
-    Team = _resolve_backend_symbol("posthog.models", "Team")
+    Team = Any
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,

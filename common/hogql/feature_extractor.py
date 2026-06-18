@@ -5,6 +5,8 @@ product surface (AI observability, error tracking, web analytics, replay, …)
 based on what tables and event filters they reference.
 """
 
+from typing import Any
+
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.database.schema.events import EventsTable
@@ -79,7 +81,7 @@ def _iter_string_constants(expr: ast.Expr):
             yield from _iter_string_constants(sub)
 
 
-def extract_hogql_features(query: ast.SelectQuery | ast.SelectSetQuery | None) -> HogQLFeatures:
+def extract_hogql_features(query: ast.SelectQuery | ast.SelectSetQuery | None) -> Any:
     """Sorted for deterministic tag output."""
     if query is None:
         return HogQLFeatures()

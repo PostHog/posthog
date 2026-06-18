@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
@@ -23,6 +24,7 @@ class HogQLMetadataRequest:
     modifiers: Any | None = None
     filters: Any | None = None
     globals: dict[str, Any] | None = None
+    variables: dict[str, Any] | None = None
     sourceQuery: Any | None = None
     connectionId: str | None = None
     debug: bool | None = None
@@ -57,13 +59,13 @@ class HogQLMetadataResponse(dict):
     def dict(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return self.model_dump(*args, **kwargs)
 
-    def model_copy(self, *, update: dict[str, Any] | None = None, **kwargs: Any) -> HogQLMetadataResponse:
-        return replace(self, **(update or {}))
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, **kwargs: Any) -> HogQLMetadataResponse:
+        return replace(self, **dict(update or {}))
 
 
 @dataclass(slots=True)
 class HogQLQueryResponse(dict):
-    results: list[Any] | None
+    results: list[Any]
     clickhouse: str | None = None
     columns: list[Any] | None = None
     error: str | None = None
@@ -110,5 +112,5 @@ class HogQLQueryResponse(dict):
     def dict(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return self.model_dump(*args, **kwargs)
 
-    def model_copy(self, *, update: dict[str, Any] | None = None, **kwargs: Any) -> HogQLQueryResponse:
-        return replace(self, **(update or {}))
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, **kwargs: Any) -> HogQLQueryResponse:
+        return replace(self, **dict(update or {}))

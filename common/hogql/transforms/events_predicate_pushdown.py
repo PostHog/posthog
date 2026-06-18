@@ -33,7 +33,7 @@ Two things are built by hand here, on purpose:
   wraps in `ifNull(...)` only when the value is genuinely nullable.
 """
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -52,7 +52,7 @@ TEST = _resolve_backend_symbol("posthog.settings", "TEST")
 
 
 if TYPE_CHECKING:
-    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
+    HogQLQueryModifiers = Any
 
 logger = structlog.get_logger(__name__)
 

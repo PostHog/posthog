@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -39,9 +39,8 @@ PropertyType = _resolve_backend_symbol("products.event_definitions.backend.model
 
 
 if TYPE_CHECKING:
-    CustomChannelRule = _resolve_backend_symbol("posthog.schema", "CustomChannelRule")
-
-    Team = _resolve_backend_symbol("posthog.models.team", "Team")
+    CustomChannelRule = Any
+    Team = Any
 
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {

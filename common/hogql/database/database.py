@@ -178,21 +178,17 @@ DataWarehouseTableColumns = _resolve_backend_symbol(
 # posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
 # so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.
 if TYPE_CHECKING:
-    DatabaseSchemaDataWarehouseTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaDataWarehouseTable")
-    DatabaseSchemaEndpointTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaEndpointTable")
-    DatabaseSchemaField = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaField")
-    DatabaseSchemaManagedViewTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaManagedViewTable")
-    DatabaseSchemaPostHogTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaPostHogTable")
-    DatabaseSchemaSystemTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaSystemTable")
-    DatabaseSchemaViewTable = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaViewTable")
-    DataWarehouseSyncWarning = _resolve_backend_symbol("posthog.schema", "DataWarehouseSyncWarning")
-    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
-
-    User = _resolve_backend_symbol("posthog.models", "User")
-
-    DataWarehouseSavedQuery = _resolve_backend_symbol(
-        "products.data_modeling.backend.models.datawarehouse_saved_query", "DataWarehouseSavedQuery"
-    )
+    DatabaseSchemaDataWarehouseTable = Any
+    DatabaseSchemaEndpointTable = Any
+    DatabaseSchemaField = Any
+    DatabaseSchemaManagedViewTable = Any
+    DatabaseSchemaPostHogTable = Any
+    DatabaseSchemaSystemTable = Any
+    DatabaseSchemaViewTable = Any
+    DataWarehouseSavedQuery = Any
+    DataWarehouseSyncWarning = Any
+    HogQLQueryModifiers = Any
+    User = Any
 
 tracer = trace.get_tracer(__name__)
 
@@ -201,7 +197,7 @@ tracer = trace.get_tracer(__name__)
 class SerializedField:
     key: str
     name: str
-    type: DatabaseSerializedFieldType
+    type: Any
     schema_valid: bool
     fields: list[str] | None = None
     table: str | None = None
@@ -213,23 +209,23 @@ class HogQLDatabaseSources:
     """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
     build phase runs without any queries."""
 
-    team: "Team"
-    user: Optional["User | SyntheticUser"]
+    team: Any
+    user: Optional[Any]
     connection_id: str | None
-    modifiers: "HogQLQueryModifiers"
+    modifiers: Any
     is_managed_viewset_enabled: bool
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
-    user_access_control: Optional["UserAccessControl"]
+    user_access_control: Optional[Any]
     denied_system_table_names: set[str]  # node names under the "system" node to remove during build
     group_types: list[dict[str, Any]]
-    saved_queries: list["DataWarehouseSavedQuery"]
-    endpoint_saved_queries: list["DataWarehouseSavedQuery"]
-    revenue_views: list["RevenueAnalyticsBaseView"]
-    warehouse_tables: list["DataWarehouseTable"]  # filtered to what build needs, schemas preloaded
-    data_warehouse_joins: list["DataWarehouseJoin"]
+    saved_queries: list[Any]
+    endpoint_saved_queries: list[Any]
+    revenue_views: list[Any]
+    warehouse_tables: list[Any]  # filtered to what build needs, schemas preloaded
+    data_warehouse_joins: list[Any]
     # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
-    event_modifier_saved_queries: dict[str, Optional["DataWarehouseSavedQuery"]]
+    event_modifier_saved_queries: dict[str, Optional[Any]]
 
 
 type DatabaseSchemaTable = (
@@ -331,7 +327,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
 # under common.hogql.*, so new table/field/AST types keep working and anything else fails loudly.
 _CATALOG_PICKLE_MODULE_PREFIXES = ("common.hogql.",)
-_CATALOG_PICKLE_MODULES = frozenset()
+_CATALOG_PICKLE_MODULES: frozenset[str] = frozenset()
 
 
 class _CatalogUnpickler(pickle.Unpickler):
@@ -429,10 +425,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 def _compute_system_table_access_decision(
-    team: "Team",
-    user: Optional["User | SyntheticUser"],
-    user_access_control: Optional["UserAccessControl"] = None,
-) -> tuple[Optional["UserAccessControl"], set[str]]:
+    team: Any,
+    user: Optional[Any],
+    user_access_control: Optional[Any] = None,
+) -> tuple[Optional[Any], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
     reads are query-free) and the system-node table names to remove.
@@ -485,15 +481,15 @@ class Database(BaseModel):
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
-    _data_warehouse_sync_warnings: dict[str, list["DataWarehouseSyncWarning"]] = {}
+    _data_warehouse_sync_warnings: dict[str, list[Any]] = {}
 
     _timezone: str | None
-    _week_start_day: WeekStartDay | None
+    _week_start_day: Any | None
 
     def __init__(
         self,
         timezone: str | None = None,
-        week_start_day: WeekStartDay | None = None,
+        week_start_day: Any | None = None,
         include_posthog_tables: bool = True,
     ):
         super().__init__(tables=build_database_root_node(include_posthog_tables=include_posthog_tables))
@@ -512,12 +508,12 @@ class Database(BaseModel):
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
-        self.user_access_control: Optional[UserAccessControl] = None
+        self.user_access_control: Optional[Any] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
 
-    def get_week_start_day(self) -> WeekStartDay:
+    def get_week_start_day(self) -> Any:
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
@@ -729,7 +725,7 @@ class Database(BaseModel):
         ]
 
     def _apply_system_table_access(
-        self, user_access_control: Optional["UserAccessControl"], denied_system_table_names: set[str]
+        self, user_access_control: Optional[Any], denied_system_table_names: set[str]
     ) -> None:
         """Apply the precomputed access-control decision from _compute_system_table_access_decision,
         without querying."""
@@ -977,7 +973,7 @@ class Database(BaseModel):
                     fields=fields_dict,
                     id=str(saved_query.pk),
                     name=view_name,
-                    query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                    query=HogQLQuery(query=saved_query.query["query"]),
                     row_count=row_count,
                     status=saved_query.status,
                 )
@@ -987,7 +983,7 @@ class Database(BaseModel):
                 fields=fields_dict,
                 id=str(saved_query.pk),
                 name=view_name,
-                query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                query=HogQLQuery(query=saved_query.query["query"]),
                 row_count=row_count,
             )
 
@@ -998,10 +994,10 @@ class Database(BaseModel):
     def create_for(
         team_id: int | None = None,
         *,
-        team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
-        user_access_control: Optional["UserAccessControl"] = None,
-        modifiers: "HogQLQueryModifiers | None" = None,
+        team: Optional[Any] = None,
+        user: Optional[Any] = None,
+        user_access_control: Optional[Any] = None,
+        modifiers: Any | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
     ) -> "Database":
@@ -1023,10 +1019,10 @@ class Database(BaseModel):
     def _fetch_sources(
         team_id: int | None = None,
         *,
-        team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
-        user_access_control: Optional["UserAccessControl"] = None,
-        modifiers: "HogQLQueryModifiers | None" = None,
+        team: Optional[Any] = None,
+        user: Optional[Any] = None,
+        user_access_control: Optional[Any] = None,
+        modifiers: Any | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
     ) -> HogQLDatabaseSources:
@@ -1055,7 +1051,7 @@ class Database(BaseModel):
                     raise QueryError(f"Team with id {team_id} does not exist") from None
 
             # Team is definitely not None at this point, make mypy believe that
-            team = cast("Team", team)
+            team = cast(Any, team)
 
             db_span.set_attribute("team_id", team.pk)
 
@@ -1112,7 +1108,7 @@ class Database(BaseModel):
             )
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
-            saved_queries: list[DataWarehouseSavedQuery] = []
+            saved_queries: list[Any] = []
             # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
@@ -1128,7 +1124,7 @@ class Database(BaseModel):
                     saved_queries = list(queryset)
 
         with timings.measure("endpoint_saved_query", emit_span=True):
-            endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
+            endpoint_saved_queries: list[Any] = []
             if not is_direct_query:
                 try:
                     endpoint_saved_queries = list(
@@ -1142,7 +1138,7 @@ class Database(BaseModel):
                     capture_exception(e)
 
         with timings.measure("revenue_analytics_views", emit_span=True):
-            revenue_views: list[RevenueAnalyticsBaseView] = []
+            revenue_views: list[Any] = []
             if not is_direct_query:
                 try:
                     if not is_managed_viewset_enabled:
@@ -1174,7 +1170,7 @@ class Database(BaseModel):
                         external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
                     )
 
-                warehouse_tables: list[DataWarehouseTable] = list(tables_query)
+                warehouse_tables: list[Any] = list(tables_query)
                 # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
                 # keep it hydrated there instead of lazily reloading it per table.
                 _attach_external_data_sources(warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query)
@@ -1194,7 +1190,7 @@ class Database(BaseModel):
 
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.
-            credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
+            credentialed_tables: list[Any] = [*warehouse_tables]
             credentialed_tables.extend(
                 sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
             )
@@ -1205,7 +1201,7 @@ class Database(BaseModel):
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
         # warehouse_tables fetch.
-        event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
+        event_modifier_saved_queries: dict[str, Optional[Any]] = {}
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
@@ -1380,7 +1376,7 @@ class Database(BaseModel):
         warehouse_tables: TableNode = TableNode()
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
-        warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+        warehouse_tables_to_process: list[tuple[Table, Any]] = []
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
@@ -1500,7 +1496,7 @@ class Database(BaseModel):
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
 
         # Index warehouse table models by name, newest wins, mirroring the eager path's `.latest()`.
-        warehouse_table_models_by_name: dict[str, DataWarehouseTable] = {}
+        warehouse_table_models_by_name: dict[str, Any] = {}
         for warehouse_table_model in sources.warehouse_tables:
             existing = warehouse_table_models_by_name.get(warehouse_table_model.name)
             if existing is None or warehouse_table_model.created_at > existing.created_at:
@@ -1508,7 +1504,7 @@ class Database(BaseModel):
 
         def define_mappings(
             root_node: TableNode,
-            get_table: Callable[[Any], Union[DataWarehouseTable, "DataWarehouseSavedQuery"]],
+            get_table: Callable[[Any], Any],
         ) -> TableNode:
             table: Table | None = None
 
@@ -1595,7 +1591,7 @@ class Database(BaseModel):
 
         # Resolve a modifier's table model from already-fetched sources, raising DoesNotExist when no
         # row matches just as the eager path's `.latest()` did.
-        def _saved_query_model_for(wm: Any) -> "DataWarehouseSavedQuery":
+        def _saved_query_model_for(wm: Any) -> Any:
             saved_query = sources.event_modifier_saved_queries.get(wm.table_name)
             if saved_query is None:
                 raise DataWarehouseSavedQuery.DoesNotExist(
@@ -1603,7 +1599,7 @@ class Database(BaseModel):
                 )
             return saved_query
 
-        def _warehouse_table_model_for(wm: Any) -> DataWarehouseTable:
+        def _warehouse_table_model_for(wm: Any) -> Any:
             name = warehouse_tables_dot_notation_mapping.get(wm.table_name, wm.table_name)
             warehouse_table = warehouse_table_models_by_name.get(name)
             if warehouse_table is None:
@@ -1612,7 +1608,7 @@ class Database(BaseModel):
                 )
             return warehouse_table
 
-        def _self_managed_table_model_for(wm: Any) -> DataWarehouseTable:
+        def _self_managed_table_model_for(wm: Any) -> Any:
             warehouse_table = warehouse_table_models_by_name.get(wm.table_name)
             if warehouse_table is None:
                 raise DataWarehouseTable.DoesNotExist(
@@ -1750,7 +1746,7 @@ class Database(BaseModel):
         return database
 
 
-def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
+def get_data_warehouse_table_name(source: Any | None, table_name: str):
     if source is None:
         return table_name
 
@@ -1883,7 +1879,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             )
 
 
-def _use_virtual_fields(database: Database, modifiers: "HogQLQueryModifiers", timings: HogQLTimings) -> None:
+def _use_virtual_fields(database: Database, modifiers: Any, timings: HogQLTimings) -> None:
     events_table = database.get_table("events")
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
@@ -1939,7 +1935,7 @@ def _use_virtual_fields(database: Database, modifiers: "HogQLQueryModifiers", ti
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
-def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
+def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> Any | None:
     if isinstance(constant_type, ast.StringType):
         return DatabaseSerializedFieldType.STRING
     if isinstance(constant_type, ast.BooleanType):
@@ -1968,7 +1964,7 @@ NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
 def _attach_external_data_sources(
-    warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int, defer_job_inputs: bool = True
+    warehouse_tables: Sequence[Any], *, team_id: int, defer_job_inputs: bool = True
 ) -> None:
     """Prime each table's `external_data_source` FK from one bulk fetch of the distinct sources.
 
@@ -1981,7 +1977,7 @@ def _attach_external_data_sources(
     source_ids = {
         table.external_data_source_id for table in warehouse_tables if table.external_data_source_id is not None
     }
-    sources_by_id: dict[Any, ExternalDataSource] = {}
+    sources_by_id: dict[Any, Any] = {}
     if source_ids:
         query = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
         if defer_job_inputs:
@@ -1997,7 +1993,7 @@ def _attach_external_data_sources(
             table.external_data_source = source
 
 
-def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
+def _preload_active_external_data_schemas(warehouse_tables: Sequence[Any]) -> None:
     tables_by_id = {
         str(warehouse_table.id): warehouse_table
         for warehouse_table in warehouse_tables
@@ -2006,7 +2002,7 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
     if not tables_by_id:
         return
 
-    schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
+    schemas_by_table_id: dict[str, list[Any]] = defaultdict(list)
     # Reuse the owning table's already-hydrated source instead of joining it per schema, which would
     # re-decrypt job_inputs on the same few sources thousands of times.
     for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=list(tables_by_id.keys())):
@@ -2020,14 +2016,14 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
 
 
-def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
+def _attach_decrypted_credentials(warehouse_tables: Sequence[Any], *, team_id: int) -> None:
     """Prime each table's `credential` FK from one bulk fetch of the distinct credentials.
 
     Tables and views share a handful of credentials, so a bulk fetch keeps Fernet decryption to
     O(credentials) instead of the O(tables) a per-row join would cost.
     """
     credential_ids = {table.credential_id for table in warehouse_tables if table.credential_id is not None}
-    credentials_by_id: dict[Any, DataWarehouseCredential] = {}
+    credentials_by_id: dict[Any, Any] = {}
     if credential_ids:
         credentials_by_id = {
             credential.pk: credential
@@ -2037,9 +2033,9 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
         table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
 
 
-def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
+def _get_active_external_data_schemas(warehouse_table: Any) -> list[Any]:
     active_external_data_schemas = cast(
-        Optional[list[ExternalDataSchema]],
+        Optional[list[Any]],
         getattr(warehouse_table, "_active_external_data_schemas", None),
     )
     if active_external_data_schemas is not None:
@@ -2051,7 +2047,7 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
     return list(ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id=warehouse_table.id))
 
 
-def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
+def _strip_external_source_prefix(source: Any, table_name: str) -> str:
     source_type = source.source_type.lower()
     raw_prefix = (source.prefix or "").lower()
     prefix = raw_prefix.strip("_")
@@ -2073,7 +2069,7 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
     return table_name_stripped
 
 
-def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
+def _get_warehouse_table_keys(warehouse_table: Any, *, direct_query: bool) -> list[str]:
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
@@ -2082,7 +2078,7 @@ def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_que
 
 
 def _should_include_connection_table(
-    warehouse_table: DataWarehouseTable,
+    warehouse_table: Any,
     *,
     connection_id: str,
 ) -> bool:
@@ -2120,14 +2116,14 @@ def serialize_fields(
     field_input,
     context: HogQLContext,
     table_chain: list[str],
-    db_columns: DataWarehouseTableColumns | None = None,
+    db_columns: Any | None = None,
     table_type: Literal["posthog"] | Literal["external"] = "posthog",
-) -> list["DatabaseSchemaField"]:
+) -> list[Any]:
     DatabaseSchemaField = _resolve_backend_symbol("posthog.schema", "DatabaseSchemaField")
 
     from common.hogql.resolver import resolve_types_from_table
 
-    field_output: list[DatabaseSchemaField] = []
+    field_output: list[Any] = []
     for field_key, field in field_input.items():
         try:
             if db_columns is not None:

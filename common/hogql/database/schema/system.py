@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Any
 
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -1323,7 +1324,7 @@ class SystemTables(TableNode):
 
 
 @lru_cache(maxsize=1)
-def access_controlled_system_tables() -> dict[str, APIScopeObject]:
+def access_controlled_system_tables() -> dict[str, Any]:
     """Access-controlled system tables as {table_name: resource}, e.g. {"notebooks": "notebook"}.
     SystemTables().children is static, so this is computed once and reused."""
     return {

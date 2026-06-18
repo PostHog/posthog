@@ -388,7 +388,7 @@ class HogQLQueryExecutor:
         self.debug = self.modifiers is not None and self.modifiers.debug
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
-        self.results = None
+        self.results: list[Any] = []
         self.types = None
         self.metadata: Optional[Any] = None
         self.hogql: Optional[str] = None

@@ -1,7 +1,7 @@
 import dataclasses
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -305,9 +305,9 @@ def _plan_property_source(
         return _json_source_plan(table_name=table_name, field_name=field_name, restricted=restricted)
 
     materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
+        cast(Any, table_name),
+        cast(Any, field_name),
+        cast(Any, property_name),
     )
     if materialized_column is not None:
         return PropertySourcePlan(
@@ -388,7 +388,7 @@ def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -
     return table_name, field.name
 
 
-def _materialized_column_physical_type(materialized_column: MaterializedColumn) -> ast.ConstantType:
+def _materialized_column_physical_type(materialized_column: Any) -> ast.ConstantType:
     runtime_type = parse_sql_runtime_type(materialized_column.type)
     if runtime_type.family != "unknown":
         return constant_type_from_runtime_type(

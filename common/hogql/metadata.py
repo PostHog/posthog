@@ -25,7 +25,7 @@ INVALID_CONNECTION_ID_ERROR = (
 
 
 def get_hogql_metadata(
-    query: HogQLMetadataRequest | Any,
+    query: Any,
     team: Any,
     user: Any | None = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
@@ -184,6 +184,7 @@ def enrich_hogql_validation_error(
     """
     if getattr(query, "kind", None) != "HogQLQuery" or not getattr(query, "query", None):
         return original_detail, None
+    query = cast(Any, query)
 
     try:
         metadata = get_hogql_metadata(

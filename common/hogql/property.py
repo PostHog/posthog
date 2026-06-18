@@ -1,6 +1,6 @@
 import re
 from collections.abc import Callable
-from typing import Literal, Optional, TypeGuard, cast
+from typing import Any, Literal, Optional, TypeGuard, cast
 
 from django.db import models
 from django.db.models import Q
@@ -272,7 +272,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+def _handle_bool_values(value: Any, expr: ast.Expr, property: Any, team: Any) -> Any | bool:
     if value is True:
         value = "true"
     elif value is False:
@@ -318,7 +318,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         key = expr.chain[-2]
 
         # TODO: pass id of table item being filtered on instead of searching through joins
-        current_join: DataWarehouseJoin | None = (
+        current_join: Any | None = (
             DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
             .filter(team=team, source_table_name="persons", field_name=key)
             .first()
@@ -373,7 +373,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
+def _resolve_date_value(value: Any, team: Any) -> Any:
     """Resolve a date value for IS_DATE_* operators.
 
     Relative dates (e.g. ``-7d``, ``-10m`` for months, ``-10M`` for minutes) are
@@ -436,7 +436,7 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
     )
 
 
-def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
+def _validate_between_values(value: Any, operator: Any) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
     try:
@@ -468,7 +468,7 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     )
 
 
-def _validate_regex(value: ValueT) -> None:
+def _validate_regex(value: Any) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
     same RE2 engine ClickHouse uses validates the pattern here."""
@@ -481,7 +481,7 @@ def _validate_regex(value: ValueT) -> None:
 
 
 def _expr_to_compare_op(
-    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
+    expr: ast.Expr, value: Any, operator: Any, property: Any, is_json_field: bool, team: Any
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
@@ -690,7 +690,7 @@ def _expr_to_compare_op(
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
-def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
+def apply_path_cleaning(path_expr: ast.Expr, team: Any) -> ast.Expr:
     if not team.path_cleaning_filters:
         return path_expr
 
@@ -708,36 +708,8 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
 
 
 def property_to_expr(
-    property: (
-        list
-        | dict
-        | PropertyGroup
-        | PropertyGroupFilter
-        | PropertyGroupFilterValue
-        | Property
-        | ast.Expr
-        | EventPropertyFilter
-        | PersonPropertyFilter
-        | ElementPropertyFilter
-        | SessionPropertyFilter
-        | EventMetadataPropertyFilter
-        | RevenueAnalyticsPropertyFilter
-        | CohortPropertyFilter
-        | RecordingPropertyFilter
-        | LogEntryPropertyFilter
-        | GroupPropertyFilter
-        | FeaturePropertyFilter
-        | FlagPropertyFilter
-        | HogQLPropertyFilter
-        | EmptyPropertyFilter
-        | DataWarehousePropertyFilter
-        | DataWarehousePersonPropertyFilter
-        | ErrorTrackingIssueFilter
-        | LogPropertyFilter
-        | SpanPropertyFilter
-        | WorkflowVariablePropertyFilter
-    ),
-    team: Team,
+    property: Any,
+    team: Any,
     scope: Literal[
         "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
     ] = "event",
@@ -819,7 +791,7 @@ def property_to_expr(
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(Any, property.operator) or PropertyOperator.EXACT
         value = property.value
         if isinstance(property.value, list):
             if len(property.value) > 1:
@@ -876,7 +848,7 @@ def property_to_expr(
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(Any, property.operator) or PropertyOperator.EXACT
         value = property.value
 
         if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
@@ -1136,7 +1108,7 @@ def property_to_expr(
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
         value = property.value
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(Any, property.operator) or PropertyOperator.EXACT
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
@@ -1224,7 +1196,7 @@ def property_to_expr(
     )
 
 
-def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
+def steps_to_expr(steps: list[Any], team: Any, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1343,11 +1315,11 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
         return ast.Or(exprs=or_queries)
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+def action_to_expr(action: Any, events_alias: Optional[str] = None) -> ast.Expr:
     return steps_to_expr(action.steps, action.team, events_alias)
 
 
-def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
+def entity_to_expr(entity: Any, team: Any) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
         action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
@@ -1426,7 +1398,7 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
-def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+def get_lowercase_index_hint(property: Any, team: Any) -> ast.Call:
     """
     Returns an index hint for a case insensitive index on `lower(key)`
     e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
@@ -1502,7 +1474,7 @@ class _LowercaseIndexRewriter(CloningVisitor):
         )
 
 
-def operator_is_negative(operator: PropertyOperator) -> bool:
+def operator_is_negative(operator: Any) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
@@ -26,7 +26,7 @@ class PostHogAutocompleteProvider(HogQLAutocompleteProvider):
     def capture_exception(self, exception: Exception) -> None:
         capture_exception(exception)
 
-    def source_query_to_select(self, source_query: object, team: Team):
+    def source_query_to_select(self, source_query: Any, team: Team):
         return get_query_runner(query=source_query, team=team).to_query()
 
     def list_property_definitions(

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -13,11 +13,14 @@ from common.hogql.database.models import (
 EXCHANGE_RATE_DECIMAL_PRECISION = _resolve_backend_symbol(
     "posthog.models.exchange_rate.sql", "EXCHANGE_RATE_DECIMAL_PRECISION"
 )
-Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
+if TYPE_CHECKING:
+    Team = Any
+else:
+    Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
 
 
 if TYPE_CHECKING:
-    RevenueAnalyticsEventItem = _resolve_backend_symbol("posthog.schema", "RevenueAnalyticsEventItem")
+    RevenueAnalyticsEventItem = Any
 
 
 class ExchangeRateTable(DANGEROUS_NoTeamIdCheckTable):

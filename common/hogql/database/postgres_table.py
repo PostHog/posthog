@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -9,7 +9,10 @@ from common.hogql.database.models import FunctionCallTable
 from common.hogql.escape_sql import escape_hogql_identifier
 
 PERSONS_DB_MODELS = _resolve_backend_symbol("posthog.person_db_router", "PERSONS_DB_MODELS")
-APIScopeObject = _resolve_backend_symbol("posthog.scopes", "APIScopeObject")
+if TYPE_CHECKING:
+    APIScopeObject = Any
+else:
+    APIScopeObject = _resolve_backend_symbol("posthog.scopes", "APIScopeObject")
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):

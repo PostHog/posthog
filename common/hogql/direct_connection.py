@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -15,18 +15,12 @@ ExternalDataSource = _resolve_backend_symbol(
 
 
 if TYPE_CHECKING:
-    Team = _resolve_backend_symbol("posthog.models", "Team")
-    User = _resolve_backend_symbol("posthog.models", "User")
-    MySQLSourceConfig = _resolve_backend_symbol(
-        "posthog.temporal.data_imports.sources.generated_configs", "MySQLSourceConfig"
-    )
-    PostgresSourceConfig = _resolve_backend_symbol(
-        "posthog.temporal.data_imports.sources.generated_configs", "PostgresSourceConfig"
-    )
-    MySQLImplementation = _resolve_backend_symbol(
-        "posthog.temporal.data_imports.sources.mysql.mysql", "MySQLImplementation"
-    )
-    PostgresSource = _resolve_backend_symbol("posthog.temporal.data_imports.sources.postgres.source", "PostgresSource")
+    MySQLImplementation = Any
+    MySQLSourceConfig = Any
+    PostgresSource = Any
+    PostgresSourceConfig = Any
+    Team = Any
+    User = Any
 
 
 INVALID_CONNECTION_ID_ERROR = (
@@ -35,9 +29,7 @@ INVALID_CONNECTION_ID_ERROR = (
 )
 
 
-def get_direct_connection_source(
-    team: "Team", connection_id: str | None, *, user: Optional["User"] = None
-) -> ExternalDataSource | None:
+def get_direct_connection_source(team: Any, connection_id: str | None, *, user: Optional[Any] = None) -> Any | None:
     if not connection_id:
         return None
 
@@ -67,12 +59,12 @@ def get_direct_connection_source(
 
 
 def get_direct_connection_source_none_or_raise(
-    team: "Team",
+    team: Any,
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
+    user: Optional[Any] = None,
     error_factory: Callable[[str], Exception],
-) -> ExternalDataSource | None:
+) -> Any | None:
     source = get_direct_connection_source(team, connection_id, user=user)
     if connection_id and source is None:
         raise error_factory(INVALID_CONNECTION_ID_ERROR)
@@ -80,14 +72,14 @@ def get_direct_connection_source_none_or_raise(
 
 
 def resolve_database_for_connection(
-    team: "Team",
+    team: Any,
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
-    modifiers: HogQLQueryModifiers | None = None,
+    user: Optional[Any] = None,
+    modifiers: Any | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
-) -> tuple[ExternalDataSource | None, Database]:
+) -> tuple[Any | None, Database]:
     source = get_direct_connection_source_none_or_raise(team, connection_id, user=user, error_factory=error_factory)
     database = Database.create_for(
         team=team,
@@ -99,18 +91,15 @@ def resolve_database_for_connection(
     return source, database
 
 
-def validate_direct_postgres_source_config(
-    source: ExternalDataSource, team: "Team"
-) -> tuple["PostgresSource", "PostgresSourceConfig"]:
+def validate_direct_postgres_source_config(source: Any, team: Any) -> tuple[Any, Any]:
     SourceRegistry = _resolve_backend_symbol("posthog.temporal.data_imports.sources", "SourceRegistry")
-    PostgresSource = _resolve_backend_symbol("posthog.temporal.data_imports.sources.postgres.source", "PostgresSource")
 
     ExternalDataSourceType = _resolve_backend_symbol("products.data_warehouse.backend.types", "ExternalDataSourceType")
 
     if not source.is_direct_postgres:
         raise ExposedHogQLError("Invalid direct Postgres connection.")
 
-    postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
+    postgres_source = cast(Any, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
     config = postgres_source.parse_config(source.job_inputs or {})
 
     is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
@@ -126,18 +115,15 @@ def validate_direct_postgres_source_config(
     return postgres_source, config
 
 
-def validate_direct_mysql_source_config(
-    source: ExternalDataSource, team: "Team"
-) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+def validate_direct_mysql_source_config(source: Any, team: Any) -> tuple[Any, Any]:
     SourceRegistry = _resolve_backend_symbol("posthog.temporal.data_imports.sources", "SourceRegistry")
-    MySQLSource = _resolve_backend_symbol("posthog.temporal.data_imports.sources.mysql.source", "MySQLSource")
 
     ExternalDataSourceType = _resolve_backend_symbol("products.data_warehouse.backend.types", "ExternalDataSourceType")
 
     if not source.is_direct_mysql:
         raise ExposedHogQLError("Invalid direct MySQL connection.")
 
-    mysql_source = cast(MySQLSource, SourceRegistry.get_source(ExternalDataSourceType.MYSQL))
+    mysql_source = cast(Any, SourceRegistry.get_source(ExternalDataSourceType.MYSQL))
     config = mysql_source.parse_config(source.job_inputs or {})
 
     is_ssh_valid, ssh_valid_errors = mysql_source.ssh_tunnel_is_valid(config, team.pk)

@@ -3,7 +3,6 @@ from decimal import Decimal
 from posthog.schema import (
     CachedRevenueAnalyticsGrossRevenueQueryResponse,
     DatabaseSchemaManagedViewTableKind,
-    HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrossRevenueQueryResponse,
@@ -11,6 +10,7 @@ from posthog.schema import (
 
 from common.hogql import ast
 from common.hogql.database.models import UnknownDatabaseField
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date

@@ -14,7 +14,9 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
+from posthog.schema import HogQLQueryModifiers
+
+from common.hogql.models import HogQLQueryResponse
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team

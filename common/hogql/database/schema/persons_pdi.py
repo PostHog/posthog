@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, Any
+
 import posthoganalytics
 
 from common.hogql.ast import SelectQuery
@@ -15,7 +17,10 @@ from common.hogql.database.models import (
 )
 from common.hogql.errors import ResolutionError
 
-Organization = _resolve_backend_symbol("posthog.models.organization", "Organization")
+if TYPE_CHECKING:
+    Organization = Any
+else:
+    Organization = _resolve_backend_symbol("posthog.models.organization", "Organization")
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to

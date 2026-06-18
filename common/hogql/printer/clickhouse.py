@@ -803,9 +803,7 @@ class ClickHousePrinter(BasePrinter):
     def _print_identifier(self, name: str) -> str:
         return escape_clickhouse_identifier(name)
 
-    def _print_escaped_string(
-        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
-    ) -> str:
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date | UUID | None) -> str:
         return escape_clickhouse_string(name, timezone=self._get_timezone())
 
     def _ensure_team_id_where_clause(

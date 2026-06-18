@@ -3,7 +3,9 @@ from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.schema import HogQLNotice, HogQLQuery
+from posthog.schema import HogQLQuery
+
+from common.hogql.notices import HogQLNotice
 
 from posthog.models import EventDefinition
 

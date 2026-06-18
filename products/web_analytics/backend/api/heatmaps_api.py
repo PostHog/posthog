@@ -13,7 +13,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
+from posthog.schema import DateRange, HogQLFilters, ProductKey
 
 from common.hogql import ast
 from common.hogql.ast import Constant
@@ -21,6 +21,7 @@ from common.hogql.base import Expr
 from common.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from common.hogql.context import HogQLContext
 from common.hogql.filters import replace_filters
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_expr, parse_select
 from common.hogql.query import execute_hogql_query
 

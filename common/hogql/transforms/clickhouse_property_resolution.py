@@ -22,7 +22,7 @@ exist in the blob" test, but tightening it would change query results.
 """
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
@@ -139,9 +139,9 @@ def resolve_materialized_property_source(
 
     # 1) static materialized column (mat_* / pmat_*)
     materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
+        cast(Any, table_name),
+        cast(Any, field_name),
+        cast(Any, property_name),
     )
     if materialized_column is not None:
         return MaterializedPropertySource(
@@ -272,7 +272,7 @@ def _materialized_head_expr(
     first_key: str,
     *,
     is_single: bool,
-    materialization_mode: MaterializationMode | None,
+    materialization_mode: Any | None,
 ) -> ast.Expr | None:
     """The read for the top-level key (chain[0]) from a backing column: a property-group map lookup, or a scrubbed column."""
     if source.kind == "property_group":

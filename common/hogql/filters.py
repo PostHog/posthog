@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, TypeVar, cast
+from typing import Any, Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -26,7 +26,7 @@ relative_date_parse = _resolve_backend_symbol("posthog.utils", "relative_date_pa
 
 
 T = TypeVar("T", bound=ast.Expr)
-DEFAULT_TEAM = cast(Team, None)
+DEFAULT_TEAM = cast(Any, None)
 
 
 @dataclasses.dataclass
@@ -35,7 +35,7 @@ class CompareOperationWrapper:
     skip: bool = False
 
 
-def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, database: Optional[Database] = None) -> T:
+def replace_filters(node: T, filters: Optional[Any], team: Any, database: Optional[Database] = None) -> T:
     if database is None:
         database = Database.create_for(team=team)
     return ReplaceFilters(filters, team, database).visit(node)
@@ -44,8 +44,8 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, databa
 class ReplaceFilters(CloningVisitor):
     def __init__(
         self,
-        filters: Optional[HogQLFilters],
-        team: Team = DEFAULT_TEAM,
+        filters: Optional[Any],
+        team: Any = DEFAULT_TEAM,
         database: Optional[Database] = None,
     ):
         super().__init__()

@@ -220,7 +220,7 @@ class LogsFilterBuilder:
                         f
                         for f in property_group.values
                         if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE
-                        and not operator_is_negative(f.operator)  # type: ignore[arg-type, union-attr]
+                        and not operator_is_negative(f.operator)  # type: ignore[union-attr]
                     ],
                 )
                 self.resource_attribute_negative_filters = cast(
@@ -228,7 +228,7 @@ class LogsFilterBuilder:
                     [
                         f
                         for f in property_group.values
-                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)  # type: ignore[arg-type, union-attr]
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)  # type: ignore[union-attr]
                     ],
                 )
                 self.log_filters = cast(

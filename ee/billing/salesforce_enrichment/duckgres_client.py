@@ -25,11 +25,12 @@ def duckgres_cursor() -> Iterator[psycopg.Cursor[DictRow]]:
     A per-session statement timeout is set so a runaway analytics query cannot
     pin the worker — the caller is expected to paginate large result sets.
     """
-    if not settings.DUCKGRES_PG_URL:
+    duckgres_pg_url = getattr(settings, "DUCKGRES_PG_URL", None)
+    if not duckgres_pg_url:
         raise DuckgresNotConfiguredError("DUCKGRES_PG_URL is not set")
 
     with psycopg.connect(
-        settings.DUCKGRES_PG_URL,
+        duckgres_pg_url,
         connect_timeout=_CONNECT_TIMEOUT_SECONDS,
         row_factory=dict_row,
     ) as conn:

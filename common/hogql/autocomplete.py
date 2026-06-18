@@ -464,7 +464,7 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 
 
 def get_hogql_autocomplete(
-    query: HogQLAutocompleteRequest,
+    query: Any,
     team: Any,
     user: Any | None = None,
     database_arg: Optional[Database] = None,

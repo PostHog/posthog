@@ -10,7 +10,6 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
-    HogQLQueryResponse,
     InCohortVia,
     IntervalType,
     RetentionEntity,
@@ -26,6 +25,7 @@ from common.hogql.constants import (
     LimitContext,
     get_breakdown_limit_for_context,
 )
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_expr, parse_select
 from common.hogql.printer import to_printed_hogql
 from common.hogql.property import entity_to_expr, property_to_expr

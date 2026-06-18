@@ -55,7 +55,8 @@ class HogQLSourceQueryProvider(Protocol):
 
 
 class HogQLMetadataProvider(HogQLSourceQueryProvider, HogQLVariableProvider, Protocol):
-    debug_errors: bool
+    @property
+    def debug_errors(self) -> bool: ...
 
     def resolve_database_for_connection(
         self,

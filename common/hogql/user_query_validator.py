@@ -9,6 +9,8 @@ The validator itself does *not* check ``is_query_service`` — callers gate on t
 and only invoke this for user-submitted queries.
 """
 
+from typing import TYPE_CHECKING, Any
+
 import posthoganalytics
 
 from common.hogql import ast
@@ -16,7 +18,10 @@ from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symb
 from common.hogql.errors import QueryError
 from common.hogql.visitor import TraversingVisitor
 
-Team = _resolve_backend_symbol("posthog.models.team", "Team")
+if TYPE_CHECKING:
+    Team = Any
+else:
+    Team = _resolve_backend_symbol("posthog.models.team", "Team")
 
 
 OFFSET_NOT_ALLOWED_MESSAGE = (

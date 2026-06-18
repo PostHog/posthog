@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any
 
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 
@@ -8,16 +8,7 @@ DatabaseSchemaManagedViewTableKind = _resolve_backend_symbol(
 VIEW_SCHEMAS = _resolve_backend_symbol("products.revenue_analytics.backend.views.schemas", "SCHEMAS")
 
 
-def get_table_kind(
-    view_name: str,
-) -> (
-    Literal[
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR,
-        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM,
-    ]
-    | None
-):
+def get_table_kind(view_name: str) -> Any | None:
     if _is_customer_schema(view_name=view_name):
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
 

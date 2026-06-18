@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -10,13 +10,19 @@ from common.hogql.database.models import LazyJoin, Table
 from common.hogql.database.utils import get_join_field_chain
 
 capture_exception = _resolve_backend_symbol("posthog.exceptions_capture", "capture_exception")
-ExternalDataSchema = _resolve_backend_symbol(
-    "products.warehouse_sources.backend.models.external_data_schema", "ExternalDataSchema"
-)
 ExternalDataSource = _resolve_backend_symbol(
     "products.warehouse_sources.backend.models.external_data_source", "ExternalDataSource"
 )
-DataWarehouseTable = _resolve_backend_symbol("products.warehouse_sources.backend.models.table", "DataWarehouseTable")
+if TYPE_CHECKING:
+    DataWarehouseTable = Any
+    ExternalDataSchema = Any
+else:
+    DataWarehouseTable = _resolve_backend_symbol(
+        "products.warehouse_sources.backend.models.table", "DataWarehouseTable"
+    )
+    ExternalDataSchema = _resolve_backend_symbol(
+        "products.warehouse_sources.backend.models.external_data_schema", "ExternalDataSchema"
+    )
 
 
 class DatabaseTableLookup(Protocol):
