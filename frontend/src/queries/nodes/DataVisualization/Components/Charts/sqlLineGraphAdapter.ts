@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
+    type ChartLegendConfig,
     type Series,
     type TimeSeriesBarChartConfig,
     type TimeSeriesLineChartConfig,
@@ -60,9 +61,8 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
 }
 
 /**
- * Bar and stacked-bar charts render via quill's `TimeSeriesBarChart`. Mixed bar/line/area series
- * (a per-series `displayType` override) need quill's `ComboChart`, which isn't ported yet, so those
- * — along with trend lines and right-axis series — fall back to the legacy chart.js path.
+ * Bar/stacked-bar charts render via quill's `TimeSeriesBarChart`. Mixed bar/line/area series need
+ * `ComboChart` (not ported), so those — with trend lines and right-axis series — fall back to legacy.
  */
 export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     const { visualizationType, yData } = props
@@ -87,11 +87,6 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     return true
 }
 
-/**
- * Maps the SQL insight display type onto a quill bar layout: grouped bars for {@link
- * ChartDisplayType.ActionsBar}, stacked bars for {@link ChartDisplayType.ActionsStackedBar}, and
- * percent-stacked when the legacy `stackBars100` setting is on (only meaningful for stacked bars).
- */
 export function barLayoutForDisplay(
     visualizationType: ChartDisplayType,
     chartSettings: ChartSettings
@@ -167,11 +162,15 @@ function buildYAxisConfig(
 
     return {
         label: yAxis?.label,
-        // A logarithmic scale is meaningless for percent-stacked fractions, so force linear there.
+        // A log scale is meaningless for percent-stacked fractions.
         scale: !forceLinear && yAxis?.scale === 'logarithmic' ? 'log' : 'linear',
         showGrid: yAxis?.showGridLines ?? true,
         hide: yAxis?.showTicks === false,
     }
+}
+
+function buildLegendConfig(chartSettings: ChartSettings): ChartLegendConfig {
+    return { show: chartSettings.showLegend ?? false, position: 'top' }
 }
 
 export function buildLineChartConfig({
@@ -184,6 +183,7 @@ export function buildLineChartConfig({
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
         yAxis: buildYAxisConfig(chartSettings),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        legend: buildLegendConfig(chartSettings),
         tooltip: { enabled: true, pinnable: true },
     }
 }
@@ -199,10 +199,10 @@ export function buildBarChartConfig({
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        // quill's percent layout converts the data to 0–1 fractions and auto-formats the axis as %.
         yAxis: buildYAxisConfig(chartSettings, { forceLinear: barLayout === 'percent' }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
+        legend: buildLegendConfig(chartSettings),
         tooltip: { enabled: true, pinnable: true },
     }
 }

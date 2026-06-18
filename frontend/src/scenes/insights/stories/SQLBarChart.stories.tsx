@@ -6,9 +6,7 @@ import { SqlBarGraph } from '~/queries/nodes/DataVisualization/Components/Charts
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
-// Renders the quill-charts bar adapter (SqlBarGraph -> TimeSeriesBarChart) in isolation — just the
-// chart, not the whole insight scene. The `product-analytics-quill-sql-charts` flag only gates
-// routing in LineGraph, so it isn't needed when mounting SqlBarGraph directly.
+// Renders SqlBarGraph (quill TimeSeriesBarChart) in isolation, without the insight scene.
 
 const LABELS = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07']
 

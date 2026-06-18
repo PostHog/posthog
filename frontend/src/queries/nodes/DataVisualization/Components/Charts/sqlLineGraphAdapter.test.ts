@@ -230,6 +230,15 @@ describe('sqlLineGraphAdapter', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
             expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
         })
+
+        it.each([
+            ['shows', true, true],
+            ['hides', false, false],
+            ['hides by default', undefined, false],
+        ])('%s the built-in legend from showLegend', (_name, showLegend, expected) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: { showLegend }, timezone: 'UTC' })
+            expect(config.legend).toEqual({ show: expected, position: 'top' })
+        })
     })
 
     describe('buildBarChartConfig', () => {

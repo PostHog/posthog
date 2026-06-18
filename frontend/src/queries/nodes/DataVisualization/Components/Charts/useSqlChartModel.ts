@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
-import { type ChartTheme, type LegendItem, type Series, legendItemsFromSeries } from '@posthog/quill-charts'
+import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,15 +22,11 @@ export interface SqlChartModel<TConfig> {
     labels: string[]
     theme: ChartTheme
     config: TConfig
-    legendItems: LegendItem[]
-    hiddenKeys: string[]
-    toggleSeries: (key: string) => void
 }
 
 /**
- * Shared model for the quill SQL charts. Builds series, theme, legend, and hidden-series state once;
- * the per-chart-type config (line vs bar) comes from {@link buildConfig}. `BuildBarConfigArgs` is the
- * superset arg shape — line builders simply ignore the extra `visualizationType` field.
+ * Shared model for the quill SQL charts: series, theme, and the per-chart-type config from
+ * {@link buildConfig}. Line builders ignore the extra `visualizationType` field.
  */
 export function useSqlChartModel<TConfig>(
     { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: LineGraphProps,
@@ -38,9 +34,7 @@ export function useSqlChartModel<TConfig>(
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
 
-    // Fire the cap warning as a side effect — capYSeriesData itself stays pure.
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
             warnTooManySeries(yData!.length)
@@ -49,7 +43,7 @@ export function useSqlChartModel<TConfig>(
 
     const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
-    const allSeries = useMemo(
+    const series = useMemo(
         () => (ySeriesData ? buildSeries(ySeriesData, visualizationType) : []),
         [ySeriesData, visualizationType]
     )
@@ -63,29 +57,9 @@ export function useSqlChartModel<TConfig>(
         [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig]
     )
 
-    const showLegend = chartSettings.showLegend ?? false
-    const legendItems = useMemo(
-        () => (showLegend ? legendItemsFromSeries(allSeries, theme) : []),
-        [showLegend, allSeries, theme]
-    )
-
-    // Hidden series are excluded from rendering/scale/hit-testing; the legend still shows them dimmed.
-    const series = useMemo(() => {
-        if (hiddenKeys.length === 0) {
-            return allSeries
-        }
-        const hidden = new Set(hiddenKeys)
-        return allSeries.map((s) => (hidden.has(s.key) ? { ...s, visibility: { ...s.visibility, excluded: true } } : s))
-    }, [allSeries, hiddenKeys])
-
-    const toggleSeries = useCallback(
-        (key: string) => setHiddenKeys((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key])),
-        []
-    )
-
-    if (!xData || !ySeriesData || allSeries.length === 0 || !config) {
+    if (!xData || !ySeriesData || series.length === 0 || !config) {
         return null
     }
 
-    return { series, labels: xData.data, theme, config, legendItems, hiddenKeys, toggleSeries }
+    return { series, labels: xData.data, theme, config }
 }
