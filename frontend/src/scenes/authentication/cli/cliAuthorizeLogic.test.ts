@@ -101,13 +101,8 @@ describe('cliAuthorizeLogic', () => {
         })
         expect(logic.values.authorize.scopes).toEqual(['error_tracking:write'])
 
-        // All access is represented by the wildcard scope
-        logic.actions.setScopePreset('all_access')
-        await expectLogic(logic).toMatchValues({
-            scopePreset: 'all_access',
-            allAccessSelected: true,
-        })
-        expect(logic.values.authorize.scopes).toEqual(['*'])
+        expect(CLI_SCOPE_PRESETS.find((preset) => preset.value === 'all_access')).toBeUndefined()
+        expect(CLI_SCOPE_PRESETS.find((preset) => preset.scopes.includes('*'))).toBeUndefined()
     })
 
     it('drops to a custom selection once a scope is fine-tuned', async () => {
