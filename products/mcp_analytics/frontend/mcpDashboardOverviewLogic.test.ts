@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -332,6 +334,19 @@ describe('mcpDashboardOverviewLogic', () => {
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
             expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+        })
+
+        it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No explicit toggle, yet every tile filters internal users because the team default is on.
+            const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
+            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
         })
     })
 })

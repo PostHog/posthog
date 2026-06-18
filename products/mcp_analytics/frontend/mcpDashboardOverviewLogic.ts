@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { IntervalType } from '~/types'
+import { IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import { categorizeHarness } from './dashboard/harnessRegistry'
@@ -428,7 +428,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
     connect(() => ({
-        values: [mcpClusteringLogic, ['clusters', 'hasSnapshot'], teamLogic, ['timezone']],
+        values: [mcpClusteringLogic, ['clusters', 'hasSnapshot'], teamLogic, ['timezone', 'currentTeam']],
     })),
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -442,8 +442,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
             },
         ],
-        filterTestAccounts: [
-            false,
+        // null until the user toggles — the effective value falls back to the team's
+        // test_account_filters_default_checked setting (see the filterTestAccounts selector).
+        filterTestAccountsOverride: [
+            null as boolean | null,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }): boolean => filterTestAccounts,
             },
@@ -574,6 +576,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
     })),
     selectors({
+        // Effective toggle state: the user's explicit override, else the team's default.
+        filterTestAccounts: [
+            (s) => [s.filterTestAccountsOverride, s.currentTeam],
+            (override: boolean | null, currentTeam: TeamType | null): boolean =>
+                override ?? !!currentTeam?.test_account_filters_default_checked,
+        ],
         queryFilters: [
             (s) => [s.dateFilter, s.filterTestAccounts],
             (dateFilter: DateFilter, filterTestAccounts: boolean): HogQLFilters => ({
@@ -643,10 +651,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             } else {
                 delete searchParams.date_to
             }
-            if (values.filterTestAccounts) {
-                searchParams.filter_test_accounts = true
-            } else {
+            // Absent param = follow the team default; an explicit override (incl. false) persists.
+            if (values.filterTestAccountsOverride === null) {
                 delete searchParams.filter_test_accounts
+            } else {
+                searchParams.filter_test_accounts = values.filterTestAccountsOverride
             }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
@@ -660,16 +669,17 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             const dateFrom =
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
-            const filterTestAccounts =
-                searchParams.filter_test_accounts === true || searchParams.filter_test_accounts === 'true'
+            // Absent param leaves the override null (effective value follows the team default).
+            const rawFilter = searchParams.filter_test_accounts
+            const filterOverride = rawFilter === undefined ? null : rawFilter === true || rawFilter === 'true'
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
-            const filterChanged = filterTestAccounts !== values.filterTestAccounts
+            const filterChanged = filterOverride !== null && filterOverride !== values.filterTestAccountsOverride
             // setDateFilter / setFilterTestAccounts each reload via their listeners.
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
             }
             if (filterChanged) {
-                actions.setFilterTestAccounts(filterTestAccounts)
+                actions.setFilterTestAccounts(filterOverride)
             }
             // URL already matches state (e.g. default filters) and afterMount deferred — load once.
             if (!dateChanged && !filterChanged && !cache.hasLoaded) {
