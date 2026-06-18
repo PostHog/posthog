@@ -1,6 +1,12 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
+import {
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/config'
+import { Component, newScope } from '~/ingestion/common/scopes'
+import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {
@@ -14,9 +20,6 @@ import {
 import { resetKafka } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
-import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '../common/config'
-import { Component, newScope } from '../common/scopes'
-import { getDefaultIngestionOutputsConfig } from '../config'
 import { ClientWarningsConsumerConfig, ClientWarningsSharedScope, createClientWarningsConsumer } from './consumer'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
@@ -44,7 +47,7 @@ jest.mock('~/kafka/consumer', () => {
     }
 })
 
-jest.mock('../../utils/logger')
+jest.mock('~/utils/logger')
 
 function constComponent<T extends object>(value: T): Component<T> {
     return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }

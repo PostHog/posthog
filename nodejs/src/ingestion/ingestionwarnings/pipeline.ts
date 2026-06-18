@@ -2,19 +2,15 @@ import { Message } from 'node-rdkafka'
 
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { TeamManager } from '../../utils/team-manager'
-import { EventFilterManager } from '../common/event-filters'
-import { createAllowEventsStep } from '../common/steps/allow-events'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
 import {
     EventFiltersBatchContext,
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
-} from '../common/steps/event-filters-steps'
-import { addTeamToContext } from '../common/subpipelines/helpers'
+} from '~/ingestion/common/steps/event-filters-steps'
+import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -22,12 +18,15 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateHistoricalMigrationStep,
-} from '../event-preprocessing'
-import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
-import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
-import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
-import { newBatchingPipeline } from '../pipelines/builders'
-import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+} from '~/ingestion/event-preprocessing'
+import { createApplyBasicEventRestrictionsStep } from '~/ingestion/event-preprocessing/apply-event-restrictions'
+import { createDropOldEventsStep } from '~/ingestion/event-processing/drop-old-events-step'
+import { createHandleClientIngestionWarningStep } from '~/ingestion/event-processing/handle-client-ingestion-warning-step'
+import { newBatchingPipeline } from '~/ingestion/pipelines/builders'
+import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
+import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
 
 export interface ClientWarningsPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>

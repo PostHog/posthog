@@ -226,7 +226,9 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       All three -> `src/ingestion/session-replay` (collision-free: no shared root files or subdir
       names). 231 imports rewritten across 76 files; lane-pure. Same top-level (`index.ts`/`config.ts`/
       `types.ts`) edges deferred to the guard-`LANES` item.
-- [ ] Move `clientwarnings` -> `ingestionwarnings` lane dir.
+- [x] Move `clientwarnings` -> `ingestionwarnings` lane dir. `src/ingestion/clientwarnings` ->
+      `src/ingestion/ingestionwarnings` (directory move, filenames unchanged). 32 imports across 5
+      files; lane-pure; only the general server (composition root) imports it.
 - [ ] Place each shared module in its correct common tier.
 - [ ] Add moved lanes to the guard's `LANES` set.
 - [ ] Resolve the 2 deferred intra-ingestion edges (`analytics` -> `ai` via `createAiEventSubpipeline`,
@@ -307,3 +309,9 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   858 unit tests pass. 7 suites fail to load on the missing `@posthog/replay-headless` workspace
   package (the recording-rasterizer playback dep — not installed/built in the sandbox, same class as
   hogvm/cyclotron; independent of the move) -> CI gate.
+- Phase 2 "clientwarnings -> ingestionwarnings" complete: directory move
+  `src/ingestion/clientwarnings` -> `src/ingestion/ingestionwarnings` (32 imports across 5 files).
+  Lane-pure; only the general server imports it. Gate: guard green, tsc 0 new errors, eslint +
+  prettier clean, consumer unit test passes. All four lane moves (worker fold, logs, metrics,
+  session-replay, ingestionwarnings) are now in place; remaining Phase 2 is tier placement + turning
+  on guard `LANES` enforcement (which will surface the deferred top-level->lane config/types edges).
