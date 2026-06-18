@@ -147,11 +147,17 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: string[]): Promise<LogEntry[]> => {
-    const excludeFilter =
-        excludeInstanceIds && excludeInstanceIds.length > 0 ? hogql`AND instance_id NOT IN ${excludeInstanceIds}` : ''
-
-    const query = hogql`
+// Grouped pagination keyset-pages over instance groups by offsetting the group subquery, ordered by
+// most recent activity. We deliberately do NOT paginate with a `timestamp < cursor` boundary: batch
+// workflows emit hundreds of instances within the same millisecond, so a timestamp cursor (truncated
+// to ms) excludes every remaining group at once and the viewer falsely reports "No older entries".
+// The instance_id tiebreaker keeps the ordering stable across pages.
+export const buildGroupedLogsQuery = (
+    request: LogEntryParams,
+    groupLimit: number,
+    groupOffset: number = 0
+): HogQLQueryString => {
+    return hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1
@@ -162,13 +168,21 @@ const loadGroupedLogs = async (request: LogEntryParams, excludeInstanceIds?: str
             WHERE 1=1
             ${hogql.raw(buildBoundaryFilters(request))}
             ${hogql.raw(buildSearchFilters(request))}
-            ${hogql.raw(excludeFilter as string)}
             GROUP BY instance_id
-            ORDER BY max(timestamp) ${hogql.raw(request.order)}
-            LIMIT ${LOG_GROUP_LIMIT}
+            ORDER BY max(timestamp) ${hogql.raw(request.order)}, instance_id DESC
+            LIMIT ${groupLimit}
+            OFFSET ${groupOffset}
         )
         ORDER BY timestamp DESC
         LIMIT ${LOG_GROUP_TOTAL_LOGS_LIMIT}`
+}
+
+const loadGroupedLogs = async (
+    request: LogEntryParams,
+    groupLimit: number = LOG_GROUP_LIMIT,
+    groupOffset: number = 0
+): Promise<LogEntry[]> => {
+    const query = buildGroupedLogsQuery(request, groupLimit, groupOffset)
 
     const response = await api.queryHogQL(
         query,
@@ -345,16 +359,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     return groupLogs(results)
                 },
                 loadMoreGroupedLogs: async () => {
-                    if (!values.oldestLogTimestamp) {
-                        return values.groupedLogs
-                    }
-                    const logParams: LogEntryParams = {
-                        ...values.logEntryParams,
-                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
-                    }
-
-                    const existingInstanceIds = values.groupedLogs.map((group) => group.instanceId)
-                    const results = await loadGroupedLogs(logParams, existingInstanceIds)
+                    const results = await loadGroupedLogs(
+                        values.logEntryParams,
+                        LOG_GROUP_LIMIT,
+                        values.groupedLogs.length
+                    )
 
                     if (!results.length) {
                         actions.markLogsEnd()

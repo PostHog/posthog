@@ -19,7 +19,9 @@ from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    validate_and_coerce_row_filters,
 )
 
 from products.data_warehouse.backend.data_load.service import (
@@ -33,12 +35,14 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
     reconcile_webhook_events,
 )
+from products.data_warehouse.backend.mysql_helpers import reproject_direct_mysql_table
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
     reproject_direct_postgres_table,
@@ -126,6 +130,55 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
 
 
+@extend_schema_field(
+    {
+        "type": "array",
+        "nullable": True,
+        "items": {
+            "type": "object",
+            "properties": {
+                "column": {"type": "string"},
+                # Not an OpenAPI `enum`: the operators are punctuation with no nameable identifier,
+                # so orval collapses the enum to duplicate empty-string keys (`'': '>'`, …) in the
+                # generated clients. Keep it a plain string and list the allowed values in the
+                # description; validation is enforced server-side regardless.
+                "operator": {
+                    "type": "string",
+                    "description": 'One of: > >= < <= = != IN "NOT IN".',
+                },
+                "value": {
+                    "description": (
+                        "Comparison value; must match the column's type. For `IN` / `NOT IN`, a "
+                        "comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    )
+                },
+            },
+            "required": ["column", "operator", "value"],
+        },
+    }
+)
+class RowFiltersField(serializers.JSONField):
+    """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
+
+
+def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+    """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
+    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+    """
+    if is_direct_postgres:
+        return (
+            "Row filters are not supported for direct Postgres sources — "
+            "tables are queried live and filters cannot be enforced at the source."
+        )
+    if is_cdc:
+        return (
+            "Row filters are not supported for CDC schemas — change-stream rows are "
+            "replicated without these predicates, so filtered rows would still sync."
+        )
+    return None
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -188,6 +241,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "even if not listed here."
         ),
     )
+    row_filters = RowFiltersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is "
+            "`{column, operator, value}`; `null`/empty (default) syncs all rows. The operator "
+            'must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column\'s '
+            "type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). "
+            "Applied on the next sync — not retroactive to already-synced rows."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
         help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
@@ -224,6 +288,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "primary_key_columns",
             "cdc_table_mode",
             "enabled_columns",
+            "row_filters",
             "available_columns",
             "source",
         ]
@@ -400,6 +465,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+
+        # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
+        if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            incoming_sync_type = data.get("sync_type")
+            target_is_cdc = (
+                incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
+            )
+            if reason := unsupported_row_filter_reason(
+                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+            ):
+                raise ValidationError(reason)
+            try:
+                validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
+            except RowFilterValidationError as e:
+                raise ValidationError(f"Invalid row filter: {e}")
 
         sync_type = data.get("sync_type")
 
@@ -588,21 +668,27 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
-        if source.is_direct_postgres:
+        if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                validated_data["table"] = reproject_direct_postgres_table(
+                reproject = (
+                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
+                )
+                validated_data["table"] = reproject(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
             if should_sync is False and instance.should_sync is True:
-                hide_direct_postgres_table(instance.table)
+                if source.is_direct_postgres:
+                    hide_direct_postgres_table(instance.table)
+                else:
+                    hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -644,10 +730,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         pause_external_data_schedule(str(updated_instance.id))
                     elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
-                elif should_sync is True:
+                elif should_sync_value:
+                    # No schedule yet but the schema should be syncing — create (or recover) it. The
+                    # schedule is built from the current frequency, so a cadence-only edit on an
+                    # enabled-but-unscheduled schema still takes effect.
                     sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
-                if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                # Re-issue an existing schedule when the cadence changed. A disabled schema with no
+                # schedule has nothing to update — updating a missing schedule raises "workflow not
+                # found" — so its new cadence is just saved and applies if/when it is enabled.
+                if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
             self._run_temporal_side_effect(update_schedule)
@@ -965,8 +1057,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if instance.source.is_direct_postgres:
-            hide_direct_postgres_table(instance.table)
+        if instance.source.is_direct_query:
+            if instance.source.is_direct_postgres:
+                hide_direct_postgres_table(instance.table)
+            else:
+                hide_direct_mysql_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)

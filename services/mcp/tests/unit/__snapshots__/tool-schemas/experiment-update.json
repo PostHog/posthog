@@ -1840,6 +1840,17 @@
                                     }
                                 ]
                             },
+                            "threshold": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types."
+                            },
                             "upper_bound_percentile": {
                                 "anyOf": [
                                     {
@@ -3477,6 +3488,17 @@
                                         "type": "null"
                                     }
                                 ]
+                            },
+                            "threshold": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types."
                             },
                             "upper_bound_percentile": {
                                 "anyOf": [

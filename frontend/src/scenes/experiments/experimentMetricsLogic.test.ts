@@ -124,25 +124,39 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('loadLatestRecalculation', () => {
-        it.each([
-            // Draft: never launched (no start_date, no status).
-            ['draft', { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment],
-            // Stopped/completed: launched then ended (has an end_date).
-            ['stopped', { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment],
-        ])('does not fetch latest on mount for a %s experiment', async (_label, experiment) => {
+        it('does not fetch latest on mount for a draft experiment', async () => {
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
             const latestMock = jest.fn(() => [200, completedRecalculation])
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock,
                 },
             })
-            logic = experimentMetricsLogic({ experiment })
+            logic = experimentMetricsLogic({ experiment: draft })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadLatestRecalculation'])
-            // Gated before the request: a non-running experiment has nothing to recalculate.
+            // Gated before the request: a draft has nothing to recalculate yet.
             expect(latestMock).not.toHaveBeenCalled()
             expect(logic.values.currentRecalculation).toBeNull()
+        })
+
+        it('fetches latest on mount for a stopped experiment so completed results still display', async () => {
+            // Stopped/completed: launched then ended (has an end_date).
+            const stopped = { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock,
+                },
+            })
+            logic = experimentMetricsLogic({ experiment: stopped })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResults'])
+            // A stopped experiment must still load its final results — otherwise the table loads forever.
+            expect(latestMock).toHaveBeenCalled()
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
 
         it('loads the latest completed recalculation and maps results by metric position', async () => {
@@ -307,24 +321,36 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('triggerRecalculation', () => {
-        it.each([
-            // Draft: never launched (no start_date, no status).
-            ['draft', { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment],
-            // Stopped/completed: launched then ended (has an end_date).
-            ['stopped', { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment],
-        ])('does not create a recalculation for a %s experiment', async (_label, experiment) => {
+        it('does not create a recalculation for a draft experiment', async () => {
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
             const createMock = jest.fn(() => [201, pendingRecalculation])
             useMocks({
                 get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}] },
                 post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
             })
-            logic = experimentMetricsLogic({ experiment })
+            logic = experimentMetricsLogic({ experiment: draft })
             logic.mount()
 
             await expectLogic(logic, () => {
                 logic.actions.triggerRecalculation()
             }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
             expect(createMock).not.toHaveBeenCalled()
+        })
+
+        it('creates a recalculation for a stopped experiment to compute its final results', async () => {
+            const stopped = { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}] },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({ experiment: stopped })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation()
+            }).toDispatchActions(['setCurrentRecalculation'])
+            expect(createMock).toHaveBeenCalled()
         })
     })
 

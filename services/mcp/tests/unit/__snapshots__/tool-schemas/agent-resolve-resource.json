@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "resource": {
+            "description": "Which operator playbook to fetch. Accepts either a bare id (one of: auditing-the-fleet, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, safety-and-boundaries, secrets-and-integrations, setting-up-slack-app, using-the-console-ui, working-outside-the-console) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.",
+            "type": "string"
+        }
+    },
+    "required": ["resource"],
+    "type": "object"
+}

@@ -18,6 +18,7 @@ import collections.abc
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
@@ -41,7 +42,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
-from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql import (
+    ColumnTypeCategory,
+    ValidatedRowFilter,
+    compute_projected_columns,
+    is_multi_value_operator,
+)
 from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -459,26 +465,30 @@ def _get_rows_to_sync(
     logger: FilteringBoundLogger,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> int:
     try:
-        if not should_use_incremental_field:
+        # `num_rows` is the whole-table count, so it's only a valid shortcut when nothing
+        # filters the rows — row filters (like incremental) require an actual COUNT query.
+        if not should_use_incremental_field and not row_filters:
             table = client.get_table(table)
             if table.num_rows:
                 logger.debug(f"_get_rows_to_sync: table.num_rows={table.num_rows}")
 
                 return table.num_rows
 
-        inner_query = _get_query(
+        inner_query, query_parameters = _get_query(
             should_use_incremental_field,
             db_incremental_field_last_value,
             table,
             incremental_field,
             incremental_field_type,
+            row_filters=row_filters,
         )
 
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
-        job_config = QueryJobConfig()
+        job_config = QueryJobConfig(query_parameters=query_parameters)
         job = client.query(query, job_config=job_config, project=table.project)
 
         rows = job.result(page_size=1)
@@ -512,6 +522,79 @@ def _bq_select_clause(
     return format_projected_select_clause(projected, _BQ_QUOTER)
 
 
+# Map a column type category onto a BigQuery scalar-parameter type, used as a fallback
+# when the column isn't found in the table schema.
+_BQ_PARAM_TYPE_BY_CATEGORY = {
+    ColumnTypeCategory.INTEGER: "INT64",
+    ColumnTypeCategory.NUMERIC: "NUMERIC",
+    ColumnTypeCategory.STRING: "STRING",
+    ColumnTypeCategory.BOOLEAN: "BOOL",
+    ColumnTypeCategory.DATE: "DATE",
+    ColumnTypeCategory.TIMESTAMP: "TIMESTAMP",
+}
+
+_BQ_FIELD_TYPE_NORMALIZATION = {
+    "INTEGER": "INT64",
+    "INT64": "INT64",
+    "FLOAT": "FLOAT64",
+    "FLOAT64": "FLOAT64",
+    "NUMERIC": "NUMERIC",
+    "BIGNUMERIC": "BIGNUMERIC",
+    "BOOLEAN": "BOOL",
+    "BOOL": "BOOL",
+    "STRING": "STRING",
+    "DATE": "DATE",
+    "DATETIME": "DATETIME",
+    "TIMESTAMP": "TIMESTAMP",
+    "TIME": "TIME",
+}
+
+
+def _adapt_bq_value(value: typing.Any, bq_type: str) -> typing.Any:
+    """Coerce a coerced filter value to what the BigQuery client expects for `bq_type`."""
+    if bq_type == "FLOAT64" and isinstance(value, Decimal):
+        return float(value)
+    if bq_type == "DATETIME" and isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _bq_row_filter_conditions(
+    row_filters: list[ValidatedRowFilter] | None,
+    bq_table: bigquery.Table,
+) -> tuple[list[str], list[bigquery.ScalarQueryParameter]]:
+    """Build row-filter SQL conditions + bound BigQuery scalar parameters.
+
+    Columns are quoted; values leave only as named params (`@row_filter_i`, or
+    `@row_filter_i_j` per element for IN). The param type follows the column's actual
+    BigQuery type so DATETIME vs TIMESTAMP don't mismatch.
+    """
+    if not row_filters:
+        return [], []
+
+    column_field_types = {field.name: field.field_type for field in bq_table.schema}
+    conditions: list[str] = []
+    parameters: list[bigquery.ScalarQueryParameter] = []
+    for index, row_filter in enumerate(row_filters):
+        quoted = _BQ_QUOTER.quote(row_filter.column)
+        bq_type = _BQ_FIELD_TYPE_NORMALIZATION.get(
+            column_field_types.get(row_filter.column, "").upper()
+        ) or _BQ_PARAM_TYPE_BY_CATEGORY.get(row_filter.category, "STRING")
+
+        if is_multi_value_operator(row_filter.operator):
+            placeholders = []
+            for position, element in enumerate(row_filter.value):
+                name = f"row_filter_{index}_{position}"
+                placeholders.append(f"@{name}")
+                parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(element, bq_type)))
+            conditions.append(f"{quoted} {row_filter.operator} ({', '.join(placeholders)})")
+        else:
+            name = f"row_filter_{index}"
+            conditions.append(f"{quoted} {row_filter.operator} @{name}")
+            parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(row_filter.value, bq_type)))
+    return conditions, parameters
+
+
 def _get_query(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
@@ -520,8 +603,11 @@ def _get_query(
     incremental_field_type: IncrementalFieldType | None = None,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
-) -> str:
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     select_clause = _bq_select_clause(enabled_columns, primary_keys, incremental_field)
+    table_ref = f"`{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, bq_table)
 
     if should_use_incremental_field:
         if incremental_field is None or incremental_field_type is None:
@@ -545,13 +631,18 @@ def _get_query(
             last_value = f"'{last_value.isoformat()}'"
 
         operator = incremental_type_to_operator(incremental_field_type)
-        return f"""
-            SELECT {select_clause} FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-            WHERE `{incremental_field}` {operator} {last_value}
-            ORDER BY `{incremental_field}` ASC
-            """
+        conditions = [f"`{incremental_field}` {operator} {last_value}", *filter_conditions]
+        query = (
+            f"SELECT {select_clause} FROM {table_ref} "
+            f"WHERE {' AND '.join(conditions)} "
+            f"ORDER BY `{incremental_field}` ASC"
+        )
+        return query, query_parameters
 
-    return f"SELECT {select_clause} FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    if filter_conditions:
+        return f"SELECT {select_clause} FROM {table_ref} WHERE {' AND '.join(filter_conditions)}", query_parameters
+
+    return f"SELECT {select_clause} FROM {table_ref}", query_parameters
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
@@ -822,6 +913,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             inputs.db_incremental_field_last_value if should_use_incremental_field else None
         )
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
         logger = inputs.logger
 
         project_id = _resolve_project_id(config)
@@ -855,6 +947,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 logger,
                 incremental_field,
                 incremental_field_type,
+                row_filters=row_filters,
             )
 
         def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
@@ -882,7 +975,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     # TODO: Think about whether this is at all necessary. We (and our users)
                     # are paying a (potentially high) cost to run this query job and store
                     # this data, when we could instead give up tracking and read it.
-                    query = _get_query(
+                    query, query_parameters = _get_query(
                         should_use_incremental_field,
                         db_incremental_field_last_value,
                         bq_table,
@@ -890,22 +983,22 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         incremental_field_type,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table)
+                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
                     job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                     _ = job.result()
 
                     bq_table = bq_client.get_table(destination_table)
 
-                elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
+                elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL") or row_filters:
                     # BigQuery storage API does not support reading directly from views or
-                    # materialized views. So, similarly to incremental runs, we must copy the
-                    # results to a temporary table first. In the case of an incremental sync,
-                    # we already do this for all tables and views, so here we just handle the
-                    # views or materialized views that are not incremental.
-                    query = _get_query(
+                    # materialized views, nor can it apply row filters. So, similarly to
+                    # incremental runs, we copy the (optionally filtered) results to a temporary
+                    # table first, then read that table via the storage API.
+                    query, query_parameters = _get_query(
                         should_use_incremental_field,
                         db_incremental_field_last_value,
                         bq_table,
@@ -913,10 +1006,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         incremental_field_type,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table)
+                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
                     job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                     _ = job.result()
 

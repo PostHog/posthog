@@ -8,6 +8,8 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Skip canvas painting while still mounting the canvas. For deterministic visual-snapshot tests. */
+    skipDraw?: boolean
 }
 
 /** Default axis id used when a series doesn't specify one. */
@@ -330,6 +332,22 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
+    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
+     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    dragRect?: DragRect | null
+}
+
+// x0/x1 are canvas pixels, not necessarily ordered.
+export interface DragRect {
+    x0: number
+    x1: number
+}
+
+export interface DateRangeZoomData {
+    startLabel: string
+    endLabel: string
+    startIndex: number
+    endIndex: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

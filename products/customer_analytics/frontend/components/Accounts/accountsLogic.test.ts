@@ -18,6 +18,7 @@ import {
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
+import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 
 // `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
@@ -353,6 +354,66 @@ describe('accountsLogic', () => {
 
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+        })
+    })
+
+    describe('deep link (open hash param)', () => {
+        // The usage-spike notification links here with `#open={id,externalId,name,tab}`.
+        it('expands the targeted account on the requested tab and reveals it', async () => {
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                { open: { id: 'acc-9', externalId: 'ext-9', name: 'Acme Nine', tab: 'usage' } }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.expandedAccountIds).toContain('acc-9')
+            expect(expansion?.values.activeTabByAccount['acc-9']).toBe('usage')
+            // Revealed via the external id so an off-screen account still renders.
+            expect(logic.values.searchQuery).toBe('ext-9')
+        })
+
+        it('falls back to the default tab when the hash tab is invalid', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { open: { id: 'acc-9', tab: 'bogus' } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount['acc-9']).toBe(DEFAULT_ACCOUNT_TAB)
+        })
+
+        it('self-clears the open hash after consuming it', async () => {
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                { open: { id: 'acc-9', externalId: 'ext-9', name: 'Acme Nine', tab: 'usage' } }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.hashParams.open).toBeUndefined()
+            expect(router.values.hashParams.view).toEqual({ search: 'ext-9' })
+        })
+
+        it('ignores an open hash with no account id', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { open: { tab: 'usage' } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.expandedAccountIds ?? []).toEqual([])
+        })
+
+        it('opens from a raw deep-link string (as the notification panel pushes it)', async () => {
+            // navigateToNotification does router.actions.push(path) with the hash embedded in the
+            // string — kea-router must decode `#open=<json>` back into a hashParams object.
+            const encoded = encodeURIComponent(
+                JSON.stringify({ id: 'acc-9', externalId: 'ext-9', name: 'Acme Nine', tab: 'usage' })
+            )
+            router.actions.push(`${urls.customerAnalyticsAccounts()}#open=${encoded}`)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.expandedAccountIds).toContain('acc-9')
+            expect(expansion?.values.activeTabByAccount['acc-9']).toBe('usage')
         })
     })
 
