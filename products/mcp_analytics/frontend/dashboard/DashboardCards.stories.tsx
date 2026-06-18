@@ -150,7 +150,9 @@ export const KeyMetrics: Story = {
 }
 
 export const DailyCallsAndErrors: Story = {
-    render: withTheme((theme) => <ActivityChart daily={DAILY_ACTIVITY} loading={false} theme={theme} timezone="UTC" />),
+    render: withTheme((theme) => (
+        <ActivityChart daily={DAILY_ACTIVITY} loading={false} theme={theme} timezone="UTC" interval="day" />
+    )),
 }
 
 export const ShareByHarness: Story = {
@@ -162,7 +164,9 @@ export const ErrorRateByTool: Story = {
 }
 
 export const DailyToolBreakdown: Story = {
-    render: withTheme((theme) => <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" />),
+    render: withTheme((theme) => (
+        <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
+    )),
 }
 
 export const FlaggedSessions: Story = {
