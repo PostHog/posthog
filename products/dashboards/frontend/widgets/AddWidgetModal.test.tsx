@@ -147,4 +147,14 @@ describe('AddWidgetModal', () => {
         await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
         expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
     })
+
+    it('resets collapsed sections when the modal is reopened', async () => {
+        const logic = renderAddWidgetModal()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(logic.values.addWidgetCollapsedGroups).toContain('error_tracking')
+
+        logic.actions.setAddWidgetModalOpen(true)
+        expect(logic.values.addWidgetCollapsedGroups).toEqual([])
+    })
 })
