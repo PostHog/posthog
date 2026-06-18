@@ -126,7 +126,7 @@ function ExperimentMetricsSection({
             ) : (
                 metrics.map((entry, index) => <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />)
             )}
-            {totalCount && totalCount > metrics.length ? (
+            {totalCount != null && totalCount > metrics.length ? (
                 <span className="text-xs text-muted">
                     Showing the first {metrics.length} of {totalCount} {label.toLowerCase()}. Open the experiment to see
                     all of them.
