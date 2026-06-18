@@ -368,7 +368,23 @@ class BasePrinter(Visitor[str]):
             if node.window_exprs
             else None
         )
-        prewhere = self.visit(node.prewhere) if node.prewhere else None
+        prewhere_expr = node.prewhere
+        # PREWHERE is a MergeTree-only optimization: ClickHouse only accepts it when reading
+        # directly from a physical table. Lazy-table resolution can rewrite the FROM into an
+        # aggregate subquery (e.g. `sessions` -> a min/argMin GROUP BY over raw_sessions) while
+        # leaving a user-written PREWHERE in place, which then references a column of that
+        # subquery and fails with "Invalid column ... in PREWHERE". Demote it to WHERE in that
+        # case — semantically identical, just without the pre-filter. (The HogQL dialect keeps
+        # the FROM as the table name for round-trip printing, so it never hits this branch.)
+        if (
+            prewhere_expr is not None
+            and self.DIALECT_NAME != "hogql"
+            and node.select_from is not None
+            and isinstance(node.select_from.table, (ast.SelectQuery, ast.SelectSetQuery))
+        ):
+            where = prewhere_expr if where is None else ast.And(exprs=[prewhere_expr, where])
+            prewhere_expr = None
+        prewhere = self.visit(prewhere_expr) if prewhere_expr else None
         where = self.visit(where) if where else None
         group_by: list[str] | None = None
         if node.group_by:

@@ -3899,6 +3899,21 @@ class TestPrinter(BaseTest):
         )
         assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
 
+    @parameterized.expand([SessionTableVersion.V1, SessionTableVersion.V2, SessionTableVersion.V3])
+    def test_sessions_prewhere_on_virtual_column_demoted_to_where(self, version):
+        # The sessions lazy table expands into an aggregate subquery, so a PREWHERE referencing a
+        # sessions virtual column would reference the subquery's aggregated/aliased column and make
+        # ClickHouse reject it ("Invalid column sessions.$start_timestamp in PREWHERE"). The printer
+        # must demote it to WHERE instead of emitting PREWHERE against the subquery.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=version)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            "SELECT session_id FROM sessions PREWHERE $start_timestamp > '2024-01-01'",
+            context=context,
+        )
+        assert "PREWHERE" not in printed, f"did not expect PREWHERE in:\n{printed}"
+        assert "WHERE" in printed
+
     @parameterized.expand(
         [
             ("global_joins_with_optimize", True, True),
