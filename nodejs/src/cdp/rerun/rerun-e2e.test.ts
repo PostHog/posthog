@@ -10,10 +10,10 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -45,11 +45,10 @@ interface PersistedRow {
 }
 
 /**
- * Probe the ClickHouse Kafka MV for our topic in particular. resetKafka()
- * deletes and recreates the topic, which forces the MV's internal consumer to
- * reconnect; with auto.offset.reset=latest, anything produced before the
- * reconnect is silently dropped. Send probe rows until one lands in CH so we
- * know the MV is live.
+ * Probe the ClickHouse Kafka MV for our topic in particular. With
+ * auto.offset.reset=latest, anything produced before the MV's internal consumer
+ * has attached is silently dropped. Send probe rows until one lands in CH so we
+ * know the MV is live before the test produces real rows.
  */
 const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
     const producer = await ActualKafkaProducerWrapper.create(undefined)
@@ -149,10 +148,10 @@ describe('CDP hog invocation rerun e2e', () => {
         // real producer to observe via KafkaProducerObserver.
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
 
-        await resetKafka()
-        // resetKafka does not include KAFKA_HOG_INVOCATION_RESULTS — add it so the
-        // ClickHouse Kafka engine consumer can attach.
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS])
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse
+        // Kafka engine consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS,
+        // which this test's MV needs but the shared set does not cover.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
         await resetTestDatabase()
