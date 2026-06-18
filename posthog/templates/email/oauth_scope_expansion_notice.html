@@ -1,12 +1,12 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}{{ app_name }} now requests additional permissions{% endblock %}
+{% block heading %}{{ app_name }} is asking for more access{% endblock %}
 {% block section %}
 <p>
-    <strong>{{ app_name }}</strong>, an application you connected to your PostHog account,
-    has expanded the permissions it requests.
+    <strong>{{ app_name }}</strong> is an app you connected to PostHog. It's now asking for
+    more permissions than you first approved.
 </p>
 <p>
-    The next time you use {{ app_name }}, you'll be asked to review and approve these new permissions:
+    Next time you use it, PostHog will ask you to approve these:
 </p>
 <ul>
     {% for scope in added_scopes %}
@@ -14,14 +14,11 @@
     {% endfor %}
 </ul>
 <p>
-    Nothing changes until you approve. Your existing connection keeps the permissions you already
-    granted until you re-authorize. If you don't recognize this app, you can review your connected
-    apps at any time.
+    Nothing changes until you approve. {{ app_name }} keeps working with the permissions you
+    already granted, and this email doesn't grant anything on its own. If you don't recognize
+    this app, you can review or disconnect it any time.
 </p>
-<div class="mt muted">
-    <p>
-        Manage your connected apps:<br />
-        <a href="{% absolute_uri link %}">{% absolute_uri link %}</a>
-    </p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri link %}">Review in PostHog</a>
 </div>
 {% endblock %} {% block preheader %}{{ preheader }}{% endblock %}

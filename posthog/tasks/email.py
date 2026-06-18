@@ -1713,10 +1713,10 @@ def send_oauth_scope_expansion_notice(application_id: str, added_scopes: list[st
         message = EmailMessage(
             use_http=True,
             campaign_key=f"oauth-scope-expansion-{application.id}-{user.uuid}-{scopes_digest}",
-            subject=f"{application.name} now requests additional permissions",
+            subject=f"{application.name} is asking for more access",
             template_name="oauth_scope_expansion_notice",
             template_context={
-                "preheader": f"{application.name} now requests additional permissions",
+                "preheader": f"{application.name} is requesting new permissions on your PostHog account",
                 "app_name": application.name,
                 "added_scopes": added_scopes,
                 "link": "/settings/user-connected-apps",

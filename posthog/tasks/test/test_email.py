@@ -176,7 +176,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         body = mocked_email_messages[0].html_body
         assert "Acme MCP" in body
         assert "dashboard:write" in body
-        assert MockEmailMessage.call_args.kwargs["subject"] == "Acme MCP now requests additional permissions"
+        assert MockEmailMessage.call_args.kwargs["subject"] == "Acme MCP is asking for more access"
         assert MockEmailMessage.call_args.kwargs["template_name"] == "oauth_scope_expansion_notice"
 
     def test_oauth_scope_expansion_notice_one_email_per_user(self, MockEmailMessage: MagicMock) -> None:
