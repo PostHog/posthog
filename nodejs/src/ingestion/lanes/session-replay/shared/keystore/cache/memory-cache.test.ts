@@ -1,4 +1,4 @@
-import { KeyStore, SessionKey } from '../../types'
+import { KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 import { MemoryCachedKeyStore } from './memory-cache'
 
 describe('MemoryCachedKeyStore', () => {

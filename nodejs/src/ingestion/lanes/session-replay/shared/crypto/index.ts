@@ -1,6 +1,6 @@
 import { isCloud } from '~/utils/env-utils'
 
-import { KeyStore, RecordingDecryptor, RecordingEncryptor } from '../types'
+import { KeyStore, RecordingDecryptor, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
 import { CleartextRecordingEncryptor } from './cleartext-encryptor'
 import { SodiumRecordingDecryptor } from './sodium-decryptor'

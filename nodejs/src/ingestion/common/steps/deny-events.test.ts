@@ -1,4 +1,4 @@
-import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { createDenyEventsStep } from './deny-events'
 

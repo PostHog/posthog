@@ -3,7 +3,7 @@ import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/me
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
 import { logger } from '~/utils/logger'
 
-import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'

@@ -1,4 +1,4 @@
-import { elapsed } from '../utils'
+import { elapsed } from '~/ingestion/lanes/session-replay/recording-rasterizer/utils'
 
 describe('elapsed', () => {
     it('returns a non-negative number', () => {

@@ -1,4 +1,4 @@
-import { logger } from '../../../utils/logger'
+import { logger } from '~/utils/logger'
 import { CallerSet } from './caller-set'
 import { Component } from './component'
 import { ScopeRunner } from './runner'

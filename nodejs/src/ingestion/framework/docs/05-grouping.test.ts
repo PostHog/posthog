@@ -32,10 +32,10 @@
  * - Team-scoped processing: Teams can be processed in parallel
  * - User event ordering: Events for the same user maintain order
  */
-import { GroupProcessingBuilder, newBatchPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { GroupProcessingBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { consumeAll } from './helpers'
 
 interface Event {

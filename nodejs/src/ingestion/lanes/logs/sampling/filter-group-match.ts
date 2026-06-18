@@ -10,7 +10,7 @@
  * The drop-rule form validates non-empty before submit; this is defense in
  * depth at the worker boundary.
  */
-import type { LogRecord } from '../log-record-avro'
+import type { LogRecord } from '~/ingestion/lanes/logs/log-record-avro'
 import { type PropertyFilterLeaf, matchPropertyFilter } from './property-filter-match'
 
 export type FilterGroupNode = {

@@ -26,10 +26,10 @@
  * }
  * ```
  */
-import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '../results'
-import { ProcessingStep } from '../steps'
+import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 /**
  * Type for batch processing steps - takes an array of values and returns

@@ -3,7 +3,7 @@ import { LRUCache } from 'lru-cache'
 import { RedisPool } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '../constants'
+import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '~/ingestion/lanes/session-replay/constants'
 import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000

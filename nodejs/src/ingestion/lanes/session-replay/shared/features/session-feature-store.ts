@@ -4,7 +4,7 @@ import { TimestampFormat } from '~/types'
 import { logger } from '~/utils/logger'
 import { castTimestampOrNow } from '~/utils/utils'
 
-import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '../outputs'
+import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { SessionFeatureStoreMetrics } from './metrics'
 
 interface KafkaMessage {

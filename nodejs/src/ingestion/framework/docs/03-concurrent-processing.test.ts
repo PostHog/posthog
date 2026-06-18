@@ -19,10 +19,10 @@
  * - **Order**: Results maintain input order (but returned one by one)
  * - **Resources**: More concurrent connections/requests (unbounded)
  */
-import { newBatchPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { isOkResult, ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { consumeAll } from './helpers'
 
 describe('Concurrent Processing', () => {

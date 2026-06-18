@@ -1,5 +1,5 @@
-import { BatchPipeline } from '../batch-pipeline.interface'
-import { isOkResult } from '../results'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
+import { isOkResult } from '~/ingestion/framework/results'
 
 /**
  * Consumes all results from a batch pipeline, advancing fake timers as needed.

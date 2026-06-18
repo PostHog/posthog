@@ -1,6 +1,6 @@
 import { MetricConfig } from '~/ingestion/framework/tophog/tophog'
-import { PipelineResult, isOkResult } from '../results'
-import type { ProcessingStep } from '../steps'
+import { PipelineResult, isOkResult } from '~/ingestion/framework/results'
+import type { ProcessingStep } from '~/ingestion/framework/steps'
 import { wrapStep } from './helpers'
 
 type Recorder = { record(key: Record<string, string>, value: number): void }

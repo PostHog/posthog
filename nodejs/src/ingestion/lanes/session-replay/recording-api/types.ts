@@ -11,7 +11,7 @@ import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/l
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,
-} from '../shared/outputs/producer-config'
+} from '~/ingestion/lanes/session-replay/shared/outputs/producer-config'
 
 /**
  * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
@@ -31,7 +31,7 @@ export {
     type SerializedSessionKey,
     type SessionKey,
     type SessionState,
-} from '../shared/types'
+} from '~/ingestion/lanes/session-replay/shared/types'
 
 /**
  * Configuration for the Recording API.

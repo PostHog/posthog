@@ -2,9 +2,9 @@ import { S3Client } from '@aws-sdk/client-s3'
 
 import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 
-import { ValidRetentionPeriods } from '../constants'
-import { RetentionPeriodToDaysMap } from '../constants'
-import { RetentionPeriod } from '../types'
+import { ValidRetentionPeriods } from '~/ingestion/lanes/session-replay/constants'
+import { RetentionPeriodToDaysMap } from '~/ingestion/lanes/session-replay/constants'
+import { RetentionPeriod } from '~/ingestion/lanes/session-replay/types'
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 import {
     SessionBatchFileStorage,

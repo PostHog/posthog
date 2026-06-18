@@ -1,7 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '~/utils/json-parse'
-import { extractToolCallNames } from '../tools/extract-tool-calls'
+import { extractToolCallNames } from '~/ingestion/lanes/ai/tools/extract-tool-calls'
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
 

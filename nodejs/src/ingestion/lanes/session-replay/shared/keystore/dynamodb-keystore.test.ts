@@ -1,7 +1,7 @@
 import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
-import { RetentionService } from '../retention/retention-service'
+import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 
 describe('DynamoDBKeyStore', () => {

@@ -17,9 +17,9 @@
  * - External API calls with batch endpoints
  * - Bulk writes (batch INSERT)
  */
-import { newBatchPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { PipelineResult, dlq, isOkResult, ok } from '../results'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResult, dlq, isOkResult, ok } from '~/ingestion/framework/results'
 
 /**
  * Type for batch processing steps - takes an array of values and returns

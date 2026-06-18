@@ -1,8 +1,8 @@
 import { v4 } from 'uuid'
 
-import { createOrganization, createTeam, insertRow, resetTestDatabase } from '../../../../tests/helpers/sql'
-import { defaultConfig } from '../../../config/config'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
+import { createOrganization, createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
+import { defaultConfig } from '~/config/config'
+import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { evaluateFilterTree } from './evaluate'
 import { EventFilterManager, EventFilterManagerComponent } from './manager'
 import { and, cond, not, or } from './test-helpers'

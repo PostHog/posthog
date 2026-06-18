@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
-import { Component } from '../scopes'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
+import { Component } from '~/ingestion/common/scopes'
 
-export { createKafkaConsumer } from '../../../kafka/consumer'
-export type { KafkaConsumerInterface } from '../../../kafka/consumer'
+export { createKafkaConsumer } from '~/kafka/consumer'
+export type { KafkaConsumerInterface } from '~/kafka/consumer'
 
 /**
  * Owns a Kafka consumer's lifetime as a scope entry. Start creates the

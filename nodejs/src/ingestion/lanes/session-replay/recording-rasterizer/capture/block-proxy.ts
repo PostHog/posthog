@@ -4,10 +4,10 @@ import { BLOCK_REQUEST_PREFIX } from '@posthog/replay-headless/protocol'
 
 import { internalFetch } from '~/utils/request'
 
-import { type RecordingBlock as FullRecordingBlock } from '../../recording-api/types'
-import { RasterizationError } from '../errors'
-import { type Logger, createLogger } from '../logger'
-import { RasterizeRecordingInput } from '../types'
+import { type RecordingBlock as FullRecordingBlock } from '~/ingestion/lanes/session-replay/recording-api/types'
+import { RasterizationError } from '~/ingestion/lanes/session-replay/recording-rasterizer/errors'
+import { type Logger, createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
+import { RasterizeRecordingInput } from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
 
 type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'>
 

@@ -5,7 +5,7 @@ import { logger } from '~/utils/logger'
 import { captureException } from '~/utils/posthog'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { processAiEvent } from '../../process-ai-event'
+import { processAiEvent } from '~/ingestion/lanes/ai/process-ai-event'
 
 type ProcessAiEventInput = {
     normalizedEvent: PluginEvent

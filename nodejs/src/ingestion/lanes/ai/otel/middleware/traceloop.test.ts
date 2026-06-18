@@ -1,8 +1,8 @@
-import { mapOtelAttributes } from '../attribute-mapping'
-import { createEvent } from '../test-helpers'
+import { mapOtelAttributes } from '~/ingestion/lanes/ai/otel/attribute-mapping'
+import { createEvent } from '~/ingestion/lanes/ai/otel/test-helpers'
 import { reassembleIndexedAttributes, traceloop } from './traceloop'
 
-jest.mock('../attribute-mapping', () => ({
+jest.mock('~/ingestion/lanes/ai/otel/attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
 }))
 

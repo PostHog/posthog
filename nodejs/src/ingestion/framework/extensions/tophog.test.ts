@@ -1,6 +1,6 @@
-import { newPipelineBuilder } from '../builders/helpers'
-import { createOkContext } from '../helpers'
-import { PipelineResult, dlq, isOkResult, ok } from '../results'
+import { newPipelineBuilder } from '~/ingestion/framework/builders/helpers'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResult, dlq, isOkResult, ok } from '~/ingestion/framework/results'
 import {
     TopHogRegistry,
     average,

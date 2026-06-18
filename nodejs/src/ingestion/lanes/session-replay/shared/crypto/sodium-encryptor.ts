@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { EncryptResult, KeyStore, RecordingEncryptor, SessionKey, SessionKeyDeletedError } from '../types'
+import { EncryptResult, KeyStore, RecordingEncryptor, SessionKey, SessionKeyDeletedError } from '~/ingestion/lanes/session-replay/shared/types'
 
 export class SodiumRecordingEncryptor implements RecordingEncryptor {
     constructor(private keyStore: KeyStore) {}

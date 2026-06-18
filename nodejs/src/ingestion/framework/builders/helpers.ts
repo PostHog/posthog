@@ -6,8 +6,8 @@ import {
     BatchingPipelineOptions,
     BeforeBatchInput,
     BeforeBatchOutput,
-} from '../batching-pipeline'
-import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
+} from '~/ingestion/framework/batching-pipeline'
+import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
 import { BatchPipelineBuilder } from './batch-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 

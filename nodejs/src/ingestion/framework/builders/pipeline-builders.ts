@@ -1,9 +1,9 @@
-import { BranchDecisionFn, BranchingPipeline } from '../branching-pipeline'
-import { Pipeline } from '../pipeline.interface'
-import { RetryingPipeline, RetryingPipelineOptions } from '../retrying-pipeline'
-import { StartPipeline } from '../start-pipeline'
-import { StepPipeline } from '../step-pipeline'
-import { ProcessingStep } from '../steps'
+import { BranchDecisionFn, BranchingPipeline } from '~/ingestion/framework/branching-pipeline'
+import { Pipeline } from '~/ingestion/framework/pipeline.interface'
+import { RetryingPipeline, RetryingPipelineOptions } from '~/ingestion/framework/retrying-pipeline'
+import { StartPipeline } from '~/ingestion/framework/start-pipeline'
+import { StepPipeline } from '~/ingestion/framework/step-pipeline'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export class StartPipelineBuilder<T, C> {
     pipe<U, R extends string = never>(step: ProcessingStep<T, U, R>): PipelineBuilder<T, U, C, R> {

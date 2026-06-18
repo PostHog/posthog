@@ -7,10 +7,10 @@ import express from 'ultimate-express'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/capture-page'
-import { config } from '../config'
-import { createLogger } from '../logger'
+import { BrowserPool } from '~/ingestion/lanes/session-replay/recording-rasterizer/capture/browser-pool'
+import { playerHtmlCache } from '~/ingestion/lanes/session-replay/recording-rasterizer/capture/capture-page'
+import { config } from '~/ingestion/lanes/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
 import { createActivities } from './activities'
 
 prometheus.collectDefaultMetrics()

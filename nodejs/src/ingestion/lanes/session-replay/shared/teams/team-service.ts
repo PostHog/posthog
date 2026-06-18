@@ -3,7 +3,7 @@ import { BackgroundRefresher } from '~/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { logger } from '~/utils/logger'
 
-import { RetentionPeriod } from '../constants'
+import { RetentionPeriod } from '~/ingestion/lanes/session-replay/shared/constants'
 import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
 

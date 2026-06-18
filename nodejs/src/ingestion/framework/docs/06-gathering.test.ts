@@ -18,10 +18,10 @@
  *
  * With gather(), all results are collected and returned in a single batch.
  */
-import { GroupProcessingBuilder, newBatchPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { GroupProcessingBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { collectBatches } from './helpers'
 
 interface Event {

@@ -1,4 +1,4 @@
-import type { LogRecord } from '../log-record-avro'
+import type { LogRecord } from '~/ingestion/lanes/logs/log-record-avro'
 import { compileRuleSet } from './compile-rules'
 import {
     SAMPLING_DECISION_DROP,

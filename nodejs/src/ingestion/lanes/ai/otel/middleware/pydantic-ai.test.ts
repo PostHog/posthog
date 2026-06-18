@@ -1,13 +1,13 @@
-import { mapOtelAttributes } from '../attribute-mapping'
-import { convertOtelEvent } from '../index'
-import { createEvent } from '../test-helpers'
+import { mapOtelAttributes } from '~/ingestion/lanes/ai/otel/attribute-mapping'
+import { convertOtelEvent } from '~/ingestion/lanes/ai/otel/index'
+import { createEvent } from '~/ingestion/lanes/ai/otel/test-helpers'
 
-jest.mock('../../metrics', () => ({
+jest.mock('~/ingestion/lanes/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     aiOtelEventTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))
 
-jest.mock('../attribute-mapping', () => ({
+jest.mock('~/ingestion/lanes/ai/otel/attribute-mapping', () => ({
     mapOtelAttributes: jest.fn(),
 }))
 

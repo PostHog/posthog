@@ -4,7 +4,7 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { ClickHouseTimestamp } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { ConsoleLogLevel } from '../rrweb-types'
+import { ConsoleLogLevel } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 

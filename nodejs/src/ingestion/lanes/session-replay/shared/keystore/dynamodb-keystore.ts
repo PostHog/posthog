@@ -8,8 +8,8 @@ import {
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
-import { RetentionService } from '../retention/retention-service'
-import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
+import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days

@@ -19,10 +19,10 @@
  * - Transient failures (network, timeout) - should retry
  * - Permanent failures (validation, permission) - should not retry
  */
-import { newPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { isDlqResult, isOkResult, ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 class RetriableError extends Error {
     isRetriable = true

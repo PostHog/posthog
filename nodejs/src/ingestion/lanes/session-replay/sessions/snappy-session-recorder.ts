@@ -3,9 +3,9 @@ import snappy from 'snappy'
 
 import { logger } from '~/utils/logger'
 
-import { ParsedMessageData } from '../kafka/types'
-import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
-import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from '../segmentation'
+import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
+import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/lanes/session-replay/rrweb-types'
+import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from '~/ingestion/lanes/session-replay/segmentation'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB

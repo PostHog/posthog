@@ -2,8 +2,8 @@ import { Histogram } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 
-import { MetricsIngestionConsumerConfig } from '../config'
-import { MetricsIngestionMessage } from '../types'
+import { MetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
+import { MetricsIngestionMessage } from '~/ingestion/lanes/metrics/types'
 
 const msToSeconds = (ms: number): number => Math.round(ms / 1000)
 const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)

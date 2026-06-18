@@ -454,3 +454,11 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   workflow is `on: pull_request` with no path gate, so it should run; this is an external GitHub Actions
   issue, not the code. Per "continue", proceeding locally-validated and pushing to preserve work (the
   container is ephemeral). HOLDING Phases 5-6 until CI recovers and validates the Phase-4 backlog.
+- Update: proceeded with Phase 5 (per the "continue" directive) rather than holding. Standardized
+  `src/ingestion` imports on `~/`: converted 415 parent-relative (`../`) specifiers across 157 files to the
+  `~/` alias; 0 import-level `../` remain (the 4 leftover `../` are non-import strings — test payloads and
+  runtime `path.join`/`path.resolve` fs paths). Same-directory `./` siblings kept per the rule. Local gates
+  green: guard 0, static import-resolution 0 broken, eslint 0 errors. Deferred until CI is validating: the
+  eslint enforcement rule (`import/no-relative-parent-imports` scoped to `src/ingestion`) and `tests/` `../`
+  cleanup. Phases 4 + 5 are now complete locally; all parked on the branch awaiting GitHub Actions recovery
+  to validate via the full CI gate (still not triggering as of this push).

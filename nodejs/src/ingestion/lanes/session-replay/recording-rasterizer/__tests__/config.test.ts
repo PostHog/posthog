@@ -1,6 +1,6 @@
-import { buildCaptureConfig, buildPlayerConfig, validateInput } from '../capture/config'
-import { parseList } from '../config'
-import { RasterizeRecordingInput } from '../types'
+import { buildCaptureConfig, buildPlayerConfig, validateInput } from '~/ingestion/lanes/session-replay/recording-rasterizer/capture/config'
+import { parseList } from '~/ingestion/lanes/session-replay/recording-rasterizer/config'
+import { RasterizeRecordingInput } from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
     return {
@@ -29,7 +29,7 @@ describe('config', () => {
 
             try {
                 jest.resetModules()
-                const { config } = await import('../config.js')
+                const { config } = await import('~/ingestion/lanes/session-replay/recording-rasterizer/config.js')
                 expect(config.fallbackKeys).toEqual(['a', 'b'])
             } finally {
                 if (originalFallbackKeys === undefined) {

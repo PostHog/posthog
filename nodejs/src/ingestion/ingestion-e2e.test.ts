@@ -5,7 +5,7 @@ import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
-import { Clickhouse } from '../../tests/helpers/clickhouse'
+import { Clickhouse } from '~/tests/helpers/clickhouse'
 import {
     EventBuilder,
     createKafkaMessages,
@@ -14,13 +14,13 @@ import {
     fetchIngestionWarnings,
     waitForClickHouseKafkaConsumer,
     waitForKafkaMessages,
-} from '../../tests/helpers/ingestion-e2e'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
-import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
-import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { InternalPerson } from '../types'
-import { parseJSON } from '../utils/json-parse'
-import { UUIDT } from '../utils/utils'
+} from '~/tests/helpers/ingestion-e2e'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
+import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
+import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { InternalPerson } from '~/types'
+import { parseJSON } from '~/utils/json-parse'
+import { UUIDT } from '~/utils/utils'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -34,7 +34,7 @@ jest.mock('~/utils/token-bucket', () => {
     }
 })
 
-jest.mock('../utils/logger')
+jest.mock('~/utils/logger')
 
 describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
     'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',

@@ -4,8 +4,8 @@ import { TimestampFormat } from '~/types'
 import { sanitizeForUTF8 } from '~/utils/strings'
 import { castTimestampOrNow } from '~/utils/utils'
 
-import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
-import { MessageWithTeam } from '../teams/types'
+import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/lanes/session-replay/rrweb-types'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {

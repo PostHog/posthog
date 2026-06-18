@@ -1,7 +1,7 @@
 import { RedisPool } from '~/types'
 
-import { deserializeSessionKey, serializeSessionKey } from '../../crypto/session-key'
-import { DeleteKeyResult, KeyStore, SessionKey } from '../../types'
+import { deserializeSessionKey, serializeSessionKey } from '~/ingestion/lanes/session-replay/shared/crypto/session-key'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
 const REDIS_CACHE_TTL_SECONDS = 60 * 60 * 24 // 24 hours

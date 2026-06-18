@@ -39,12 +39,12 @@ import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { PipelineBuilder, StartPipelineBuilder } from '../builders/pipeline-builders'
-import { createOkContext } from '../helpers'
-import { PipelineConfig } from '../result-handling-pipeline'
-import { dlq, isOkResult, ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { dlq, isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 describe('Factory Functions', () => {
     /**

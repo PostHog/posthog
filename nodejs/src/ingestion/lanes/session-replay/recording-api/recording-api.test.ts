@@ -6,10 +6,10 @@ import express from 'ultimate-express'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/utils/db/postgres'
 
-import { getBlockDecryptor } from '../shared/crypto'
-import { getKeyStore } from '../shared/keystore'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
-import { RetentionService } from '../shared/retention/retention-service'
+import { getBlockDecryptor } from '~/ingestion/lanes/session-replay/shared/crypto'
+import { getKeyStore } from '~/ingestion/lanes/session-replay/shared/keystore'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
+import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
@@ -34,16 +34,16 @@ jest.mock('@aws-sdk/client-s3', () => ({
     GetObjectCommand: jest.fn().mockImplementation((params) => params),
 }))
 
-jest.mock('../shared/keystore', () => ({
+jest.mock('~/ingestion/lanes/session-replay/shared/keystore', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('../shared/keystore/cache', () => ({
+jest.mock('~/ingestion/lanes/session-replay/shared/keystore/cache', () => ({
     MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('../shared/crypto', () => ({
+jest.mock('~/ingestion/lanes/session-replay/shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 

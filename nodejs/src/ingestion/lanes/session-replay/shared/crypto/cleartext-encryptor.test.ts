@@ -1,4 +1,4 @@
-import { KeyStore } from '../types'
+import { KeyStore } from '~/ingestion/lanes/session-replay/shared/types'
 import { CleartextRecordingEncryptor } from './cleartext-encryptor'
 
 describe('CleartextRecordingEncryptor', () => {

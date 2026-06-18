@@ -10,8 +10,8 @@ import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/lanes/sess
 import { logger } from '~/utils/logger'
 import { captureException } from '~/utils/posthog'
 
-import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithTeam } from '../teams/types'
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'

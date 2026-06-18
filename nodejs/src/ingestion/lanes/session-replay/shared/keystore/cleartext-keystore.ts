@@ -1,4 +1,4 @@
-import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 /**
  * Cleartext key store used for hobby deployments and local development instances.

@@ -1,4 +1,4 @@
-import { aiCostModalityExtractionCounter } from '../metrics'
+import { aiCostModalityExtractionCounter } from '~/ingestion/lanes/ai/metrics'
 import { extractModalityTokens } from './modality-tokens'
 import { createAIEvent } from './test-helpers'
 

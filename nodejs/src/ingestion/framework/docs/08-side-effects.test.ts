@@ -26,10 +26,10 @@
  * - **Batching**: Side effects can be batched for efficiency
  */
 import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { PipelineResult, isOkResult, ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 

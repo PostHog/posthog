@@ -1,5 +1,5 @@
-import type { PipelineResult } from '../results'
-import type { ProcessingStep } from '../steps'
+import type { PipelineResult } from '~/ingestion/framework/results'
+import type { ProcessingStep } from '~/ingestion/framework/steps'
 
 export function wrapStep<T, U, R extends string = never>(
     step: ProcessingStep<T, U, R>,

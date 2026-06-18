@@ -3,7 +3,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { ClickHouseTimestamp } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { ConsoleLogLevel } from '../rrweb-types'
+import { ConsoleLogLevel } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {

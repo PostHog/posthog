@@ -5,7 +5,7 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
-import { type LogRecord, decodeLogRecords, encodeLogRecords } from '../log-record-avro'
+import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/ingestion/lanes/logs/log-record-avro'
 import { compileRuleSet } from './compile-rules'
 import { LogsSamplingService } from './logs-sampling.service'
 

@@ -14,15 +14,15 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
-import { HogTransformerService, createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionType } from '../cdp/types'
-import { PostgresUse } from '../utils/db/postgres'
-import { parseJSON } from '../utils/json-parse'
-import { logger } from '../utils/logger'
-import { UUIDT } from '../utils/utils'
+import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
+import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { HogFunctionType } from '~/cdp/types'
+import { PostgresUse } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
+import { logger } from '~/utils/logger'
+import { UUIDT } from '~/utils/utils'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -30,8 +30,8 @@ import { IngestionConsumer } from './ingestion-consumer'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('../utils/posthog', () => {
-    const original = jest.requireActual('../utils/posthog')
+jest.mock('~/utils/posthog', () => {
+    const original = jest.requireActual('~/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -44,10 +44,10 @@ jest.mock('~/ingestion/steps/event-processing/prepare-event-step', () => ({
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
-jest.mock('../utils/token-bucket', () => {
+jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('../utils/token-bucket'),
+        ...jest.requireActual('~/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },

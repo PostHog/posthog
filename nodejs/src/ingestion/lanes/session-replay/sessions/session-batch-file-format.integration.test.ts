@@ -33,8 +33,8 @@ import { createMockEncryptor, createMockKeyStore } from '~/ingestion/lanes/sessi
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { MessageWithTeam } from '../teams/types'
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'

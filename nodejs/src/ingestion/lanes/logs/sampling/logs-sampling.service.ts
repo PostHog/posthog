@@ -7,13 +7,13 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import type { LogsSettings } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { type PiiScrubStats } from '../log-pii-scrub'
+import { type PiiScrubStats } from '~/ingestion/lanes/logs/log-pii-scrub'
 import {
     type LogRecord,
     decodeLogRecords,
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
-} from '../log-record-avro'
+} from '~/ingestion/lanes/logs/log-record-avro'
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
     SAMPLING_DECISION_DROP,

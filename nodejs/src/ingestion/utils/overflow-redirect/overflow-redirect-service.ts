@@ -1,4 +1,4 @@
-import { HealthCheckResult } from '../../../types'
+import { HealthCheckResult } from '~/types'
 import { OverflowType } from './overflow-redis-repository'
 
 // Re-export OverflowType so consumers of the interface

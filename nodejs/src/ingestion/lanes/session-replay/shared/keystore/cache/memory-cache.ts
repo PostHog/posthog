@@ -1,6 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
-import { DeleteKeyResult, KeyStore, SessionKey } from '../../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 const MEMORY_CACHE_MAX_SIZE = 1_000_000
 const MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours

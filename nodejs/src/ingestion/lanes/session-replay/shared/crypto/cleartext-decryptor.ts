@@ -1,4 +1,4 @@
-import { DecryptResult, KeyStore, RecordingDecryptor, SessionKey } from '../types'
+import { DecryptResult, KeyStore, RecordingDecryptor, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 /**
  * Cleartext decryptor used for hobby deployments and local development instances.

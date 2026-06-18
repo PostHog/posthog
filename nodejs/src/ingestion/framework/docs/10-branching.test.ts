@@ -18,10 +18,10 @@
  * - Priority handling: High-priority items get special processing
  * - Feature flags: Route to different implementations
  */
-import { newPipelineBuilder } from '../builders'
-import { createOkContext } from '../helpers'
-import { isDlqResult, isOkResult, ok } from '../results'
-import { ProcessingStep } from '../steps'
+import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 type Event = {
     type: 'pageview' | 'click' | 'custom'

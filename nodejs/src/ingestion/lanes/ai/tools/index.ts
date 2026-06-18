@@ -1,7 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '~/utils/json-parse'
-import { aiToolCallExtractionCounter } from '../metrics'
+import { aiToolCallExtractionCounter } from '~/ingestion/lanes/ai/metrics'
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
 
 const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']

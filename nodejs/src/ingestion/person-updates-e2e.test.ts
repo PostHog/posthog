@@ -19,14 +19,14 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
-import { Clickhouse } from '../../tests/helpers/clickhouse'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
-import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../kafka/producer'
-import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
-import { closeHub, createHub } from '../utils/db/hub'
-import { UUIDT } from '../utils/utils'
+import { Clickhouse } from '~/tests/helpers/clickhouse'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
+import { createUserTeamAndOrganization, resetTestDatabase } from '~/tests/helpers/sql'
+import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { UUIDT } from '~/utils/utils'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -39,7 +39,7 @@ jest.mock('~/utils/token-bucket', () => {
     }
 })
 
-jest.mock('../utils/logger')
+jest.mock('~/utils/logger')
 
 const DEFAULT_TEAM: Team = {
     id: 1,

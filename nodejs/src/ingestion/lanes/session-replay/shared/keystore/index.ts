@@ -4,8 +4,8 @@ import { KMSClient } from '@aws-sdk/client-kms'
 import { isCloud } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
-import { RetentionService } from '../retention/retention-service'
-import { KeyStore } from '../types'
+import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
+import { KeyStore } from '~/ingestion/lanes/session-replay/shared/types'
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 

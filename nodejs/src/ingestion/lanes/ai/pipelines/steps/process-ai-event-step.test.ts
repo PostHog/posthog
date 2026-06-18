@@ -3,15 +3,15 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { captureException } from '~/utils/posthog'
 import { UUIDT } from '~/utils/utils'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { processAiEvent } from '../../process-ai-event'
+import { processAiEvent } from '~/ingestion/lanes/ai/process-ai-event'
 import { createProcessAiEventStep } from './process-ai-event-step'
 
 jest.mock('~/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
-jest.mock('../../process-ai-event', () => {
-    const actual = jest.requireActual('../../process-ai-event')
+jest.mock('~/ingestion/lanes/ai/process-ai-event', () => {
+    const actual = jest.requireActual('~/ingestion/lanes/ai/process-ai-event')
     return {
         AI_EVENT_TYPES: actual.AI_EVENT_TYPES,
         processAiEvent: jest.fn((event: PluginEvent) => ({

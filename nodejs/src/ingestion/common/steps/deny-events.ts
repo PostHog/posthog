@@ -1,4 +1,4 @@
-import { EventHeaders } from '../../../types'
+import { EventHeaders } from '~/types'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

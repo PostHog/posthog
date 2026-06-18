@@ -1,6 +1,6 @@
 import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
 
-import type { CommonConfig } from '../common/config'
+import type { CommonConfig } from '~/common/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -16,9 +16,9 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '../config/kafka-topics'
-import type { PostgresRouterConfig } from '../utils/db/postgres'
-import { isDevEnv, isProdEnv } from '../utils/env-utils'
+} from '~/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/utils/env-utils'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''

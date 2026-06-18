@@ -4,8 +4,8 @@ import snappy from 'snappy'
 
 import { PostgresRouter } from '~/utils/db/postgres'
 
-import { SessionFeatureStore } from '../shared/features/session-feature-store'
-import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
+import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
+import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 

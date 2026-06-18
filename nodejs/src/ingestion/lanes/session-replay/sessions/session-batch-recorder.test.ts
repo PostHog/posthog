@@ -7,9 +7,9 @@ import { createMockEncryptor, createMockKeyStore } from '~/ingestion/lanes/sessi
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
-import { MessageWithTeam } from '../teams/types'
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
+import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'

@@ -21,24 +21,24 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 
-import { CommonConfig } from '../common/config'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
+import { CommonConfig } from '~/common/config'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
     HealthCheckResultOk,
     PluginServerService,
     RedisPool,
-} from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
+} from '~/types'
+import { PostgresRouter } from '~/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
-} from '../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
-import { logger } from '../utils/logger'
-import { PromiseScheduler } from '../utils/promise-scheduler'
-import { TeamManager } from '../utils/team-manager'
+} from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
+import { logger } from '~/utils/logger'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,

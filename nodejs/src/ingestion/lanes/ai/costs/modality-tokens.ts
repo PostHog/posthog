@@ -1,6 +1,6 @@
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import { aiCostModalityExtractionCounter } from '../metrics'
+import { aiCostModalityExtractionCounter } from '~/ingestion/lanes/ai/metrics'
 
 export interface EventWithProperties extends PluginEvent {
     properties: Properties

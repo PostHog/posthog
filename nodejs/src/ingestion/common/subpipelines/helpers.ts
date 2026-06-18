@@ -1,4 +1,4 @@
-import { EventHeaders, Team } from '../../../types'
+import { EventHeaders, Team } from '~/types'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 
 /**

@@ -1,13 +1,13 @@
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
-import { EventHeaders, Team } from '../../../types'
+import { EventHeaders, Team } from '~/types'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { EventFilterManager, evaluateFilterTree } from '../event-filters'
-import { EventFiltersBatchAppMetrics } from '../event-filters/batch-app-metrics'
-import { eventFiltersEventsEvaluated } from '../event-filters/metrics'
+import { EventFilterManager, evaluateFilterTree } from '~/ingestion/common/event-filters'
+import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
+import { eventFiltersEventsEvaluated } from '~/ingestion/common/event-filters/metrics'
 
 export interface EventFiltersBatchContext {
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics

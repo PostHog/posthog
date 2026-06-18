@@ -1,6 +1,6 @@
 import { TeamForReplay } from '~/ingestion/lanes/session-replay/shared/teams/types'
 
-import { ParsedMessageData } from '../kafka/types'
+import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
 
 export type { TeamForReplay }
 

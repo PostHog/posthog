@@ -1,9 +1,9 @@
-import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '../metrics'
+import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '~/ingestion/lanes/ai/metrics'
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
 import { createEvent } from './test-helpers'
 
-jest.mock('../metrics', () => ({
+jest.mock('~/ingestion/lanes/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     aiOtelEventTypeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
 }))

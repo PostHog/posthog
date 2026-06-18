@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 
 /**
  * In-memory key store for testing purposes.

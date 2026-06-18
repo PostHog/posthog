@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 
-import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
+import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
 import {
     MouseInteractions,
     RRWebEventSource,
@@ -12,7 +12,7 @@ import {
     isClick,
     isKeypress,
     isMouseActivity,
-} from '../rrweb-types'
+} from '~/ingestion/lanes/session-replay/rrweb-types'
 
 const POSTHOG_NETWORK_PLUGIN = 'posthog/network@1'
 const RRWEB_NETWORK_PLUGIN = 'rrweb/network@1'

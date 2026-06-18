@@ -1,4 +1,4 @@
-import type { LogRecord } from '../log-record-avro'
+import type { LogRecord } from '~/ingestion/lanes/logs/log-record-avro'
 import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH, matchFilterGroup } from './filter-group-match'
 
 const baseRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
