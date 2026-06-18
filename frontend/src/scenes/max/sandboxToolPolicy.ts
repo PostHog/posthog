@@ -34,6 +34,12 @@ export type PermissionDecision = 'auto_allow' | 'prompt'
  * and auto-approves; other MCP servers prompt.
  */
 export function defaultPermissionDecision(record: PermissionRequestRecord): PermissionDecision {
+    // An `AskUserQuestion` rides the permission framework but is not an approval — auto-approving it
+    // would pick the first option with no `answers`, which the agent rejects. Always prompt the user.
+    if (record.questions?.length) {
+        return 'prompt'
+    }
+
     const { toolName } = record
     const { resolvedKey, innerToolName } = record.rawToolCall
 
