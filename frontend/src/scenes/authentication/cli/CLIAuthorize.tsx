@@ -157,6 +157,7 @@ export function CLIAuthorize(): JSX.Element {
                                                 onChange={setSearchTerm}
                                                 className="mb-2"
                                                 size="small"
+                                                fullWidth
                                             />
                                             <div className="max-h-64 overflow-y-auto pr-1">
                                                 {filteredScopes.length === 0 ? (

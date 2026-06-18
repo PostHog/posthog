@@ -791,7 +791,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties: {
                 experiment_id: number
                 recalculation_id: string | null
-                trigger?: 'manual' | 'experiment_launch' | 'experiment_stop' | 'experiment_update'
+                trigger?:
+                    | 'manual'
+                    | 'cold_run'
+                    | 'stale_refresh'
+                    | 'auto_refresh'
+                    | 'config_change'
+                    | 'experiment_launch'
+                    | 'experiment_stop'
+                    | 'experiment_update'
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
