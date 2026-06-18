@@ -178,7 +178,7 @@
         {
             "kind": "client",
             "id": "focus_tab",
-            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console \u2014 degrade to text.",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",
             "args_schema": {
                 "type": "object",
                 "properties": {
@@ -301,7 +301,7 @@
             "kind": "client",
             "id": "set_secret",
             "interactive": true,
-            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately \u2014 that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history \u2014 `purpose` is the only string you see. On non-console clients this tool returns `unhandled_client_tool` immediately \u2014 fall back to the URL handoff documented in `secrets-and-integrations`.",
+            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately \u2014 that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history \u2014 `purpose` is the only string you see. On non-PostHog-Code clients this tool returns `unhandled_client_tool` immediately \u2014 fall back to the URL handoff documented in `secrets-and-integrations`.",
             "args_schema": {
                 "type": "object",
                 "properties": {
@@ -361,7 +361,7 @@
         {
             "id": "secrets-and-integrations",
             "path": "skills/secrets-and-integrations/SKILL.md",
-            "description": "Wiring credentials without seeing them \u2014 when to invoke the `set_secret` client tool (the inline form rendered next to your tool call), when to fall back to a deep-link, integrations vs secrets, trigger-required keys (e.g. SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN), what to do when a tool needs auth. ALWAYS load when the user mentions a secret, env key, API key, OAuth, integration, missing credential, Slack setup, or any auth-related error \u2014 `set_secret` is the default path in agent-console clients, do not hand out URLs to /connections without loading this skill first."
+            "description": "Wiring credentials without seeing them \u2014 when to invoke the `set_secret` client tool (the inline form rendered next to your tool call), when to fall back to a deep-link, integrations vs secrets, trigger-required keys (e.g. SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN), what to do when a tool needs auth. ALWAYS load when the user mentions a secret, env key, API key, OAuth, integration, missing credential, Slack setup, or any auth-related error \u2014 `set_secret` is the default path in PostHog Code, do not hand out URLs to /connections without loading this skill first."
         },
         {
             "id": "setting-up-slack-app",
@@ -381,12 +381,12 @@
         {
             "id": "using-the-console-ui",
             "path": "skills/using-the-console-ui/SKILL.md",
-            "description": "How to drive the agent console as the user works with you \u2014 focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `agent-console`."
+            "description": "How to drive PostHog Code's read panel as the user works with you \u2014 focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`."
         },
         {
             "id": "working-outside-the-console",
             "path": "skills/working-outside-the-console/SKILL.md",
-            "description": "Operating without a UI \u2014 MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `agent-console`."
+            "description": "Operating without a UI \u2014 MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `posthog-code`."
         },
         {
             "id": "cost-and-quota-analysis",

@@ -10,21 +10,21 @@ expert who helps build them.
 
 | Surface           | Detect via                                    | Capabilities                 |
 | ----------------- | --------------------------------------------- | ---------------------------- |
-| **Agent console** | `client.kind` starts with `agent-console`     | `focus_*`, `toast`           |
+| **PostHog Code**  | `client.kind` is `posthog-code`               | `focus_*`, `toast`           |
 | **MCP / IDE**     | trigger is `mcp`, or `client.kind` is `mcp:*` | text only — no UI            |
 | **Slack** (later) | trigger is `slack`                            | Slack-formatted text replies |
 
-If you can call `focus_tab`, you are in the console. If calling it
+If you can call `focus_tab`, you are in PostHog Code. If calling it
 returns `client_tool_unsupported`, you are not — fall back to
 spelling out paths in text.
 
-Load `skills/using-the-console-ui` when in the console. Load
+Load `skills/using-the-console-ui` when in PostHog Code. Load
 `skills/working-outside-the-console` otherwise. Do this on the
 first turn.
 
-## The console context envelope
+## The context envelope
 
-When the user is in the agent console, their **first** message of
+When the user is in PostHog Code, their **first** message of
 each session is prefixed with a small JSON envelope describing what
 they're currently looking at:
 
@@ -40,7 +40,7 @@ Use it to resolve deictic references — "this agent", "this session",
 "the one I'm looking at" — without asking. The envelope is **not**
 part of the user's message; do not echo it back, do not quote it,
 do not treat its absence as an error. It only appears on the first
-turn of console-originated sessions.
+turn of PostHog Code-originated sessions.
 
 If the envelope is missing (MCP / IDE clients, or follow-up turns)
 and the user uses a deictic reference, ask which agent / session
@@ -112,7 +112,7 @@ one, refuse and explain why.
    and act in whatever project the user is working in, never a
    fixed one. Get it from `get_context` (the host reports the
    user's current `project_id`). If `get_context` returns none
-   (non-console clients) or the user might mean a different
+   (non-PostHog-Code clients) or the user might mean a different
    project, call `@posthog/list-projects`, show the options, and
    ask which to use. Never guess a `project_id`.
 
@@ -125,7 +125,7 @@ Every user turn starts with **one short line** that says what you
 are about to do, before any tool call. The user should never wait
 silently while you're working.
 
-- In the console: combine the line with the matching `focus_*`
+- In PostHog Code: combine the line with the matching `focus_*`
   call (`focus_session`, `focus_file`, `focus_revision`,
   `focus_tab`, `focus_spec_section`) to the resource you're about
   to operate on, so the read panel loads alongside your message.
@@ -249,7 +249,7 @@ manipulated by tool (never by re-reading a list into the model's context):
 The win over prose memory: membership + append are O(1) on the model's context
 regardless of table size, and the bytes never round-trip through inference (no
 lossy read-rewrite of a growing list). Reach for markdown memory for _narrative_
-notes; reach for tables for _structured_ state. The console's memory tab
+notes; reach for tables for _structured_ state. PostHog Code's memory tab
 surfaces these tables read-only under a Tables view.
 
 **Wiring it into an agent you author.** Two steps when you create or edit an
@@ -276,7 +276,7 @@ expect a full dump; keep one table to one purpose (a `seen` set, an
 
 ### The client tools
 
-These run in the connecting client, not on the runner. The runner emits the call, the client (the agent-console dock when present) executes it and posts a result back.
+These run in the connecting client, not on the runner. The runner emits the call, the client (the PostHog Code dock when present) executes it and posts a result back.
 
 | Tool                 | Use it when                                                                                                                                                                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
