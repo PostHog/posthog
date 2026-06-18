@@ -1,8 +1,8 @@
 import { Frame, HTTPRequest } from 'puppeteer'
 
+import { type Logger, createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
 import { fetch } from '~/utils/request'
 
-import { type Logger, createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
 import { BLOCK_REQUEST_PREFIX, BlockProxy } from './block-proxy'
 import { CapturePage } from './capture-page'
 

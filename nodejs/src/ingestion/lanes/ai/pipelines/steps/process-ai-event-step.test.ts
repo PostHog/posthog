@@ -1,9 +1,9 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { captureException } from '~/utils/posthog'
-import { UUIDT } from '~/utils/utils'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { processAiEvent } from '~/ingestion/lanes/ai/process-ai-event'
+import { PluginEvent } from '~/plugin-scaffold'
+import { captureException } from '~/utils/posthog'
+import { UUIDT } from '~/utils/utils'
+
 import { createProcessAiEventStep } from './process-ai-event-step'
 
 jest.mock('~/utils/posthog', () => ({

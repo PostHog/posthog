@@ -4,8 +4,8 @@ import {
     KeyedRateLimitRequest,
     KeyedRateLimiterService,
 } from '~/common/services/keyed-rate-limiter.service'
-
 import { isDropResult, isOkResult } from '~/ingestion/framework/results'
+
 import { createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
 
 type Input = { teamId: number; key: string | null; cost?: number; bucketOverride?: number }

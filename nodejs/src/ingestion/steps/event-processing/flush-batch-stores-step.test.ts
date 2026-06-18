@@ -1,6 +1,7 @@
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
@@ -13,12 +14,11 @@ import {
     batchStoreFlushResultRecordsHistogram,
     batchStoreFlushTriggerBatchSizeHistogram,
 } from '~/ingestion/common/stores/metrics'
-
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { AfterBatchInput } from '~/ingestion/framework/batching-pipeline'
 import { isOkResult, ok } from '~/ingestion/framework/results'
+import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+
 import { FlushBatchStoresStepConfig, createFlushBatchStoresStep } from './flush-batch-stores-step'
 
 jest.mock('~/ingestion/common/ingestion-warnings', () => ({

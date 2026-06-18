@@ -10,9 +10,22 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createIngestionProducerRegistry } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/lanes/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
+import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -25,15 +38,6 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
-import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from '~/ingestion/lanes/analytics/joined-ingestion-pipeline'
-import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
@@ -53,10 +57,6 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
-import { createOkContext } from '~/ingestion/framework/helpers'
-import { TopHog } from '~/ingestion/framework/tophog'
 import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'

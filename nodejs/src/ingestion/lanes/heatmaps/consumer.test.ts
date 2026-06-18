@@ -1,12 +1,12 @@
 import { ProducerName } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { newScope } from '~/ingestion/common/scopes'
+import { IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 import { PostgresRouter } from '~/utils/db/postgres'
 import { TeamManagerComponent } from '~/utils/team-manager'
-import { newScope } from '~/ingestion/common/scopes'
-import { IngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
 

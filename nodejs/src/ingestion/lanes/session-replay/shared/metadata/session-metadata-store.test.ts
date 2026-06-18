@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { parseJSON } from '~/utils/json-parse'
 
-import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { SessionMetadataStore } from './session-metadata-store'
 
 function parseValue(value: Buffer | null): any {

@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { captureException } from '~/utils/posthog'
+
 import { createContext, createNewPipeline, createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { getRetryAttempts } from './metrics.test-utils'

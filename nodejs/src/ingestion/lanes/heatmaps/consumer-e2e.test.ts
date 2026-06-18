@@ -1,6 +1,13 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
+import {
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/config'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { Component, newScope } from '~/ingestion/common/scopes'
+import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {
@@ -13,10 +20,6 @@ import {
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
-import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '~/ingestion/common/config'
-import { Component, newScope } from '~/ingestion/common/scopes'
-import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>

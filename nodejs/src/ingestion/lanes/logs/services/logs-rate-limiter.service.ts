@@ -2,7 +2,6 @@ import { Histogram } from 'prom-client'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
-
 import { LogsIngestionConsumerConfig } from '~/ingestion/lanes/logs/config'
 import { LogsIngestionMessage } from '~/ingestion/lanes/logs/types'
 

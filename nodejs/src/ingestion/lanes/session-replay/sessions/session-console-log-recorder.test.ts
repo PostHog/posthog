@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
+
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 

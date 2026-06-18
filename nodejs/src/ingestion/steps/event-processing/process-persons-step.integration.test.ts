@@ -8,25 +8,19 @@ import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
-
-import {
-    createOrganization,
-    createTeam,
-    fetchPostgresPersons,
-    getTeam,
-    resetTestDatabase,
-} from '~/tests/helpers/sql'
-import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '~/utils/event'
 import { UUIDT } from '~/utils/utils'
+
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 

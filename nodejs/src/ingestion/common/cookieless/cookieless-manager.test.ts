@@ -2,18 +2,18 @@ import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
 
+import { cookielessRedisErrorCounter } from '~/common/metrics'
+import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
-
-import { cookielessRedisErrorCounter } from '~/common/metrics'
 import { CookielessServerHashMode, EventHeaders, Hub, PipelineEvent, Team } from '~/types'
 import { RedisOperationError } from '~/utils/db/error'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 import { parseJSON } from '~/utils/json-parse'
 import { UUID7 } from '~/utils/utils'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,

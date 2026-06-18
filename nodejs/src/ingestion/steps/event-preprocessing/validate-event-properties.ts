@@ -1,6 +1,6 @@
-import { PipelineEvent } from '~/types'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineEvent } from '~/types'
 
 export function createValidateEventPropertiesStep<T extends { event: PipelineEvent }>(): ProcessingStep<T, T> {
     return async function validateEventPropertiesStep(input) {

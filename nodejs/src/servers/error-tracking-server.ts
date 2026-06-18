@@ -6,6 +6,14 @@ import { createIngestionProducerRegistry } from '~/common/outputs/registry'
 import { createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import {
+    ErrorTrackingConsumerConfig,
+    ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingOutputsConfig,
+} from '~/ingestion/lanes/error-tracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/lanes/error-tracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/lanes/error-tracking/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -30,14 +38,6 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
-import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
-import {
-    ErrorTrackingConsumerConfig,
-    ErrorTrackingOutputsConfig,
-    getDefaultErrorTrackingOutputsConfig,
-} from '~/ingestion/lanes/error-tracking/config'
-import { ErrorTrackingConsumer } from '~/ingestion/lanes/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '~/ingestion/lanes/error-tracking/outputs/registry'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'

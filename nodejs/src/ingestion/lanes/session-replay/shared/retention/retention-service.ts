@@ -1,7 +1,11 @@
+import {
+    RetentionPeriod,
+    RetentionPeriodToDaysMap,
+    ValidRetentionPeriods,
+} from '~/ingestion/lanes/session-replay/shared/constants'
+import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { RedisPool, TeamId } from '~/types'
 
-import { RetentionPeriod, RetentionPeriodToDaysMap, ValidRetentionPeriods } from '~/ingestion/lanes/session-replay/shared/constants'
-import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { RetentionServiceMetrics } from './metrics'
 
 function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {

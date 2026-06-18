@@ -1,4 +1,5 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { pipelineStepDurationHistogram } from './metrics'
 import { PipelineResultWithContext } from './pipeline.interface'

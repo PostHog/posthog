@@ -1,4 +1,5 @@
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
@@ -12,12 +13,10 @@ import {
     batchStoreFlushResultRecordsHistogram,
     batchStoreFlushTriggerBatchSizeHistogram,
 } from '~/ingestion/common/stores/metrics'
-
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { logger } from '~/utils/logger'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { AfterBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { ok } from '~/ingestion/framework/results'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+import { logger } from '~/utils/logger'
 
 export interface FlushBatchStoresStepConfig {
     personsStore: PersonsStore

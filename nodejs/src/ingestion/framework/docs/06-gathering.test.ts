@@ -22,6 +22,7 @@ import { GroupProcessingBuilder, newBatchPipelineBuilder } from '~/ingestion/fra
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+
 import { collectBatches } from './helpers'
 
 interface Event {

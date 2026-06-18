@@ -2,12 +2,12 @@ import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
-
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
 import { TeamManager } from '~/utils/team-manager'
 import { castTimestampOrNow } from '~/utils/utils'
-import { PipelineResultType } from '~/ingestion/framework/results'
+
 import { createProcessGroupsStep } from './process-groups-step'
 
 const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => ({

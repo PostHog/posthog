@@ -1,5 +1,6 @@
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+
 import { RedisOverflowRepository, redisKey } from './overflow-redis-repository'
 
 describe('RedisOverflowRepository (integration)', () => {

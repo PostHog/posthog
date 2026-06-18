@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { createFetchPersonBatchStep } from './person-properties-step'
 
 describe('createFetchPersonBatchStep', () => {

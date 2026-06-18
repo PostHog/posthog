@@ -1,10 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { EventHeaders, Team } from '~/types'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders, Team } from '~/types'
 
 type ApplyCookielessProcessingInput = { event: PluginEvent; team: Team; message: Message; headers: EventHeaders }
 

@@ -3,7 +3,6 @@ import Redis from 'ioredis'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 import { CacheOptions } from '~/plugin-scaffold'
-
 import { RedisOperationError } from '~/utils/db/error'
 import { timeoutGuard } from '~/utils/db/utils'
 import { parseJSON } from '~/utils/json-parse'

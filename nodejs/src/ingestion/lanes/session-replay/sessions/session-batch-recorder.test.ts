@@ -1,15 +1,15 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
+import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/lanes/session-replay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
-import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
-import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'

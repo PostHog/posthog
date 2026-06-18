@@ -1,11 +1,11 @@
 import { v4 } from 'uuid'
 
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
-import { EventHeaders } from '~/types'
-
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { EventHeaders } from '~/types'
+
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 
 type StepInput = { event: PluginEvent; headers: EventHeaders }

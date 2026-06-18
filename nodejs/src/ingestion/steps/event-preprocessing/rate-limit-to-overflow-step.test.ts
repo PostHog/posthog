@@ -1,10 +1,10 @@
 import { OVERFLOW_OUTPUT } from '~/common/outputs'
-
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+
 import {
     OnlyCookielessRateLimitToOverflowStepInput,
     RateLimitToOverflowStepInput,

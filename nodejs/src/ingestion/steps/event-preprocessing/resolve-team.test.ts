@@ -1,12 +1,12 @@
-import { TeamManager } from '~/utils/team-manager'
-
+import { drop, ok } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { IncomingEvent } from '~/types'
-import { drop, ok } from '~/ingestion/framework/results'
+import { TeamManager } from '~/utils/team-manager'
+
 import { createResolveTeamStep } from './resolve-team'
 
 const pipelineEvent = createTestPipelineEvent({

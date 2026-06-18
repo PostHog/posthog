@@ -1,13 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { tokenOrTeamPresentCounter } from '~/ingestion/common/event-pipeline/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
-import { TeamManager } from '~/utils/team-manager'
-
 import { eventDroppedCounter } from '~/common/metrics'
-import { EventHeaders, IncomingEvent, Team } from '~/types'
+import { tokenOrTeamPresentCounter } from '~/ingestion/common/event-pipeline/metrics'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders, IncomingEvent, Team } from '~/types'
+import { TeamManager } from '~/utils/team-manager'
 
 export interface ResolveTeamStepInput {
     message: Message

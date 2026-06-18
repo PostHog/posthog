@@ -1,5 +1,5 @@
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { Component } from '~/ingestion/common/scopes'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 export { PromiseScheduler } from '~/utils/promise-scheduler'
 

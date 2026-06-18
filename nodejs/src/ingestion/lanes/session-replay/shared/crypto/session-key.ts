@@ -1,6 +1,5 @@
-import { parseJSON } from '~/utils/json-parse'
-
 import { SerializedSessionKey, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
+import { parseJSON } from '~/utils/json-parse'
 
 export function serializeSessionKey(key: SessionKey): string {
     const serialized: SerializedSessionKey = {

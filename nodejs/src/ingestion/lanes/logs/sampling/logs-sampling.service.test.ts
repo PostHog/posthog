@@ -1,9 +1,9 @@
 import avro from 'avsc'
 
 import type { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/ingestion/lanes/logs/log-record-avro'
 import type { LogsSettings } from '~/types'
 
-import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/ingestion/lanes/logs/log-record-avro'
 import { compileRuleSet } from './compile-rules'
 import { LogsSamplingService } from './logs-sampling.service'
 

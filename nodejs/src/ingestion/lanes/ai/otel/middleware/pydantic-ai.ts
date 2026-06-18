@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { parseJSON } from '~/utils/json-parse'
+
 import { OtelLibraryMiddleware } from './types'
 
 const LOGFIRE_STRIP_KEYS = [

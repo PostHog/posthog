@@ -26,15 +26,15 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/lanes/session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/lanes/session-replay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
-import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'

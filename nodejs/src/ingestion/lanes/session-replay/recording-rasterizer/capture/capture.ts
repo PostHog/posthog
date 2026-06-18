@@ -3,8 +3,14 @@ import { capture as captureVideo } from 'puppeteer-capture'
 
 import { RasterizationError } from '~/ingestion/lanes/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
-import { CaptureConfig, InactivityPeriod, RasterizationProgress, RecordingResult } from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
+import {
+    CaptureConfig,
+    InactivityPeriod,
+    RasterizationProgress,
+    RecordingResult,
+} from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/ingestion/lanes/session-replay/recording-rasterizer/utils'
+
 import { PlayerController } from './player'
 
 export async function capturePlayback(

@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { parseEventHeaders } from '~/kafka/consumer'
-import { EventHeaders } from '~/types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { parseEventHeaders } from '~/kafka/consumer'
+import { EventHeaders } from '~/types'
 
 export function createParseHeadersStep<T extends { message: Pick<Message, 'headers'> }>(): ProcessingStep<
     T,

@@ -1,6 +1,6 @@
-import { PipelineEvent } from '~/types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PipelineEvent } from '~/types'
 
 export const SURVEY_EVENTS = {
     SHOWN: 'survey shown',

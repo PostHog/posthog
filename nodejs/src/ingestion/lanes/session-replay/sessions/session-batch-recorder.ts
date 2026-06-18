@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
 import {
     SessionFeatureBlock,
     SessionFeatureStore,
@@ -7,11 +8,10 @@ import {
 import { SessionBlockMetadata } from '~/ingestion/lanes/session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
+import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { logger } from '~/utils/logger'
 import { captureException } from '~/utils/posthog'
 
-import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
-import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'

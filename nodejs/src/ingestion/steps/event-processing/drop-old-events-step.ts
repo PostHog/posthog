@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { EventHeaders, PipelineEvent, Team } from '~/types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EventHeaders, PipelineEvent, Team } from '~/types'
 
 export interface DropOldEventsInput {
     event: PipelineEvent

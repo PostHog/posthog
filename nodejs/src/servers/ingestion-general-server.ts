@@ -5,6 +5,10 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
+import { createHeatmapsConsumer } from '~/ingestion/lanes/heatmaps'
 import { createClientWarningsConsumer } from '~/ingestion/lanes/ingestionwarnings'
 
 import { initializePrometheusLabels } from '../api/router'
@@ -22,8 +26,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
-import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -42,8 +44,6 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createHeatmapsConsumer } from '~/ingestion/lanes/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'

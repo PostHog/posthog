@@ -4,12 +4,12 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PostgresRouter } from '~/utils/db/postgres'
-
 import { getBlockDecryptor } from '~/ingestion/lanes/session-replay/shared/crypto'
 import { getKeyStore } from '~/ingestion/lanes/session-replay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
+import { PostgresRouter } from '~/utils/db/postgres'
+
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'

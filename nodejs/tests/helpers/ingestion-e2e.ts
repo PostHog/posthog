@@ -8,6 +8,7 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
@@ -17,7 +18,6 @@ import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '../../src/config/redis-pools'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'

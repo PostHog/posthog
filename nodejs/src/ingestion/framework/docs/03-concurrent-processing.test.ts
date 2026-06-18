@@ -23,6 +23,7 @@ import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+
 import { consumeAll } from './helpers'
 
 describe('Concurrent Processing', () => {

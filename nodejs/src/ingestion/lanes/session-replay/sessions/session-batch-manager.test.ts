@@ -1,9 +1,9 @@
+import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/lanes/session-replay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
 
-import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'

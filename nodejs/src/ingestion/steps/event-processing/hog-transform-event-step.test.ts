@@ -1,9 +1,9 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 import { HogTransformerService, TransformationResult } from '~/cdp/hog-transformations/hog-transformer.service'
 import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
+import { PluginEvent } from '~/plugin-scaffold'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
+
 import { HogTransformEventInput, createHogTransformEventStep } from './hog-transform-event-step'
 
 type MockHogTransformer = Pick<HogTransformerService, 'transformEventAndProduceMessages'>

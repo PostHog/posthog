@@ -2,12 +2,12 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { EventHeaders } from '~/types'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PipelineResult, dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders } from '~/types'
+
 import { EmitEventStepOutput, IngestedEventInfo } from './emit-event-step'
 
 export interface HandleClientIngestionWarningStepInput {

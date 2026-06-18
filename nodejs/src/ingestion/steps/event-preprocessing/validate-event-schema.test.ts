@@ -1,6 +1,7 @@
+import { PipelineResultType, drop, ok } from '~/ingestion/framework/results'
 import { EventSchemaEnforcement, Team } from '~/types'
 import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { PipelineResultType, drop, ok } from '~/ingestion/framework/results'
+
 import { createValidateEventSchemaStep, validateEventAgainstSchema } from './validate-event-schema'
 
 /** Creates a mock EventSchemaEnforcementManager that returns the provided schemas for any team */

@@ -11,18 +11,6 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { PluginEvent } from '~/plugin-scaffold'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
-import { HealthCheckResult, IngestionLane, PluginServerService } from '~/types'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog'
@@ -30,6 +18,18 @@ import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/ma
 import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
+import { PluginEvent } from '~/plugin-scaffold'
+import { HealthCheckResult, IngestionLane, PluginServerService } from '~/types'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/utils/event-ingestion-restrictions'
+import { logger } from '~/utils/logger'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+
 import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,

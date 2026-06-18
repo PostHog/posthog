@@ -2,10 +2,10 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
+import * as ingestionWarnings from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { Team } from '~/types'
-import * as ingestionWarnings from '~/ingestion/common/ingestion-warnings'
+
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { IngestionWarningHandlingBatchPipeline } from './ingestion-warning-handling-batch-pipeline'
 import { ok } from './results'

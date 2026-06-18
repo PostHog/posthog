@@ -3,14 +3,14 @@ import { URL } from 'url'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { isDistinctIdIllegal } from '~/ingestion/common/persons/person-merge-service'
-
-import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '~/types'
-import { logger } from '~/utils/logger'
-import { castTimestampOrNow } from '~/utils/utils'
-import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/steps/event-processing/emit-event-step'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/steps/event-processing/emit-event-step'
+import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '~/types'
+import { logger } from '~/utils/logger'
+import { castTimestampOrNow } from '~/utils/utils'
+
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'
 
 export interface ExtractHeatmapDataStepInput {

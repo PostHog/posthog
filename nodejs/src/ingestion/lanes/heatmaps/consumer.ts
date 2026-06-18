@@ -1,17 +1,17 @@
 import { ProducerName } from '~/common/outputs'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-
-import { RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
-import { TeamManager } from '~/utils/team-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { RedisPool } from '~/types'
+import { PostgresRouter } from '~/utils/db/postgres'
+import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
+import { TeamManager } from '~/utils/team-manager'
+
 import { createOutputsRegistry } from './outputs/registry'
 import { createHeatmapsPipeline } from './pipeline'
 

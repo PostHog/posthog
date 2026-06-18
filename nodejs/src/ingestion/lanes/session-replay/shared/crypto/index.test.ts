@@ -1,6 +1,6 @@
+import { KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 import * as envUtils from '~/utils/env-utils'
 
-import { KeyStore, SessionKey } from '~/ingestion/lanes/session-replay/shared/types'
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
 import { CleartextRecordingEncryptor } from './cleartext-encryptor'
 import { getBlockDecryptor, getBlockEncryptor } from './index'

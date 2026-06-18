@@ -5,24 +5,28 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { AiEventSubpipelineFactory } from '~/ingestion/common/ai-subpipeline.contract'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-
-import { Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
-import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createDenyEventsStep } from '~/ingestion/common/steps/deny-events'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '~/ingestion/common/steps/event-filters-steps'
-import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
-import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import {
+    GroupStoreBatchContext,
+    createGroupStoreBeforeBatchStep,
+} from '~/ingestion/common/steps/group-store-batch-step'
+import {
+    PersonsStoreBatchContext,
+    createPersonsStoreBeforeBatchStep,
+} from '~/ingestion/common/steps/persons-store-batch-step'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
@@ -37,11 +41,13 @@ import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-eve
 import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/steps/event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+import { Team } from '~/types'
+import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+
 import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 import {
     PerDistinctIdPipelineConfig,

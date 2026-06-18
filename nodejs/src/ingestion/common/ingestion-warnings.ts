@@ -2,7 +2,6 @@ import { Counter } from 'prom-client'
 
 import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
 import { KAFKA_INGESTION_WARNINGS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { TeamId, TimestampFormat } from '~/types'

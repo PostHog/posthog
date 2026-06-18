@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { TimestampFormat } from '~/types'
 import { logger } from '~/utils/logger'
 import { castTimestampOrNow } from '~/utils/utils'
 
-import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {

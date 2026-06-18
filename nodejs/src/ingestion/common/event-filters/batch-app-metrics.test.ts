@@ -1,7 +1,7 @@
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
 import { parseJSON } from '~/utils/json-parse'
+
 import { EventFiltersBatchAppMetrics } from './batch-app-metrics'
 
 describe('EventFiltersBatchAppMetrics', () => {

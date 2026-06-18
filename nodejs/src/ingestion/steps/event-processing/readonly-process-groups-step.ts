@@ -1,8 +1,8 @@
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-
-import { PreIngestionEvent, Team } from '~/types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PreIngestionEvent, Team } from '~/types'
+
 import { enrichPropertiesWithGroupTypes } from './groups'
 
 export interface ReadOnlyProcessGroupsStepInput {

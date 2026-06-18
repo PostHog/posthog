@@ -1,6 +1,6 @@
-import { Team } from '~/types'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { Team } from '~/types'
 
 type CheckHeatmapOptInInput = {
     team: Team

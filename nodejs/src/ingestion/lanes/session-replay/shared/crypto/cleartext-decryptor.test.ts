@@ -1,4 +1,5 @@
 import { KeyStore } from '~/ingestion/lanes/session-replay/shared/types'
+
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
 
 describe('CleartextRecordingDecryptor', () => {

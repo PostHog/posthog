@@ -2,10 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
 import {
@@ -16,7 +13,8 @@ import {
 } from '~/ingestion/common/steps/event-filters-steps'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     createApplyCookielessProcessingStep,
     createParseHeadersStep,
@@ -31,8 +29,10 @@ import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop
 import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
 import { createNormalizeEventStep } from '~/ingestion/steps/event-processing/normalize-event-step'
 import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from './disable-person-processing-step'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'

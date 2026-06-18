@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
+
 import { ConcurrentlyGroupingBatchPipeline } from './concurrently-grouping-batch-pipeline'
 import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'

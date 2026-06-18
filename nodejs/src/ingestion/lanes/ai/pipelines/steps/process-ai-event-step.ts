@@ -1,11 +1,10 @@
 import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { processAiEvent } from '~/ingestion/lanes/ai/process-ai-event'
+import { PluginEvent } from '~/plugin-scaffold'
+import { logger } from '~/utils/logger'
+import { captureException } from '~/utils/posthog'
 
 type ProcessAiEventInput = {
     normalizedEvent: PluginEvent

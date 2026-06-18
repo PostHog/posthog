@@ -10,25 +10,18 @@ import { getDomain } from 'tldts'
 
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
+import { cookielessRedisErrorCounter } from '~/common/metrics'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '~/ingestion/common/timestamps'
+import { IngestionConsumerConfig } from '~/ingestion/config'
+import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
-
-import { cookielessRedisErrorCounter } from '~/common/metrics'
-import {
-    CookielessServerHashMode,
-    EventHeaders,
-    IncomingEventWithTeam,
-    PipelineEvent,
-    RedisPool,
-    Team,
-} from '~/types'
+import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, RedisPool, Team } from '~/types'
 import { ConcurrencyController } from '~/utils/concurrencyController'
 import { RedisOperationError } from '~/utils/db/error'
 import { logger } from '~/utils/logger'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '~/utils/utils'
-import { IngestionConsumerConfig } from '~/ingestion/config'
-import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
+
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------

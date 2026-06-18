@@ -1,18 +1,14 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { prefetchPersonsStep } from '~/ingestion/common/event-pipeline/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { EventHeaders, Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { EventFilterManager } from '~/ingestion/common/event-filters'
-import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -24,8 +20,11 @@ import {
 } from '~/ingestion/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '~/ingestion/steps/event-processing/prefetch-hog-functions-step'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders, Team } from '~/types'
+import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 
 export interface PostTeamPreprocessingSubpipelineInput {
     message: Message

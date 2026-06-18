@@ -1,7 +1,7 @@
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '~/common/outputs'
-
-import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 import { isOkResult } from '~/ingestion/framework/results'
+import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
+
 import { SplitAiEventsStepConfig, createSplitAiEventsStep, parseSplitAiEventsConfig } from './split-ai-events-step'
 
 function createProcessedEvent(

@@ -1,4 +1,5 @@
 import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
+
 import { SessionBatchMetrics } from './metrics'
 
 /**

@@ -1,4 +1,8 @@
-import { buildCaptureConfig, buildPlayerConfig, validateInput } from '~/ingestion/lanes/session-replay/recording-rasterizer/capture/config'
+import {
+    buildCaptureConfig,
+    buildPlayerConfig,
+    validateInput,
+} from '~/ingestion/lanes/session-replay/recording-rasterizer/capture/config'
 import { parseList } from '~/ingestion/lanes/session-replay/recording-rasterizer/config'
 import { RasterizeRecordingInput } from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
 

@@ -1,6 +1,6 @@
+import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '~/ingestion/lanes/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '~/ingestion/lanes/ai/metrics'
 import { mapOtelAttributes } from './attribute-mapping'
 import { pydanticAi } from './middleware/pydantic-ai'
 import { traceloop } from './middleware/traceloop'

@@ -1,7 +1,7 @@
-import { EventHeaders } from '~/types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EventHeaders } from '~/types'
 
 const MAX_DISTINCT_ID_LENGTH = 400
 

@@ -2,15 +2,15 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createTestPerson } from '~/tests/helpers/person'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, Person, Team } from '~/types'
-import { PipelineResultType } from '~/ingestion/framework/results'
+
 import { createPrepareEventStep } from './prepare-event-step'
 import { BLOAT_PROPERTIES } from './strip-bloat-properties'
 

@@ -1,8 +1,8 @@
 import { Redis } from 'ioredis'
 
+import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { RedisPool, TeamId } from '~/types'
 
-import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { RetentionServiceMetrics } from './metrics'
 import { RetentionService } from './retention-service'
 

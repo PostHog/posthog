@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeToColumnIndex, ProjectId } from '~/types'
+
 import { addGroupProperties, enrichPropertiesWithGroupTypes } from './groups'
 
 describe('enrichPropertiesWithGroupTypes', () => {

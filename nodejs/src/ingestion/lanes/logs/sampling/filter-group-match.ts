@@ -11,6 +11,7 @@
  * depth at the worker boundary.
  */
 import type { LogRecord } from '~/ingestion/lanes/logs/log-record-avro'
+
 import { type PropertyFilterLeaf, matchPropertyFilter } from './property-filter-match'
 
 export type FilterGroupNode = {

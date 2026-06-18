@@ -1,7 +1,7 @@
-import { parseJSON } from '~/utils/json-parse'
 import { mapOtelAttributes } from '~/ingestion/lanes/ai/otel/attribute-mapping'
 import { convertOtelEvent } from '~/ingestion/lanes/ai/otel/index'
 import { createEvent } from '~/ingestion/lanes/ai/otel/test-helpers'
+import { parseJSON } from '~/utils/json-parse'
 
 jest.mock('~/ingestion/lanes/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },

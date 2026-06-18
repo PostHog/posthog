@@ -1,6 +1,7 @@
 import bigDecimal from 'js-big-decimal'
 
 import { EventWithProperties } from '~/ingestion/lanes/ai/process-ai-event'
+
 import { ResolvedModelCost } from './providers/types'
 
 export const calculateRequestCost = (event: EventWithProperties, cost: ResolvedModelCost): string => {

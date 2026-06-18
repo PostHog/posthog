@@ -1,5 +1,4 @@
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
-
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/lanes/session-replay/shared/outputs'
 
 /** Register all recording-api outputs on the builder. Call `.build(registry, config)` to resolve. */

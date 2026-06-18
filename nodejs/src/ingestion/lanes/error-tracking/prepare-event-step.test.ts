@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { BLOAT_PROPERTIES } from '~/ingestion/steps/event-processing/strip-bloat-properties'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Person } from '~/types'
 
-import { BLOAT_PROPERTIES } from '~/ingestion/steps/event-processing/strip-bloat-properties'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
 describe('createErrorTrackingPrepareEventStep', () => {

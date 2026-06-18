@@ -2,14 +2,15 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { BatchRetryOptions, withBatchRetry } from '~/ingestion/framework/batch-retry'
 import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '~/ingestion/framework/concurrent-batch-pipeline'
-import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '~/ingestion/framework/concurrently-grouping-batch-pipeline'
+import {
+    ConcurrentlyGroupingBatchPipeline,
+    GroupingFunction,
+} from '~/ingestion/framework/concurrently-grouping-batch-pipeline'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-batch-pipeline'
 import { GatheringBatchPipeline } from '~/ingestion/framework/gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
@@ -17,6 +18,8 @@ import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
 /**

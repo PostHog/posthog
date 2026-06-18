@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { ok } from '~/ingestion/framework/results'
+
 import { createParseHeadersStep } from './parse-headers'
 
 describe('createParseHeadersStep', () => {

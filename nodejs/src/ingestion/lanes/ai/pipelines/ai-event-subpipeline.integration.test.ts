@@ -5,8 +5,10 @@ import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OU
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
@@ -14,9 +16,7 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
-import { newPipelineBuilder } from '~/ingestion/framework/builders'
-import { createOkContext } from '~/ingestion/framework/helpers'
-import { PipelineResultType } from '~/ingestion/framework/results'
+
 import { AiEventSubpipelineConfig, AiEventSubpipelineInput, createAiEventSubpipeline } from './ai-event-subpipeline'
 
 const team = createTestTeam()

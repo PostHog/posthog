@@ -1,4 +1,5 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { pipelineStepDurationHistogram } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultType, isOkResult } from './results'

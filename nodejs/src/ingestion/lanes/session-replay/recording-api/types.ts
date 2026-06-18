@@ -7,7 +7,6 @@
 import { CommonConfig } from '~/common/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES } from '~/config/kafka-topics'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/lanes/session-replay/config'
-
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,

@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { logger } from '~/utils/logger'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { logger } from '~/utils/logger'
+
 import { createParseKafkaMessageStep } from './parse-kafka-message'
 
 // Mock dependencies

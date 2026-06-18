@@ -1,7 +1,7 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
 import { mustAddReasoningCost } from '~/ingestion/lanes/ai/costs/output-costs'
+import { PluginEvent } from '~/plugin-scaffold'
 import { parseJSON } from '~/utils/json-parse'
+
 import { OtelLibraryMiddleware } from './types'
 
 // Vercel AI SDK attributes to strip after processing. Includes both

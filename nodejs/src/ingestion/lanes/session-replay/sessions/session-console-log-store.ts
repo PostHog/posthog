@@ -1,9 +1,9 @@
 import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { ConsoleLogLevel } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { ConsoleLogLevel } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {

@@ -2,13 +2,13 @@ import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { logger, serializeError } from '~/utils/logger'
-
 import { ValidRetentionPeriods } from '~/ingestion/lanes/session-replay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { createDeletionBlockMetadata } from '~/ingestion/lanes/session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
+import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
+import { logger, serializeError } from '~/utils/logger'
+
 import { RecordingApiMetrics } from './metrics'
 import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
 

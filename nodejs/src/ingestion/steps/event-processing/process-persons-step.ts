@@ -7,11 +7,11 @@ import { PersonMergeService } from '~/ingestion/common/persons/person-merge-serv
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { Person, Team } from '~/types'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PluginEvent } from '~/plugin-scaffold'
+import { Person, Team } from '~/types'
+
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 
 export type ProcessPersonsInput = {

@@ -12,6 +12,8 @@ import {
 } from '~/ingestion/common/steps/event-filters-steps'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -24,8 +26,6 @@ import { createApplyBasicEventRestrictionsStep } from '~/ingestion/steps/event-p
 import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
 import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/steps/event-processing/handle-client-ingestion-warning-step'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'

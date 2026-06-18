@@ -1,8 +1,8 @@
 import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { logger } from '~/utils/logger'
+
 import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 

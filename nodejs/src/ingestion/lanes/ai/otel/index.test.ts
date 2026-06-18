@@ -1,4 +1,5 @@
 import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '~/ingestion/lanes/ai/metrics'
+
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
 import { createEvent } from './test-helpers'

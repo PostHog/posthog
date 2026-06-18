@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { buildIntegerMatcher } from '~/config/config'
 import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
 import {
     hasInsertedPersonlessDistinctId,
@@ -7,14 +8,12 @@ import {
     personlessDistinctIdCacheOperationsCounter,
 } from '~/ingestion/common/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { buildIntegerMatcher } from '~/config/config'
-import { Person, Team } from '~/types'
-import { normalizeProcessPerson } from '~/utils/event'
 import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PluginEvent } from '~/plugin-scaffold'
+import { Person, Team } from '~/types'
+import { normalizeProcessPerson } from '~/utils/event'
 
 export type ProcessPersonlessInput = {
     normalizedEvent: PluginEvent

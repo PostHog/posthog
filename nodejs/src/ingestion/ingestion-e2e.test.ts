@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     EventBuilder,
     createKafkaMessages,
@@ -16,12 +16,12 @@ import {
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { InternalPerson } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true

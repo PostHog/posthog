@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
+
 import { BaseBatchPipeline } from './base-batch-pipeline'
 import { createBatch, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'

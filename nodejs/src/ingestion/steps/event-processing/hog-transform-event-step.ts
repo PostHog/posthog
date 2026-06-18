@@ -1,9 +1,8 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { Team } from '~/types'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { PluginEvent } from '~/plugin-scaffold'
+import { Team } from '~/types'
 
 export interface HogTransformEventInput {
     event: PluginEvent

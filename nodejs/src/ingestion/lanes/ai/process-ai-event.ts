@@ -9,8 +9,8 @@
  */
 import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { logger } from '~/utils/logger'
+
 import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'

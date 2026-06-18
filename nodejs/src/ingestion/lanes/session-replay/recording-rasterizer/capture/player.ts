@@ -5,6 +5,7 @@ import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/rep
 
 import { RasterizationError } from '~/ingestion/lanes/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/ingestion/lanes/session-replay/recording-rasterizer/logger'
+
 import { BlockProxy } from './block-proxy'
 import { CapturePage } from './capture-page'
 import { RequestInterceptor } from './request-interceptor'

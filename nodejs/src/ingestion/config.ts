@@ -1,6 +1,5 @@
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
-
 import type { CommonConfig } from '~/common/config'
+import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,

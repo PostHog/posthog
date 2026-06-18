@@ -7,10 +7,9 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { EventHeaders, Team } from '~/types'
-import { TeamManager } from '~/utils/team-manager'
+import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
+import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
+import { isDropResult } from '~/ingestion/framework/results'
 import { createCreateEventStep } from '~/ingestion/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
@@ -21,9 +20,10 @@ import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepa
 import { createProcessGroupsStep } from '~/ingestion/steps/event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '~/ingestion/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/steps/event-processing/process-persons-step'
-import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
-import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
-import { isDropResult } from '~/ingestion/framework/results'
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders, Team } from '~/types'
+import { TeamManager } from '~/utils/team-manager'
+
 import { AsyncOutput, EVENTS_OUTPUT, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 
 export interface EventSubpipelineInput {

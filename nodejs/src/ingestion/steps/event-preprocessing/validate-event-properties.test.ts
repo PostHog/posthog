@@ -1,5 +1,6 @@
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { drop, ok } from '~/ingestion/framework/results'
+import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
 // Mock the dependencies

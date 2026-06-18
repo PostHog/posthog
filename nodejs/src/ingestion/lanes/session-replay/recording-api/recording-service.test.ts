@@ -2,10 +2,10 @@ import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
-import { PostgresRouter } from '~/utils/db/postgres'
-
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
+import { PostgresRouter } from '~/utils/db/postgres'
+
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 

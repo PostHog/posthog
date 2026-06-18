@@ -4,9 +4,6 @@ import { Counter } from 'prom-client'
 import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import type { LogsSettings } from '~/types'
-import { logger } from '~/utils/logger'
-
 import { type PiiScrubStats } from '~/ingestion/lanes/logs/log-pii-scrub'
 import {
     type LogRecord,
@@ -14,6 +11,9 @@ import {
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
 } from '~/ingestion/lanes/logs/log-record-avro'
+import type { LogsSettings } from '~/types'
+import { logger } from '~/utils/logger'
+
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
     SAMPLING_DECISION_DROP,

@@ -1,5 +1,6 @@
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { PipelineResultType } from '~/ingestion/framework/results'
+import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+
 import {
     SURVEY_EVENTS,
     SURVEY_PERSON_PROPERTIES,

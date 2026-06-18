@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { Properties } from '~/plugin-scaffold'
-
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '~/types'
 
 export function enrichPropertiesWithGroupTypes(

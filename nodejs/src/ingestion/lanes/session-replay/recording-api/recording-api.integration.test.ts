@@ -45,13 +45,13 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/lanes/session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/lanes/session-replay/shared/keystore/cache'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/lanes/session-replay/shared/outputs'
+import { PostgresRouter } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
+
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from './types'

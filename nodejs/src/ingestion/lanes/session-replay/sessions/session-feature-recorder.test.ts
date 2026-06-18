@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
-
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/lanes/session-replay/rrweb-types'
+
 import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
 
 jest.mock('~/config/config', () => ({

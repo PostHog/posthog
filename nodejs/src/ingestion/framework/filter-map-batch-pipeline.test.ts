@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
+
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from './filter-map-batch-pipeline'
 import { createContext, createNewBatchPipeline, createOkContext } from './helpers'

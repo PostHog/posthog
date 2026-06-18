@@ -1,5 +1,6 @@
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { PipelineResultType, ok } from '~/ingestion/framework/results'
+import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+
 import { createValidateAiEventTokensStep } from './validate-ai-event-tokens'
 
 const VALID_TOKEN_VALUES: [unknown, string][] = [

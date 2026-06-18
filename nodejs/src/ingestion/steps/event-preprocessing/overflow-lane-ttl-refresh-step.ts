@@ -1,6 +1,9 @@
-import { EventHeaders, PipelineEvent } from '~/types'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { OverflowEventBatch, OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+import {
+    OverflowEventBatch,
+    OverflowRedirectService,
+} from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+import { EventHeaders, PipelineEvent } from '~/types'
 
 export interface OverflowLaneTTLRefreshStepInput {
     headers: EventHeaders

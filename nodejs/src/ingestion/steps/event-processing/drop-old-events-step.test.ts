@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType, isDropResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, PipelineEvent, Team } from '~/types'
-import { PipelineResultType, isDropResult } from '~/ingestion/framework/results'
+
 import { DropOldEventsInput, createDropOldEventsStep } from './drop-old-events-step'
 
 describe('createDropOldEventsStep', () => {

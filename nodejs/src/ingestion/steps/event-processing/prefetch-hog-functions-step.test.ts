@@ -1,9 +1,9 @@
 import { v4 } from 'uuid'
 
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-
-import { ProjectId, Team } from '~/types'
 import { PipelineResultType } from '~/ingestion/framework/results'
+import { ProjectId, Team } from '~/types'
+
 import { PrefetchHogFunctionsStepInput, createPrefetchHogFunctionsStep } from './prefetch-hog-functions-step'
 
 const createTestTeam = (overrides: Partial<Team> = {}): Team => ({

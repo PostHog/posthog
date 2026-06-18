@@ -2,7 +2,6 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
-
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/lanes/session-replay/kafka/types'
 import {
     MouseInteractions,

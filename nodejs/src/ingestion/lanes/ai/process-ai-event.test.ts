@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { logger } from '~/utils/logger'
+
 import { CostModelSource } from './costs/cost-model-matching'
 import type { ModelCost, ModelCostRow } from './costs/providers/types'
 import { normalizeTraceProperties, processAiEvent } from './process-ai-event'

@@ -1,8 +1,9 @@
+import { ok } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { EventIngestionRestrictionManager, Restriction } from '~/utils/event-ingestion-restrictions'
-import { ok } from '~/ingestion/framework/results'
+
 import { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 
 describe('createApplyPersonProcessingRestrictionsStep', () => {

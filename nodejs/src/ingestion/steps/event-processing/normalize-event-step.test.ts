@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
-
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestTeam } from '~/tests/helpers/team'
 import { UUIDT } from '~/utils/utils'
-import { PipelineResultType } from '~/ingestion/framework/results'
+
 import { createNormalizeEventStep } from './normalize-event-step'
 
 describe('normalizeEventStep wrapper', () => {

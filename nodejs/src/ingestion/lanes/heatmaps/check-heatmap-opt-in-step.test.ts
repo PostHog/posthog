@@ -1,6 +1,7 @@
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
-import { PipelineResultType } from '~/ingestion/framework/results'
+
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
 
 interface TestInput {

@@ -1,6 +1,7 @@
+import { ok } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { EventHeaders } from '~/types'
-import { ok } from '~/ingestion/framework/results'
+
 import { createValidateHistoricalMigrationStep } from './validate-historical-migration'
 
 const HOUR_MS = 60 * 60 * 1000

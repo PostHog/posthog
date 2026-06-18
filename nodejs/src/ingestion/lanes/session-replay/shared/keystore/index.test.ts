@@ -1,6 +1,6 @@
+import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 import * as envUtils from '~/utils/env-utils'
 
-import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 import { getKeyStore } from './index'

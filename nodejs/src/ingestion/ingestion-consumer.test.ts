@@ -6,25 +6,28 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
+import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
+import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import {
+    COOKIELESS_MODE_FLAG_PROPERTY,
+    COOKIELESS_SENTINEL_VALUE,
+} from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionType } from '~/cdp/types'
 import { PostgresUse } from '~/utils/db/postgres'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { UUIDT } from '~/utils/utils'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
-import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
+
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000

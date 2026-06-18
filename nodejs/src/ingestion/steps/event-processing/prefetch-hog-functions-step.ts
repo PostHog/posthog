@@ -1,8 +1,7 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-
-import { Team } from '~/types'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
+import { Team } from '~/types'
 
 export interface PrefetchHogFunctionsStepInput {
     team: Team

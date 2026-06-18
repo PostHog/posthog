@@ -12,7 +12,12 @@ import { createLogger } from '~/ingestion/lanes/session-replay/recording-rasteri
 import { RasterizationMetrics } from '~/ingestion/lanes/session-replay/recording-rasterizer/metrics'
 import { computeVideoTimestamps } from '~/ingestion/lanes/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/ingestion/lanes/session-replay/recording-rasterizer/storage'
-import { ActivityTimings, RasterizationProgress, RasterizeRecordingInput, RasterizeRecordingOutput } from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
+import {
+    ActivityTimings,
+    RasterizationProgress,
+    RasterizeRecordingInput,
+    RasterizeRecordingOutput,
+} from '~/ingestion/lanes/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/ingestion/lanes/session-replay/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {

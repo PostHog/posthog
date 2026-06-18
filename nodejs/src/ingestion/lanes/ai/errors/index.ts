@@ -1,6 +1,6 @@
+import { aiErrorNormalizationCounter } from '~/ingestion/lanes/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { aiErrorNormalizationCounter } from '~/ingestion/lanes/ai/metrics'
 import { normalizeError } from './normalize-error'
 
 const UNKNOWN_ERROR = 'Unknown error'

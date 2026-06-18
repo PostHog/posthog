@@ -1,6 +1,7 @@
+import { drop, ok } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { EventHeaders } from '~/types'
-import { drop, ok } from '~/ingestion/framework/results'
+
 import { createValidateEventMetadataStep } from './validate-event-metadata'
 
 describe('createValidateEventMetadataStep', () => {

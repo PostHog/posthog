@@ -16,6 +16,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { HEATMAPS_OUTPUT } from '~/ingestion/lanes/heatmaps/outputs'
 
 import {
     KAFKA_APP_METRICS_2,
@@ -32,7 +33,6 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '../../src/config/kafka-topics'
-import { HEATMAPS_OUTPUT } from '~/ingestion/lanes/heatmaps/outputs'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 
 function testOutput(name: string, topic: string, producer: KafkaProducerWrapper): SingleIngestionOutput {

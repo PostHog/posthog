@@ -1,7 +1,7 @@
+import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
-import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'

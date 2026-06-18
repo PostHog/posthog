@@ -1,6 +1,5 @@
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-
 import { TimestampFormat } from '~/types'
 import { castTimestampOrNow } from '~/utils/utils'
 

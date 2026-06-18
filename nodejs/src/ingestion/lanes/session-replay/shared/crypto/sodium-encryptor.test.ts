@@ -1,6 +1,7 @@
 import sodium from 'libsodium-wrappers'
 
 import { KeyStore, SessionKey, SessionKeyDeletedError } from '~/ingestion/lanes/session-replay/shared/types'
+
 import { SodiumRecordingEncryptor } from './sodium-encryptor'
 
 describe('SodiumRecordingEncryptor', () => {
