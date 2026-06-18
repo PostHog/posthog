@@ -97,8 +97,9 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
-        index: number
+        index: number,
+        createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]> {
-        return await this.repository.insertGroupType(teamId, projectId, groupType, index, this.tx)
+        return await this.repository.insertGroupType(teamId, projectId, groupType, index, createdAt, this.tx)
     }
 }

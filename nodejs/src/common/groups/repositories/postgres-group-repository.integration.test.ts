@@ -16,6 +16,8 @@ import { UUIDT } from '~/utils/utils'
 
 import { PostgresGroupRepository } from './postgres-group-repository'
 
+const TEST_TIMESTAMP = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+
 describe('PostgresGroupRepository Integration', () => {
     let hub: Hub
     let repository: PostgresGroupRepository
@@ -1294,7 +1296,8 @@ describe('PostgresGroupRepository Integration', () => {
                 teamId,
                 teamId as ProjectId, // insertTestTeam creates project with id = teamId
                 'company',
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1319,14 +1322,15 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             // Insert the group type first
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             // Try to insert the same group type again
             const [groupTypeIndex, isInsert] = await repository.insertGroupType(
                 teamId,
                 teamId as ProjectId,
                 'company',
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1347,17 +1351,35 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             // Insert first group type at index 0
-            const [index1, isInsert1] = await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            const [index1, isInsert1] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'company',
+                0,
+                TEST_TIMESTAMP
+            )
             expect(index1).toBe(0)
             expect(isInsert1).toBe(true)
 
             // Try to insert second group type at index 0 (should get index 1)
-            const [index2, isInsert2] = await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 0)
+            const [index2, isInsert2] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'organization',
+                0,
+                TEST_TIMESTAMP
+            )
             expect(index2).toBe(1)
             expect(isInsert2).toBe(true)
 
             // Try to insert third group type at index 0 (should get index 2)
-            const [index3, isInsert3] = await repository.insertGroupType(teamId, teamId as ProjectId, 'team', 0)
+            const [index3, isInsert3] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'team',
+                0,
+                TEST_TIMESTAMP
+            )
             expect(index3).toBe(2)
             expect(isInsert3).toBe(true)
         })
@@ -1371,14 +1393,21 @@ describe('PostgresGroupRepository Integration', () => {
                     teamId,
                     teamId as ProjectId,
                     `group_type_${i}`,
-                    i
+                    i,
+                    TEST_TIMESTAMP
                 )
                 expect(index).toBe(i)
                 expect(isInsert).toBe(true)
             }
 
             // Try to insert the 6th group type (should fail)
-            const [index6, isInsert6] = await repository.insertGroupType(teamId, teamId as ProjectId, 'group_type_6', 5)
+            const [index6, isInsert6] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'group_type_6',
+                5,
+                TEST_TIMESTAMP
+            )
             expect(index6).toBe(null)
             expect(isInsert6).toBe(false)
         })
@@ -1394,7 +1423,8 @@ describe('PostgresGroupRepository Integration', () => {
                 localTeamId1,
                 localTeamId1 as ProjectId,
                 'company',
-                0
+                0,
+                TEST_TIMESTAMP
             )
             expect(index1).toBe(0)
             expect(isInsert1).toBe(true)
@@ -1404,7 +1434,8 @@ describe('PostgresGroupRepository Integration', () => {
                 localTeamId2,
                 localTeamId2 as ProjectId,
                 'company',
-                0
+                0,
+                TEST_TIMESTAMP
             )
             expect(index2).toBe(0)
             expect(isInsert2).toBe(true)
@@ -1446,7 +1477,8 @@ describe('PostgresGroupRepository Integration', () => {
                 teamId,
                 teamId as ProjectId,
                 'company',
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1457,7 +1489,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             const result = await repository.inTransaction('test insertGroupType transaction', async (tx) => {
-                return await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+                return await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
             })
 
             expect(result).toEqual([0, true])
@@ -1477,7 +1509,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             const result = await repository.inRawTransaction('test insertGroupType raw transaction', async (tx) => {
-                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, tx)
+                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP, tx)
             })
 
             expect(result).toEqual([0, true])
@@ -1500,7 +1532,7 @@ describe('PostgresGroupRepository Integration', () => {
             await expect(
                 repository.inTransaction('failing insertGroupType transaction', async (tx) => {
                     // Insert a group type
-                    await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+                    await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
                     // This should cause the transaction to rollback
                     throw new Error('Simulated transaction failure')
@@ -1527,7 +1559,8 @@ describe('PostgresGroupRepository Integration', () => {
                 teamId,
                 teamId as ProjectId,
                 specialGroupType,
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1554,7 +1587,8 @@ describe('PostgresGroupRepository Integration', () => {
                 teamId,
                 teamId as ProjectId,
                 emptyGroupType,
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1581,7 +1615,8 @@ describe('PostgresGroupRepository Integration', () => {
                 teamId,
                 teamId as ProjectId,
                 longGroupType,
-                0
+                0,
+                TEST_TIMESTAMP
             )
 
             expect(groupTypeIndex).toBe(0)
@@ -1626,8 +1661,8 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             // Insert some group types
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByProjectIds([teamId as ProjectId])
 
@@ -1646,11 +1681,11 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(localTeamId2)
 
             // Insert group types for first project
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'team', 1)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0, TEST_TIMESTAMP)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'team', 1, TEST_TIMESTAMP)
 
             // Insert group types for second project
-            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'organization', 0)
+            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'organization', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByProjectIds([
                 localTeamId1 as ProjectId,
@@ -1673,7 +1708,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(localTeamId2)
 
             // Only insert group types for first project
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByProjectIds([
                 localTeamId1 as ProjectId,
@@ -1688,7 +1723,7 @@ describe('PostgresGroupRepository Integration', () => {
 
         it('should return correct types for group_type_index', async () => {
             await insertTestTeam(teamId)
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByProjectIds([teamId as ProjectId])
 
@@ -1721,8 +1756,8 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             // Insert some group types
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByTeamIds([teamId])
 
@@ -1741,11 +1776,11 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(localTeamId2)
 
             // Insert group types for first team
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'team', 1)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0, TEST_TIMESTAMP)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'team', 1, TEST_TIMESTAMP)
 
             // Insert group types for second team
-            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'organization', 0)
+            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'organization', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByTeamIds([localTeamId1, localTeamId2])
 
@@ -1765,7 +1800,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(localTeamId2)
 
             // Only insert group types for first team
-            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByTeamIds([localTeamId1, localTeamId2])
 
@@ -1777,7 +1812,7 @@ describe('PostgresGroupRepository Integration', () => {
 
         it('should return correct types for group_type_index', async () => {
             await insertTestTeam(teamId)
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             const result = await repository.fetchGroupTypesByTeamIds([teamId])
 
@@ -1791,8 +1826,8 @@ describe('PostgresGroupRepository Integration', () => {
         beforeEach(async () => {
             await insertTestTeam(teamId)
             // Insert group types
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
-            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, TEST_TIMESTAMP)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1, TEST_TIMESTAMP)
         })
 
         it('should return empty array for empty inputs', async () => {
@@ -1910,7 +1945,7 @@ describe('PostgresGroupRepository Integration', () => {
         it('should handle multiple teams', async () => {
             const localTeamId2 = 25 as TeamId
             await insertTestTeam(localTeamId2)
-            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'company', 0)
+            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'company', 0, TEST_TIMESTAMP)
 
             const team1Props = { name: 'Team 1 Company' }
             const team2Props = { name: 'Team 2 Company' }

@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { GroupTypeToColumnIndex, ProjectId } from '~/types'
 import { addGroupProperties, enrichPropertiesWithGroupTypes } from './groups'
 
@@ -48,7 +50,15 @@ describe('addGroupProperties', () => {
     it('does nothing if no $groups present', async () => {
         const mgr = mockGroupTypeManager({ org: 0 })
 
-        expect(await addGroupProperties(2, 2 as ProjectId, { foo: 'bar' }, mgr as any)).toEqual({
+        expect(
+            await addGroupProperties(
+                2,
+                2 as ProjectId,
+                { foo: 'bar' },
+                mgr as any,
+                DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+            )
+        ).toEqual({
             foo: 'bar',
         })
         expect(mgr.fetchGroupTypeIndex).not.toHaveBeenCalled()
@@ -65,8 +75,9 @@ describe('addGroupProperties', () => {
                 foobar: 'afsafa',
             },
         }
+        const eventTimestamp = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
-        expect(await addGroupProperties(2, 2 as ProjectId, properties, mgr as any)).toEqual({
+        expect(await addGroupProperties(2, 2 as ProjectId, properties, mgr as any, eventTimestamp)).toEqual({
             foo: 'bar',
             $groups: {
                 organization: 'PostHog',
@@ -77,8 +88,9 @@ describe('addGroupProperties', () => {
             $group_1: 'web',
         })
 
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'organization')
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project')
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'foobar')
+        // The event timestamp is threaded through so newly-created mappings get created_at = event time.
+        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'organization', eventTimestamp)
+        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project', eventTimestamp)
+        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'foobar', eventTimestamp)
     })
 })

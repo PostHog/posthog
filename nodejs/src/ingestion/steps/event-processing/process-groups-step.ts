@@ -51,7 +51,8 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                 team.id,
                 team.project_id,
                 preparedEvent.properties,
-                groupTypeManager
+                groupTypeManager,
+                DateTime.fromISO(preparedEvent.timestamp)
             )
 
             if (preparedEvent.event === '$groupidentify') {
@@ -85,7 +86,14 @@ async function updateGroupsAndFirstEvent(
     if (preparedEvent.event === '$groupidentify') {
         const { $group_type: groupType, $group_set: groupPropertiesToSet } = preparedEvent.properties
         if (groupType != null && groupPropertiesToSet != null) {
-            promises.push(groupTypeManager.fetchGroupTypeIndex(team.id, team.project_id, groupType))
+            promises.push(
+                groupTypeManager.fetchGroupTypeIndex(
+                    team.id,
+                    team.project_id,
+                    groupType,
+                    DateTime.fromISO(preparedEvent.timestamp)
+                )
+            )
         }
     }
 
@@ -105,7 +113,7 @@ async function upsertGroup(
     }
 
     const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-    const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
+    const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, timestamp)
     if (groupTypeIndex !== null) {
         await groupStore.upsertGroup(
             teamId,

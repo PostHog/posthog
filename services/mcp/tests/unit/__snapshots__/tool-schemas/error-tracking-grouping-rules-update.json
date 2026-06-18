@@ -1787,7 +1787,6 @@
             "description": "Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters."
         },
         "id": {
-            "description": "A UUID string identifying this error tracking grouping rule.",
             "type": "string"
         }
     },

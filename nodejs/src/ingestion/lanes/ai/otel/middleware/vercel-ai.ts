@@ -1,5 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { mustAddReasoningCost } from '~/ingestion/lanes/ai/costs/output-costs'
 import { parseJSON } from '~/utils/json-parse'
 import { OtelLibraryMiddleware } from './types'
 
@@ -18,6 +19,8 @@ const STRIP_KEYS = [
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
     'ai.usage.tokens',
+    'ai.usage.inputTokenDetails.noCacheTokens',
+    'ai.usage.outputTokenDetails.textTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -57,6 +60,17 @@ function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
 }
 
+function numericValue(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
+    }
+    if (typeof value === 'string') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+}
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -65,6 +79,17 @@ function process(event: PluginEvent, next: () => void): void {
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
+    const hasAiSdkV7CacheUsage =
+        props['gen_ai.usage.cache_read.input_tokens'] !== undefined ||
+        props['gen_ai.usage.cache_creation.input_tokens'] !== undefined ||
+        props['ai.usage.inputTokenDetails.noCacheTokens'] !== undefined
+    const aiSdkV7TextOutputTokens = props['ai.usage.outputTokenDetails.textTokens']
+    const aiSdkV7ReasoningTokens = props['ai.usage.outputTokenDetails.reasoningTokens']
+    const hasAiSdkV7ReasoningDetails = aiSdkV7ReasoningTokens !== undefined
+
+    if (props['$ai_cache_reporting_exclusive'] === undefined && hasAiSdkV7CacheUsage) {
+        props['$ai_cache_reporting_exclusive'] = false
+    }
 
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
     // runs, so mapOtelAttributes() picks it up as $ai_input. Provider-level spans
@@ -212,6 +237,26 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
+    props['$ai_framework'] ??= 'vercel'
+
+    if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
+        props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
+    }
+
+    const shouldSplitReasoningTokens =
+        typeof props['$ai_model'] === 'string' && mustAddReasoningCost(props['$ai_model'])
+    if (props['$ai_text_output_tokens'] === undefined && shouldSplitReasoningTokens) {
+        const textOutputTokens = numericValue(aiSdkV7TextOutputTokens)
+        if (textOutputTokens !== null) {
+            props['$ai_text_output_tokens'] = textOutputTokens
+        } else if (hasAiSdkV7ReasoningDetails) {
+            const outputTokens = numericValue(props['$ai_output_tokens'])
+            const reasoningTokens = numericValue(props['$ai_reasoning_tokens'])
+            if (outputTokens !== null && reasoningTokens !== null) {
+                props['$ai_text_output_tokens'] = Math.max(0, outputTokens - reasoningTokens)
+            }
+        }
+    }
 
     for (const key of STRIP_KEYS) {
         delete props[key]

@@ -14,11 +14,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import {
-    TRACKING_CODE_HEADER_NAME,
-    generateEmailTrackingCode,
-    generateShortEmailTrackingCode,
-} from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
@@ -111,7 +107,8 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string
+        siteUrl: string,
+        private trackingCodeSigner: EmailTrackingCodeSigner
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -266,7 +263,9 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation, isTest) } : {}),
+            ...(params.html
+                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -301,14 +300,14 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const trackingCode = generateEmailTrackingCode({ ...result.invocation, distinctId }, isTest)
-        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
+        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, isTest),
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
                           params.preheader
                       ),
                       Charset: 'UTF-8',

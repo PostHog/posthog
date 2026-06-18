@@ -8,6 +8,8 @@ const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.output.messages': '$ai_output_choices',
     'gen_ai.usage.input_tokens': '$ai_input_tokens',
     'gen_ai.usage.output_tokens': '$ai_output_tokens',
+    'gen_ai.usage.cache_read.input_tokens': '$ai_cache_read_input_tokens',
+    'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
     'gen_ai.response.model': '$ai_model',
     'gen_ai.provider.name': '$ai_provider',
     'server.address': '$ai_base_url',
