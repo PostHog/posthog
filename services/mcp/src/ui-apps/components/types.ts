@@ -27,9 +27,6 @@ export type ChartDisplayType =
     | 'WorldMap'
     | 'SlopeGraph'
 
-// Structural subset of the schema `TrendsFilter` (declared rather than imported — the MCP bundle
-// resolves no `~/` schema paths). The display-option fields mirror what saved insights carry via
-// the insight-query tool; ad-hoc tool queries only populate `display`/`showLegend`.
 export interface TrendsFilter {
     display?: ChartDisplayType
     showLegend?: boolean
