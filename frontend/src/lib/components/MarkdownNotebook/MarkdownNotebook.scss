@@ -73,9 +73,11 @@
     background: transparent;
     border: 0;
     border-left: 2px solid var(--remote-presence-color, currentColor);
+    opacity: 1;
     transition:
         top 120ms ease-out,
-        left 120ms ease-out;
+        left 120ms ease-out,
+        opacity 300ms ease-out;
 
     &--clickable {
         pointer-events: auto;
@@ -108,11 +110,13 @@
     background: transparent;
     border: 2px solid color-mix(in oklab, var(--remote-presence-color, currentColor) 70%, transparent);
     border-radius: 0.25rem;
+    opacity: 1;
     transition:
         top 120ms ease-out,
         left 120ms ease-out,
         width 120ms ease-out,
-        height 120ms ease-out;
+        height 120ms ease-out,
+        opacity 300ms ease-out;
 
     &--clickable {
         pointer-events: auto;
@@ -136,6 +140,11 @@
         background: var(--remote-presence-color, currentColor);
         border-radius: 3px 3px 3px 0;
     }
+}
+
+.MarkdownNotebook__remote-caret--fading,
+.MarkdownNotebook__remote-block--fading {
+    opacity: 0;
 }
 
 .MarkdownNotebook__debug-toolbar {

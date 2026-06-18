@@ -30,7 +30,14 @@ describe('MarkdownNotebookV2Renderer', () => {
         })
     })
 
-    it('keeps the AI caret before the latest follow-up prompt', () => {
+    it('places the AI caret before an open Ask AI prompt', () => {
+        expect(getNotebookAIPromptCaretPosition('# Notebook\n\n<Prompt question="" />')).toEqual({
+            nodeIndex: 0,
+            offset: 'Notebook'.length,
+        })
+    })
+
+    it('places the AI caret before the latest open Ask AI prompt', () => {
         expect(
             getNotebookAIPromptCaretPosition(
                 '# Notebook\n\nFirst answer\n\n<Prompt question="" />\n\nSecond answer\n\n<Prompt question="" />'
@@ -41,7 +48,7 @@ describe('MarkdownNotebookV2Renderer', () => {
         })
     })
 
-    it('does not anchor retained AI presence to a prompt with no response before it', () => {
+    it('does not anchor AI presence to a prompt with no previous line', () => {
         expect(getNotebookAIPromptCaretPosition('<Prompt question="" />')).toBeNull()
     })
 })

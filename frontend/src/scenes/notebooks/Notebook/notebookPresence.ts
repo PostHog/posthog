@@ -22,6 +22,7 @@ export type NotebookPresenceParticipant = NotebookPresenceState & {
 export const NOTEBOOK_AI_PRESENCE_CLIENT_ID = 'notebook-agent:ai'
 export const NOTEBOOK_AI_PRESENCE_USER_ID = 100_185
 export const NOTEBOOK_AI_PRESENCE_NAME = 'AI'
+export const NOTEBOOK_AI_PRESENCE_COLOR = 'var(--color-text-success)'
 
 export function getNotebookRemoteParticipants<T extends NotebookPresenceState>(
     presenceByClientId: Record<string, T>

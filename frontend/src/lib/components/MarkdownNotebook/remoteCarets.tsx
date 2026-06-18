@@ -37,6 +37,7 @@ export type RemoteNotebookCaret = {
     position: MarkdownNotebookCaretPosition
     /** Notebook version the position was computed against, when known. */
     version?: number
+    isFading?: boolean
 }
 
 /**
@@ -280,8 +281,11 @@ export function RemoteCaretOverlay({
                         height: layout.height,
                         '--remote-presence-color': caret.color,
                     } as React.CSSProperties
+                    const className = caret.isFading
+                        ? 'MarkdownNotebook__remote-block MarkdownNotebook__remote-block--fading'
+                        : 'MarkdownNotebook__remote-block'
                     return (
-                        <div key={caret.clientId} className="MarkdownNotebook__remote-block" style={style}>
+                        <div key={caret.clientId} className={className} style={style}>
                             <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                         </div>
                     )
@@ -292,8 +296,11 @@ export function RemoteCaretOverlay({
                     height: layout.height,
                     '--remote-presence-color': caret.color,
                 } as React.CSSProperties
+                const className = caret.isFading
+                    ? 'MarkdownNotebook__remote-caret MarkdownNotebook__remote-caret--fading'
+                    : 'MarkdownNotebook__remote-caret'
                 return (
-                    <div key={caret.clientId} className="MarkdownNotebook__remote-caret" style={style}>
+                    <div key={caret.clientId} className={className} style={style}>
                         <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                     </div>
                 )

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { getSeriesColor } from 'lib/colors'
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
 import {
@@ -28,13 +27,14 @@ import {
 import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import {
+    NOTEBOOK_AI_PRESENCE_COLOR,
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
-    NOTEBOOK_AI_PRESENCE_USER_ID,
 } from './notebookPresence'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
+const NOTEBOOK_AI_PRESENCE_FADE_OUT_MS = 300
 
 export function MarkdownNotebookV2(): JSX.Element {
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
@@ -50,14 +50,15 @@ export function MarkdownNotebookV2(): JSX.Element {
     const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
+    const [aiCaretFading, setAICaretFading] = useState(false)
     const markdownEditorValueRef = useRef(markdownEditorValue)
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
     const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
     const activeInlineAIRequestIdsRef = useRef<Set<string>>(new Set())
-    const aiPromptPresenceTrackingEnabledRef = useRef(false)
     const aiPresenceRetainedByPromptRef = useRef(false)
     const aiPresenceActivityVersionRef = useRef(0)
     const aiPresenceDepartureTimeoutRef = useRef<number | null>(null)
+    const aiPresenceFadeTimeoutRef = useRef<number | null>(null)
     const [focusAIPromptRequest, setFocusAIPromptRequest] = useState<number | undefined>(undefined)
 
     useEffect(() => {
@@ -84,8 +85,38 @@ export function MarkdownNotebookV2(): JSX.Element {
         }
     }, [])
 
-    const scheduleAIPresenceDeparture = useCallback((): void => {
+    const clearAIPresenceFadeTimeout = useCallback((): void => {
+        if (aiPresenceFadeTimeoutRef.current !== null) {
+            window.clearTimeout(aiPresenceFadeTimeoutRef.current)
+            aiPresenceFadeTimeoutRef.current = null
+        }
+    }, [])
+
+    const clearAIPresenceTimeouts = useCallback((): void => {
         clearAIPresenceDepartureTimeout()
+        clearAIPresenceFadeTimeout()
+    }, [clearAIPresenceDepartureTimeout, clearAIPresenceFadeTimeout])
+
+    const finishAIPresenceDeparture = useCallback(
+        (scheduledActivityVersion: number): void => {
+            if (
+                scheduledActivityVersion !== aiPresenceActivityVersionRef.current ||
+                activeInlineAIRequestIdsRef.current.size > 0 ||
+                aiPresenceRetainedByPromptRef.current
+            ) {
+                setAICaretFading(false)
+                return
+            }
+
+            setAICaretPosition(null)
+            setAICaretFading(false)
+            setMarkdownAIPresenceActive(false)
+        },
+        [setMarkdownAIPresenceActive]
+    )
+
+    const scheduleAIPresenceDeparture = useCallback((): void => {
+        clearAIPresenceTimeouts()
         if (activeInlineAIRequestIdsRef.current.size > 0 || aiPresenceRetainedByPromptRef.current) {
             return
         }
@@ -101,23 +132,26 @@ export function MarkdownNotebookV2(): JSX.Element {
                 return
             }
 
-            setAICaretPosition(null)
-            setMarkdownAIPresenceActive(false)
+            setAICaretFading(true)
+            aiPresenceFadeTimeoutRef.current = window.setTimeout(() => {
+                aiPresenceFadeTimeoutRef.current = null
+                finishAIPresenceDeparture(scheduledActivityVersion)
+            }, NOTEBOOK_AI_PRESENCE_FADE_OUT_MS)
         }, NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS)
-    }, [clearAIPresenceDepartureTimeout, setMarkdownAIPresenceActive])
+    }, [clearAIPresenceTimeouts, finishAIPresenceDeparture])
 
     const markAIPresenceActive = useCallback(
         (chatId: string): void => {
             activeInlineAIRequestIdsRef.current.add(chatId)
             aiPresenceActivityVersionRef.current += 1
-            clearAIPresenceDepartureTimeout()
+            clearAIPresenceTimeouts()
+            setAICaretFading(false)
             setMarkdownAIPresenceActive(true)
         },
-        [clearAIPresenceDepartureTimeout, setMarkdownAIPresenceActive]
+        [clearAIPresenceTimeouts, setMarkdownAIPresenceActive]
     )
 
     const retainAIPresenceForPrompt = useCallback((): void => {
-        aiPromptPresenceTrackingEnabledRef.current = true
         const promptCaretPosition = getNotebookAIPromptCaretPosition(markdownEditorValueRef.current)
         if (!promptCaretPosition) {
             return
@@ -127,10 +161,11 @@ export function MarkdownNotebookV2(): JSX.Element {
             aiPresenceActivityVersionRef.current += 1
         }
         aiPresenceRetainedByPromptRef.current = true
-        clearAIPresenceDepartureTimeout()
+        clearAIPresenceTimeouts()
+        setAICaretFading(false)
         setAICaretPosition(promptCaretPosition)
         setMarkdownAIPresenceActive(true)
-    }, [clearAIPresenceDepartureTimeout, setMarkdownAIPresenceActive])
+    }, [clearAIPresenceTimeouts, setMarkdownAIPresenceActive])
 
     const markAIPresenceInactive = useCallback(
         (chatId: string): void => {
@@ -140,11 +175,10 @@ export function MarkdownNotebookV2(): JSX.Element {
         [scheduleAIPresenceDeparture]
     )
 
-    useEffect(() => clearAIPresenceDepartureTimeout, [clearAIPresenceDepartureTimeout])
+    useEffect(() => clearAIPresenceTimeouts, [clearAIPresenceTimeouts])
 
     useEffect(
         () => () => {
-            aiPromptPresenceTrackingEnabledRef.current = false
             aiPresenceRetainedByPromptRef.current = false
             setMarkdownAIPresenceActive(false)
         },
@@ -152,17 +186,14 @@ export function MarkdownNotebookV2(): JSX.Element {
     )
 
     useEffect(() => {
-        if (!aiPromptPresenceTrackingEnabledRef.current) {
-            return
-        }
-
         const promptCaretPosition = getNotebookAIPromptCaretPosition(markdownEditorValue)
         if (promptCaretPosition) {
             if (!aiPresenceRetainedByPromptRef.current) {
                 aiPresenceActivityVersionRef.current += 1
             }
             aiPresenceRetainedByPromptRef.current = true
-            clearAIPresenceDepartureTimeout()
+            clearAIPresenceTimeouts()
+            setAICaretFading(false)
             setAICaretPosition(promptCaretPosition)
             setMarkdownAIPresenceActive(true)
             return
@@ -174,7 +205,7 @@ export function MarkdownNotebookV2(): JSX.Element {
 
         aiPresenceRetainedByPromptRef.current = false
         scheduleAIPresenceDeparture()
-    }, [clearAIPresenceDepartureTimeout, markdownEditorValue, scheduleAIPresenceDeparture, setMarkdownAIPresenceActive])
+    }, [clearAIPresenceTimeouts, markdownEditorValue, scheduleAIPresenceDeparture, setMarkdownAIPresenceActive])
 
     const aiCarets = useMemo<RemoteNotebookCaret[]>(
         () =>
@@ -183,13 +214,14 @@ export function MarkdownNotebookV2(): JSX.Element {
                       {
                           clientId: NOTEBOOK_AI_PRESENCE_CLIENT_ID,
                           userName: NOTEBOOK_AI_PRESENCE_NAME,
-                          color: getSeriesColor(getNotebookAIPresenceColorIndex()),
+                          color: NOTEBOOK_AI_PRESENCE_COLOR,
                           position: aiCaretPosition,
                           version: notebook?.version,
+                          isFading: aiCaretFading,
                       },
                   ]
                 : [],
-        [aiCaretPosition, notebook?.version]
+        [aiCaretFading, aiCaretPosition, notebook?.version]
     )
     const remoteCarets = useMemo<RemoteNotebookCaret[]>(
         () => [...markdownRemoteCarets, ...aiCarets],
@@ -482,8 +514,4 @@ function getNotebookNodeEndCaretPosition(node: NotebookBlockNode, nodeIndex: num
         }
     }
     return { nodeIndex }
-}
-
-function getNotebookAIPresenceColorIndex(): number {
-    return NOTEBOOK_AI_PRESENCE_USER_ID
 }
