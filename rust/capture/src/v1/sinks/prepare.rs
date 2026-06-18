@@ -16,6 +16,7 @@ use std::time::Instant;
 
 use metrics::{counter, histogram};
 use tokio::task::JoinSet;
+use tracing::Level;
 use uuid::Uuid;
 
 use crate::v1::constants::{
@@ -144,8 +145,17 @@ where
             Slot::Skipped => {}
             Slot::Failed(f) => {
                 if f.is_panic() {
+                    crate::ctx_log!(Level::ERROR, ctx,
+                        event_uuid = %f.uuid(),
+                        "event serialization panicked, dropping event"
+                    );
                     panic_count += 1;
                 } else {
+                    crate::ctx_log!(Level::ERROR, ctx,
+                        event_uuid = %f.uuid(),
+                        error = %f.detail_str(),
+                        "event serialization failed, dropping event"
+                    );
                     failed_count += 1;
                 }
                 failures.push(Box::new(f));

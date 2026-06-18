@@ -208,6 +208,14 @@ impl SerializationFailure {
     pub fn is_panic(&self) -> bool {
         self.cause == "serialization_panic"
     }
+
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
+    pub fn detail_str(&self) -> &str {
+        &self.detail
+    }
 }
 
 impl SinkResult for SerializationFailure {
