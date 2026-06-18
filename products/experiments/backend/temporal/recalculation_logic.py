@@ -456,9 +456,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team=experiment.team,
                 override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,
-                # Scheduled recalc (no request user); experiment metrics are canonical team-level aggregates
-                # behind experiment access control, so bypass warehouse HogQL access control.
-                bypass_warehouse_access_control=True,
+                # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
+                # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
+                user=experiment.created_by,
             )
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
