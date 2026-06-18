@@ -310,12 +310,11 @@ describe('ApiClient', () => {
     })
 
     describe('experimentQueryRefresh', () => {
-        it('returns force_blocking when refresh is true', () => {
-            expect(experimentQueryRefresh(true)).toBe('force_blocking')
-        })
-
-        it('returns undefined when refresh is false', () => {
-            expect(experimentQueryRefresh(false)).toBeUndefined()
+        it.each([
+            [true, 'force_blocking' as const],
+            [false, undefined],
+        ])('experimentQueryRefresh(%s) === %s', (refresh, expected) => {
+            expect(experimentQueryRefresh(refresh)).toBe(expected)
         })
     })
 })
