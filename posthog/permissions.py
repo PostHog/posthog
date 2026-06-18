@@ -610,6 +610,18 @@ class APIScopePermission(ScopeBasePermission):
 
             if not any(scope in key_scopes for scope in valid_scopes):
                 self.message = f"API key missing required scope '{required_scope}'"
+                # Track OAuth scope-insufficiency so we can see whether clients re-authorize
+                # after an app widens its required scopes, or get stranded on the old set.
+                if isinstance(authenticator, OAuthAccessTokenAuthentication):
+                    posthoganalytics.capture(
+                        distinct_id=str(getattr(request.user, "distinct_id", "") or request.user.pk),
+                        event="oauth token insufficient scope",
+                        properties={
+                            "application_id": str(authenticator.access_token.application_id),
+                            "required_scope": required_scope,
+                            "scope_object": scope_object,
+                        },
+                    )
                 return False
 
         return True
