@@ -5,7 +5,6 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { IngestionConsumer, IngestionConsumerDeps } from '~/ingestion/analytics/ingestion-consumer'
 import { createClientWarningsConsumer } from '~/ingestion/ingestionwarnings'
 
 import { initializePrometheusLabels } from '../api/router'
@@ -45,6 +44,7 @@ import {
 } from '../ingestion/config'
 import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
 import { createHeatmapsConsumer } from '../ingestion/heatmaps'
+import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'

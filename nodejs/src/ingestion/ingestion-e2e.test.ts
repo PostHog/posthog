@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
-import { IngestionConsumer } from '~/ingestion/analytics/ingestion-consumer'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
@@ -23,6 +22,7 @@ import { InternalPerson } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
 import { createAiEventSubpipeline } from './ai'
+import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
 jest.mock('~/utils/token-bucket', () => {

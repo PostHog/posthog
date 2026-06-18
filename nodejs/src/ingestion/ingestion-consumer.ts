@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
-import { CommonConfig } from '~/common/config'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
@@ -18,38 +17,46 @@ import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, Perso
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+
+import { CommonConfig } from '../common/config'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
+import { PostgresRouter } from '../utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
+import { logger } from '../utils/logger'
+import { PromiseScheduler } from '../utils/promise-scheduler'
+import { TeamManager } from '../utils/team-manager'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
-} from '~/ingestion/analytics'
-import { AiEventSubpipelineFactory } from '~/ingestion/common/ai-subpipeline.contract'
-import { EventFilterManager, EventFilterManagerComponent } from '~/ingestion/common/event-filters'
-import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { IngestionConsumerConfig } from '~/ingestion/config'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '~/ingestion/event-processing/split-ai-events-step'
-import { createOkContext } from '~/ingestion/pipelines/helpers'
-import { TopHog } from '~/ingestion/tophog'
-import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
+} from './analytics'
+import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
+import { IngestionConsumerConfig } from './config'
+import { CookielessManager } from './cookieless/cookieless-manager'
+import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
+import { createOkContext } from './pipelines/helpers'
+import { TopHog } from './tophog'
+import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>

@@ -244,11 +244,13 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       concrete `createAiEventSubpipeline`. Guard baseline 2 -> 1. The guard now scopes to production
       files (test files are composition roots that wire real impls across domains — e.g. cdp's
       HogTransformer and the ai factory — so their cross-lane wiring is Phase 3's concern, not the guard's).
-- [x] Resolve `ingestion-consumer` -> `analytics` (the last baselined edge). Moved
-      `src/ingestion/ingestion-consumer.ts` (+ its test) into the `analytics` lane
-      (`src/ingestion/analytics/`) — it is the analytics consumer (every other lane already owns its
-      consumer), so the edge becomes lane-internal. **Guard baseline is now empty (`[]`) — the
-      intra-ingestion DAG is clean: no lane imports another lane, and no shared code imports a lane.**
+- [x] Resolve `ingestion-consumer` -> `analytics` (the last baselined edge). Resolution (product-owner
+      choice): treat the consumer as a **composition root**. It stays at `src/ingestion/` and the guard
+      now recognizes a `COMPOSITION_ROOTS` set — files that assemble and run a lane's pipeline (like the
+      servers do) may import a lane. `ingestion-consumer.ts` builds + runs the analytics pipeline, so it
+      is exempt from the shared->lane rule. **Guard baseline is now empty (`[]`) — the intra-ingestion
+      DAG is clean: no lane imports another lane, and no shared code (other than composition roots)
+      imports a lane.**
 - [ ] **Exit gate:** `pnpm test:full` green.
 - [ ] **Exit gate:** `pnpm test:full` green.
 
@@ -348,10 +350,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   prettier clean, guard baseline shrank 2 -> 1. The remaining edge is `ingestion-consumer -> analytics`
   (composition-root, not ai/analytics). Pipeline behavior is covered by the ai/analytics integration +
   e2e tests, which need infra -> CI gate.
-- Phase 2 COMPLETE — intra-ingestion DAG is clean: moved `src/ingestion/ingestion-consumer.ts` (+ test)
-  into the `analytics` lane (it is the analytics consumer; the other lanes already own theirs), so the
-  last `ingestion-consumer -> analytics` edge became lane-internal. Guard baseline is now `[]` (empty):
-  no lane imports another lane, and no shared/common ingestion code imports a lane. 39 imports rewritten
-  across 6 files; tsc 0 new errors, eslint + prettier clean, guard green. All eight lanes (analytics,
-  ai, heatmaps, error-tracking, logs, metrics, session-replay, ingestionwarnings) are isolated. Next:
-  Phase 3 (split mixed cdp/ingestion test files) and Phase 4 (CI path-based test selection).
+- Phase 2 COMPLETE — intra-ingestion DAG is clean. Last edge (`ingestion-consumer -> analytics`)
+  resolved by treating the consumer as a composition root (product-owner choice): added a
+  `COMPOSITION_ROOTS` set to the guard so files that assemble + run a lane's pipeline (like the servers)
+  may import a lane; `ingestion-consumer.ts` stays at `src/ingestion/` and is exempt. (Briefly moved it
+  into the analytics lane, then reverted in favor of this.) Guard baseline is now `[]`: no lane imports
+  another lane, and no shared code except composition roots imports a lane. All eight lanes (analytics,
+  ai, heatmaps, error-tracking, logs, metrics, session-replay, ingestionwarnings) are isolated. tsc 0
+  new errors, guard green. Next: Phase 3 (split mixed cdp/ingestion tests) and Phase 4 (CI selection).

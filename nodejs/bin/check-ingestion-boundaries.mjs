@@ -49,6 +49,12 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '__snapshots__'])
 // Test-file organization is a separate concern, owned by Phase 3 ("split mixed tests").
 const isTestFile = (name) => name.endsWith('.test.ts') || name.endsWith('.spec.ts')
 
+// Composition roots assemble and run a lane's pipeline — they wire lanes together the way the
+// servers do (e.g. ingestion-consumer builds and runs the analytics pipeline), so like the servers
+// they are allowed to import a lane. Keyed by path relative to src/ingestion.
+const COMPOSITION_ROOTS = new Set(['ingestion-consumer.ts'])
+const isCompositionRoot = (absPath) => COMPOSITION_ROOTS.has(path.relative(ING, absPath))
+
 function walk(dir) {
     const out = []
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -114,6 +120,9 @@ function computeViolations() {
         const fromLane = laneOf(file)
         if (fromLane === null) {
             continue
+        }
+        if (isCompositionRoot(file)) {
+            continue // composition roots (like the servers) may wire a lane
         }
         for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
             const target = resolveSpecifier(spec, file)

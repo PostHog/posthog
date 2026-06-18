@@ -11,7 +11,6 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { IngestionConsumer } from '~/ingestion/analytics/ingestion-consumer'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
@@ -23,6 +22,7 @@ import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../typ
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
 import { createAiEventSubpipeline } from './ai'
+import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
