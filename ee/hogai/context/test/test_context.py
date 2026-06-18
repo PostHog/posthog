@@ -14,7 +14,7 @@ from posthog.schema import (
     ContextMessage,
     DashboardFilter,
     EntityType,
-    EvaluationType,
+    EvaluationRuntime,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
@@ -1010,7 +1010,7 @@ class TestAssistantContextManager(BaseTest):
                     id="eval-1",
                     name="Check output",
                     description="Validates output quality",
-                    evaluation_type=EvaluationType.HOG,
+                    evaluation_type=EvaluationRuntime.HOG,
                     hog_source="return length(output) > 0",
                 ),
                 [
@@ -1027,7 +1027,7 @@ class TestAssistantContextManager(BaseTest):
                 MaxEvaluationContext(
                     id="eval-2",
                     name="LLM Judge Eval",
-                    evaluation_type=EvaluationType.LLM_JUDGE,
+                    evaluation_type=EvaluationRuntime.LLM_JUDGE,
                 ),
                 [
                     "<evaluations_context>",
@@ -1039,7 +1039,7 @@ class TestAssistantContextManager(BaseTest):
                 "evaluation with no name falls back",
                 MaxEvaluationContext(
                     id="eval-3",
-                    evaluation_type=EvaluationType.HOG,
+                    evaluation_type=EvaluationRuntime.HOG,
                 ),
                 ["<evaluations_context>", "Evaluation eval-3", "Type: hog"],
             ],
@@ -1048,7 +1048,7 @@ class TestAssistantContextManager(BaseTest):
                 MaxEvaluationContext(
                     id="eval-4",
                     name="STL test",
-                    evaluation_type=EvaluationType.HOG,
+                    evaluation_type=EvaluationRuntime.HOG,
                 ),
                 [
                     "Standard library — strings:",
@@ -1077,7 +1077,7 @@ class TestAssistantContextManager(BaseTest):
         evaluation = MaxEvaluationContext(
             id="eval-4",
             name="No source eval",
-            evaluation_type=EvaluationType.HOG,
+            evaluation_type=EvaluationRuntime.HOG,
         )
         ui_context = MaxUIContext(evaluations=[evaluation])
         result = await self.context_manager._format_ui_context(ui_context)

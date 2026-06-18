@@ -1,8 +1,8 @@
 # Agent concierge — the meta-agent for the platform
 
 The "explain, debug, edit" assistant for every agent on the
-PostHog agent platform. One deployment, three surfaces (agent
-console chat dock, MCP from Claude Code / Cursor, future Slack),
+PostHog agent platform. One deployment, three surfaces (PostHog Code
+chat dock, MCP from Claude Code / Cursor, future Slack),
 all acting under the user's PostHog OAuth principal.
 
 ## Status
@@ -80,7 +80,7 @@ agent-concierge/
 | Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation.                                     |
 | Native (telemetry) | `@posthog/query`                                                                                                         | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence — see `querying-ai-observability`. |
 | Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`                                                | Durable output of a fleet audit — persist the report to memory.                                                                                                                                          |
-| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console.                                                                                                                |
+| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive PostHog Code's read panel + read the user's current view. No-op outside PostHog Code.                                                                                                              |
 
 ## Auth model
 
@@ -89,8 +89,8 @@ Auth is configured **per trigger** — there is no top-level
 `auth.modes: [posthog, posthog_internal]` (an array), so both entry
 points map to the same effective auth:
 
-1. **Console** — user logs into `console.agents.posthog.com` via
-   PostHog OAuth, the console mints a short-lived session-principal
+1. **PostHog Code** — user signs into the PostHog Code app via
+   PostHog OAuth; the app mints a short-lived session-principal
    token from the OAuth session, attaches it as the chat trigger's
    principal field. Every tool call runs as the user.
 2. **MCP** — user attaches their PostHog PAT in their MCP client
@@ -135,7 +135,7 @@ agent-applications-revisions-promote-create revision_id=<rid>
 The concierge lives in **PostHog's primary org** so it's
 available to every team via the standard MCP / chat ingress. Each
 trigger's `auth.modes: [posthog, posthog_internal]` means it's not
-callable as a random external bot — only the console's signed
+callable as a random external bot — only PostHog Code's signed
 session-principal token (`posthog_internal`) + verified user PATs
 (`posthog`) get through.
 

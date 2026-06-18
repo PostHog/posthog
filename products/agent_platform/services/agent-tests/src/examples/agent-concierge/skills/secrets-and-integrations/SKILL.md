@@ -82,7 +82,7 @@ promote — but a better user experience is to catch it during
 declares a `slack` trigger, drive the punch-out for BOTH required
 keys before reaching freeze. See `skills/setting-up-slack-app` for
 the step-by-step flow (create app → set Request URL → install →
-copy + punch-out tokens). The console env editor also surfaces
+copy + punch-out tokens). PostHog Code's env editor also surfaces
 "Required for this trigger" hints next to the relevant fields, so a
 user setting things up in the UI sees the requirement without you
 having to spell it out.
@@ -109,13 +109,13 @@ landed. Then proceed to freeze + promote.
 
 ## Setting a secret — the punch-out flow
 
-The punch-out flow is live in the agent console. You never see the
+The punch-out flow is live in PostHog Code. You never see the
 value; the user enters it into a UI form scoped to that key. Three
 paths, picked by what the client supports — preferred to least.
 
-### Path A (preferred) — `client.kind = agent-console`, inline tool
+### Path A (preferred) — `client.kind = posthog-code`, inline tool
 
-The console fulfills a `set_secret` client tool by rendering an
+PostHog Code fulfills a `set_secret` client tool by rendering an
 inline form **inside the matching tool-call card**, right in the
 chat transcript. The user fills it in without leaving the
 conversation.
@@ -165,11 +165,11 @@ Loop:
    suggest the user retry or use the deep-link fallback (Path B).
 
 If the runtime returns `unhandled_client_tool` _immediately_ (older
-console version that doesn't yet know `set_secret`), fall through
+PostHog Code version that doesn't yet know `set_secret`), fall through
 to path B — the runner returns the unhandled error directly, no
 park + wake.
 
-### Path B — `client.kind = agent-console`, deep link
+### Path B — `client.kind = posthog-code`, deep link
 
 When the inline tool isn't available, hand the user a link to the
 secrets editor and wait for a session callback. Loop:
@@ -186,14 +186,14 @@ secrets editor and wait for a session callback. Loop:
    `focus_*` tool for this — the editor wants its own modal,
    not a panel hand-off.
 
-3. **Wait for the callback.** When the user saves, the console
+3. **Wait for the callback.** When the user saves, PostHog Code
    posts a `[system]` message into the same session:
    `[system] User set secret KEY on agent SLUG. Continue.` Don't
    poll — the callback is push, not pull. If the user closes the
    dialog without saving, ask once after a turn of silence then
    drop it.
 
-### Path C — non-console client
+### Path C — non-PostHog-Code client
 
 No inline tool, no callback wire — same URL, but you ask the user
 to confirm manually. Loop:
@@ -207,7 +207,7 @@ to confirm manually. Loop:
    https://<host>/project/<team>/agents/<slug>/connections?edit_secret=<KEY>
    ```
 
-   Omit `callback_session=` — without the console there's nothing
+   Omit `callback_session=` — without PostHog Code there's nothing
    to receive it.
 
 3. Tell them: "Open <url>, set your value, then say 'done' here."
