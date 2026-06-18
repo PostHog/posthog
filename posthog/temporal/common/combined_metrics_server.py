@@ -7,6 +7,7 @@ from prometheus_client import CollectorRegistry, generate_latest
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.metrics_bind import bind_with_retry
 
 logger = get_write_only_logger(__name__)
 
@@ -94,15 +95,29 @@ class CombinedMetricsServer:
         if self._app is not None:
             raise RuntimeError("Server already started")
 
-        self._app = web.Application()
-        self._app.router.add_get("/metrics", self._handle_metrics)
-        self._app.router.add_get("/", self._handle_metrics)
+        async def bind_server() -> None:
+            # aiohttp registers a TCPSite with its runner before attempting the bind, and a failed
+            # bind leaves the site registered — so build a fresh app/runner/site for each attempt
+            # and tear down the runner if the bind fails, leaving a clean slate for the next retry.
+            app = web.Application()
+            app.router.add_get("/metrics", self._handle_metrics)
+            app.router.add_get("/", self._handle_metrics)
 
-        self._runner = web.AppRunner(self._app, access_log=None)
-        await self._runner.setup()
+            runner = web.AppRunner(app, access_log=None)
+            await runner.setup()
 
-        self._site = web.TCPSite(self._runner, "0.0.0.0", self._port)
-        await self._site.start()
+            site = web.TCPSite(runner, "0.0.0.0", self._port)
+            try:
+                await site.start()
+            except Exception:
+                await runner.cleanup()
+                raise
+
+            self._app = app
+            self._runner = runner
+            self._site = site
+
+        await bind_with_retry(bind_server, port=self._port, description="Combined metrics server")
 
         logger.info(
             "combined_metrics_server.started",

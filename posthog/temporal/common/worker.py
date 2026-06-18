@@ -35,6 +35,7 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.metrics_bind import bind_with_retry
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.data_modeling.metrics import (
@@ -306,18 +307,28 @@ async def create_worker(
             )
         )
 
-    runtime = Runtime(
-        telemetry=TelemetryConfig(
-            metric_prefix=metric_prefix,
-            metrics=PrometheusConfig(
-                bind_address=temporal_metrics_bind_address,
-                durations_as_seconds=False,
-                # Units are u64 milliseconds in sdk-core,
-                # given that the `duration_as_seconds` is `False`.
-                # But in Python we still need to pass floats due to type hints.
-                histogram_bucket_overrides=histogram_bucket_overrides,
-            ),
+    def build_runtime() -> Runtime:
+        return Runtime(
+            telemetry=TelemetryConfig(
+                metric_prefix=metric_prefix,
+                metrics=PrometheusConfig(
+                    bind_address=temporal_metrics_bind_address,
+                    durations_as_seconds=False,
+                    # Units are u64 milliseconds in sdk-core,
+                    # given that the `duration_as_seconds` is `False`.
+                    # But in Python we still need to pass floats due to type hints.
+                    histogram_bucket_overrides=histogram_bucket_overrides,
+                ),
+            )
         )
+
+    # The Temporal SDK binds the Prometheus endpoint eagerly when the runtime is constructed.
+    # With the combined metrics server this targets an internal free port, but when it's disabled
+    # the bind targets the public metrics port and can collide with an exiting worker on restart.
+    runtime = await bind_with_retry(
+        build_runtime,
+        port=int(temporal_metrics_bind_address.rsplit(":", 1)[1]),
+        description="Temporal SDK Prometheus metrics endpoint",
     )
     client = await connect(
         host,

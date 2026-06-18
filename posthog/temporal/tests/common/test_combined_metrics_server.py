@@ -8,6 +8,7 @@ import pytest
 from aiohttp import ClientSession, ClientTimeout
 from prometheus_client import CollectorRegistry, Counter, Gauge
 
+from posthog.temporal.common import metrics_bind
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.worker import get_free_port
 
@@ -505,6 +506,36 @@ test_gauge 100.0
                 await server.start()
         finally:
             await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_when_port_in_use(self, isolated_registry, monkeypatch):
+        """A permanently occupied metrics port should fail with an actionable message, not a bare OSError 98."""
+        monkeypatch.setattr(metrics_bind, "BIND_BACKOFF_SECONDS", 0.0)
+        monkeypatch.setattr(metrics_bind, "BIND_MAX_ATTEMPTS", 2)
+
+        temporal_port = get_free_port()
+        metrics_port = get_free_port()
+
+        # Occupy the metrics port with a listening socket for the duration of the test.
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        blocker.bind(("0.0.0.0", metrics_port))
+        blocker.listen(1)
+
+        server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
+            registry=isolated_registry,
+        )
+
+        try:
+            with pytest.raises(OSError) as exc_info:
+                await server.start()
+
+            assert str(metrics_port) in str(exc_info.value)
+            assert "Combined metrics server" in str(exc_info.value)
+        finally:
+            blocker.close()
 
     @pytest.mark.asyncio
     async def test_stop_when_not_started_is_noop(self, isolated_registry):
