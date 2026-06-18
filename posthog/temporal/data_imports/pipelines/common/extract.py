@@ -53,8 +53,6 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
     return f"posthog:data_warehouse:non_retryable_errors:{team_id}:{source_id}:{run_id}"
 
 
-# A source-classified non-retryable error still gets a small retry budget before we give up, in
-# case the failure was transient despite matching a known pattern.
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
