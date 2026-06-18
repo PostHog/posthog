@@ -279,22 +279,25 @@ export function InsightMeta({
         )
     }
 
-    // Hide the per-tile refresh control while anything is refreshing (e.g. a full-dashboard
-    // refresh marks every tile as loading) so the icons don't flash across all tiles at once.
-    const refreshInProgress = loading || loadingQueued || !refreshEnabled
+    // Only suppress this tile's icon while this tile itself is refreshing (a full-dashboard
+    // refresh marks every tile as loading, so it still hides them all). Other tiles keep their
+    // icon — disabled with a reason — while a different tile refreshes.
+    const tileRefreshing = !!(loading || loadingQueued)
     const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
     const refreshDisabledReason = nextRefreshFromNow
         ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : undefined
-    // The hover icon is desktop-only, so the always-visible "⋯" menu keeps refresh reachable on
-    // touch. Unlike the hover icon (which hides while refreshing) the menu item stays but disables.
-    const refreshMenuDisabledReason = refreshDisabledReason ?? (refreshInProgress ? 'Refreshing…' : undefined)
+        : !refreshEnabled
+          ? 'Another tile is refreshing — please wait…'
+          : undefined
+    // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
+    // icon (which hides while this tile refreshes) the menu item stays but disables.
+    const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
 
     const refreshControl =
-        refresh && !refreshInProgress ? (
+        refresh && !tileRefreshing ? (
             <LemonButton
                 className="CardMeta__refresh"
                 icon={<IconRefresh />}
