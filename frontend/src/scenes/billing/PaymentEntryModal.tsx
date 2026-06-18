@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -110,12 +110,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <div className="text-4xl">
-                            <img
-                                src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                alt="Loading animation"
-                            />
-                        </div>
+                        <Spinner className="text-5xl" />
                         <p className="text-secondary text-md mt-4">We're contacting the hedgehogs for approval.</p>
                     </div>
                 )}
