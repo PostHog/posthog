@@ -4,7 +4,10 @@ import { DashboardBasicType } from '~/types'
 import {
     buildEntryByRef,
     dashboardDraggableId,
+    folderBreadcrumb,
+    folderContents,
     folderDroppableId,
+    folderLabel,
     groupDashboardsByFolder,
     parseDashboardDragEnd,
     UNFILED_DASHBOARDS_FOLDER,
@@ -48,5 +51,34 @@ describe('dashboardsFileSystemUtils', () => {
         ['something-else', folderDroppableId('Marketing'), 'active is not a dashboard'],
     ])('returns null for an invalid drop (%s)', (active, over) => {
         expect(parseDashboardDragEnd(active, over)).toBeNull()
+    })
+
+    it('folderContents returns immediate subfolders and direct dashboards at a path', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
+        expect(folderContents([dash(1, 'A'), dash(2, 'B'), dash(3, 'C')], byRef, 'Marketing')).toEqual({
+            subfolders: ['Marketing/Q1'],
+            dashboards: [dash(1, 'A')],
+        })
+    })
+
+    it('folderContents at root lists top-level folders only', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Unfiled/Dashboards/B')])
+        expect(folderContents([dash(1, 'A'), dash(2, 'B')], byRef, '')).toEqual({
+            subfolders: ['Marketing', 'Unfiled'],
+            dashboards: [],
+        })
+    })
+
+    it('folderBreadcrumb builds root-to-current crumbs', () => {
+        expect(folderBreadcrumb('Marketing/Q1')).toEqual([
+            { label: 'All dashboards', path: '' },
+            { label: 'Marketing', path: 'Marketing' },
+            { label: 'Q1', path: 'Marketing/Q1' },
+        ])
+        expect(folderBreadcrumb('')).toEqual([{ label: 'All dashboards', path: '' }])
+    })
+
+    it('folderLabel returns the last path segment', () => {
+        expect(folderLabel('Marketing/Q1')).toEqual('Q1')
     })
 })

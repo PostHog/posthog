@@ -79,3 +79,62 @@ export function parseDashboardDragEnd(
     }
     return { dashboardId, folder: over.slice(FOLDER_PREFIX.length) }
 }
+
+export interface FolderContents {
+    // Full paths of the immediate child folders of `currentFolder`.
+    subfolders: string[]
+    // Dashboards filed directly in `currentFolder` (not in a subfolder).
+    dashboards: DashboardBasicType[]
+}
+
+// Finder arm: given the current folder, return its immediate subfolders and the dashboards directly in it,
+// derived from each dashboard's folder path. (Folders with no dashboards in their subtree don't appear — a
+// v1 limitation, since we only load dashboard entries, not standalone folder rows.)
+export function folderContents(
+    dashboards: DashboardBasicType[],
+    entryByRef: Record<string, FileSystemEntry>,
+    currentFolder: string
+): FolderContents {
+    const currentSegments = currentFolder ? splitPath(currentFolder) : []
+    const subfolders = new Set<string>()
+    const directDashboards: DashboardBasicType[] = []
+
+    for (const dashboard of dashboards) {
+        const entry = entryByRef[String(dashboard.id)]
+        const folder = (entry?.path && parentFolder(entry.path)) || UNFILED_DASHBOARDS_FOLDER
+        const segments = splitPath(folder)
+        const withinCurrent = currentSegments.every((segment, index) => segments[index] === segment)
+        if (!withinCurrent) {
+            continue
+        }
+        if (segments.length === currentSegments.length) {
+            directDashboards.push(dashboard)
+        } else {
+            subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
+        }
+    }
+
+    return { subfolders: [...subfolders].sort((a, b) => a.localeCompare(b)), dashboards: directDashboards }
+}
+
+export interface FolderBreadcrumb {
+    label: string
+    path: string
+}
+
+// Breadcrumb from the dashboards root to `currentFolder`, each crumb carrying the path to navigate to.
+export function folderBreadcrumb(currentFolder: string): FolderBreadcrumb[] {
+    const crumbs: FolderBreadcrumb[] = [{ label: 'All dashboards', path: '' }]
+    if (currentFolder) {
+        const segments = splitPath(currentFolder)
+        segments.forEach((segment, index) => {
+            crumbs.push({ label: segment, path: joinPath(segments.slice(0, index + 1)) })
+        })
+    }
+    return crumbs
+}
+
+// Display label for a folder card = its last path segment.
+export function folderLabel(folder: string): string {
+    return splitPath(folder).at(-1) ?? folder
+}

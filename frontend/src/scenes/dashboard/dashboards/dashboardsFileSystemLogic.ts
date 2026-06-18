@@ -8,7 +8,15 @@ import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
-import { buildEntryByRef, DashboardFolderGroup, groupDashboardsByFolder } from './dashboardsFileSystemUtils'
+import {
+    buildEntryByRef,
+    DashboardFolderGroup,
+    folderBreadcrumb,
+    FolderBreadcrumb,
+    folderContents,
+    FolderContents,
+    groupDashboardsByFolder,
+} from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
@@ -25,6 +33,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     actions({
         toggleFolder: (folder: string) => ({ folder }),
         moveDashboardToFolder: (dashboardId: number, folder: string) => ({ dashboardId, folder }),
+        // Finder arm: drill into / breadcrumb back to a folder ('' = the dashboards root).
+        navigateToFolder: (folder: string) => ({ folder }),
     }),
     loaders({
         dashboardFileSystemEntries: [
@@ -44,6 +54,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
             },
         ],
+        currentFolder: [
+            '',
+            {
+                navigateToFolder: (_, { folder }) => folder,
+            },
+        ],
     }),
     selectors({
         entryByRef: [
@@ -54,6 +70,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboards, s.entryByRef],
             (dashboards, entryByRef): DashboardFolderGroup[] => groupDashboardsByFolder(dashboards, entryByRef),
         ],
+        currentFolderContents: [
+            (s) => [s.dashboards, s.entryByRef, s.currentFolder],
+            (dashboards, entryByRef, currentFolder): FolderContents =>
+                folderContents(dashboards, entryByRef, currentFolder),
+        ],
+        breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
     }),
     listeners(({ values, actions }) => ({
         moveDashboardToFolder: ({ dashboardId, folder }) => {

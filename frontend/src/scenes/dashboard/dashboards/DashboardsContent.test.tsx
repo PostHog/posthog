@@ -7,6 +7,7 @@ import { DashboardsContent } from './DashboardsContent'
 
 jest.mock('./DashboardsTable', () => ({ DashboardsTableContainer: () => <div>table-arm</div> }))
 jest.mock('./DashboardsGrid', () => ({ DashboardsGrid: () => <div>grid-arm</div> }))
+jest.mock('./DashboardsFinder', () => ({ DashboardsFinder: () => <div>finder-arm</div> }))
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn() }))
 
 function renderWithFlag(value: string | undefined): void {
@@ -30,8 +31,8 @@ describe('DashboardsContent', () => {
         expect(screen.getByText('grid-arm')).toBeInTheDocument()
     })
 
-    it('renders the table for finder until the finder arm ships', () => {
+    it('renders the finder for the finder variant', () => {
         renderWithFlag('finder')
-        expect(screen.getByText('table-arm')).toBeInTheDocument()
+        expect(screen.getByText('finder-arm')).toBeInTheDocument()
     })
 })

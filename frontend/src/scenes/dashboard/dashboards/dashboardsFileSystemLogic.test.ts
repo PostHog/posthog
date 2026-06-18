@@ -66,4 +66,14 @@ describe('dashboardsFileSystemLogic', () => {
             logic.actions.moveDashboardToFolder(1, 'Product')
         }).toDispatchActions(['moveItem'])
     })
+
+    it('navigates folders and exposes a breadcrumb', async () => {
+        await expectLogic(logic, () => logic.actions.navigateToFolder('Marketing')).toMatchValues({
+            currentFolder: 'Marketing',
+            breadcrumb: [
+                { label: 'All dashboards', path: '' },
+                { label: 'Marketing', path: 'Marketing' },
+            ],
+        })
+    })
 })
