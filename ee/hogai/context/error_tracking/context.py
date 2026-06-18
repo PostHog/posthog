@@ -51,16 +51,18 @@ class ErrorTrackingIssueContext:
         return await database_sync_to_async(self._get_issue_sync)()
 
     async def aget_first_event(self, first_seen: datetime | None = None) -> dict | None:
-        """Fetch the first event for the issue to get stack trace data."""
+        """Fetch a representative early event for the issue to get stack trace data."""
         return await database_sync_to_async(self._get_first_event_sync)(first_seen)
 
     def _get_first_event_sync(self, first_seen: datetime | None = None) -> dict | None:
-        """Synchronous implementation of get_first_event.
+        """Fetch an early event for the issue (for stack-trace context, not a precise audit).
 
-        Fetching the first event reads its full properties blob, so scan a narrow window
-        around first_seen first. first_seen tracks ingestion time, which can sit far from
-        the event timestamps the query filters on (imports, backdated events), so fall
-        back to the full history when the window comes up empty.
+        Fetching the event reads its full properties blob, so scan a narrow ±1h window
+        around first_seen instead of all time. This returns the earliest event *within the
+        window*; if first_seen is import/ingestion-skewed away from the event timestamps an
+        even-earlier event could sit outside it, but any event this close to first_seen is an
+        equally good stack trace for the assistant. Only when the window is empty do we fall
+        back to the full history so a stack trace is still surfaced.
         """
         if first_seen is not None:
             event = self._query_first_event(
