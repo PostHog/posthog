@@ -340,9 +340,11 @@ describe('TimeSeriesLineChart', () => {
             // The legend lists only the user's series, not the derived trend line.
             expect(buttons().map((b) => b.textContent)).toEqual(['A', 'B'])
 
-            const before = chart.seriesCount
+            // A + B + trend-of-A are all drawn before any toggle.
+            expect(chart.seriesCount).toBe(3)
             fireEvent.click(buttons()[0])
-            expect(getHogChart(container).seriesCount).toBeLessThan(before)
+            // Hiding A also suppresses its trend line, leaving only B.
+            expect(getHogChart(container).seriesCount).toBe(1)
         })
     })
 })
