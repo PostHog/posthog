@@ -9,6 +9,7 @@ import {
     Fragment,
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
+    ReactNode,
     Suspense,
     lazy,
     useCallback,
@@ -216,6 +217,7 @@ export type MarkdownNotebookProps = {
     createAIChatId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
+    renderSavedInsightPicker?: (props: MarkdownNotebookSavedInsightPickerProps) => ReactNode
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -244,6 +246,12 @@ export type MarkdownNotebookAskAIRequest = {
     markdown: string
     markdownWithChat: string
     selectedMarkdown?: string
+}
+
+export type MarkdownNotebookSavedInsightPickerProps = {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (shortId: string, title: string) => void
 }
 
 type CommitDocumentOptions = {
@@ -363,6 +371,7 @@ export function MarkdownNotebook({
     createAIChatId = createDefaultAIChatId,
     mode = 'edit',
     registry,
+    renderSavedInsightPicker,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -387,6 +396,8 @@ export function MarkdownNotebook({
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
+    // Node the saved-insight picker will replace once an insight is chosen; null when the picker is closed.
+    const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
@@ -2193,6 +2204,33 @@ export function MarkdownNotebook({
         [mergedRegistry, replaceNode]
     )
 
+    const closeSavedInsightPicker = useCallback((): void => {
+        setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const handleSavedInsightPicked = useCallback(
+        (shortId: string, title: string): void => {
+            if (!savedInsightPickerTargetNodeId) {
+                return
+            }
+            replaceNodeWithInsertedComponent(savedInsightPickerTargetNodeId, {
+                id: makeEmptyParagraph('component-Query').id,
+                type: 'component',
+                tagName: 'Query',
+                props: {
+                    query: { kind: 'SavedInsightNode', shortId },
+                    // The insight is already configured via the picker, so render results-only — hiding the
+                    // settings panel (the "Edit the insight" / "Detach from insight" controls) by default.
+                    hideFilters: true,
+                    // Label the node with the insight's name so the toolbar shows it instead of the short id.
+                    ...(title ? { title } : {}),
+                },
+            })
+            setSavedInsightPickerTargetNodeId(null)
+        },
+        [savedInsightPickerTargetNodeId, replaceNodeWithInsertedComponent]
+    )
+
     const replaceNodeWithNodes = useCallback(
         (nodeId: string, replacementNodes: NotebookBlockNode[]): void => {
             const currentDocument = documentRef.current
@@ -2368,9 +2406,10 @@ export function MarkdownNotebook({
                 (nodeId) => {
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
-                onAskAI ? openAIPrompt : undefined
+                onAskAI ? openAIPrompt : undefined,
+                renderSavedInsightPicker ? setSavedInsightPickerTargetNodeId : undefined
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt]
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, renderSavedInsightPicker]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -5275,6 +5314,11 @@ export function MarkdownNotebook({
                     </aside>
                 ) : null}
             </div>
+            {renderSavedInsightPicker?.({
+                isOpen: savedInsightPickerTargetNodeId !== null,
+                onClose: closeSavedInsightPicker,
+                onSelect: handleSavedInsightPicked,
+            })}
         </div>
     )
 }

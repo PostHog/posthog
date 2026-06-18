@@ -14,6 +14,7 @@ import {
     getInlineNotebookAIPanelId,
     getNotebookAIChatUIContext,
 } from './markdownNotebookRuntime'
+import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
 import { getMarkdownNotebookMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
@@ -101,6 +102,9 @@ export function MarkdownNotebookV2(): JSX.Element {
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                renderSavedInsightPicker={
+                    isEditable ? (pickerProps) => <MarkdownNotebookSavedInsightPicker {...pickerProps} /> : undefined
+                }
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={markdownRemoteCarets}

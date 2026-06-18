@@ -167,7 +167,8 @@ export function buildInsertCommands(
     focusInsertedText: (nodeId: string) => void,
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
-    openAIPrompt?: (nodeId: string) => void
+    openAIPrompt?: (nodeId: string) => void,
+    openSavedInsightPicker?: (nodeId: string) => void
 ): InsertCommand[] {
     const commonCategory = 'Common'
 
@@ -275,13 +276,17 @@ export function buildInsertCommands(
             label: 'Saved insight',
             category: 'Insight',
             icon: <IconGraph />,
+            // With a picker available, defer insertion until the user chooses an insight in the
+            // search modal; otherwise fall back to inserting an empty node to pick later.
             run: (targetNodeId) =>
-                insertComponent(targetNodeId, 'Query', {
-                    query: {
-                        kind: 'SavedInsightNode',
-                        shortId: '',
-                    },
-                }),
+                openSavedInsightPicker
+                    ? openSavedInsightPicker(targetNodeId)
+                    : insertComponent(targetNodeId, 'Query', {
+                          query: {
+                              kind: 'SavedInsightNode',
+                              shortId: '',
+                          },
+                      }),
         },
     ]
 
