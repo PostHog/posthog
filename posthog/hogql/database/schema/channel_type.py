@@ -47,11 +47,11 @@ def create_initial_domain_type(
 ) -> ExpressionField:
     if not properties_path:
         properties_path = ["properties"]
-    # One call expanded in the resolver (see expand_initial_domain_type_call), like the channel type.
+    # One call expanded in the resolver (see expand_domain_type_call), like the channel type.
     return ExpressionField(
         name=name,
         expr=ast.Call(
-            name=INITIAL_DOMAIN_TYPE_FUNCTION,
+            name=DOMAIN_TYPE_FUNCTION,
             args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])])],
         ),
         isolate_scope=True,
@@ -59,7 +59,7 @@ def create_initial_domain_type(
 
 
 @cache
-def _initial_domain_type_expr() -> ast.Expr:
+def _domain_type_expr() -> ast.Expr:
     return parse_expr(
         """
 if(
@@ -71,13 +71,13 @@ if(
     )
 
 
-# Default referring-domain classification; expanded to SQL in the resolver (never a real CH function).
-INITIAL_DOMAIN_TYPE_FUNCTION = "_initialDomainType"
+# Referring-domain classification; expanded to SQL in the resolver (never a real CH function).
+DOMAIN_TYPE_FUNCTION = "_domainType"
 
 
-def expand_initial_domain_type_call(args: list[ast.Expr]) -> ast.Expr:
-    # Resolver-side expansion of _initialDomainType(referring_domain).
-    return replace_placeholders(_initial_domain_type_expr(), {"referring_domain": args[0]})
+def expand_domain_type_call(args: list[ast.Expr]) -> ast.Expr:
+    # Resolver-side expansion of _domainType(referring_domain).
+    return replace_placeholders(_domain_type_expr(), {"referring_domain": args[0]})
 
 
 def create_initial_channel_type(

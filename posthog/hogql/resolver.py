@@ -1594,16 +1594,14 @@ class Resolver(CloningVisitor):
                 return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
             if node.name in ("getBotOperator", "__preview_getBotOperator"):
                 return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
-            if node.name in ("_defaultChannelType", "_initialDomainType"):
+            if node.name in ("_defaultChannelType", "_domainType"):
                 from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle
                     expand_default_channel_type_call,
-                    expand_initial_domain_type_call,
+                    expand_domain_type_call,
                 )
 
                 builder = (
-                    expand_default_channel_type_call
-                    if node.name == "_defaultChannelType"
-                    else expand_initial_domain_type_call
+                    expand_default_channel_type_call if node.name == "_defaultChannelType" else expand_domain_type_call
                 )
                 return self._expand_duplicating_macro(node, lambda: builder(node.args))
 
