@@ -432,7 +432,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     })),
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         reloadAll: true,
     }),
     reducers({
@@ -447,7 +447,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         filterTestAccountsOverride: [
             null as boolean | null,
             {
-                setFilterTestAccounts: (_, { filterTestAccounts }): boolean => filterTestAccounts,
+                setFilterTestAccounts: (_, { filterTestAccounts }): boolean | null => filterTestAccounts,
             },
         ],
     }),
@@ -673,7 +673,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             const rawFilter = searchParams.filter_test_accounts
             const filterOverride = rawFilter === undefined ? null : rawFilter === true || rawFilter === 'true'
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
-            const filterChanged = filterOverride !== null && filterOverride !== values.filterTestAccountsOverride
+            const filterChanged = filterOverride !== values.filterTestAccountsOverride
             // setDateFilter / setFilterTestAccounts each reload via their listeners.
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
