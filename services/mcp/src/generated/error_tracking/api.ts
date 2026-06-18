@@ -2004,7 +2004,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking grouping rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -4537,7 +4537,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking suppression rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
