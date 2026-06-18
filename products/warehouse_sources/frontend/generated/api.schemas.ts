@@ -13,6 +13,7 @@
  * * `append` - append
  * * `webhook` - webhook
  * * `cdc` - cdc
+ * * `xmin` - xmin
  */
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
@@ -22,6 +23,7 @@ export const SyncTypeEnumApi = {
     Append: 'append',
     Webhook: 'webhook',
     Cdc: 'cdc',
+    Xmin: 'xmin',
 } as const
 
 /**
@@ -31,6 +33,7 @@ export const SyncTypeEnumApi = {
  * * `date` - date
  * * `timestamp` - timestamp
  * * `objectid` - objectid
+ * * `xid` - xid
  */
 export type IncrementalFieldTypeEnumApi = (typeof IncrementalFieldTypeEnumApi)[keyof typeof IncrementalFieldTypeEnumApi]
 
@@ -41,6 +44,7 @@ export const IncrementalFieldTypeEnumApi = {
     Date: 'date',
     Timestamp: 'timestamp',
     Objectid: 'objectid',
+    Xid: 'xid',
 } as const
 
 /**
@@ -140,7 +144,8 @@ export interface ExternalDataSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -154,7 +159,8 @@ export interface ExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
      *
@@ -271,7 +277,8 @@ export interface PatchedExternalDataSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -285,7 +292,8 @@ export interface PatchedExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
      *
@@ -973,6 +981,10 @@ export const CreatedViaEnumApi = {
  * * `Clarifai` - Clarifai
  * * `Adapty` - Adapty
  * * `Braintrust` - Braintrust
+ * * `StreamElements` - StreamElements
+ * * `Streamlabs` - Streamlabs
+ * * `Datorama` - Datorama
+ * * `Ahrefs` - Ahrefs
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -1600,6 +1612,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Clarifai: 'Clarifai',
     Adapty: 'Adapty',
     Braintrust: 'Braintrust',
+    StreamElements: 'StreamElements',
+    Streamlabs: 'Streamlabs',
+    Datorama: 'Datorama',
+    Ahrefs: 'Ahrefs',
     Custom: 'Custom',
 } as const
 
@@ -1617,12 +1633,14 @@ export const AccessMethodEnumApi = {
 /**
  * * `duckdb` - duckdb
  * * `postgres` - postgres
+ * * `mysql` - mysql
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
 export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
+    Mysql: 'mysql',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1666,7 +1684,8 @@ export interface ExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2321,6 +2340,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -2386,7 +2409,8 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2422,7 +2446,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
@@ -2499,7 +2524,8 @@ export interface ExternalDataSourceConnectionOptionApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
 }
 
@@ -3143,6 +3169,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -3776,6 +3806,10 @@ export interface SourceSetupApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -4447,6 +4481,10 @@ export interface SourceCredentialCreateApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */

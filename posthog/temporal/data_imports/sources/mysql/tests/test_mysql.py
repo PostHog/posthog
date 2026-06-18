@@ -7,16 +7,20 @@ from unittest.mock import MagicMock
 
 import pymysql
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    _MAX_CONNECT_ATTEMPTS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_drop,
     _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
@@ -69,6 +73,12 @@ def _make_inputs(schema_name: str = "messages", **overrides) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
+
+
+def _connection_for_cursor(cursor: MagicMock) -> MagicMock:
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    return conn
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +228,108 @@ def cursor() -> MagicMock:
     c.fetchone.return_value = None
     c.description = None
     return c
+
+
+class TestSchemaDiscovery:
+    def test_schema_field_is_optional(self):
+        field = next(field for field in MySQLSource().get_source_config.fields if field.name == "schema")
+
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.required is False
+        assert (
+            MySQLSourceConfig.from_dict(
+                {
+                    "host": "localhost",
+                    "port": 3306,
+                    "database": "d",
+                    "user": "u",
+                    "password": "p",
+                    "using_ssl": "false",
+                }
+            ).schema
+            is None
+        )
+
+    def test_get_columns_uses_plain_table_names_when_schema_configured(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("app", "users", "email", "varchar", "YES"),
+        ]
+
+        columns = impl.get_columns(_connection_for_cursor(cursor), _make_config(schema="app"), names=None)
+
+        assert columns == {"users": [("id", "int", False), ("email", "varchar", True)]}
+        sql, params = cursor.execute.call_args.args
+        assert "table_schema = %(schema)s" in sql
+        assert params["schema"] == "app"
+
+    def test_get_columns_uses_qualified_table_names_when_schema_blank(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("billing", "users", "id", "bigint", "NO"),
+            ("billing", "invoices", "amount", "decimal", "YES"),
+        ]
+
+        columns = impl.get_columns(_connection_for_cursor(cursor), _make_config(schema=""), names=None)
+
+        assert columns == {
+            "app.users": [("id", "int", False)],
+            "billing.users": [("id", "bigint", False)],
+            "billing.invoices": [("amount", "decimal", True)],
+        }
+        sql, params = cursor.execute.call_args.args
+        assert "table_schema NOT IN %(system_schemas)s" in sql
+        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys")
+
+    def test_get_columns_filters_qualified_names_when_schema_blank(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("billing", "users", "id", "bigint", "NO"),
+        ]
+
+        columns = impl.get_columns(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            names=["billing.users"],
+        )
+
+        assert columns == {"billing.users": [("id", "bigint", False)]}
+        _, params = cursor.execute.call_args.args
+        assert params["names"] == ("users",)
+
+    def test_get_primary_keys_maps_duplicate_table_names_to_qualified_names(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id"),
+            ("billing", "users", "billing_id"),
+        ]
+
+        primary_keys = impl.get_primary_keys(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            ["app.users", "billing.users"],
+        )
+
+        assert primary_keys == {"app.users": ["id"], "billing.users": ["billing_id"]}
+
+    def test_get_leading_index_columns_maps_duplicate_table_names_to_qualified_names(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "created_at"),
+            ("billing", "users", "updated_at"),
+        ]
+
+        indexed_columns = impl.get_leading_index_columns(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            ["app.users", "billing.users"],
+        )
+
+        assert indexed_columns == {"app.users": {"created_at"}, "billing.users": {"updated_at"}}
+
+    def test_get_source_metadata_records_source_location(self, impl):
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["app.users", "billing.invoices"])
+
+        assert metadata.schema_by_table == {"app.users": "app", "billing.invoices": "billing"}
+        assert metadata.table_name_by_table == {"app.users": "users", "billing.invoices": "invoices"}
 
 
 class TestGetPrimaryKeysForTable:
@@ -610,6 +722,24 @@ def _drain_source():
     list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
 
 
+class TestBuildPipelineSourceLocation:
+    def test_uses_schema_metadata_when_schema_is_blank(self, build_pipeline_mocks):
+        source = MySQLImplementation().build_pipeline(
+            _make_config(schema=""),
+            _make_inputs(
+                schema_name="analytics.users",
+                schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
+            ),
+        )
+
+        assert source.name == "analytics_users"
+        assert cast(MagicMock, MySQLImplementation.get_primary_keys_for_table).call_args.args[-2:] == (
+            "analytics",
+            "users",
+        )
+        assert cast(MagicMock, MySQLImplementation.get_table_metadata).call_args.args[-2:] == ("analytics", "users")
+
+
 class TestStreamingConnectionTimeouts:
     def test_read_timeout_is_passed_to_streaming_connection(self, build_pipeline_mocks):
         mock_connect, _, _ = build_pipeline_mocks
@@ -706,6 +836,93 @@ class TestIsBadPlanError:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_bad_plan_error(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectDrop:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Lost connection to MySQL server during query",
+            "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)",
+        ],
+    )
+    def test_matches_lost_connection(self, message):
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2013, message))
+
+    def test_does_not_match_ssl_version_mismatch(self):
+        # SSL wrong-version arrives wrapped in 2013 but is a deterministic config error
+        # (already non-retryable) — retrying just delays the friendly message.
+        assert not _is_transient_connect_drop(
+            pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError())
+
+
+class TestConnectTransientRetry:
+    def test_retries_transient_drop_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(1)
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_ssl_version_mismatch(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            ),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
 
 
 class TestBuildQueryForceIndex:
@@ -925,6 +1142,19 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Could not establish session to SSH gateway",
+            # Temporal-wrapped form carrying the sshtunnel exception class name.
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+        ],
+    )
+    def test_ssh_gateway_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH gateway failure should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

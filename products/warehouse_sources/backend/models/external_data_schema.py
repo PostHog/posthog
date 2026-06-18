@@ -36,6 +36,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
         CDC = "cdc", "cdc"
+        XMIN = "xmin", "xmin"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -59,7 +60,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -88,6 +89,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+        super().save(*args, **kwargs)
+
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
 
@@ -110,6 +122,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_cdc(self):
         return self.sync_type == self.SyncType.CDC
+
+    @property
+    def is_xmin(self):
+        return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def xmin_last_value(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_last_value", None)
+        return None
+
+    @property
+    def xmin_ceiling(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_ceiling", None)
+        return None
+
+    @property
+    def xmin_num_wraparound(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_num_wraparound", None)
+        return None
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -288,6 +322,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         self.sync_type_config.pop("backfilled_partition_format", None)
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
 
@@ -344,6 +381,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if save:
             self.save()
 
+    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
+        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+        # instead of skipping it.
+        self.sync_type_config["xmin_last_value"] = ceiling_xid
+        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
+        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
+
+        if save:
+            self.save()
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -375,7 +422,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if value is None or value == "None" or field_type is None:
         return None
 
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+    if (
+        field_type == IncrementalFieldType.Integer
+        or field_type == IncrementalFieldType.Numeric
+        or field_type == IncrementalFieldType.XID
+    ):
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:

@@ -14,7 +14,7 @@ from datetime import (
     time as datetime_time,
     timezone,
 )
-from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, TypeVar, cast
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -87,19 +87,14 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 # default statement_timeout on the source role.
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
-# Statement timeout scoped to the schema-discovery metadata query in `_get_table`.
-# `information_schema.columns` computes `numeric_precision`/`numeric_scale` via the per-column
-# `_pg_numeric_*` SQL functions, which can be slow on large catalogs. The setup connection has no
-# statement_timeout we control until `postgres_source` sets one *after* `_get_table` returns, so
-# the query would otherwise inherit whatever (possibly very short) default the source role/server
-# imposes and get cancelled mid-discovery. Scope a generous-but-bounded budget so a too-short
-# default can't kill it.
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
-# How many times the metadata-gathering phase reconnects and retries when a hot-standby
-# recovery conflict terminates the setup connection. Past this the conflict is treated as
-# sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
+# In-process retries for a recovery conflict before the abort (non-retryable, see source.py). The
+# read path counts these only once the chunk has shrunk to the floor.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
+_MAX_READ_RECOVERY_CONFLICT_RETRIES = 10
+# A shorter query holds its snapshot for less time, lowering the odds the replica cancels it.
+_MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
 
 # Bounded in-process retries for a transient connection drop hit *during* the setup metadata
 # probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
@@ -159,6 +154,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # raises this from inside a wait, e.g. the commit at the end of get_connection).
     # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
     "the connection is lost",
+    # Supabase's Supavisor pooler reports a transient failure to reach the upstream backend (TCP
+    # timeout while the backend is briefly unreachable — failover, idle cull, restart) as a
+    # ConnectionFailure (SQLSTATE 08006, an OperationalError) carrying the Erlang-tuple reason
+    # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
+    # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
+    "{:error, :etimedout}",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -250,6 +251,34 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
+_T = TypeVar("_T")
+
+
+def _retry_on_connection_dropped(
+    operation: Callable[[], _T],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = 5,
+) -> _T:
+    """Run `operation`, retrying transient connection-dropped errors with bounded backoff.
+
+    Permanent errors (auth failures, SSL-required) are re-raised immediately because
+    `_is_connection_dropped_error` only matches transient drops.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
+            if not _is_connection_dropped_error(e):
+                raise
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            logger.debug(f"Connection dropped ({e}). Retrying (attempt {attempt}/{max_attempts})")
+            time.sleep(min(2 * attempt, 30))
+
+
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -266,18 +295,24 @@ def _connect_with_dropped_retry(
     bounded backoff; permanent errors (auth failures, SSL-required) are re-raised
     immediately because `_is_connection_dropped_error` only matches transient drops.
     """
-    attempt = 0
-    while True:
-        try:
-            return connect()
-        except _CONNECTION_DROPPED_ERROR_TYPES as e:
-            if not _is_connection_dropped_error(e):
-                raise
-            attempt += 1
-            if attempt >= max_attempts:
-                raise
-            logger.debug(f"Connection attempt failed ({e}). Retrying (attempt {attempt}/{max_attempts})")
-            time.sleep(min(2 * attempt, 30))
+    return _retry_on_connection_dropped(connect, logger, max_attempts=max_attempts)
+
+
+def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
+    # Only shrink on a sustained conflict — successive_errors resets on a yielded chunk.
+    if successive_errors >= 5 and chunk_size > _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+        return max(int(chunk_size / 1.5), _MIN_RECOVERY_CONFLICT_CHUNK_SIZE)
+    return chunk_size
+
+
+def _recovery_conflict_abort_error(retries: int) -> Exception:
+    # Non-retryable (see source.py): once in-process retries are exhausted the conflict is sustained,
+    # and a whole-activity retry just re-reads from offset 0 into the same wall.
+    return Exception(
+        f"Read replica kept canceling reads due to conflict with recovery after {retries} retries. "
+        f"Increase max_standby_streaming_delay or enable hot_standby_feedback on the replica, or sync "
+        f"from the primary database instead of the read replica."
+    )
 
 
 def _statement_timeout_as_non_retryable(
@@ -354,6 +389,18 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
     return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
 
 
+# libpq reports a non-'S'/'N' byte to its SSLRequest packet as "received invalid response to SSL
+# negotiation: <byte>". The handshake mentions SSL, but the cause is that the host/port doesn't
+# reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
+# or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
+# raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+_INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
+
+
+def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
+    return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -364,9 +411,12 @@ def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
-        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
-            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
-        raise
+        if not (connect_kwargs.get("options") and _is_options_startup_param_unsupported(e)):
+            raise
+    # Retry outside the `except` block: a genuine failure on the options-less connect (bad
+    # password, tenant not found) must propagate on its own, not chained to the benign — and now
+    # recovered — "options unsupported" error, which otherwise masks the real cause in error tracking.
+    return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
 
 
 def _connect_to_postgres(
@@ -408,7 +458,7 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
+        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -789,15 +839,21 @@ def _rls_active_from_conn(
         # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
         # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
         # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
-        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
-        # don't re-capture it (mirrors `_get_partition_settings`).
+        # a downstream symptom. A harsher variant of the same thing: an earlier probe (or a transient
+        # drop — SSH-tunnel hiccup, idle cull, failover) leaves the shared connection closed/broken,
+        # so our `cursor()` call surfaces as `OperationalError: the connection is closed`. Both are
+        # already-handled downstream symptoms, not bugs in this lookup, so don't re-capture them
+        # (mirrors `_get_partition_settings` and the caller's own connection-level handler).
         #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
-            e, "row_security_active"
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_function_error(e, "row_security_active")
         ):
             capture_exception(e)
         return {}
@@ -908,24 +964,31 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
-    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
-    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
-    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
-    # retry here that blip fails the whole discovery activity and surfaces as captured
-    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
-    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+
+    # Schema discovery opens a fresh connection on its own periodic cadence. A transient drop —
+    # "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall, or
+    # SSH-tunnel hiccup, or a Supavisor "DbHandler exited" (EDBHANDLEREXITED) mid-query — is the
+    # same class the import read path already retries via `_connect_with_dropped_retry`.
+    # Transaction-mode poolers (Supabase's Supavisor, PgBouncer) routinely accept the client
+    # connection and only drop the upstream backend once the first query runs, so the drop can land
+    # either on connect or on the first discovery query (e.g. `SELECT version()` in
+    # `_is_duckdb_connection`). Retry the whole connect-and-discover cycle on a fresh connection so
+    # the retry spans both — otherwise the blip fails the discovery activity and surfaces as
+    # captured error-tracking noise even though the next attempt would succeed. Permanent errors
+    # (auth failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
     # matches transient drops.
-    connection = _connect_with_dropped_retry(
-        lambda: _connect_to_postgres(
+    def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
+        connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-        ),
-        structlog.get_logger(),
+        )
+        try:
+            return _schemas_from_conn(connection, schema, names)
+        finally:
+            connection.close()
+
+    return _retry_on_connection_dropped(
+        _connect_and_discover, structlog.get_logger(), max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES
     )
-    try:
-        return _schemas_from_conn(connection, schema, names)
-    finally:
-        connection.close()
 
 
 def get_primary_keys_for_schemas(
@@ -1561,9 +1624,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
     # QueryCanceled doesn't abort the surrounding transaction.
     use_savepoint = not cursor.connection.autocommit
+    savepoint_active = False
     try:
         if use_savepoint:
             cursor.execute("SAVEPOINT _chunk_size_probe")
+            savepoint_active = True
 
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
@@ -1577,18 +1642,19 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         cursor.execute(query)
         row = cursor.fetchone()
 
-        if use_savepoint:
+        if savepoint_active:
             cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            savepoint_active = False
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            return DEFAULT_CHUNK_SIZE
-
-        row_size_bytes = row[0] or 1
-        chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-        logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-        )
+            chunk_size = DEFAULT_CHUNK_SIZE
+        else:
+            row_size_bytes = row[0] or 1
+            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+            logger.debug(
+                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
+            )
 
         return chunk_size
     except Exception as e:
@@ -1601,11 +1667,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         # its own dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so
         # re-raising the cancellation here would only bypass that path and leak a raw, retryable
         # QueryCanceled that Temporal re-attempts forever on tables this query can never complete on.
-        if use_savepoint:
+        if savepoint_active:
             try:
                 cursor.execute("ROLLBACK TO SAVEPOINT _chunk_size_probe")
-            except Exception:
-                pass
+                cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            except Exception as rollback_error:
+                logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
@@ -2143,7 +2210,7 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e):
+                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2376,9 +2443,7 @@ def postgres_source(
                 _safe_close_connection(connection)
                 setup_recovery_conflicts += 1
                 if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
-                    raise Exception(
-                        f"Hit {setup_recovery_conflicts} successive SerializationFailure errors. Aborting."
-                    ) from e
+                    raise _recovery_conflict_abort_error(setup_recovery_conflicts) from e
                 logger.debug(
                     f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
@@ -2431,7 +2496,7 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e):
+                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2497,6 +2562,7 @@ def postgres_source(
 
                 successive_errors = 0
                 successive_conn_errors = 0
+                floor_retries = 0
                 connection = _connect_with_dropped_retry(get_connection, logger)
                 # Autocommit so each LIMIT/OFFSET query runs as its own statement
                 # and no transaction stays open across the slow delta-merge that
@@ -2538,28 +2604,27 @@ def postgres_source(
 
                             successive_errors = 0
                             successive_conn_errors = 0
+                            floor_retries = 0
                     except psycopg.errors.SerializationFailure as e:
                         if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
-                        # This error happens when the read replica is out of sync with the primary
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
 
                         successive_errors += 1
-                        if successive_errors >= 30:
-                            # The connection should be closed here, but want to double check to make sure
-                            _safe_close_connection(connection)
-
-                            raise Exception(
-                                f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
-                            ) from e
-                        elif successive_errors >= 5:
-                            chunk_size = max(int(chunk_size / 1.5), 100)
+                        # Shrink toward the floor first; only once stuck at the floor do we count down to
+                        # the abort.
+                        reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
+                        if reduced_chunk_size < chunk_size:
+                            chunk_size = reduced_chunk_size
                             logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
-                            time.sleep(2 * successive_errors)
-                        else:
-                            # Linear backoff on successive errors to make sure we give the read replica time to catch up
-                            time.sleep(2 * successive_errors)
+                            floor_retries = 0
+                        elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+                            floor_retries += 1
+                            if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
+                                _safe_close_connection(connection)
+                                raise _recovery_conflict_abort_error(floor_retries) from e
+                        time.sleep(min(2 * successive_errors, 30))
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the

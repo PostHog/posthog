@@ -207,7 +207,7 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
      * @minimum 10
      * @maximum 43200
      */
@@ -809,6 +809,8 @@ export interface SignalScoutRunSummaryApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -863,6 +865,8 @@ export interface SignalScoutRunDetailApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -1159,6 +1163,7 @@ export interface ForgetResponseApi {
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1175,6 +1180,7 @@ export const SourceProductEnumApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1190,6 +1196,7 @@ export const SourceProductEnumApi = {
  * * `health_issue` - Health issue
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1207,6 +1214,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     HealthIssue: 'health_issue',
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1346,7 +1354,7 @@ export type SignalsScoutRunsListParams = {
      */
     date_from?: string
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string
     /**

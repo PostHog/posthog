@@ -92,6 +92,7 @@ PRODUCTS_APPS = [
     "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
     "products.replay.backend.apps.ReplayConfig",
     "products.cohorts.backend.apps.CohortsConfig",
+    "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
 ]
 
@@ -248,7 +249,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -566,6 +567,8 @@ SPECTACULAR_SETTINGS = {
         "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
+        "ExperimentsListWidgetTypeEnum": ["experiments_list"],
+        "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
@@ -896,6 +899,11 @@ TOOLBAR_OAUTH_SCOPES = [
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
+# AI gateway internal admin API (wallet read + credit top-up from Django admin).
+# Server-side shared secret; never expose the token to the browser.
+AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
+AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
+
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
@@ -913,4 +921,19 @@ _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
 WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]
+
+# Teams allowed to precompute *any* web analytics query, not just the
+# single-`$host`-exact filter shape the general gate permits. For these teams the
+# eligibility gate skips the filter-shape restriction (arbitrary property filters
+# become distinct cache keys via `property_to_expr`) and flips the per-query
+# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
+# it off). Membership here also implies precompute enrollment, so a team need not
+# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
+# default (project 2) and comma-separated env-var override as the enrollment list.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(
+        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
+    )
 ]

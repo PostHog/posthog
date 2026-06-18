@@ -3,6 +3,7 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from posthog.models import Team, User
 
@@ -567,8 +568,12 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
         )
         if not skill_versions:
             raise LLMSkillNotFoundError()
+        # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
+        # derived from max(updated_at) across all team rows, advances on archive too — otherwise
+        # archiving the most-recently-updated skill would regress the version.
         LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
             deleted=True,
             is_latest=False,
+            updated_at=timezone.now(),
         )
     return skill_versions
