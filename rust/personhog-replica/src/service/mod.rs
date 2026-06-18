@@ -38,8 +38,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
     SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
     UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
     UpsertHashKeyOverridesResponse,
@@ -1307,35 +1308,35 @@ impl PersonHogReplica for PersonHogReplicaService {
         }))
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        request: Request<ResetPersonDistinctIdVersionRequest>,
-    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
         let req = request.into_inner();
 
         let person = self
             .storage
-            .reset_person_distinct_id_version(req.team_id, &req.distinct_id, req.min_version)
+            .set_person_distinct_id_version_floor(req.team_id, &req.distinct_id, req.min_version)
             .await
-            .map_err(|e| log_and_convert_error(e, "reset_person_distinct_id_version"))?;
+            .map_err(|e| log_and_convert_error(e, "set_person_distinct_id_version_floor"))?;
 
-        Ok(Response::new(ResetPersonDistinctIdVersionResponse {
+        Ok(Response::new(SetPersonDistinctIdVersionFloorResponse {
             person: person.map(Into::into),
         }))
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        request: Request<ResetPersonVersionRequest>,
-    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         let req = request.into_inner();
 
         let updated = self
             .storage
-            .reset_person_version(req.team_id, req.person_id, req.min_version)
+            .set_person_version_floor(req.team_id, req.person_id, req.min_version)
             .await
-            .map_err(|e| log_and_convert_error(e, "reset_person_version"))?;
+            .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
-        Ok(Response::new(ResetPersonVersionResponse { updated }))
+        Ok(Response::new(SetPersonVersionFloorResponse { updated }))
     }
 }

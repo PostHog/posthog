@@ -26,9 +26,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
@@ -295,18 +295,18 @@ impl PersonHogBackend for ReplicaBackend {
         retry_call!(self, split_person, request)
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        request: ResetPersonDistinctIdVersionRequest,
-    ) -> Result<ResetPersonDistinctIdVersionResponse, Status> {
-        retry_call!(self, reset_person_distinct_id_version, request)
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        retry_call!(self, set_person_distinct_id_version_floor, request)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        request: ResetPersonVersionRequest,
-    ) -> Result<ResetPersonVersionResponse, Status> {
-        retry_call!(self, reset_person_version, request)
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        retry_call!(self, set_person_version_floor, request)
     }
 
     async fn check_cohort_membership(

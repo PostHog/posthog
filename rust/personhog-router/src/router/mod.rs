@@ -31,9 +31,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -644,14 +644,14 @@ impl PersonHogRouter {
     /// Set a person_distinct_id's version (undelete repair).
     ///
     /// WARNING: Same routing caveat as split_person above.
-    pub async fn reset_person_distinct_id_version(
+    pub async fn set_person_distinct_id_version_floor(
         &self,
-        request: ResetPersonDistinctIdVersionRequest,
-    ) -> Result<ResetPersonDistinctIdVersionResponse, Status> {
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
         call_backend!(
             self,
-            "ResetPersonDistinctIdVersion",
-            reset_person_distinct_id_version,
+            "SetPersonDistinctIdVersionFloor",
+            set_person_distinct_id_version_floor,
             request
         )
     }
@@ -659,11 +659,16 @@ impl PersonHogRouter {
     /// Bump a person's version (undelete repair).
     ///
     /// WARNING: Same routing caveat as split_person above.
-    pub async fn reset_person_version(
+    pub async fn set_person_version_floor(
         &self,
-        request: ResetPersonVersionRequest,
-    ) -> Result<ResetPersonVersionResponse, Status> {
-        call_backend!(self, "ResetPersonVersion", reset_person_version, request)
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        call_backend!(
+            self,
+            "SetPersonVersionFloor",
+            set_person_version_floor,
+            request
+        )
     }
 
     // ============================================================

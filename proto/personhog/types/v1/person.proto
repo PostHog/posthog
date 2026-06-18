@@ -228,37 +228,37 @@ message SplitPersonResponse {
   repeated SplitResult splits = 1;
 }
 
-// ResetPersonDistinctIdVersionRequest bumps a person_distinct_id row's version.
+// SetPersonDistinctIdVersionFloorRequest bumps a person_distinct_id row's version.
 // Used by the undelete repair flow to revive a soft-deleted distinct_id: raising the
 // Postgres version keeps the plugin-server from later emitting a lower version that
 // ClickHouse would ignore. The update is guarded so it never lowers a version: the row
 // is updated only when its stored version is below min_version.
-message ResetPersonDistinctIdVersionRequest {
+message SetPersonDistinctIdVersionFloorRequest {
   int64 team_id = 1;
   string distinct_id = 2;
   // Minimum version to set; applied only if the stored version is lower.
   int64 min_version = 3;
 }
 
-message ResetPersonDistinctIdVersionResponse {
+message SetPersonDistinctIdVersionFloorResponse {
   // The person the distinct_id maps to. Absent when the distinct_id does not exist
   // (it has not been re-used yet). Present whenever the distinct_id exists, even if the
   // guard left the version unchanged.
   optional Person person = 1;
 }
 
-// ResetPersonVersionRequest bumps a person's version. Used by the undelete repair
+// SetPersonVersionFloorRequest bumps a person's version. Used by the undelete repair
 // flow to revive a soft-deleted person in ClickHouse. The update is guarded so it
 // never lowers a version: the row is updated only when its stored version is below
 // min_version.
-message ResetPersonVersionRequest {
+message SetPersonVersionFloorRequest {
   int64 team_id = 1;
   int64 person_id = 2;
   // Minimum version to set; applied only if the stored version is lower.
   int64 min_version = 3;
 }
 
-message ResetPersonVersionResponse {
+message SetPersonVersionFloorResponse {
   // True if a row was updated (the stored version was below min_version).
   bool updated = 1;
 }

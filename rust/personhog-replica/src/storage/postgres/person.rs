@@ -914,7 +914,7 @@ impl PersonLookup for PostgresStorage {
         Ok(results)
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         team_id: i64,
         distinct_id: &str,
@@ -925,7 +925,7 @@ impl PersonLookup for PostgresStorage {
         let labels = [
             (
                 "operation".to_string(),
-                "reset_person_distinct_id_version".to_string(),
+                "set_person_distinct_id_version_floor".to_string(),
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
@@ -972,7 +972,7 @@ impl PersonLookup for PostgresStorage {
         Ok(row)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         team_id: i64,
         person_id: i64,
@@ -981,7 +981,10 @@ impl PersonLookup for PostgresStorage {
         let client = current_client_name();
         let method = current_method_name();
         let labels = [
-            ("operation".to_string(), "reset_person_version".to_string()),
+            (
+                "operation".to_string(),
+                "set_person_version_floor".to_string(),
+            ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
             ("method".to_string(), method.to_string()),

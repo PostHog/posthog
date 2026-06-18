@@ -28,9 +28,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -357,18 +357,18 @@ impl PersonHogService for PersonHogRouterService {
         route_request!(self, split_person, request)
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        request: Request<ResetPersonDistinctIdVersionRequest>,
-    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
-        route_request!(self, reset_person_distinct_id_version, request)
+        request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        route_request!(self, set_person_distinct_id_version_floor, request)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        request: Request<ResetPersonVersionRequest>,
-    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
-        route_request!(self, reset_person_version, request)
+        request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        route_request!(self, set_person_version_floor, request)
     }
 
     // Person property updates (routed to leader)

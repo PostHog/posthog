@@ -2776,13 +2776,13 @@ async fn test_split_person_each_did_gets_unique_person() {
 // ============================================================
 
 #[tokio::test]
-async fn test_reset_person_distinct_id_version_updates_and_returns_person() {
+async fn test_set_person_distinct_id_version_floor_updates_and_returns_person() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("repair_did", None).await.unwrap();
 
     let returned = ctx
         .storage
-        .reset_person_distinct_id_version(ctx.team_id, "repair_did", 150)
+        .set_person_distinct_id_version_floor(ctx.team_id, "repair_did", 150)
         .await
         .expect("reset should succeed")
         .expect("person should be returned");
@@ -2803,12 +2803,12 @@ async fn test_reset_person_distinct_id_version_updates_and_returns_person() {
 }
 
 #[tokio::test]
-async fn test_reset_person_distinct_id_version_missing_returns_none() {
+async fn test_set_person_distinct_id_version_floor_missing_returns_none() {
     let ctx = TestContext::new().await;
 
     let returned = ctx
         .storage
-        .reset_person_distinct_id_version(ctx.team_id, "nonexistent_did", 10)
+        .set_person_distinct_id_version_floor(ctx.team_id, "nonexistent_did", 10)
         .await
         .expect("reset should succeed");
     assert!(returned.is_none());
@@ -2817,7 +2817,7 @@ async fn test_reset_person_distinct_id_version_missing_returns_none() {
 }
 
 #[tokio::test]
-async fn test_reset_person_distinct_id_version_does_not_lower() {
+async fn test_set_person_distinct_id_version_floor_does_not_lower() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("repair_high_did", None).await.unwrap();
 
@@ -2834,7 +2834,7 @@ async fn test_reset_person_distinct_id_version_does_not_lower() {
     // A lower min_version must not lower it — but the person is still returned.
     let returned = ctx
         .storage
-        .reset_person_distinct_id_version(ctx.team_id, "repair_high_did", 150)
+        .set_person_distinct_id_version_floor(ctx.team_id, "repair_high_did", 150)
         .await
         .expect("reset should succeed")
         .expect("person should still be returned when the distinct_id exists");
@@ -2854,14 +2854,14 @@ async fn test_reset_person_distinct_id_version_does_not_lower() {
 }
 
 #[tokio::test]
-async fn test_reset_person_version_guarded_bump() {
+async fn test_set_person_version_floor_guarded_bump() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("rv_did", None).await.unwrap();
 
     // Bump above the current version (0).
     let updated = ctx
         .storage
-        .reset_person_version(ctx.team_id, person.id, 50)
+        .set_person_version_floor(ctx.team_id, person.id, 50)
         .await
         .unwrap();
     assert!(updated);
@@ -2876,7 +2876,7 @@ async fn test_reset_person_version_guarded_bump() {
     // A lower min_version is a no-op — the guard never lowers a version.
     let updated = ctx
         .storage
-        .reset_person_version(ctx.team_id, person.id, 10)
+        .set_person_version_floor(ctx.team_id, person.id, 10)
         .await
         .unwrap();
     assert!(!updated);
@@ -2892,12 +2892,12 @@ async fn test_reset_person_version_guarded_bump() {
 }
 
 #[tokio::test]
-async fn test_reset_person_version_missing_person() {
+async fn test_set_person_version_floor_missing_person() {
     let ctx = TestContext::new().await;
 
     let updated = ctx
         .storage
-        .reset_person_version(ctx.team_id, 999_999_999, 5)
+        .set_person_version_floor(ctx.team_id, 999_999_999, 5)
         .await
         .unwrap();
     assert!(!updated);

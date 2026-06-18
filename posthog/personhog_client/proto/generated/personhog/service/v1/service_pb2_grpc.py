@@ -273,16 +273,16 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonResponse.FromString,
             _registered_method=True,
         )
-        self.ResetPersonDistinctIdVersion = channel.unary_unary(
-            "/personhog.service.v1.PersonHogService/ResetPersonDistinctIdVersion",
-            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionRequest.SerializeToString,
-            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionResponse.FromString,
+        self.SetPersonDistinctIdVersionFloor = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/SetPersonDistinctIdVersionFloor",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorResponse.FromString,
             _registered_method=True,
         )
-        self.ResetPersonVersion = channel.unary_unary(
-            "/personhog.service.v1.PersonHogService/ResetPersonVersion",
-            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionRequest.SerializeToString,
-            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionResponse.FromString,
+        self.SetPersonVersionFloor = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/SetPersonVersionFloor",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
             _registered_method=True,
         )
 
@@ -534,13 +534,13 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def ResetPersonDistinctIdVersion(self, request, context):
+    def SetPersonDistinctIdVersionFloor(self, request, context):
         """Undelete repair version resets. Same routing caveat as DeletePersons above."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def ResetPersonVersion(self, request, context):
+    def SetPersonVersionFloor(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -744,15 +744,15 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonResponse.SerializeToString,
         ),
-        "ResetPersonDistinctIdVersion": grpc.unary_unary_rpc_method_handler(
-            servicer.ResetPersonDistinctIdVersion,
-            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionRequest.FromString,
-            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionResponse.SerializeToString,
+        "SetPersonDistinctIdVersionFloor": grpc.unary_unary_rpc_method_handler(
+            servicer.SetPersonDistinctIdVersionFloor,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorResponse.SerializeToString,
         ),
-        "ResetPersonVersion": grpc.unary_unary_rpc_method_handler(
-            servicer.ResetPersonVersion,
-            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionRequest.FromString,
-            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionResponse.SerializeToString,
+        "SetPersonVersionFloor": grpc.unary_unary_rpc_method_handler(
+            servicer.SetPersonVersionFloor,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -1936,7 +1936,7 @@ class PersonHogService:
         )
 
     @staticmethod
-    def ResetPersonDistinctIdVersion(
+    def SetPersonDistinctIdVersionFloor(
         request,
         target,
         options=(),
@@ -1951,9 +1951,9 @@ class PersonHogService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/personhog.service.v1.PersonHogService/ResetPersonDistinctIdVersion",
-            personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionRequest.SerializeToString,
-            personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonDistinctIdVersionResponse.FromString,
+            "/personhog.service.v1.PersonHogService/SetPersonDistinctIdVersionFloor",
+            personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.SetPersonDistinctIdVersionFloorResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1966,7 +1966,7 @@ class PersonHogService:
         )
 
     @staticmethod
-    def ResetPersonVersion(
+    def SetPersonVersionFloor(
         request,
         target,
         options=(),
@@ -1981,9 +1981,9 @@ class PersonHogService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/personhog.service.v1.PersonHogService/ResetPersonVersion",
-            personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionRequest.SerializeToString,
-            personhog_dot_types_dot_v1_dot_person__pb2.ResetPersonVersionResponse.FromString,
+            "/personhog.service.v1.PersonHogService/SetPersonVersionFloor",
+            personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
             options,
             channel_credentials,
             insecure,

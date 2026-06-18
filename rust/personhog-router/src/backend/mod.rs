@@ -33,9 +33,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -127,14 +127,14 @@ pub trait PersonHogBackend: Send + Sync {
     ) -> Result<SplitPersonResponse, Status>;
 
     // Undelete repair version resets
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        request: ResetPersonDistinctIdVersionRequest,
-    ) -> Result<ResetPersonDistinctIdVersionResponse, Status>;
-    async fn reset_person_version(
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status>;
+    async fn set_person_version_floor(
         &self,
-        request: ResetPersonVersionRequest,
-    ) -> Result<ResetPersonVersionResponse, Status>;
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status>;
 
     // Cohort membership
     async fn check_cohort_membership(

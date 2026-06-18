@@ -23,9 +23,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
@@ -384,19 +384,19 @@ impl PersonHogBackend for MockBackend {
         Ok(SplitPersonResponse { splits: vec![] })
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        _request: ResetPersonDistinctIdVersionRequest,
-    ) -> Result<ResetPersonDistinctIdVersionResponse, Status> {
+        _request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
         self.check_error()?;
-        Ok(ResetPersonDistinctIdVersionResponse { person: None })
+        Ok(SetPersonDistinctIdVersionFloorResponse { person: None })
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        _request: ResetPersonVersionRequest,
-    ) -> Result<ResetPersonVersionResponse, Status> {
+        _request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
         self.check_error()?;
-        Ok(ResetPersonVersionResponse { updated: false })
+        Ok(SetPersonVersionFloorResponse { updated: false })
     }
 }

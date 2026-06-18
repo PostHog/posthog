@@ -120,7 +120,7 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         _team_id: i64,
         _distinct_id: &str,
@@ -129,7 +129,7 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         _team_id: i64,
         _person_id: i64,
@@ -501,7 +501,7 @@ impl storage::PersonLookup for SuccessStorage {
         Ok(vec![])
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         _team_id: i64,
         _distinct_id: &str,
@@ -510,7 +510,7 @@ impl storage::PersonLookup for SuccessStorage {
         Ok(None)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         _team_id: i64,
         _person_id: i64,
@@ -941,7 +941,7 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(vec![])
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         _team_id: i64,
         _distinct_id: &str,
@@ -950,7 +950,7 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(None)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         _team_id: i64,
         _person_id: i64,
@@ -1357,7 +1357,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         Ok(vec![])
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         _team_id: i64,
         _distinct_id: &str,
@@ -1366,7 +1366,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         Ok(None)
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         _team_id: i64,
         _person_id: i64,

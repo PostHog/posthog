@@ -77,10 +77,10 @@ from posthog.personhog_client.proto import (
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
-    ResetPersonDistinctIdVersionRequest,
-    ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest,
-    ResetPersonVersionResponse,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse,
     SplitPersonRequest,
     SplitPersonResponse,
     UpdateGroupRequest,
@@ -229,15 +229,15 @@ class PersonHogClient:
 
     # -- Undelete repair --
 
-    def reset_person_distinct_id_version(
-        self, request: ResetPersonDistinctIdVersionRequest, timeout: float | None = None
-    ) -> ResetPersonDistinctIdVersionResponse:
-        return self._stub.ResetPersonDistinctIdVersion(request, timeout=timeout or self._timeout)
+    def set_person_distinct_id_version_floor(
+        self, request: SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonDistinctIdVersionFloorResponse:
+        return self._stub.SetPersonDistinctIdVersionFloor(request, timeout=timeout or self._timeout)
 
-    def reset_person_version(
-        self, request: ResetPersonVersionRequest, timeout: float | None = None
-    ) -> ResetPersonVersionResponse:
-        return self._stub.ResetPersonVersion(request, timeout=timeout or self._timeout)
+    def set_person_version_floor(
+        self, request: SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonVersionFloorResponse:
+        return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

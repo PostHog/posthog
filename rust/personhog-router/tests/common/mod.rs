@@ -40,9 +40,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
-    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -466,20 +466,22 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(SplitPersonResponse { splits: vec![] }))
     }
 
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        _request: Request<ResetPersonDistinctIdVersionRequest>,
-    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
-        Ok(Response::new(ResetPersonDistinctIdVersionResponse {
+        _request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        Ok(Response::new(SetPersonDistinctIdVersionFloorResponse {
             person: None,
         }))
     }
 
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        _request: Request<ResetPersonVersionRequest>,
-    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
-        Ok(Response::new(ResetPersonVersionResponse { updated: false }))
+        _request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        Ok(Response::new(SetPersonVersionFloorResponse {
+            updated: false,
+        }))
     }
 }
 

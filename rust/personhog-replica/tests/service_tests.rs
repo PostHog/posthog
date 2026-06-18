@@ -12,7 +12,7 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    ResetPersonDistinctIdVersionRequest, ResetPersonVersionRequest, SplitPersonRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
     TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
@@ -1373,17 +1373,19 @@ async fn test_split_person_invalid_request(
 // ============================================================
 
 #[tokio::test]
-async fn test_reset_person_distinct_id_version() {
+async fn test_set_person_distinct_id_version_floor() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("svc_repair_did", None).await.unwrap();
 
     let response = ctx
         .service
-        .reset_person_distinct_id_version(Request::new(ResetPersonDistinctIdVersionRequest {
-            team_id: ctx.team_id,
-            distinct_id: "svc_repair_did".to_string(),
-            min_version: 150,
-        }))
+        .set_person_distinct_id_version_floor(Request::new(
+            SetPersonDistinctIdVersionFloorRequest {
+                team_id: ctx.team_id,
+                distinct_id: "svc_repair_did".to_string(),
+                min_version: 150,
+            },
+        ))
         .await
         .expect("RPC failed");
 
@@ -1398,16 +1400,18 @@ async fn test_reset_person_distinct_id_version() {
 }
 
 #[tokio::test]
-async fn test_reset_person_distinct_id_version_missing() {
+async fn test_set_person_distinct_id_version_floor_missing() {
     let ctx = ServiceTestContext::new().await;
 
     let response = ctx
         .service
-        .reset_person_distinct_id_version(Request::new(ResetPersonDistinctIdVersionRequest {
-            team_id: ctx.team_id,
-            distinct_id: "svc_missing_did".to_string(),
-            min_version: 10,
-        }))
+        .set_person_distinct_id_version_floor(Request::new(
+            SetPersonDistinctIdVersionFloorRequest {
+                team_id: ctx.team_id,
+                distinct_id: "svc_missing_did".to_string(),
+                min_version: 10,
+            },
+        ))
         .await
         .expect("RPC failed");
 
@@ -1417,13 +1421,13 @@ async fn test_reset_person_distinct_id_version_missing() {
 }
 
 #[tokio::test]
-async fn test_reset_person_version() {
+async fn test_set_person_version_floor() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("svc_rv_did", None).await.unwrap();
 
     let response = ctx
         .service
-        .reset_person_version(Request::new(ResetPersonVersionRequest {
+        .set_person_version_floor(Request::new(SetPersonVersionFloorRequest {
             team_id: ctx.team_id,
             person_id: person.id,
             min_version: 50,
@@ -1435,7 +1439,7 @@ async fn test_reset_person_version() {
     // Lower min_version is a guarded no-op.
     let response = ctx
         .service
-        .reset_person_version(Request::new(ResetPersonVersionRequest {
+        .set_person_version_floor(Request::new(SetPersonVersionFloorRequest {
             team_id: ctx.team_id,
             person_id: person.id,
             min_version: 10,

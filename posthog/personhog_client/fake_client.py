@@ -669,33 +669,33 @@ class FakePersonHogClient:
 
     # ── Undelete repair ───────────────────────────────────────────────
 
-    def reset_person_distinct_id_version(
-        self, request: person_pb2.ResetPersonDistinctIdVersionRequest, timeout: float | None = None
-    ) -> person_pb2.ResetPersonDistinctIdVersionResponse:
-        self.calls.append(_Call("reset_person_distinct_id_version", request))
+    def set_person_distinct_id_version_floor(
+        self, request: person_pb2.SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonDistinctIdVersionFloorResponse:
+        self.calls.append(_Call("set_person_distinct_id_version_floor", request))
 
         person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
         if person is None:
-            return person_pb2.ResetPersonDistinctIdVersionResponse()
+            return person_pb2.SetPersonDistinctIdVersionFloorResponse()
 
         # Guarded bump: never lower the stored version. The person is returned whenever
         # the distinct_id exists, even if the version is left unchanged.
         for mapping in self._distinct_ids.get((request.team_id, person.id), []):
             if mapping.distinct_id == request.distinct_id and mapping.version < request.min_version:
                 mapping.version = request.min_version
-        return person_pb2.ResetPersonDistinctIdVersionResponse(person=person)
+        return person_pb2.SetPersonDistinctIdVersionFloorResponse(person=person)
 
-    def reset_person_version(
-        self, request: person_pb2.ResetPersonVersionRequest, timeout: float | None = None
-    ) -> person_pb2.ResetPersonVersionResponse:
-        self.calls.append(_Call("reset_person_version", request))
+    def set_person_version_floor(
+        self, request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonVersionFloorResponse:
+        self.calls.append(_Call("set_person_version_floor", request))
 
         person = self._persons_by_id.get((request.team_id, request.person_id))
         if person is None or person.version >= request.min_version:
-            return person_pb2.ResetPersonVersionResponse(updated=False)
+            return person_pb2.SetPersonVersionFloorResponse(updated=False)
 
         person.version = request.min_version
-        return person_pb2.ResetPersonVersionResponse(updated=True)
+        return person_pb2.SetPersonVersionFloorResponse(updated=True)
 
     # ── Assertion helpers ────────────────────────────────────────────
 

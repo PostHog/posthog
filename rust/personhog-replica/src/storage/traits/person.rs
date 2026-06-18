@@ -105,7 +105,7 @@ pub trait PersonLookup: Send + Sync {
     /// distinct_id maps to whenever it exists — even if the guard left the version
     /// unchanged — and None when the distinct_id does not exist (it has not been re-used
     /// yet). Used by the undelete repair flow to revive a soft-deleted distinct_id.
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
         team_id: i64,
         distinct_id: &str,
@@ -114,7 +114,7 @@ pub trait PersonLookup: Send + Sync {
 
     /// Bump a person's version to `min_version`, but only when the stored version is
     /// lower (the update never lowers a version). Returns whether a row was updated.
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
         team_id: i64,
         person_id: i64,

@@ -335,16 +335,16 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<SplitPersonResponse>, Status> {
         Err(Status::unimplemented(""))
     }
-    async fn reset_person_distinct_id_version(
+    async fn set_person_distinct_id_version_floor(
         &self,
-        _: Request<ResetPersonDistinctIdVersionRequest>,
-    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        _: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
-    async fn reset_person_version(
+    async fn set_person_version_floor(
         &self,
-        _: Request<ResetPersonVersionRequest>,
-    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        _: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }
