@@ -91,7 +91,7 @@ export function FunnelLineChart({
                 getColor: (step) =>
                     getFunnelsColor({
                         ...step,
-                        breakdownIndex: step.seriesIndex,
+                        breakdownIndex: step.colorIndex,
                     } as unknown as FlattenedFunnelStepByBreakdown),
             }),
         [steps, incompletenessOffsetFromEnd, getFunnelsColor]

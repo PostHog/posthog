@@ -14,6 +14,7 @@ import {
 
 import { ZoomableImage } from 'lib/components/ZoomableImage/ZoomableImage'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { backendAssetUrl } from 'lib/utils/apiHost'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './VariantTag'
@@ -144,7 +145,7 @@ export function VariantScreenshot({
     const widthClass = getThumbnailWidth()
 
     const getMediaSrc = (mediaId: string): string =>
-        mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`
+        mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)
 
     const showPrevious = (): void =>
         setSelectedImageIndex((prev) => (prev === null ? prev : (prev - 1 + mediaIds.length) % mediaIds.length))

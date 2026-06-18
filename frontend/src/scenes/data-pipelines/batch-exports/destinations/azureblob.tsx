@@ -14,6 +14,7 @@ export const azureBlobDefinition: DestinationDefinition = {
         compression: 'zstd',
     }),
     requiredFields: ({ isNew }) => ['integration_id', 'container_name', ...(isNew ? ['file_format'] : [])],
+    configKeys: ['container_name', 'prefix', 'compression', 'file_format', 'max_file_size_mb'],
     validate: (formValues) => ({
         container_name: validateAzureContainerName(formValues.container_name),
     }),

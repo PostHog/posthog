@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -48,6 +49,7 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AZURE_DEV_OPS,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Azure DevOps",
             caption="""Enter your Azure DevOps credentials to pull your project, build, and work item data into the PostHog Data warehouse.
 

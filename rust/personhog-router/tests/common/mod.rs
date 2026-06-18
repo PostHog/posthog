@@ -39,9 +39,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
@@ -445,6 +445,13 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count: 0,
         }))
+    }
+
+    async fn split_person(
+        &self,
+        _request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        Ok(Response::new(SplitPersonResponse { splits: vec![] }))
     }
 }
 

@@ -5,7 +5,7 @@ description: >
   team's project and emits findings into the Signals inbox. Sibling signals-scout-*
   specialists each watch a single product surface in depth; this scout looks for
   cross-product correlations and explores the surfaces no specialist covers. Each
-  scout runs on its own schedule (default hourly), so general fires independently
+  scout runs on its own schedule (default every 3 hours), so general fires independently
   of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for

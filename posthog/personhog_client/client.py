@@ -73,6 +73,8 @@ from posthog.personhog_client.proto import (
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SplitPersonRequest,
+    SplitPersonResponse,
     UpdateGroupRequest,
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
@@ -206,6 +208,11 @@ class PersonHogClient:
         self, request: DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    # -- Person split --
+
+    def split_person(self, request: SplitPersonRequest, timeout: float | None = None) -> SplitPersonResponse:
+        return self._stub.SplitPerson(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

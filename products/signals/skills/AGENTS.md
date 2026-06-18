@@ -134,12 +134,44 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   resolved status's promise against the post-deploy data stream. Emits only
   failed validations; confirmations are scratchpad memory. It never detects new
   problems — that's the rest of the fleet's territory.
+- `signals-scout-product-analytics/` — behavioral-regression watcher for the core
+  product-analytics primitives (funnels, retention, lifecycle, stickiness, paths).
+  Curates a watchlist of the team's saved funnel / retention / lifecycle insights
+  (and at most one inferred activation flow where none is saved) and re-scores each
+  flow's _derived rate_ — step-to-step conversion %, cohort return %, lifecycle
+  composition — against its own trailing, seasonality-matched baseline. Its
+  discriminator is a rate regression with a steady denominator: a conversion/retention
+  drop while entrants hold is a real product regression; a drop where entrants also
+  collapsed is a capture/volume problem and belongs elsewhere. Fills the seam neither
+  neighbor covers — `anomaly-detection` scores raw time-series insights the team views
+  (its `alert-simulate` path targets time-series, not funnels), and
+  `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
+  scout owns its behavioral health. Acquisition/attribution is the web-analytics
+  scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-customer-analytics/` — account-health watcher for the Customer
+  analytics (Accounts) product, where each `system.accounts` row is a customer
+  organization keyed to its analytics by `external_id` (the group key). Curates a
+  watchlist of commercially-staked accounts (assigned CSM / AE / owner, or a CRM
+  link) and scores each account's product engagement — weekly volume / WAU /
+  key-feature usage — against its own trailing baseline, watching for churn-risk
+  shapes (an engagement cliff, dormancy onset, single-threaded champion departure)
+  and the positive inverse (an expansion signal worth an upsell). Its discriminator
+  is a per-account engagement regression while the fleet holds, weighted by
+  commercial ownership: one staked account sliding is signal, the whole fleet moving
+  together is a capture/aggregate problem for another scout. The linchpin is the
+  account→group join — it verifies that `external_id` actually matches a live group
+  key before trusting any per-account number (a seeded/CRM-sourced roster that
+  doesn't join is a config gap, not a finding). Fills the seam neither commercial
+  neighbor covers — `product-analytics` scores aggregate user-grain flows and
+  `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
+  individual account's engagement trajectory. Acquisition is the web-analytics
+  scout's territory.
 
 ### How the coordinator decides what runs
 
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
-`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 60 =
-hourly) and a `last_run_at` stamp. Every tick the coordinator:
+`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 180 =
+every 3 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
    JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
@@ -168,8 +200,8 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
-  due tick dispatches it.
+- auto-register an enabled `SignalScoutConfig` on the default every-3-hours schedule
+  for it so the next due tick dispatches it.
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
 template if your scout is broad; pick a specialist as the template if it is

@@ -98,17 +98,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
+    // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
+    // reads it automatically — no need to stamp each line here.
     const referenceLines = useMemo(
         () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
         [goalLines, seriesAfterValueLabels]
-    )
-
-    const orientedReferenceLines = useMemo(
-        () =>
-            axisOrientation === 'horizontal'
-                ? referenceLines.map((line) => ({ ...line, axisOrientation: 'horizontal' as const }))
-                : referenceLines,
-        [referenceLines, axisOrientation]
     )
 
     // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
@@ -151,7 +145,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
             dataAttr={dataAttr}
             onError={onError}
         >
-            {orientedReferenceLines.length > 0 && <ReferenceLines lines={orientedReferenceLines} />}
+            {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {children}
         </BarChart>

@@ -39,6 +39,23 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
  * POST hides the name; DELETE restores it. The underlying context row and any flags already
  * using it are never modified — this only controls what gets suggested.
  */
+export const organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
+
+export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+})
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
 export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
 
 export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
@@ -354,6 +371,34 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 
@@ -741,6 +786,34 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 

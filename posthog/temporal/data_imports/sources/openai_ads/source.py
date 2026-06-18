@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class OpenAIAdsSource(SimpleSource[OpenAIAdsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OPEN_AI_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="OpenAI Ads",
             iconPath="/static/services/openai_ads.svg",
             fields=cast(list[FieldType], []),

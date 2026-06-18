@@ -162,6 +162,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
+                signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
             logger.info(

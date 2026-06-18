@@ -41,15 +41,16 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybookTestRunner } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
-import { stripMarkdown } from '~/lib/utils/stripMarkdown'
+import { stripMarkdown } from '~/lib/utils/markdown'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,

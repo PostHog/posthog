@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
+import { buildAlertFilterConfig } from 'lib/utils/alerts'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AlertType } from '~/lib/components/Alerts/types'

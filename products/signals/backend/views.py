@@ -63,6 +63,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
@@ -395,8 +396,10 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
+        qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
@@ -428,6 +431,14 @@ class SignalReportViewSet(
     # so it is never a valid filter target.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
 
+    # Actions allowed to resolve a suppressed report by ID even without an explicit
+    # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
+    # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
+    # loads its evidence. Mutating-by-ID actions (delete, reingest) are deliberately
+    # NOT here, so a suppressed report stays unreachable for those and keeps returning
+    # 404 — matching the existing contract.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "retrieve", "signals"})
+
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -441,10 +452,12 @@ class SignalReportViewSet(
                     }
                 )
             return queryset.filter(status__in=statuses)
-        # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
-        # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
-        # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
-        if self.action == "state":
+        # A few read/reopen actions must be able to reach a suppressed report by ID
+        # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
+        # inbox's Dismissed-tab detail view). Everywhere else — including the list and
+        # mutating-by-ID actions like delete/reingest — suppressed reports stay hidden
+        # unless an explicit `status` filter asks for them.
+        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
@@ -465,6 +478,40 @@ class SignalReportViewSet(
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
+
+    def _implementation_pr_exists_subquery(self):
+        # EXISTS over the latest implementation TaskRun that carries a non-empty
+        # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
+        # EXISTS so it can be used as a filter (and counted) without the
+        # per-row PR-url annotation, which the list action skips for performance.
+        return Exists(
+            TaskRun.objects.filter(
+                task__signal_report_tasks__report_id=OuterRef("id"),
+                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+                output__pr_url__isnull=False,
+            ).exclude(output__pr_url="")
+        )
+
+    def _apply_signal_report_implementation_pr_filter(self, queryset):
+        # `has_implementation_pr=true|false` filters reports by whether a shipped
+        # implementation PR exists. Lets the inbox count PR reports (the "Pull
+        # requests" tab) with a cheap `limit=1` count query instead of paging the
+        # whole list and filtering client-side. Absent or empty param leaves the
+        # list unchanged; an unrecognized value is a 400.
+        raw = self.request.query_params.get("has_implementation_pr")
+        if raw is None or not raw.strip():
+            return queryset
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            wants_pr = True
+        elif value in ("0", "false", "no"):
+            wants_pr = False
+        else:
+            raise serializers.ValidationError(
+                {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
+            )
+        pr_exists = self._implementation_pr_exists_subquery()
+        return queryset.filter(pr_exists if wants_pr else ~pr_exists)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -521,6 +568,34 @@ class SignalReportViewSet(
             )
 
         return queryset.filter(priority_rank__in=values)
+
+    def _apply_signal_report_actionability_filter(self, queryset):
+        # Filters on the `latest_actionability_value` annotation (the actionability
+        # choice from the latest actionability_judgment artefact), which must be
+        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
+        # tab passes the two actionable values, the staff-only Not-actionable tab
+        # passes `not_actionable`. Reports without an actionability judgment
+        # (annotation is NULL) are excluded when this filter is set. Absent or empty
+        # param leaves the list unchanged; an unrecognized value is a 400.
+        actionability_filter = self.request.query_params.get("actionability")
+        if not actionability_filter:
+            return queryset
+
+        values = [a.strip() for a in actionability_filter.split(",") if a.strip()]
+        if not values:
+            return queryset
+
+        allowed = {choice.value for choice in ActionabilityChoice}
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {
+                    "actionability": f"Invalid actionability value(s): {', '.join(sorted(set(invalid)))}. "
+                    f"Allowed: {', '.join(sorted(allowed))}."
+                }
+            )
+
+        return queryset.filter(latest_actionability_value__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
@@ -606,6 +681,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_actionability_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by(
+                    "-created_at"
+                ),
+                to_attr="prefetched_dismissal_artefacts",
             ),
         )
 
@@ -699,6 +781,34 @@ class SignalReportViewSet(
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
+    def _enriched_report_context(self, report: SignalReport) -> dict:
+        # Detail-view parity with list(): inject the source-product and PR-url maps the
+        # SignalReportSerializer reads, so single-report responses aren't silently degraded.
+        # Both lookups are best-effort: the serializer degrades to empty values when a map
+        # is missing, so a ClickHouse/Postgres hiccup must not turn an otherwise-available
+        # report (or an already-committed state change) into a 500.
+        report_ids = [str(report.id)]
+        try:
+            source_products_map = fetch_source_products_for_reports(self.team, report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
+            source_products_map = {}
+        try:
+            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.implementation_pr_url_failed", report_id=str(report.id))
+            implementation_pr_url_map = {}
+        return {
+            **self.get_serializer_context(),
+            "source_products_map": source_products_map,
+            "implementation_pr_url_map": implementation_pr_url_map,
+        }
+
+    def retrieve(self, request, *args, **kwargs):
+        report = self.get_object()
+        serializer = self.get_serializer(report, context=self._enriched_report_context(report))
+        return Response(serializer.data)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -758,6 +868,17 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+                ),
+            ),
+            OpenApiParameter(
+                name="has_implementation_pr",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter reports by whether a shipped implementation pull request exists. "
+                    "'true' keeps only reports with a PR; 'false' keeps only those without. "
+                    "Pair with limit=1 to count PR reports cheaply."
                 ),
             ),
         ],
@@ -852,7 +973,7 @@ class SignalReportViewSet(
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
-        report_data = SignalReportSerializer(report).data
+        report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
@@ -932,8 +1053,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
+                # get_object() evaluated the dismissal prefetch before this artefact
+                # existed; drop the stale cache so the response serializer re-reads the
+                # just-written reason/note instead of the previous (or empty) dismissal.
+                if hasattr(report, "prefetched_dismissal_artefacts"):
+                    del report.prefetched_dismissal_artefacts
 
-        return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])

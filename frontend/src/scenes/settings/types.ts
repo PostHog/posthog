@@ -80,6 +80,7 @@ export type SettingSectionId =
     | 'user-feature-previews'
     | 'user-notifications'
     | 'user-personal-integrations'
+    | 'user-reminders'
     | 'user-danger-zone'
     // Standalone
     | 'mcp-servers'
@@ -107,6 +108,7 @@ export type SettingId =
     | 'changelog'
     | 'channel-type'
     | 'connected-apps'
+    | 'conversations-ai'
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-notifications'
@@ -207,6 +209,7 @@ export type SettingId =
     | 'personal-api-keys'
     | 'personal-integrations'
     | 'persons-join-mode'
+    | 'reminders'
     | 'persons-on-events'
     | 'posthog-mcp-configure'
     | 'project-delete'

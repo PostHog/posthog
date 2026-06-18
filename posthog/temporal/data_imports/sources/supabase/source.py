@@ -2,6 +2,7 @@ import re
 from typing import Optional
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -69,6 +70,7 @@ class SupabaseSource(PostgresSource):
 
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
+            category=DataWarehouseSourceCategory.DATABASES,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",

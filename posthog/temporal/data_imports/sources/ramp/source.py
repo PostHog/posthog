@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -52,6 +53,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RAMP,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Ramp",
             caption="""Connect your Ramp account to pull your spend data into the PostHog Data warehouse.
 

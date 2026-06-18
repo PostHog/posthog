@@ -254,6 +254,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_ext_id else None,
             metadata={"task_id": ctx.task_id},
+            **ctx.sandbox_resource_overrides(),
         )
 
         emit_agent_log(

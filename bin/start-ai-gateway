@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Bring up the external Go ai-gateway (github.com/PostHog/ai-gateway)
+# for local dev. Expects a sibling clone at $AI_GATEWAY_REPO
+# (default: $HOME/Development/ai-gateway). Idempotent — running twice
+# is a no-op apart from another anonymous-team ledger topup.
+#
+# What it does:
+#   1. Verifies the sibling clone exists.
+#   2. `docker compose --profile full up -d --wait` so gateway + billing
+#      come up alongside postgres + valkey. (The default profile only
+#      starts the deps, not the binaries themselves — easy to miss.)
+#   3. Topups the anonymous-principal ledger (team_id = 0) so requests
+#      with `AI_GATEWAY_AUTH_MODE=open` pass admission. Without this
+#      the gateway returns 402 insufficient_credits on every request.
+#   4. Tails the gateway container logs (matches `ready_pattern` in
+#      mprocs.yaml: 'listening on').
+#
+# Pair with `AGENT_USE_AI_GATEWAY=true` on agent-runner so the runner
+# routes through http://localhost:8080/v1. With the flag off the runner
+# uses direct providers (ANTHROPIC_API_KEY / OPENAI_API_KEY) and this
+# script's container is unused.
+
+set -euo pipefail
+
+AI_GATEWAY_REPO="${AI_GATEWAY_REPO:-$HOME/Development/ai-gateway}"
+TOPUP_USD="${AI_GATEWAY_DEV_TOPUP_USD:-100.00}"
+
+if [ ! -d "$AI_GATEWAY_REPO" ]; then
+    cat >&2 <<EOF
+[start-ai-gateway] No sibling clone at $AI_GATEWAY_REPO.
+
+Either clone it:
+  git clone git@github.com:PostHog/ai-gateway.git "$AI_GATEWAY_REPO"
+
+Or skip this entry in mprocs and set AGENT_USE_AI_GATEWAY=false on the
+agent-runner — the runner falls back to direct providers automatically.
+
+Override the path with AI_GATEWAY_REPO=... if your clone lives elsewhere.
+EOF
+    exit 1
+fi
+
+if [ ! -f "$AI_GATEWAY_REPO/.env" ]; then
+    cat >&2 <<EOF
+[start-ai-gateway] $AI_GATEWAY_REPO/.env is missing.
+
+Create it with at minimum:
+  AI_GATEWAY_AUTH_MODE=open
+  AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
+  AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
+
+Note the AI_GATEWAY_* prefix (the gateway's compose.yaml reads these
+keys; older docs referenced LLM_GATEWAY_*, which is now inert).
+EOF
+    exit 1
+fi
+
+cd "$AI_GATEWAY_REPO"
+
+echo "[start-ai-gateway] bringing up postgres + valkey + gateway + billing"
+docker compose --profile full up -d --wait
+
+echo "[start-ai-gateway] seeding anonymous-team ledger topup (team_id=0, +${TOPUP_USD} USD)"
+docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
+    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) VALUES (0, 'topup', 'funding', 'prepaid', ${TOPUP_USD});" \
+    >/dev/null
+
+echo "[start-ai-gateway] gateway listening on http://localhost:8080 — tailing container logs"
+exec docker compose logs -f gateway

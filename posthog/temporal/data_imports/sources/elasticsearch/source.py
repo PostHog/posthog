@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -50,6 +51,7 @@ class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatab
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ELASTICSEARCH,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="Elasticsearch",
             caption="""Connect your Elasticsearch cluster to pull index documents into the PostHog Data warehouse.
 

@@ -1,10 +1,11 @@
-import { LRUCache } from 'lru-cache'
-import { Counter } from 'prom-client'
-
 import { PipelineResult, ok } from '~/ingestion/pipelines/results'
 import { PipelineEvent, Team } from '~/types'
 
-import { ONE_HOUR } from '../../../config/constants'
+import {
+    hasInsertedPersonlessDistinctId,
+    markPersonlessDistinctIdInserted,
+    personlessDistinctIdCacheOperationsCounter,
+} from '../persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 
 type ProcessPersonlessDistinctIdsBatchStepInput = {
@@ -12,20 +13,6 @@ type ProcessPersonlessDistinctIdsBatchStepInput = {
     team: Team
     personsStoreForBatch: PersonsStoreForBatch
 }
-
-export const personlessDistinctIdCacheOperationsCounter = new Counter({
-    name: 'personless_distinct_id_cache_operations_total',
-    help: 'Number of cache hits and misses for the personless distinct ID inserted cache',
-    labelNames: ['operation'],
-})
-
-// Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
-// (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
-const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
-    max: 100_000,
-    ttl: ONE_HOUR * 4,
-    updateAgeOnGet: true,
-})
 
 /**
  * Batch step that inserts personless distinct IDs for events where processPerson=false
@@ -64,7 +51,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
                 }
                 storeData.seenInBatch.add(cacheKey)
 
-                if (PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(cacheKey)) {
+                if (hasInsertedPersonlessDistinctId(e.team.id, e.event.distinct_id)) {
                     cacheHits++
                 } else {
                     storeData.entries.push({ teamId: e.team.id, distinctId: e.event.distinct_id })
@@ -72,20 +59,20 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
             }
 
             if (cacheHits > 0) {
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit' }, cacheHits)
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'batch' }, cacheHits)
             }
 
             const storeCalls = Array.from(entriesByStore.entries()).filter(([, { entries }]) => entries.length > 0)
 
             if (storeCalls.length > 0) {
                 const totalMisses = storeCalls.reduce((sum, [, { entries }]) => sum + entries.length, 0)
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss' }, totalMisses)
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'batch' }, totalMisses)
 
                 await Promise.all(
                     storeCalls.map(async ([store, { entries }]) => {
                         await store.processPersonlessDistinctIdsBatch(entries)
                         for (const entry of entries) {
-                            PERSONLESS_DISTINCT_ID_INSERTED_CACHE.set(`${entry.teamId}|${entry.distinctId}`, true)
+                            markPersonlessDistinctIdInserted(entry.teamId, entry.distinctId)
                         }
                     })
                 )

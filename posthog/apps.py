@@ -26,15 +26,20 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+        from posthog.storage.gateway_credential_signal_handlers import (
+            connect_signal_handlers as connect_gateway_credential_signal_handlers,
+        )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+        connect_gateway_credential_signal_handlers()
 
         # Connect core signal receivers at app-population. They used to wire in as an import
         # side effect of viewset modules; with the lazy API router those no longer load at
         # django.setup(), so a process that never builds the router (celery, temporal, migrate,
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
+        import posthog.storage.checks  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 

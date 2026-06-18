@@ -34,7 +34,10 @@ import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
+import { findLastIndex } from 'lib/utils/arrays'
+import { downloadFile, uuid } from 'lib/utils/dom'
+import { clamp } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -1643,7 +1646,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-                eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
+                // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
+                // blows the argument stack (RangeError) on very large recordings
+                for (const event of findNewEvents(allSnapshots, currentEvents)) {
+                    eventsToAdd.push(event)
+                }
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots.

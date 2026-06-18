@@ -66,7 +66,6 @@ LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
-DUCKGRES_PG_URL: str | None = get_from_env("DUCKGRES_PG_URL", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 
 # Bulk deletion operations can be disabled during database migrations

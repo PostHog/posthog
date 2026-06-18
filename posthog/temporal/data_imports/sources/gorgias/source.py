@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -90,6 +91,7 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GORGIAS,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gorgias",
             caption="""Enter your Gorgias credentials to pull your helpdesk data into the PostHog Data warehouse.
 

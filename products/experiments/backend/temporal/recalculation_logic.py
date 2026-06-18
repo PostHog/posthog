@@ -4,8 +4,10 @@ The thin ``@temporalio.activity.defn`` entrypoints live in ``recalculation_activ
 module holds the DB-touching ``_*_sync`` implementations plus the pure helpers they compose from.
 """
 
+import time
 import dataclasses
 from datetime import datetime
+from typing import Any
 
 from django.db import close_old_connections, transaction
 from django.utils import timezone
@@ -16,10 +18,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -88,6 +92,43 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetricToRecalculate]:
+    """All metrics to recalculate for an experiment, in (primary, secondary, saved) order.
+
+    Single source of truth for "which metrics does this experiment have" — used both to set
+    ``total_metrics`` at recalculation-create time and by the discovery activity. Touches the DB
+    (saved-metric links), so call inside a team scope / sync context.
+
+    Note: this sync helper takes an ``Experiment``. The async Temporal activity in
+    ``recalculation_activities.py`` shares the name but takes a ``recalculation_id`` — disambiguate by
+    import path and argument type at the call site.
+    """
+    metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
+
+    def _add(metric_uuid: str | None, metric_type: str) -> None:
+        if metric_uuid:
+            metrics_to_recalculate.append(
+                ExperimentMetricToRecalculate(
+                    experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
+                )
+            )
+
+    # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
+    for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
+        for metric in source or []:
+            _add(metric.get("uuid"), metric_type)
+
+    # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
+    # primary/secondary is recorded on the link's metadata["type"] (default "primary").
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        saved_query = link.saved_metric.query
+        metric_uuid = saved_query.get("uuid") if saved_query else None
+        metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
+        _add(metric_uuid, metric_type)
+
+    return metrics_to_recalculate
+
+
 @database_sync_to_async
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -97,28 +138,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
-
-        def _add(metric_uuid: str | None, metric_type: str) -> None:
-            if metric_uuid:
-                metrics_to_recalculate.append(
-                    ExperimentMetricToRecalculate(
-                        experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
-                    )
-                )
-
-        # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
-        for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
-            for metric in source or []:
-                _add(metric.get("uuid"), metric_type)
-
-        # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
-        # primary/secondary is recorded on the link's metadata["type"] (default "primary").
-        for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-            saved_query = link.saved_metric.query
-            metric_uuid = saved_query.get("uuid") if saved_query else None
-            metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-            _add(metric_uuid, metric_type)
+        metrics_to_recalculate = discover_experiment_metrics(experiment)
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
@@ -176,11 +196,67 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
         # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
-        ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
-            completed_at=timezone.now(),
-            status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+        won = (
+            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
+                completed_at=timezone.now(),
+                status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+            )
+            == 1
         )
+        # Emit the run-level analytics event only on the winning (first) completion, so a retried
+        # mark_completed doesn't double-count.
+        if won:
+            _capture_results_refresh_completed(update)
         return None
+
+
+def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> None:
+    """Run-level analytics: 'experiment results refresh completed' with the final counts. Mirrors the
+    legacy client-side event. Telemetry must never fail the activity, so swallow any error."""
+    try:
+        recalc = (
+            ExperimentMetricsRecalculation.objects.select_related("experiment", "experiment__team")
+            .filter(id=update.recalculation_id)
+            .first()
+        )
+        if recalc is None:
+            return
+        experiment = recalc.experiment
+        team = experiment.team
+        distinct_id = (
+            experiment.created_by.distinct_id
+            if experiment.created_by and experiment.created_by.distinct_id
+            else f"team_{team.id}"
+        )
+        total_duration_ms = (
+            round((recalc.completed_at - recalc.created_at).total_seconds() * 1000)
+            if recalc.completed_at and recalc.created_at
+            else None
+        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event="experiment results refresh completed",
+                properties={
+                    "experiment_id": experiment.id,
+                    "team_id": team.id,
+                    "recalculation_id": str(recalc.id),
+                    "status": recalc.status,
+                    "total_metrics": recalc.total_metrics,
+                    "succeeded_metrics": update.succeeded_metrics,
+                    "failed_metrics": update.failed_metrics,
+                    "total_duration_ms": total_duration_ms,
+                    "trigger": recalc.trigger,
+                    "execution_mode": "recalculation",
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.warning(
+            "experiment_results_refresh_completed_capture_failed",
+            recalculation_id=update.recalculation_id,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -239,13 +315,73 @@ def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> M
 
 
 # ---------------------------------------------------------------------------
+# Product analytics (recalculation flow)
+#
+# These mirror the legacy client-side events ('experiment metric finished' / 'experiment metric error'),
+# now that metrics are computed on the backend instead of in the browser. execution_mode='recalculation'
+# distinguishes them from legacy events on the same dashboards.
+# ---------------------------------------------------------------------------
+
+
+def _capture_experiment_metric_event(
+    experiment: Experiment,
+    metric_uuid: str,
+    metric_type: str,
+    metric_dict: dict | None,
+    event: str,
+    extra_properties: dict[str, Any],
+) -> None:
+    """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
+    is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
+
+    `metric_type` is the primary/secondary classification carried from discovery
+    (`ExperimentMetricToRecalculate.metric_type`), threaded through the workflow + activity args so the
+    capture path doesn't have to re-query the M2M to resolve it.
+    """
+    try:
+        team = experiment.team
+        distinct_id = (
+            experiment.created_by.distinct_id
+            if experiment.created_by and experiment.created_by.distinct_id
+            else f"team_{team.id}"
+        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties={
+                    "experiment_id": experiment.id,
+                    "team_id": team.id,
+                    "metric_uuid": metric_uuid,
+                    "metric_kind": (metric_dict or {}).get("metric_type"),
+                    "is_primary": metric_type == "primary",
+                    "execution_mode": "recalculation",
+                    **extra_properties,
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.warning(
+            "experiment_metric_event_capture_failed",
+            event=event,
+            experiment_id=experiment.id,
+            metric_uuid=metric_uuid,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Calculation
 # ---------------------------------------------------------------------------
 
 
 @database_sync_to_async
 def _calculate_experiment_metric_for_recalculation_sync(
-    experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+    experiment_id: int,
+    metric_uuid: str,
+    recalculation_id: str,
+    query_to: str,
+    metric_type: str = "primary",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -309,6 +445,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         )
         recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
 
+        calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
             # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
@@ -320,7 +457,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,
             )
-            tag_queries(trigger="warming/experiment_metrics_recalculation")
+            # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
+            # expensive without reverse-engineering the trigger string.
+            tag_queries(
+                trigger="warming/experiment_metrics_recalculation",
+                team_id=state.team_id,
+                product=Product.EXPERIMENTS,
+                feature=Feature.CACHE_WARMUP,
+            )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = result.model_dump(mode="json")
 
@@ -333,6 +477,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result=result_dict,
                 error_message=None,
+            )
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric finished",
+                {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
             )
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -354,6 +506,18 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 error=message,
+            )
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric error",
+                {
+                    "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                    "error_type": "insufficient_data",
+                    "error_message": message,
+                },
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
@@ -387,4 +551,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
             )
+            # No 'experiment metric error' event here: this path re-raises and Temporal retries, so
+            # emitting would double-count per attempt. The final failed count is reported once at the
+            # run level ('experiment results refresh completed').
             raise

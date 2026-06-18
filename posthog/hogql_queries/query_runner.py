@@ -97,6 +97,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
@@ -112,10 +113,12 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
+from posthog.scopes import APIScopeObject
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
@@ -354,6 +357,18 @@ def get_query_runner(
             from .insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 
             return BoxPlotTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
+        if display_type == ChartDisplayType.SLOPE_GRAPH:
+            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+
+            return SlopeGraphTrendsQueryRunner(
                 query=query_obj,
                 team=team,
                 timings=timings,
@@ -754,7 +769,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -778,9 +793,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
-            ErrorTrackingIssueCorrelationQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -792,9 +805,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingSimilarIssuesQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
-            ErrorTrackingSimilarIssuesQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
         return ErrorTrackingSimilarIssuesQueryRunner(
             query=query,
@@ -806,9 +817,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingBreakdownsQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
-            ErrorTrackingBreakdownsQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
             query=query,
@@ -1126,9 +1135,10 @@ def get_query_runner_or_none(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
 ) -> Optional["QueryRunner"]:
     try:
-        return get_query_runner(
+        runner = get_query_runner(
             query=query,
             team=team,
             timings=timings,
@@ -1140,6 +1150,11 @@ def get_query_runner_or_none(
         if "Can't get a runner for an unknown" in str(e):
             return None
         raise
+    # Reuse the caller's preloaded snapshot (e.g. one per request shared across a dashboard's
+    # insight runners) so the cache fingerprint doesn't bulk-load access control once per runner.
+    if user_access_control is not None and isinstance(runner, AnalyticsQueryRunner):
+        runner._user_access_control = user_access_control
+    return runner
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -1451,8 +1466,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
-        # __init__; let them refresh it now that we know the real user.
-        if user is not None:
+        # __init__; let them refresh it now that we know the real user. Only on an
+        # actual change - re-running for the same user would needlessly rebuild that
+        # state and drop a preloaded access-control snapshot.
+        if user is not None and user is not self.user:
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
@@ -2110,7 +2127,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
-        should_ignore_dashboard_breakdown = (
+        should_ignore_dashboard_breakdown = not hasattr(self.query, "breakdownFilter") or (
             isinstance(self.query, TrendsQuery)
             and has_data_warehouse_series
             and (
@@ -2161,14 +2178,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
-            if hasattr(self.query, "breakdownFilter"):
+            if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
-            else:
-                capture_exception(
-                    NotImplementedError(
-                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
-                    )
-                )
         self.__post_init__()
 
 
@@ -2187,11 +2198,91 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     e.g. class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxonomyQueryResponse]):
     """
 
+    _user_access_control: Optional[UserAccessControl] = None
+
     def calculate(self) -> AR:
         response = super().calculate()
         if not self.modifiers.timings:
             response.timings = None
         return response
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._user_access_control = None
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
+        before any database exists, which a cache hit never reaches. None for userless runs and for
+        synthetic principals (e.g. a project secret API key)."""
+        # user is typed Optional[User] but a project secret API key passes a SyntheticUser at runtime;
+        # broaden for isinstance.
+        user = cast("Optional[User | SyntheticUser]", self.user)
+        if user is None or isinstance(user, SyntheticUser):
+            return None
+        if self._user_access_control is None:
+            self._user_access_control = UserAccessControl(user=user, team=self.team)
+        return self._user_access_control
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+
+        # Partition only by the access-controlled tables this query reads that the user is restricted
+        # from - so queries on events, persons and other non-access-controlled tables share one cache
+        # entry (incl. userless cache warming).
+        queried_resources = queried_access_controlled_resources(self.query)
+
+        # Reads no access-controlled table -> skip the access-control preload
+        if queried_resources == set():
+            return payload
+
+        if restricted_objects := self._get_object_access_restrictions(queried_resources):
+            payload["restricted_objects"] = restricted_objects
+        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
+            payload["restricted_resources"] = restricted_resources
+
+        return payload
+
+    def _get_object_access_restrictions(self, queried_resources: Optional[set[str]]) -> dict[str, list[str]] | None:
+        """Per-resource object IDs the user is denied, scoped to the resources this query reads.
+        None for admins / no restrictions."""
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        blocked = user_access_control.blocked_resource_ids_by_scope
+        if queried_resources is not None:
+            blocked = {resource: ids for resource, ids in blocked.items() if resource in queried_resources}
+        if not blocked:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
+
+    def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
+        """Resources the user has no resource-level access to, scoped to the resources this query reads."""
+        user = cast("Optional[User | SyntheticUser]", self.user)
+
+        # Userless runs fail-closed - every access-controlled table is denied.
+        if user is None:
+            return ["*"] if queried_resources is None else sorted(queried_resources) or None
+
+        # Synthetic principals (e.g. a project secret API key) are scope-gated; partition on the readable
+        # scopes so a narrower token can't be served a broader principal's cached result.
+        if isinstance(user, SyntheticUser):
+            if queried_resources is None:
+                return ["*"]
+            return sorted(queried_resources - user.readable_system_table_access_scopes()) or None
+
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        if queried_resources is None:
+            return user_access_control.blocked_resources or None
+        # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
+        # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
+        # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.
+        return (
+            sorted(s for s in queried_resources if not user_access_control.has_resource_access(cast(APIScopeObject, s)))
+            or None
+        )
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
@@ -2217,6 +2308,12 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         if self.hogql_context.user is self.user:
             return
         self._build_hogql_context_for_user(self.user)
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        # Reuse the instance create_for already preloaded on the database, so the cache fingerprint
+        # and schema filtering resolve access from the same rows.
+        return self.database.user_access_control
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

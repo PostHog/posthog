@@ -78,6 +78,7 @@ export type PersonsStoreForBatch = Omit<
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
     | 'prefetchPersons'
     | 'processPersonlessDistinctIdsBatch'
@@ -115,6 +116,7 @@ export type PersonsStoreForBatch = Omit<
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
+    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(
         teamId: number,
         distinctId: string,
@@ -350,7 +352,7 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
     }
 
     addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
-        return this.store.addPersonlessDistinctId(teamId, distinctId)
+        return this.store.addPersonlessDistinctId(teamId, distinctId, this.batchId)
     }
 
     addPersonlessDistinctIdForMerge(

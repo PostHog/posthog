@@ -10,7 +10,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL } from 'lib/utils'
+import { isURL } from 'lib/utils/url'
 
 import NotebookIconHeading from './NotebookIconHeading'
 

@@ -692,7 +692,9 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)"""
 
 
-def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, include_table_clauses=True):
+def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+    table_name, engine, include_aliases=True, include_table_clauses=True, settings=None
+):
     """JSON-backed query_log_archive table.
 
     include_aliases=True for the data table and read tables (exposes lc_* / ProfileEvents_*).
@@ -701,11 +703,12 @@ def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, in
     columns = _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS
     if include_aliases:
         columns = f"{columns},\n{_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS}"
-    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses}".format(
+    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses} {settings}".format(
         table_name=table_name,
         columns=columns,
         engine=engine,
         table_clauses=_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES if include_table_clauses else "",
+        settings=settings if settings else "",
     )
 
 
@@ -718,6 +721,7 @@ def SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
         engine=SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE(),
+        settings="SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'",
     )
 
 
@@ -799,3 +803,67 @@ def QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name, dest_table):
         dest_table=dest_table,
         select_sql=MV_SELECT_SQL_OPS,
     )
+
+
+# ============================================================================
+# Daily aggregate exposed to the data warehouse
+# ----------------------------------------------------------------------------
+# A non-materialized view that rolls query_log_archive up to one row per day per
+# (team, user, query-attribution) tuple. The data warehouse ClickHouse source
+# (posthog/temporal/data_imports/sources/clickhouse) syncs it into an internal
+# project incrementally on `day`, so query-cost analysis can live in PostHog
+# instead of Metabase.
+#
+# Reads the OPS-local sharded_query_log_archive directly (it carries the lc_* /
+# ProfileEvents_* aliases and, being replicated, holds the full dataset on every
+# OPS replica) so the scan stays on OPS and never touches the distributed read path.
+#
+# is_initial_query drops the per-shard sub-queries that would otherwise double-count.
+# event_date < today() exposes a day only once it is complete: the warehouse sync
+# advances its `day` cursor and never revisits a day, so a partial final day must
+# never be visible.
+# ============================================================================
+DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW = "daily_aggregated_query_log_archive"
+
+
+def DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW_SQL(view_name=DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW):
+    return f"""
+CREATE VIEW IF NOT EXISTS {view_name} AS
+SELECT
+    event_date AS day,
+    team_id,
+    user,
+    current_database,
+    query_kind,
+    lc_kind,
+    lc_access_method,
+    lc_query_type,
+    lc_product,
+    lc_name,
+    lc_feature,
+    lc_query__kind,
+    lc_api_key_label,
+    count() AS query_count,
+    sum(read_bytes) AS read_bytes,
+    sum(read_rows) AS read_rows,
+    sum(query_duration_ms) AS query_duration_ms,
+    sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds,
+    countIf(exception_code != 0) AS error_count,
+    countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count
+FROM {SHARDED_QUERY_LOG_ARCHIVE_TABLE}
+WHERE is_initial_query AND event_date < today()
+GROUP BY
+    day,
+    team_id,
+    user,
+    current_database,
+    query_kind,
+    lc_kind,
+    lc_access_method,
+    lc_query_type,
+    lc_product,
+    lc_name,
+    lc_feature,
+    lc_query__kind,
+    lc_api_key_label
+"""
