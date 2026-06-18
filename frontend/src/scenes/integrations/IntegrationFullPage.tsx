@@ -119,7 +119,11 @@ function ConnectedView({
                     {ok ? `You're connected to ${definition.name}` : `${definition.name} is connected, with caveats`}
                 </h1>
                 <p className="text-secondary m-0">
-                    {ok ? 'Everything is set up and ready to go.' : 'Review the items below before using it.'}
+                    {ok
+                        ? 'Everything is set up and ready to go.'
+                        : PostConnect
+                          ? 'Review the items below before using it.'
+                          : 'Some settings may need your attention.'}
                 </p>
             </div>
 
