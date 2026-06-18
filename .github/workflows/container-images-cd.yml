@@ -139,13 +139,13 @@ jobs:
             # Boot every process entrypoint from the image we're about to ship, before dispatching the
             # deploy. A fatal import error — a file dropped from the build context, or a stale merge that
             # relocates a module a worker still imports — surfaces here and blocks the deploy instead of
-            # crash-looping in production. `import posthog.asgi` + `manage.py check` only exercise the web
-            # path; the temporal/celery workers import product code that django.setup() deliberately skips
-            # (see products/*/backend/apps.py), so a worker-only break boots web-green. Importing each
-            # entrypoint is what catches that class — this is the gate that replaces the old "wait for
-            # backend CI" hold. STATIC_COLLECTION=1 lets Django boot without live services or a real
-            # SECRET_KEY (settings/access.py otherwise exits on the default key). Skipped on manual
-            # workflow_dispatch (break-glass).
+            # crash-looping in production. The web path alone is not enough: the temporal/celery workers
+            # import product code that django.setup() deliberately skips (see products/*/backend/apps.py),
+            # so a worker-only break boots web-green. `start_temporal_worker` eagerly imports every queue's
+            # activities/workflows, so that one import covers all worker variants; importing posthog.asgi
+            # first runs django.setup() once for the worker/celery imports that follow. STATIC_COLLECTION=1
+            # lets Django boot without live services or a real SECRET_KEY (settings/access.py otherwise
+            # exits on the default key). Skipped on manual workflow_dispatch (break-glass).
             - name: Verify image boots (web + temporal + celery)
               if: github.event_name == 'push'
               env:
@@ -158,11 +158,9 @@ jobs:
                       -e STATIC_COLLECTION=1 \
                       -e DATABASE_URL=postgres:/// \
                       -e REDIS_URL=redis:/// \
-                      "$IMAGE" sh -c '
-                          python -c "import posthog.asgi" \
-                          && python manage.py check \
-                          && python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker" \
-                          && python -c "import posthog.asgi; from posthog.celery import app; app.loader.import_default_modules()"
+                      "$IMAGE" sh -ec '
+                          python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
+                          python manage.py check
                       '
 
             - name: get deployer token
