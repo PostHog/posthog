@@ -109,8 +109,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         automaticCalculation: [
             null as RunningTimeCalculationResultApi | null,
             {
-                loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi) => {
-                    return await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi, breakpoint) => {
+                    const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    breakpoint()
+                    return result
                 },
             },
         ],
