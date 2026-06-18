@@ -658,6 +658,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # Federated EXTERNAL_QUERY view whose upstream schema drifted — a column the view selects was
+        # renamed/dropped in the source database, so BigQuery can't compile the view.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=us-central1: Invalid table-valued function EXTERNAL_QUERY; failed to parse "
+                "view 'analytics.SurveyResponse'\nFailed to get query schema from PostgreSQL server, "
+                'prepare statement failed. Error: ERROR:  column "participantId" does not exist'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_unparseable_view(observed_error):
+    """A view whose definition no longer matches the underlying data (e.g. a federated query
+    references a dropped column) can't be recovered by retrying — the user must fix the view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(
