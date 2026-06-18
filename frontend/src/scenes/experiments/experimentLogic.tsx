@@ -108,6 +108,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
@@ -2689,16 +2690,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 return hasEnded(experiment) && !experiment.archived
             },
         ],
-        variants: [
-            (s) => [s.experiment],
-            (experiment): MultivariateFlagVariant[] => {
-                return (
-                    experiment?.parameters?.feature_flag_variants ??
-                    experiment?.feature_flag?.filters?.multivariate?.variants ??
-                    []
-                )
-            },
-        ],
+        variants: [(s) => [s.experiment], (experiment): MultivariateFlagVariant[] => getExperimentVariants(experiment)],
         excludedVariants: [
             (s) => [s.experiment],
             (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],

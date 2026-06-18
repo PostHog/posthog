@@ -28,6 +28,7 @@ const theme = useChartTheme() // reads CSS vars, tracks light/dark switches
 - Series colors come from `--data-color-1..15` (ordered categorical palette from `@posthog/quill-tokens`); chrome from `--color-graph-axis-label` / `--color-graph-axis-line` / `--color-graph-crosshair`.
 - `themeFromCssVars()` is the one-shot non-hook version; `DEFAULT_CHART_COLORS` is the no-DOM fallback (kept in sync with tokens by a CI-enforced test).
 - Omit `color` on a series to get palette assignment by index — preferred. Explicit `color` accepts hex or `var(--...)`.
+- `theme.skipDraw` suppresses all canvas painting (static layer + hover overlay) while still mounting the `<canvas>` element. Use it for deterministic visual-snapshot tests where the async paint pipeline (ResizeObserver → requestAnimationFrame) races the screenshot — the chart renders blank but layout and DOM selectors are unaffected.
 
 ## Series shape (all multi-series charts)
 
