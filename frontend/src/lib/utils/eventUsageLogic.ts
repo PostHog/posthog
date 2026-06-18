@@ -525,6 +525,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
+        reportDashboardMovedToFolder: (fromPath: string, toPath: string) => ({ fromPath, toPath }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -1474,6 +1475,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 pinned,
                 source,
+            })
+        },
+        reportDashboardMovedToFolder: async ({ fromPath, toPath }) => {
+            posthog.capture('dashboard moved to folder', {
+                from_path: fromPath,
+                to_path: toPath,
             })
         },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {

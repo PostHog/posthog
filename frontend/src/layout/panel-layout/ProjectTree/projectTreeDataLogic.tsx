@@ -274,6 +274,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             await api.fileSystem.move(action.item.id, newPath)
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
+                            if (action.item.type === 'dashboard') {
+                                // Arm-agnostic primary-metric signal: fired wherever a dashboard is filed
+                                // (grid, finder, or sidebar) so the dashboards-list-view experiment can
+                                // compare organizing rates across arms.
+                                eventUsageLogic.actions.reportDashboardMovedToFolder(oldPath, newPath)
+                            }
                             lemonToast.success('Item moved successfully', {
                                 button: {
                                     label: 'Undo',

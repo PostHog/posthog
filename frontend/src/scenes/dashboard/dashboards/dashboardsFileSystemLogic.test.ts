@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
@@ -10,6 +11,7 @@ import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
 describe('dashboardsFileSystemLogic', () => {
     let logic: ReturnType<typeof dashboardsFileSystemLogic.build>
+    let unmountEventUsage: () => void
 
     useMocks({
         get: {
@@ -26,13 +28,21 @@ describe('dashboardsFileSystemLogic', () => {
         } as any)
         jest.spyOn(api.fileSystem, 'unfiled').mockResolvedValue(null as any)
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] } as any)
+        jest.spyOn(api.fileSystem, 'move').mockResolvedValue({
+            id: 'fs-1',
+            type: 'dashboard',
+            ref: '1',
+            path: 'Product/A',
+        } as any)
         initKeaTests()
+        unmountEventUsage = eventUsageLogic.mount()
         logic = dashboardsFileSystemLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
+        unmountEventUsage?.()
         jest.restoreAllMocks()
     })
 
