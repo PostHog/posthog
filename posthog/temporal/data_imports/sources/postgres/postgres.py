@@ -376,9 +376,12 @@ def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
-        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
-            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
-        raise
+        if not (connect_kwargs.get("options") and _is_options_startup_param_unsupported(e)):
+            raise
+    # Retry outside the `except` block: a genuine failure on the options-less connect (bad
+    # password, tenant not found) must propagate on its own, not chained to the benign — and now
+    # recovered — "options unsupported" error, which otherwise masks the real cause in error tracking.
+    return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
 
 
 def _connect_to_postgres(
@@ -801,15 +804,21 @@ def _rls_active_from_conn(
         # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
         # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
         # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
-        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
-        # don't re-capture it (mirrors `_get_partition_settings`).
+        # a downstream symptom. A harsher variant of the same thing: an earlier probe (or a transient
+        # drop — SSH-tunnel hiccup, idle cull, failover) leaves the shared connection closed/broken,
+        # so our `cursor()` call surfaces as `OperationalError: the connection is closed`. Both are
+        # already-handled downstream symptoms, not bugs in this lookup, so don't re-capture them
+        # (mirrors `_get_partition_settings` and the caller's own connection-level handler).
         #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
-            e, "row_security_active"
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_function_error(e, "row_security_active")
         ):
             capture_exception(e)
         return {}
@@ -920,24 +929,41 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
-    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
-    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
-    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
-    # retry here that blip fails the whole discovery activity and surfaces as captured
-    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
-    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
-    # matches transient drops.
-    connection = _connect_with_dropped_retry(
-        lambda: _connect_to_postgres(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-        ),
-        structlog.get_logger(),
-    )
-    try:
-        return _schemas_from_conn(connection, schema, names)
-    finally:
-        connection.close()
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop —
+    # "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall, or
+    # SSH-tunnel hiccup, or a Supavisor "(EDBHANDLEREXITED)" pooler drop — is transient and recovers
+    # on a retry, exactly like the drops the import read path already retries via
+    # `_connect_with_dropped_retry`. Transaction-mode poolers (Supabase's Supavisor, PgBouncer)
+    # routinely accept the client connection and only drop the upstream backend once the first
+    # query runs, so the drop lands on the discovery query (`_is_duckdb_connection`'s
+    # `SELECT version()`), not the connect — the retry must span both or the blip fails the whole
+    # discovery activity and surfaces as captured error-tracking noise even though the next attempt
+    # would succeed. Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_connection_dropped_error` only matches transient drops.
+    logger = structlog.get_logger()
+    attempt = 0
+    while True:
+        connection = _connect_with_dropped_retry(
+            lambda: _connect_to_postgres(
+                host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            ),
+            logger,
+        )
+        try:
+            return _schemas_from_conn(connection, schema, names)
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
+            if not _is_connection_dropped_error(e):
+                raise
+            attempt += 1
+            if attempt >= _MAX_SETUP_CONNECTION_DROPPED_RETRIES:
+                raise
+            logger.debug(
+                f"Schema discovery query failed ({e}). "
+                f"Retrying (attempt {attempt}/{_MAX_SETUP_CONNECTION_DROPPED_RETRIES})"
+            )
+            time.sleep(min(2 * attempt, 30))
+        finally:
+            connection.close()
 
 
 def get_primary_keys_for_schemas(
