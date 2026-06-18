@@ -303,8 +303,8 @@ const BarContents = ({
 }
 
 const IssueControlMenuItems = ({ close }: { close: () => void }): JSX.Element => {
-    const { status, assignee, showQueryV3Switch, useQueryV3 } = useValues(issueQueryOptionsLogic)
-    const { setStatus, setAssignee, setUseQueryV3 } = useActions(issueQueryOptionsLogic)
+    const { status, assignee } = useValues(issueQueryOptionsLogic)
+    const { setStatus, setAssignee } = useActions(issueQueryOptionsLogic)
 
     return (
         <>
@@ -333,14 +333,6 @@ const IssueControlMenuItems = ({ close }: { close: () => void }): JSX.Element =>
                     />
                 </DropdownMenuSubContent>
             </DropdownMenuSub>
-            {showQueryV3Switch && (
-                <DropdownMenuCheckboxItem
-                    checked={useQueryV3}
-                    onCheckedChange={(checked: boolean) => setUseQueryV3(checked)}
-                >
-                    v3 query
-                </DropdownMenuCheckboxItem>
-            )}
         </>
     )
 }

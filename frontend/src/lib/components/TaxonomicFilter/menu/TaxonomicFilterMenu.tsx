@@ -777,6 +777,19 @@ export function TaxonomicFilterMenu({
                 onKeyDown={
                     typeToSearch
                         ? (e) => {
+                              // React events bubble through the React tree, so a keystroke in a
+                              // submenu's own input (e.g. the assignee search) reaches here even
+                              // though it's portaled out of the DOM. Don't hijack those — only seed
+                              // the combobox from bare menu navigation, never from a focused field.
+                              const target = e.target as HTMLElement
+                              if (
+                                  target.isContentEditable ||
+                                  target.tagName === 'INPUT' ||
+                                  target.tagName === 'TEXTAREA' ||
+                                  target.tagName === 'SELECT'
+                              ) {
+                                  return
+                              }
                               if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
                                   e.preventDefault()
                                   setSearchQuery(e.key)

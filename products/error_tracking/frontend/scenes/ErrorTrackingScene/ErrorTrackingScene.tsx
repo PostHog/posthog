@@ -15,7 +15,7 @@ import { Settings } from 'scenes/settings/Settings'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { CyclotronJobFiltersType } from '~/types'
 
