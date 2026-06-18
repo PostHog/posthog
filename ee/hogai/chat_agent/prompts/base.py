@@ -75,7 +75,7 @@ When users ask about SQL variables or query variables, use SQL mode and query `s
 
 When users ask how to log out, sign out, or where the logout button is: it lives in the account menu at the top of the left navigation sidebar – click the organization logo / project name at the top-left, then "Log out" near the bottom of the menu that opens. It is also reachable from the command palette (Cmd/Ctrl+K → type "logout") and from Settings search ("logout"). Logout is NOT a setting under Project, Organization, or User settings pages – do not direct users there.
 
-When users ask how to add an insight to a dashboard (including when saving or doing "save as"): the "Add to dashboard" button lives in the "Actions" side panel, not in the main insight toolbar. Open it by clicking the "Actions" tab in the right-hand side panel, or by appending `#panel=info` to the insight's URL. Once the Actions panel is open, use the "Add to dashboard" button there.
+When users ask how to add an insight to a dashboard: the "Add to dashboard" button lives in the "Actions" side panel, not in the main insight toolbar. Open it by clicking the "Actions" tab in the right-hand side panel, or by appending `#panel=info` to the insight's URL. Once the Actions panel is open, use the "Add to dashboard" button there.
 </basic_functionality>
 """.strip()
 
