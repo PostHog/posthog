@@ -222,7 +222,10 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       -> `src/ingestion/logs`, `src/metrics-ingestion` -> `src/ingestion/metrics`. 44 imports rewritten
       across 15 files; no lane deps (lane-pure). The `config.ts`/`types.ts` top-level edges to these
       lanes are deferred to the guard-`LANES` item (when enforcement turns on).
-- [ ] Merge `session-recording` + `session-replay` + `ingestion/session_replay` -> `session-replay`.
+- [x] Merge `session-recording` + `session-replay` + `ingestion/session_replay` -> `session-replay`.
+      All three -> `src/ingestion/session-replay` (collision-free: no shared root files or subdir
+      names). 231 imports rewritten across 76 files; lane-pure. Same top-level (`index.ts`/`config.ts`/
+      `types.ts`) edges deferred to the guard-`LANES` item.
 - [ ] Move `clientwarnings` -> `ingestionwarnings` lane dir.
 - [ ] Place each shared module in its correct common tier.
 - [ ] Add moved lanes to the guard's `LANES` set.
@@ -297,3 +300,10 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   and `re2` native addons from source — the sandbox's Node was upgraded to 24 (NODE_MODULE_VERSION 137) but the prebuilt binaries were for Node 22 (127), so every kafka/re2-touching test failed to
   load until rebuilt. Gate: guard green, tsc 0 new errors, eslint + prettier clean, 153 pure
   logs/metrics unit tests pass (consumer/integration tests need a Kafka broker -> CI gate).
+- Phase 2 "merge session-replay" complete: `src/session-recording` (47 files) + `src/session-replay`
+  (86) + `src/ingestion/session_replay` (11) all merged into `src/ingestion/session-replay`. Verified
+  collision-free first (no shared root filenames or subdir names across the three). 231 imports
+  rewritten across 76 files; lane-pure. Gate: guard green, tsc 0 new errors, eslint + prettier clean,
+  858 unit tests pass. 7 suites fail to load on the missing `@posthog/replay-headless` workspace
+  package (the recording-rasterizer playback dep — not installed/built in the sandbox, same class as
+  hogvm/cyclotron; independent of the move) -> CI gate.

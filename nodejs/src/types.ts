@@ -9,6 +9,7 @@ import { PersonRepository } from '~/common/persons/repositories/person-repositor
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/logs/config'
 import type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/session-replay/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -25,7 +26,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -49,7 +49,7 @@ export type {
 export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 export type { LogsIngestionConsumerConfig } from '~/ingestion/logs/config'
 export type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/session-replay/config'
 
 interface HealthCheckResultResponse {
     service: string

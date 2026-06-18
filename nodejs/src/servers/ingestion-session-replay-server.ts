@@ -1,4 +1,16 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import {
+    SessionReplayOutputsConfig,
+    type SessionReplayProducerName,
+    getDefaultSessionReplayOutputsConfig,
+} from '~/ingestion/session-replay/config'
+import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/session-replay/consumer'
+import { createProducerRegistry } from '~/ingestion/session-replay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/session-replay/outputs/registry'
+import {
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '~/ingestion/session-replay/shared/outputs/producer-config'
 
 import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
@@ -8,18 +20,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import {
-    SessionReplayOutputsConfig,
-    type SessionReplayProducerName,
-    getDefaultSessionReplayOutputsConfig,
-} from '../session-recording/config'
-import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
-import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
-import { createOutputsRegistry } from '../session-recording/outputs/registry'
-import {
-    KafkaSessionreplayProducerEnvConfig,
-    getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'

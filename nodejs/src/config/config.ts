@@ -1,5 +1,9 @@
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/ingestion/logs/config'
 import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
+import {
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/session-replay/config'
 
 import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
@@ -12,7 +16,6 @@ import {
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
 
