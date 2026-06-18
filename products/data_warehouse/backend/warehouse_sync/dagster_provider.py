@@ -44,7 +44,9 @@ class DagsterBackfillStatusProvider:
 
     def get_status(self, organization_id: str) -> WarehouseSyncStatusDTO:
         now = timezone.now()
-        team_id = getattr(settings, "WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID", None)
+        # Backfill telemetry is captured by ph_scoped_capture into the internal dogfooding project
+        # that receives PostHog products' own events — the same one /api/llm_analytics reads back.
+        team_id = settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
         if not team_id:
             return _empty(now, "not_started")
 

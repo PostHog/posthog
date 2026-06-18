@@ -19,7 +19,7 @@ class TestWarehouseSyncStatusAPI(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with override_settings(WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID=self.team.id):
+        with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
             res = self.client.get(f"/api/environments/{self.team.id}/data_warehouse/warehouse_sync_status/")
 
         assert res.status_code == 200, res.json()
