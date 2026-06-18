@@ -397,8 +397,8 @@ ORDER BY day
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setSelectedTool: () => {
+    actionToUrl(({ values }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
             if (values.selectedTool) {
@@ -406,15 +406,35 @@ ORDER BY day
             } else {
                 delete searchParams.tool
             }
+            if (values.dateFilter.dateFrom) {
+                searchParams.date_from = values.dateFilter.dateFrom
+            } else {
+                delete searchParams.date_from
+            }
+            if (values.dateFilter.dateTo) {
+                searchParams.date_to = values.dateFilter.dateTo
+            } else {
+                delete searchParams.date_to
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
-        },
-    })),
+        }
+        return {
+            setSelectedTool: syncUrl,
+            setDateFilter: syncUrl,
+        }
+    }),
 
     urlToAction(({ actions, values }) => ({
         [urls.mcpAnalyticsToolQuality()]: (_, searchParams) => {
             const tool = typeof searchParams.tool === 'string' && searchParams.tool ? searchParams.tool : null
             if (tool !== values.selectedTool) {
                 actions.setSelectedTool(tool)
+            }
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDateFilter(dateFrom, dateTo)
             }
         },
     })),
