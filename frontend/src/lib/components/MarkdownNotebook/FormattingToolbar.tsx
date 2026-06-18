@@ -263,7 +263,7 @@ export function FormattingToolbar({
                     tooltip="Ask AI"
                     aria-label="Ask AI"
                     disabled={isAskAIDisabled}
-                    disabledReason={isAskAIDisabled ? 'AI is already working' : undefined}
+                    disabledReason={isAskAIDisabled ? 'Ask AI is already active' : undefined}
                     onClick={askAIAboutSelection}
                 />
             ) : null}
