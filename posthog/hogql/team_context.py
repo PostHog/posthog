@@ -14,11 +14,11 @@ class HogQLTeamContext:
     into the engine. Build it at the Django boundary with ``from_team`` (or by hand in
     tests); engine code then depends only on this immutable data, never on the ORM.
 
-    Only cheap, directly-readable team attributes belong here. Values that require a
+    Only cheap, directly-readable team attributes belong here. Values that need a
     feature-flag evaluation or a database read — the persons-on-events default,
-    materialized columns, cohort definitions — are deliberately excluded. Those stay
-    explicit boundary/caller responsibilities and will arrive as already-resolved data
-    in later steps, so building this context never triggers I/O.
+    materialized columns, cohort definitions — are deliberately excluded; they reach the
+    engine as already-resolved data through the data provider, so building this context
+    never triggers I/O.
     """
 
     # Identity / tenant scoping
@@ -31,8 +31,8 @@ class HogQLTeamContext:
     timezone: str
     week_start_day: Optional[int] = None
     base_currency: Optional[str] = None
-    # Raw ``team.modifiers`` JSON — project-level HogQL modifier overrides. Read by
-    # ``create_default_modifiers_for_team_context``.
+    # Raw ``team.modifiers`` JSON — project-level HogQL modifier overrides applied during
+    # default-modifier resolution.
     modifiers: Optional[dict] = None
     # Raw ``team.test_account_filters`` JSON (list of property-filter dicts).
     test_account_filters: list[Any] = field(default_factory=list)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Protocol, TypedDict
 
 from posthog.hogql.team_context import HogQLTeamContext
 
@@ -33,7 +33,7 @@ class ActionRef:
 
 @dataclass(frozen=True)
 class InsightVariableInfo:
-    """The two fields of an insight variable the engine reads when substituting placeholders."""
+    """The insight-variable fields the engine reads when substituting placeholders."""
 
     code_name: Optional[str]
     default_value: Any
@@ -57,26 +57,32 @@ class MaterializedColumnInfo:
     has_bloom_filter_lower_index: bool = False
 
 
-@dataclass(frozen=True)
-class PropertyTypes:
-    """The inferred types of the properties a query touches, split by where the property lives.
+class PropertyTypeInfo(TypedDict):
+    """The type facts the engine needs about one property.
 
-    Each map goes from a property to a small info dict. That info dict always carries a
-    ``"type"`` — the property's inferred type as a string (``"Numeric"``, ``"Boolean"``,
-    ``"DateTime"``, …) that the type-resolution pass (``PropertySwapper``) uses to decide
-    how to read and cast the otherwise-untyped raw value. Event properties may also carry
-    a ``"dmat"`` key naming a materialized column that backs them, which lets the compiler
-    read that column directly instead of unpacking JSON.
-
-    Keys are the bare property name for ``event`` and ``person``. ``group`` keys are
-    namespaced as ``"{group_type_index}_{name}"`` (e.g. ``"0_industry"``), because the same
-    property name can exist under different group types. A property missing from its map has
-    no known type and is compiled as an untyped JSON value — that is a normal case, not an error.
+    ``type`` is the property's inferred type — one of the PropertyDefinition property types
+    (``"DateTime"``, ``"String"``, ``"Numeric"``, ``"Boolean"``, ``"Duration"``) — used to
+    read and cast the otherwise-untyped raw value. ``dmat`` names a materialized column that
+    backs the property; it is present only for event properties that have one, and its
+    absence means the value is read from JSON.
     """
 
-    event: dict[str, dict[str, str | None]] = field(default_factory=dict)
-    person: dict[str, dict[str, str | None]] = field(default_factory=dict)
-    group: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    type: str
+    dmat: NotRequired[str]
+
+
+@dataclass(frozen=True)
+class PropertyTypes:
+    """The types of the properties a query references, grouped by where the property lives.
+
+    Each map is keyed by property: the bare name for ``event`` and ``person``, and
+    ``"{group_type_index}_{name}"`` for ``group`` (e.g. ``"0_industry"``), since the same name
+    can exist under different group types. A property missing from its map has no known type.
+    """
+
+    event: dict[str, PropertyTypeInfo] = field(default_factory=dict)
+    person: dict[str, PropertyTypeInfo] = field(default_factory=dict)
+    group: dict[str, PropertyTypeInfo] = field(default_factory=dict)
 
 
 class DataProvider(Protocol):

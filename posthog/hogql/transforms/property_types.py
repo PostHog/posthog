@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import MaterializedColumnInfo
+from posthog.hogql.data_provider import MaterializedColumnInfo, PropertyTypeInfo
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import (
@@ -127,9 +127,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: dict[str, dict[str, str | None]],
-        person_properties: dict[str, dict[str, str | None]],
-        group_properties: dict[str, dict[str, str | None]],
+        event_properties: dict[str, PropertyTypeInfo],
+        person_properties: dict[str, PropertyTypeInfo],
+        group_properties: dict[str, PropertyTypeInfo],
         context: HogQLContext,
         setTimeZones: bool,
     ):
@@ -511,11 +511,13 @@ class PropertySwapper(CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
-        prop_info = properties_by_type[property_type].get(property_name, {})
-        field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
+        prop_info = properties_by_type[property_type].get(property_name)
+        prop_type = prop_info.get("type") if prop_info else None
+        field_type = "Float" if prop_type == "Numeric" else prop_type or "String"
+        dmat_column = prop_info.get("dmat") if prop_info else None
 
         # Add notice about the property type and materialization status
-        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+        self._add_property_notice(node, property_type, field_type, dmat_column)
 
         # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as

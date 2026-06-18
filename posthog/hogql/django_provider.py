@@ -16,6 +16,7 @@ from posthog.hogql.data_provider import (
     InsightVariableInfo,
     MaterializedColumnInfo,
     PropertyKind,
+    PropertyTypeInfo,
     PropertyTypes,
 )
 from posthog.hogql.engine_config import EngineConfig
@@ -223,12 +224,13 @@ class DjangoDataProvider:
             else []
         )
 
-        event: dict[str, dict[str, str | None]] = {}
+        event: dict[str, PropertyTypeInfo] = {}
         for prop_def in event_property_definitions:
-            if not prop_def.property_type:
+            property_type = prop_def.property_type
+            if not property_type:
                 continue
 
-            prop_info: dict[str, str | None] = {"type": prop_def.property_type}
+            prop_info: PropertyTypeInfo = {"type": property_type}
             slot = prop_def.materialized_column_slots.first()
             if slot:
                 prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
@@ -245,11 +247,11 @@ class DjangoDataProvider:
             if person_properties
             else []
         )
-        person: dict[str, dict[str, str | None]] = {
+        person: dict[str, PropertyTypeInfo] = {
             name: {"type": property_type} for name, property_type in person_property_values if property_type
         }
 
-        group: dict[str, dict[str, str | None]] = {}
+        group: dict[str, PropertyTypeInfo] = {}
         for group_id, names in group_properties.items():
             if not names:
                 continue
