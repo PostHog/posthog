@@ -10,7 +10,7 @@
 //! tasks and gather back in input order. Per-event panics are isolated so one
 //! bad event never fails the whole request.
 
-use std::panic::AssertUnwindSafe;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -71,7 +71,7 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
 /// the batch / poisoning the worker.
 fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
     let uuid = ev.uuid();
-    match std::panic::catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
+    match catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
         Ok(Ok(Some(prepared))) => Slot::Prepared(prepared),
         Ok(Ok(None)) => Slot::Skipped,
         Ok(Err(e)) => Slot::Failed(SerializationFailure::from_error(uuid, format!("{e:#}"))),
