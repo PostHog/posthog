@@ -34,7 +34,13 @@ from .ast_helpers import (
     imports_any,
     view_facade_usage,
 )
-from .isolation import IsolationStatus, compute_isolation_status, has_tach_interface, presentation_bypass_entries
+from .isolation import (
+    IsolationStatus,
+    compute_isolation_status,
+    has_legacy_interface_leaks,
+    has_tach_interface,
+    presentation_bypass_entries,
+)
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
 from .product_yaml import load_all_product_yamls, load_product_yaml
 from .ts_helpers import codegen_adoption, codegen_call_sites
@@ -599,27 +605,6 @@ def _build_cross_import_maps() -> tuple[dict[str, list[str]], dict[str, list[str
     return inbound, outbound
 
 
-def _cross_import_maps(
-    inbound_map: dict[str, list[str]] | None,
-    outbound_map: dict[str, list[str]] | None,
-) -> tuple[dict[str, list[str]] | None, dict[str, list[str]] | None]:
-    """Resolve both maps, building them from one scan when not supplied by the caller.
-
-    A None result for either map means the scan failed (rg missing/timeout) — callers
-    surface that rather than silently scoring the product as clean.
-    """
-    if inbound_map is not None and outbound_map is not None:
-        return inbound_map, outbound_map
-    built = _build_cross_import_maps()
-    if built is None:
-        return inbound_map, outbound_map
-    scanned_inbound, scanned_outbound = built
-    return (
-        inbound_map if inbound_map is not None else scanned_inbound,
-        outbound_map if outbound_map is not None else scanned_outbound,
-    )
-
-
 def score_boundaries(
     name: str,
     product_dir: Path,
@@ -639,7 +624,7 @@ def score_boundaries(
     if not _has_python_files(product_dir):
         return DimensionScore("boundaries", 0, "no Python files", applicable=False)
 
-    inbound_map, outbound_map = _cross_import_maps(inbound_map, outbound_map)
+    content = tach_content if tach_content is not None else (TACH_TOML.read_text() if TACH_TOML.exists() else "")
 
     score = 0
     parts = []
@@ -651,7 +636,7 @@ def score_boundaries(
     block = get_tach_block(module_path)
 
     if block:
-        if has_tach_interface(name, tach_content):
+        if has_tach_interface(name, content):
             score += 10
             parts.append("tach + interfaces")
         else:
@@ -726,6 +711,19 @@ def score_boundaries(
         )
         # Cap evidence so the report doesn't explode for products with hundreds of violations
         evidence.append(("inbound violations", _cap(inbound, 25)))
+
+    # A declared legacy-leak interface (e.g. backend.admin exposed to core) is an external
+    # bypass the inbound scan deliberately exempts. Without docking it here, a leaky product
+    # still scores a near-perfect boundary while the seal capstone says the boundary is open.
+    if has_legacy_interface_leaks(content, module_path):
+        score -= min(score, 30)
+        parts.append("legacy interface leak")
+        next_steps.append(
+            "A dedicated legacy-leak [[interfaces]] block exposes non-facade internals to core "
+            "(e.g. backend.admin). The external boundary stays open until that coupling is removed "
+            "or accepted as permanent; contract-check stays off either way."
+        )
+        evidence.append(("legacy interface leak", [f"{module_path}: non-facade surface exposed to core in tach.toml"]))
 
     skills = ["/isolating-product-facade-contracts"] if next_steps else []
     return DimensionScore(
@@ -815,6 +813,7 @@ def score_product(
     assigned_counts: dict[str, int] | None = None,
     inbound_map: dict[str, list[str]] | None = None,
     outbound_map: dict[str, list[str]] | None = None,
+    maps_resolved: bool = False,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     product_yamls: dict[str, dict] | None = None,
@@ -823,9 +822,18 @@ def score_product(
 
     `tach_content`/`pyproject_text` let the --all caller read those repo files once and
     thread them in; a single-product run leaves them None and the helpers read on demand.
+
+    The --all caller scans cross-product imports once and passes the maps with
+    `maps_resolved=True` (a map may be None, meaning the scan failed — boundaries scoring
+    then shows "scan failed" rather than awarding clean points). A single-product run
+    leaves it False, so the scan runs once here.
     """
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()
+
+    if not maps_resolved:
+        built = _build_cross_import_maps()
+        inbound_map, outbound_map = built if built is not None else (None, None)
 
     meta = (product_yamls or {}).get(name) or load_product_yaml(name)
     product_dir = PRODUCTS_DIR / name
@@ -871,10 +879,9 @@ def score_all_products() -> list[ProductScore]:
     maps = _build_cross_import_maps()
     if maps is None:
         warnings.warn("cross-product import scan failed (rg unavailable or timeout)", stacklevel=2)
-        inbound_map: dict[str, list[str]] = {}
-        outbound_map: dict[str, list[str]] = {}
-    else:
-        inbound_map, outbound_map = maps
+    # On failure both maps stay None, so boundaries scoring reports "scan failed" instead of
+    # awarding clean points — and the scan is not re-run per product.
+    inbound_map, outbound_map = maps if maps is not None else (None, None)
 
     scores = [
         score_product(
@@ -882,6 +889,7 @@ def score_all_products() -> list[ProductScore]:
             assigned_counts=assigned_counts,
             inbound_map=inbound_map,
             outbound_map=outbound_map,
+            maps_resolved=True,
             tach_content=tach_content,
             pyproject_text=pyproject_text,
             product_yamls=product_yamls,
@@ -933,7 +941,9 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
     if status.isolated_tests_enabled:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
-    if status.eligible_for_isolated_tests:
+    # Eligibility deliberately excludes the tach interface (see IsolationStatus), but the skip
+    # is unsound without the external boundary, so READY also requires it.
+    if status.eligible_for_isolated_tests and status.externally_sealed:
         missing = []
         if not status.has_contract_check_script:
             missing.append("add backend:contract-check")

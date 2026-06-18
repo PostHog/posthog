@@ -194,7 +194,7 @@ class IsolationStatus:
     has_real_facade: bool
     has_tach_interface: bool
     has_legacy_leaks: bool
-    bypass_entries: list[str]  # presentation -> internals deferrals still open (the worklist)
+    bypass_entries: tuple[str, ...]  # presentation -> internals deferrals still open (the worklist)
     has_contract_check_script: bool
     has_narrowed_turbo: bool
 
@@ -214,7 +214,11 @@ class IsolationStatus:
 
     @property
     def eligible_for_isolated_tests(self) -> bool:
-        """Prerequisites for the contract-check skip. Mirrors the lint gate exactly."""
+        """Prerequisites for the contract-check skip, mirroring the lint gate's package.json
+        check exactly. Deliberately does NOT include `has_tach_interface` — the external
+        boundary is required too, but it's enforced separately (TachCheck demands the
+        interface; IsolationChainCheck blocks a script without it). Callers that gate a
+        "ready" *display* should additionally require `externally_sealed`."""
         return self.is_isolated and self.has_real_facade and not self.has_legacy_leaks and self.deferred_count == 0
 
     @property
@@ -244,7 +248,7 @@ def compute_isolation_status(
         has_real_facade=has_real_facade(backend_dir),
         has_tach_interface=has_tach_interface(name, tach_content),
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
-        bypass_entries=presentation_bypass_entries(name, pyproject_text),
+        bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
         has_contract_check_script=has_contract_check_script(product_dir),
         has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir),
     )

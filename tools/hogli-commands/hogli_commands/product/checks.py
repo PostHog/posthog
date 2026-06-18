@@ -590,7 +590,8 @@ class TachCheck(ProductCheck):
                 ],
             )
 
-        if ctx.is_isolated and not has_tach_interface(ctx.name):
+        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        if ctx.is_isolated and not has_tach_interface(ctx.name, tach_content):
             return CheckResult(
                 lines=["✗ missing interfaces declaration"],
                 issues=[
@@ -599,7 +600,6 @@ class TachCheck(ProductCheck):
                 ],
             )
 
-        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
         if has_legacy_interface_leaks(tach_content, module_path):
             return CheckResult(lines=["⚠ has legacy interface leaks — core bypasses facade (not tested in isolation)"])
 
