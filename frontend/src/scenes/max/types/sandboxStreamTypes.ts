@@ -10,6 +10,14 @@ import type { SandboxQuestion } from '../sandboxQuestionUtils'
 import type { PermissionOption } from './sandboxWireTypes'
 
 export type ToolInvocationStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+export type SandboxProgressStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+
+export interface SandboxProgressStep {
+    key: string
+    label: string
+    status: SandboxProgressStatus
+    detail?: string
+}
 
 /**
  * One merged tool call: a `tool_call` creation plus N × `tool_call_update`s folded into a
@@ -60,6 +68,7 @@ export type ThreadItemType =
     | 'status'
     | 'compact_boundary'
     | 'task_notification'
+    | 'progress'
 
 /**
  * An ordered, append-only entry the renderer consumes. Human messages, text chunks, streamed
@@ -96,6 +105,10 @@ export interface ThreadItem {
     contextSize?: number
     /** For `task_notification` items — the milestone summary. */
     summary?: string
+    /** For `progress` items — backend-supplied group id, scoped to the task run. */
+    progressGroup?: string
+    /** For `progress` items — ordered setup/runtime progress rows. */
+    progressSteps?: SandboxProgressStep[]
 }
 
 /** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
