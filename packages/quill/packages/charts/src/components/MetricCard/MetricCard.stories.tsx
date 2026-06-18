@@ -90,3 +90,55 @@ export const NumberOnly: Story = {
         </Stage>
     ),
 }
+
+// Centered, headline-only — the look the trends "Number" insight uses with all toggles off.
+export const CenteredBigNumber: Story = {
+    render: () => (
+        <Stage width={360} height={200}>
+            <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex items-center justify-center">
+                <MetricCard
+                    title={null}
+                    value={1_284_320}
+                    align="center"
+                    showChange={false}
+                    headline={(s) => (
+                        <div
+                            className="text-5xl font-bold tracking-tight tabular-nums"
+                            style={{ letterSpacing: '-0.025em' }}
+                        >
+                            {s}
+                        </div>
+                    )}
+                    formatValue={(v) => v.toLocaleString()}
+                    subtitle=""
+                />
+            </div>
+        </Stage>
+    ),
+}
+
+// Centered number with a comparison pill — trends "Number" with the comparison toggle on.
+export const CenteredWithPill: Story = {
+    render: () => (
+        <Stage width={360} height={220}>
+            <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex items-center justify-center">
+                <MetricCard
+                    title={null}
+                    value={1_284_320}
+                    align="center"
+                    change={{ value: 8.4 }}
+                    headline={(s) => (
+                        <div
+                            className="text-5xl font-bold tracking-tight tabular-nums"
+                            style={{ letterSpacing: '-0.025em' }}
+                        >
+                            {s}
+                        </div>
+                    )}
+                    formatValue={(v) => v.toLocaleString()}
+                    subtitle=""
+                />
+            </div>
+        </Stage>
+    ),
+}

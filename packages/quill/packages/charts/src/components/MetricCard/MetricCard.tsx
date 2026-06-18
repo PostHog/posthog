@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react'
 
+import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { ChartTheme } from '../../core/types'
 import { percentage } from '../../utils/format'
-import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
 import { useHoverIntent } from './useHoverIntent'
@@ -42,6 +42,11 @@ export interface MetricCardProps {
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
+    /** Horizontal alignment of the card contents. `center` centers the title, headline, and subtitle. */
+    align?: 'left' | 'center'
+    /** Override the headline rendering. Receives the already-formatted value string; return the node
+     *  to render in place of the default `text-4xl` headline (e.g. to wrap it for auto-scaling). */
+    headline?: (formattedValue: string) => React.ReactNode
     animationMs?: number
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
      *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
@@ -87,6 +92,8 @@ function MetricCardInner({
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
+    align = 'left',
+    headline,
     animationMs = 350,
     hoverIntentMs = 140,
     className,
@@ -123,14 +130,26 @@ function MetricCardInner({
     const isGood = goodDirection === 'up' ? positive : !positive
     const pillColors = isGood ? positiveColor : negativeColor
 
-    return (
-        <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
-            <div className="flex items-start justify-between gap-2">
-                <div className="text-sm font-medium">{title}</div>
-                {delta != null && <ChangePill positive={positive} label={delta.label} colors={pillColors} />}
-            </div>
+    const centered = align === 'center'
+    const showHeader = title != null || delta != null
 
-            <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
+    return (
+        <div
+            className={`flex flex-col w-full ${centered ? 'items-center text-center' : ''} ${className ?? ''}`}
+            data-attr={dataAttr}
+        >
+            {showHeader && (
+                <div className={`flex items-start gap-2 ${centered ? 'justify-center' : 'justify-between'}`}>
+                    {title != null && <div className="text-sm font-medium">{title}</div>}
+                    {delta != null && <ChangePill positive={positive} label={delta.label} colors={pillColors} />}
+                </div>
+            )}
+
+            {headline ? (
+                headline(headlineDisplay)
+            ) : (
+                <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
+            )}
 
             <div className="mt-1 text-sm opacity-60">{resolvedSubtitle}</div>
 

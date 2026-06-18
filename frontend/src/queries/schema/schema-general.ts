@@ -1493,6 +1493,15 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the series label as a title above the big number (BoldNumber display only).
+     * @default false */
+    boldNumberShowTitle?: boolean
+    /** Draw a sparkline of the per-interval series below the big number (BoldNumber display only).
+     * @default false */
+    boldNumberShowSparkline?: boolean
+    /** Show the compare-to-previous change as a compact pill next to the big number (BoldNumber display only).
+     * @default false */
+    boldNumberShowComparisonPill?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1525,6 +1534,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'boldNumberShowTitle',
+    'boldNumberShowSparkline',
+    'boldNumberShowComparisonPill',
 ])
 
 export interface BoxPlotDatum {

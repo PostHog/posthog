@@ -7655,6 +7655,20 @@ class TrendsFilter(BaseModel):
             " the project's base currency. Include any trailing space yourself."
         ),
     )
+    boldNumberShowComparisonPill: bool | None = Field(
+        default=False,
+        description=(
+            "Show the compare-to-previous change as a compact pill next to the big number (BoldNumber display only)."
+        ),
+    )
+    boldNumberShowSparkline: bool | None = Field(
+        default=False,
+        description=("Draw a sparkline of the per-interval series below the big number (BoldNumber display only)."),
+    )
+    boldNumberShowTitle: bool | None = Field(
+        default=False,
+        description=("Show the series label as a title above the big number (BoldNumber display only)."),
+    )
     breakdown_histogram_bin_count: float | None = None
     confidenceLevel: float | None = None
     decimalPlaces: float | None = Field(

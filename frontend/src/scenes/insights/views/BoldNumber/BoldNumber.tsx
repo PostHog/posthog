@@ -8,6 +8,7 @@ import React from 'react'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
+import { MetricCard, type MetricChange, useChartTheme } from '@posthog/quill-charts'
 
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils/numbers'
@@ -128,56 +129,93 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         insightVizDataLogic(insightProps)
     )
     const { baseCurrency } = useValues(teamLogic)
+    const theme = useChartTheme()
+
+    const showTitle = !!trendsFilter?.boldNumberShowTitle
+    const showSparkline = !!trendsFilter?.boldNumberShowSparkline
+    const showComparisonPill = !!trendsFilter?.boldNumberShowComparisonPill
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
+    // The sparkline drives its own hover readout, so the custom tooltip only runs in the plain-number layout.
     const valueRef = useBoldNumberTooltip({
         showPersonsModal,
-        isTooltipShown,
+        isTooltipShown: isTooltipShown && !showSparkline,
         groupTypeLabel: context?.groupTypeLabel,
     })
 
     const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
-    return resultSeries ? (
+    if (!resultSeries) {
+        return <InsightEmptyState />
+    }
+
+    const handleClick = context?.onDataPointClick
+        ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
+        : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
+          ? () => {
+                openPersonsModal({
+                    title: resultSeries.label,
+                    query: {
+                        kind: NodeKind.InsightActorsQuery,
+                        source: querySource!,
+                        compare: showComparison ? 'current' : undefined,
+                        includeRecordings: true,
+                    },
+                    additionalSelect: {
+                        value_at_data_point: 'event_count',
+                        matched_recordings: 'matched_recordings',
+                    },
+                    orderBy: ['event_count DESC, actor_id DESC'],
+                })
+            }
+          : undefined
+
+    let changePill: MetricChange | null = null
+    if (showComparison && showComparisonPill) {
+        const [currentPeriodSeries, previousPeriodSeries] = insightData.result as TrendResult[]
+        const { percentageDiff, hasComparableDiff } = computeComparisonDisplay(
+            currentPeriodSeries.aggregated_value,
+            previousPeriodSeries.aggregated_value
+        )
+        // MetricCard's pill expects a percentage; computeComparisonDisplay returns a ratio.
+        changePill = hasComparableDiff && percentageDiff !== null ? { value: percentageDiff * 100 } : null
+    }
+
+    return (
         <div className="BoldNumber ph-no-capture">
-            <div
-                className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
-                data-attr="bold-number-value"
-                onClick={
-                    context?.onDataPointClick
-                        ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
-                        : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
-                          ? () => {
-                                openPersonsModal({
-                                    title: resultSeries.label,
-                                    query: {
-                                        kind: NodeKind.InsightActorsQuery,
-                                        source: querySource!,
-                                        compare: showComparison ? 'current' : undefined,
-                                        includeRecordings: true,
-                                    },
-                                    additionalSelect: {
-                                        value_at_data_point: 'event_count',
-                                        matched_recordings: 'matched_recordings',
-                                    },
-                                    orderBy: ['event_count DESC, actor_id DESC'],
-                                })
-                            }
-                          : undefined
-                }
-                onMouseLeave={() => setIsTooltipShown(false)}
-                ref={valueRef}
-                onMouseEnter={() => setIsTooltipShown(true)}
-            >
-                <Textfit min={32} max={64}>
-                    {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value, baseCurrency)}
-                </Textfit>
-            </div>
+            <MetricCard
+                title={showTitle ? resultSeries.label : null}
+                value={resultSeries.aggregated_value}
+                align="center"
+                data={showSparkline ? resultSeries.data : undefined}
+                labels={showSparkline ? resultSeries.labels : undefined}
+                theme={showSparkline ? theme : undefined}
+                showChange={showComparison && showComparisonPill}
+                change={changePill}
+                subtitle={showSparkline ? undefined : ''}
+                formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
+                headline={(formattedValue) => (
+                    <div
+                        className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                        data-attr="bold-number-value"
+                        onClick={handleClick}
+                        onMouseLeave={() => setIsTooltipShown(false)}
+                        ref={valueRef}
+                        onMouseEnter={() => setIsTooltipShown(true)}
+                    >
+                        {showSparkline ? (
+                            <span className="text-4xl">{formattedValue}</span>
+                        ) : (
+                            <Textfit min={32} max={64}>
+                                {formattedValue}
+                            </Textfit>
+                        )}
+                    </div>
+                )}
+            />
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
         </div>
-    ) : (
-        <InsightEmptyState />
     )
 }
 
