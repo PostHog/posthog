@@ -328,15 +328,18 @@ src/ingestion/
   ingestion-consumer.ts  <- composition root (stays at the ingestion root)
 ```
 
-- [ ] Move the 8 lanes -> `src/ingestion/lanes/<lane>/` (git mv + `bin/rewrite-imports.mjs`; the `~/`
+- [x] Move the 8 lanes -> `src/ingestion/lanes/<lane>/` (git mv + `bin/rewrite-imports.mjs`; the `~/`
       aliases keep imports valid through the move — this is precisely why we standardize on `~/`).
-- [ ] Group shared code: `pipelines/` (+ `tophog/`) -> `framework/`; `event-processing/` +
+- [x] Group shared code: `pipelines/` (+ `tophog/`) -> `framework/`; `event-processing/` +
       `event-preprocessing/` -> `steps/`; fold `cookieless/` into `common/`.
-- [ ] Update the guard (`LANES`, `laneOf`) to resolve lanes under `lanes/` (shared dirs stay SHARED);
+- [x] Update the guard (`LANES`, `laneOf`) to resolve lanes under `lanes/` (shared dirs stay SHARED);
       keep the `ingestion-consumer.ts` composition-root exemption. Guard baseline must stay empty.
-- [ ] Update jest/tsconfig path globs, `bin/` scripts, and any hardcoded `src/ingestion/<lane>` paths.
-- [ ] Gate: tsc 0 new errors, guard 0, lint + format, affected unit tests pass, moves-only diff.
-- [ ] **Exit gate:** `pnpm test:full` green.
+- [x] Update jest/tsconfig path globs, `bin/` scripts, and any hardcoded `src/ingestion/<lane>` paths
+      (jest/tsconfig needed no change — everything stays under `src/ingestion/`; fixed the cookieless
+      `__dirname` fs path to the rust test_cases.json, which the move left off by one level).
+- [x] Gate: tsc 0 new errors, guard 0, lint + format, affected unit tests pass, moves-only diff.
+- [x] **Exit gate:** full suite green in CI (PR #64506 `262fb358`: Node.js Tests 1/2/3 + Rust e2e +
+      build + code quality all green) — the Docker-bound `pnpm test:full` runs as the CI gate here.
 
 ### Phase 5 — standardize imports on ~/
 
@@ -344,12 +347,16 @@ src/ingestion/
 first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixing `~/` and relative
 `../` paths — make them consistent.
 
-- [ ] Rewrite cross-directory relative imports (`../...`) in `src/ingestion` to `~/` (codemod); keep
-      `./` for same-directory siblings. Run AFTER Phase 4 so files aren't rewritten twice.
-- [ ] Add an eslint rule scoped to `src/ingestion` to enforce it going forward (e.g.
-      `import/no-relative-parent-imports`), so new `../` parent imports fail lint.
-- [ ] Gate: lint + format clean, tsc 0 new errors.
-- [ ] **Exit gate:** `pnpm test:full` green.
+- [x] Rewrite cross-directory relative imports (`../...`) in `src/ingestion` to `~/` (codemod); keep
+      `./` for same-directory siblings. Run AFTER Phase 4 so files aren't rewritten twice. (0 `../`
+      parent imports remain in `src/ingestion`.)
+- [x] Add an eslint rule scoped to `src/ingestion` to enforce it going forward. Used the built-in
+      `no-restricted-imports` with a `group: ['../*', '../**']` pattern (not `import/no-relative-parent-imports`
+      — that needs `eslint-plugin-import`, which isn't installed, and `regex` patterns need eslint 9; 8.57
+      here) so new `../` parent imports fail lint. Verified it catches single + multi-level `../` and that
+      the existing tree lints clean.
+- [x] Gate: lint + format clean, tsc 0 new errors.
+- [x] **Exit gate:** full suite green in CI (PR #64506 `262fb358`).
 
 ### Phase 6 — wire CI test selection
 
@@ -520,3 +527,30 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   prettier check clean, guard 0, eslint 0, static import-resolution 0. Hardened the loop gate to run
   `pnpm format` after every codemod run and to always run `format:check` explicitly (eslint passing is not
   sufficient). Pushed; awaiting the next CI round.
+- Next red (Node.js Tests 2/3 on `243d5fb5`): a runtime fs path broken by the Phase 4 move, NOT an import.
+  `ingestion/common/cookieless/cookieless-manager.test.ts` reads the shared rust `test_cases.json` via
+  `path.resolve(__dirname, '../../../../rust/...')`. The codemod correctly left it alone (it is an fs path,
+  not an import, and the static checker only validates imports), but moving the file one level deeper
+  (`ingestion/cookieless` -> `ingestion/common/cookieless`) means it now needs five `../` not four —
+  otherwise ENOENT at suite-collection time, failing the whole suite. Fixed 4->5. Verified the path now
+  resolves to the existing repo-root file; prettier/eslint clean. Confirmed this was the only move-broken
+  fs path (the two other deep `__dirname` reads are in unmoved `src/cdp/`; the ai-costs script's
+  `../providers` moved as a unit). Also swept for stale OLD-path string literals (jest.mock/snapshots/
+  fixtures/dynamic requires) — none (one docstring example aside). Lesson for the gate: file moves can break
+  `__dirname`/cwd-relative fs paths that escape the moved subtree even when all imports are clean — grep for
+  `path.join|path.resolve|readFileSync(__dirname` with `..` after any directory move. Pushed `262fb358`.
+- MILESTONE — Phases 4 + 5 are CI-green. On `262fb358` the full Node.js suite passed: Tests 1/3, 2/3, 3/3,
+  Rust ingestion-consumer Node API e2e, Build, and Code quality all green (plus frontend/dagster/rust/mcp/
+  python/playwright/semgrep gates; backend skipped — no backend changes). This is the `pnpm test:full`
+  equivalent (the real one needs a Docker daemon we don't have locally), so it stands as the Phase 4 + 5
+  exit gate. The structural refactor (8 isolated lanes + `framework/`/`steps/`/`common/` grouping) and the
+  `~/` import standardization are validated end to end against master.
+- Phase 5 enforcement added: an eslint override scoped to `src/ingestion/**/*.ts` bans parent-relative
+  (`../`) imports via the built-in `no-restricted-imports` (`group: ['../*', '../**']`), repeating the global
+  fetch/node-fetch/undici bans since overrides replace rule options. Chose this over
+  `import/no-relative-parent-imports` (needs the uninstalled `eslint-plugin-import`) and over a `regex`
+  pattern (eslint 9 only; 8.57 here). Validated: catches single + multi-level `../`, leaves `./` and `~/`
+  alone, and `eslint src/ingestion` is clean (0 violations — the codemod already removed them all).
+- Loop note: the CI-not-triggering heuristic proved correct this run — merging master immediately
+  re-triggered CI, then it surfaced two real, fixable failures (prettier import-order, cookieless fs path)
+  that local gates had missed, exactly the "CI is the source of truth" pattern the loop is built around.
