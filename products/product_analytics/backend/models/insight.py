@@ -38,6 +38,7 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
 
 if TYPE_CHECKING:
     from posthog.schema import NodeKind
+
     from posthog.models.team import Team
 
     from products.dashboards.backend.models.dashboard import Dashboard
