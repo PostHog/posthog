@@ -285,10 +285,41 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   filter: blob:none
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+
+            # compressed-size-action below checks out the base branch mid-job, which
+            # removes this repo's local actions from the workspace — a local
+            # ./.github/actions/pnpm-install would then fail in its post phase. Use
+            # inline cache steps (remote actions, no workspace-dependent post) sharing
+            # the same pnpm-<os>-<lockhash> key.
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
