@@ -278,35 +278,35 @@ export function InsightMeta({
         )
     }
 
+    // Hide the per-tile refresh control while anything is refreshing (e.g. a full-dashboard
+    // refresh marks every tile as loading) so the icons don't flash across all tiles at once.
+    const refreshInProgress = loading || loadingQueued || !refreshEnabled
     const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
     const refreshDisabledReason = nextRefreshFromNow
         ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : loading || loadingQueued
-          ? 'Refreshing…'
-          : !refreshEnabled
-            ? 'Another tile is refreshing — please wait…'
-            : undefined
+        : undefined
 
-    const refreshControl = refresh ? (
-        <LemonButton
-            className="CardMeta__refresh"
-            icon={<IconRefresh />}
-            size="small"
-            onClick={() => refresh()}
-            disabledReason={refreshDisabledReason}
-            tooltip={
-                refreshDisabledReason
-                    ? undefined
-                    : insight.last_refresh
-                      ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
-                      : 'Refresh data'
-            }
-            data-attr="insight-card-refresh"
-        />
-    ) : null
+    const refreshControl =
+        refresh && !refreshInProgress ? (
+            <LemonButton
+                className="CardMeta__refresh"
+                icon={<IconRefresh />}
+                size="small"
+                onClick={() => refresh()}
+                disabledReason={refreshDisabledReason}
+                tooltip={
+                    refreshDisabledReason
+                        ? undefined
+                        : insight.last_refresh
+                          ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
+                          : 'Refresh data'
+                }
+                data-attr="insight-card-refresh"
+            />
+        ) : null
 
     const topHeadingEl = showCompactHeading ? (
         <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} />

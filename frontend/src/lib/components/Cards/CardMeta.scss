@@ -198,21 +198,24 @@
     align-items: center;
 }
 
-// Refresh control is revealed on tile hover so it doesn't crowd the tile at rest.
-// On touch devices (no hover) it stays visible so it remains reachable.
+// Refresh control is hidden at rest and revealed on tile hover (or keyboard focus)
+// so it doesn't crowd the tile.
 .CardMeta__refresh {
+    opacity: 0;
+    pointer-events: none;
     transition: opacity 150ms ease;
 }
 
-@media (hover: hover) {
-    .CardMeta__refresh {
-        opacity: 0;
-        pointer-events: none;
-    }
+.DashboardTileCard:hover .CardMeta__refresh,
+.CardMeta__refresh:focus-visible,
+.CardMeta__refresh:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+}
 
-    .DashboardTileCard:hover .CardMeta__refresh,
-    .CardMeta__refresh:focus-visible,
-    .CardMeta__refresh:focus-within {
+// Touch devices have no hover, so keep the control reachable.
+@media (hover: none) {
+    .CardMeta__refresh {
         opacity: 1;
         pointer-events: auto;
     }
