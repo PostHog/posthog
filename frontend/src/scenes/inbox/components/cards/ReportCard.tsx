@@ -165,15 +165,6 @@ export function ReportCard({
                 </div>
             ) : null}
 
-            {/* Desktop: timestamp anchored bottom-right. On mobile the card stacks, so it moves inline (below). */}
-            <div className="absolute right-4 bottom-3 z-10 hidden @lg:block">
-                <TZLabel
-                    time={report.updated_at ?? report.created_at}
-                    className="text-xs text-tertiary tabular-nums"
-                    title="Last updated"
-                />
-            </div>
-
             <Link to={detailUrl} className="flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline">
                 {report.priority && (
                     <div className="shrink-0">
@@ -222,12 +213,14 @@ export function ReportCard({
                         </div>
                     ) : null}
 
-                    {/* Mobile-only timestamp (desktop pins it to the card's bottom-right corner). */}
-                    <TZLabel
-                        time={report.updated_at ?? report.created_at}
-                        className="@lg:hidden mt-0.5 text-xs text-tertiary tabular-nums"
-                        title="Last updated"
-                    />
+                    {/* In flow on mobile (the card stacks); pinned to the card's bottom-right corner on desktop. */}
+                    <div className="mt-0.5 @lg:absolute @lg:right-4 @lg:bottom-3 @lg:z-10 @lg:mt-0">
+                        <TZLabel
+                            time={report.updated_at ?? report.created_at}
+                            className="text-xs text-tertiary tabular-nums"
+                            title="Last updated"
+                        />
+                    </div>
                 </div>
             </Link>
 
