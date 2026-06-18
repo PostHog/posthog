@@ -16,7 +16,6 @@ import {
     formatPercent,
     getDisplayType,
     getSeriesLabel,
-    isBarChart,
     normalizeFunnelSteps,
 } from '@/ui-apps/components/utils'
 
@@ -236,7 +235,7 @@ describe('insight visualizations', () => {
             })
         })
 
-        describe('getDisplayType / isBarChart', () => {
+        describe('getDisplayType', () => {
             it('defaults to ActionsLineGraph when the query or filter is missing', () => {
                 expect(getDisplayType(undefined)).toBe('ActionsLineGraph')
                 expect(getDisplayType({ kind: 'TrendsQuery' })).toBe('ActionsLineGraph')
@@ -246,15 +245,6 @@ describe('insight visualizations', () => {
                 expect(getDisplayType({ kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } })).toBe(
                     'BoldNumber'
                 )
-            })
-
-            it.each([
-                ['ActionsBar', true],
-                ['ActionsBarValue', true],
-                ['ActionsLineGraph', false],
-                ['BoldNumber', false],
-            ] as const)('isBarChart(%s) is %s', (displayType, expected) => {
-                expect(isBarChart(displayType)).toBe(expected)
             })
         })
 
