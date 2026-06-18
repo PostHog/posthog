@@ -11,15 +11,15 @@
 """Emit OTLP traces from Backend CI JUnit XML artifacts.
 
 Reads `junit-results-*` artifacts (downloaded by the workflow) and emits one
-trace per workflow run shaped:
+trace per job (shard) shaped:
 
-    ci-backend (root)
-    └── <segment>-<group>            (shard)
-        ├── <pytest nodeid>          (test)
-        └── ...
+    <workflow> / <job>               (root, one trace per job)
+    ├── <pytest nodeid>              (test)
+    └── ...
 
-Trace ID is deterministic per (run_id, run_attempt) so each workflow attempt
-gets its own trace. Failures and errors mark spans Status.ERROR.
+Trace ID is deterministic per (run_id, run_attempt, job) so each job in each
+workflow attempt gets its own trace. Failures and errors mark spans
+Status.ERROR.
 
 This script must NEVER fail the workflow: any unexpected error is logged and
 the process exits 0. The workflow job is also `continue-on-error: true` as a
@@ -360,20 +360,24 @@ def workflow_resource_attributes() -> dict[str, str | int]:
 # ---------- OTLP export ----------
 
 
-def deterministic_trace_id(run_id: str, run_attempt: str) -> int:
-    """One trace ID per (run_id, run_attempt). Reruns of the same attempt collide intentionally."""
-    digest = hashlib.sha256(f"{run_id}:{run_attempt}".encode()).digest()
+def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str) -> int:
+    """One trace ID per (run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
+    digest = hashlib.sha256(f"{run_id}:{run_attempt}:{job_key}".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit (16 bytes).
 
 
 class _FixedTraceIdGenerator(IdGenerator):
-    """Force every span in the run to share a deterministic trace ID."""
+    """Force every span to share whatever trace ID is currently set.
 
-    def __init__(self, trace_id: int) -> None:
-        self._trace_id = trace_id
+    `trace_id` is mutated between jobs so each job's root span (and its inherited
+    test children) lands in its own trace while sharing one provider/exporter.
+    """
+
+    def __init__(self, trace_id: int = 0) -> None:
+        self.trace_id = trace_id
 
     def generate_trace_id(self) -> int:
-        return self._trace_id
+        return self.trace_id
 
     def generate_span_id(self) -> int:
         span_id = secrets.randbits(64)
@@ -386,14 +390,26 @@ def _to_ns(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)
 
 
+def job_trace_key(info: ArtifactInfo) -> str:
+    """Stable per-job identity; folds into the trace ID so each job is its own trace."""
+    return f"{info.suite}:{info.segment}:{info.group}"
+
+
+def job_trace_name(workflow: str, info: ArtifactInfo) -> str:
+    """Human trace name `<workflow> / <job>` derived from the artifact, e.g. `Backend CI / core (29)`."""
+    job = f"{info.segment} ({info.group})" if info.group is not None else info.segment
+    return f"{workflow} / {job}"
+
+
 def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
-    """Build root → shard → test span hierarchy and ship via OTLP HTTP."""
+    """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    trace_id = deterministic_trace_id(run_id, run_attempt)
+    workflow = os.environ.get("GITHUB_WORKFLOW", "") or SERVICE_NAME
 
+    id_generator = _FixedTraceIdGenerator()
     resource = Resource.create({"service.name": SERVICE_NAME, **workflow_resource_attributes()})
-    provider = TracerProvider(resource=resource, id_generator=_FixedTraceIdGenerator(trace_id))
+    provider = TracerProvider(resource=resource, id_generator=id_generator)
     exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
     provider.add_span_processor(BatchSpanProcessor(exporter, max_export_batch_size=SPAN_BATCH_SIZE))
     tracer = provider.get_tracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
@@ -402,26 +418,19 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         provider.shutdown()
         return
 
-    root_start = min(s.start for s in shards)
-    root_end = max(s.end for s in shards)
-    root_span = tracer.start_span(SERVICE_NAME, start_time=_to_ns(root_start))
-    root_has_error = False
-    with trace.use_span(root_span, end_on_exit=False):
-        for shard in shards:
-            if _emit_shard_span(tracer, shard):
-                root_has_error = True
+    for shard in shards:
+        # Mutate the shared generator before each job so its root span (and the test
+        # children that inherit the active parent's trace ID) form a distinct trace.
+        id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info))
 
-    if root_has_error:
-        root_span.set_status(Status(StatusCode.ERROR))
-    root_span.end(end_time=_to_ns(root_end))
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
-    """Emit shard span and its test children. Returns True iff any child has Error."""
+def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool:
+    """Emit the job's root span and its test children. Returns True iff any child has Error."""
     info = shard.info
-    shard_name = f"{info.segment}-{info.group}" if info.group is not None else info.segment
-    shard_span = tracer.start_span(shard_name, start_time=_to_ns(shard.start))
+    shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
     shard_span.set_attribute("shard.suite", info.suite)
     shard_span.set_attribute("shard.segment", info.segment)
     if info.group is not None:

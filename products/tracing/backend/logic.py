@@ -622,6 +622,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
         # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).
         base_order = [parse_order_expr("is_root_span DESC"), parse_order_expr("matched_filter DESC")]
+        # The single-trace waterfall paginates *within* one trace: order its spans purely by start
+        # time so the per-trace `LIMIT BY` window is the first `prefetchSpans` spans by start time,
+        # and an `offset` pages through the rest (infinite scroll). The multi-trace list keeps its
+        # root/matched-first grouping so a trace's root and matching spans stay visible.
+        single_trace = self.query.traceId is not None
         if by_duration:
             query.order_by = [
                 *base_order,
@@ -629,12 +634,20 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 parse_order_expr(f"trace_id {order_dir}"),
                 parse_order_expr("timestamp ASC"),
             ]
+        elif single_trace:
+            query.order_by = [
+                parse_order_expr(f"timestamp {order_dir}"),
+                parse_order_expr(f"span_id {order_dir}"),
+            ]
         else:
             query.order_by = [*base_order, parse_order_expr(f"timestamp {order_dir}")]
 
         query.limit_by = ast.LimitByExpr(
             n=ast.Constant(value=limit_by_n),
             exprs=[ast.Field(chain=["trace_id"])],
+            # Within-trace offset paging — only meaningful for the single-trace waterfall (timestamp
+            # order). The paginator's own offset stays 0 in grouped mode, so these don't compound.
+            offset_value=ast.Constant(value=self.query.offset) if single_trace and self.query.offset else None,
         )
 
         return query

@@ -67,6 +67,8 @@ const inboxReportsList = (): ToolBase<
                     'priority',
                     'actionability',
                     'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
                     'signal_count',
                     'total_weight',
                     'source_products',

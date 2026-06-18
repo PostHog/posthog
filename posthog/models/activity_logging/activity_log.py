@@ -62,6 +62,7 @@ ActivityScope = Literal[
     "UserGroup",
     "BatchExport",
     "BatchImport",
+    "ExportedAsset",
     "Integration",
     "Annotation",
     "Tag",

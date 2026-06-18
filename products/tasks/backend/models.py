@@ -70,6 +70,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Conversations support reply pipeline — autonomous grounded draft replies.
+        SUPPORT_REPLY = "support_reply", "Support Reply"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -332,6 +334,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -440,6 +443,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if model:
             extra_state["model"] = model
+
+        # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
+        # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
+        if ai_stage:
+            extra_state["ai_stage"] = ai_stage
 
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode

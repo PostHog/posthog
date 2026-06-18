@@ -6,6 +6,7 @@ Policies enforce architectural decisions and coding standards.
 
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
@@ -401,9 +402,159 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
         return violations
 
 
+class HotTableAlterPolicy(MigrationPolicy):
+    """
+    Policy: DDL on hot tables must be explicitly acknowledged.
+
+    Rationale:
+    - posthog_team, posthog_user, posthog_organization, and posthog_project are
+      read on virtually every request.
+    - Any ALTER TABLE on them needs an ACCESS EXCLUSIVE lock. While that lock
+      request waits behind in-flight queries, every later query on the table
+      queues behind it - so even a metadata-only ADD COLUMN of a nullable
+      column can stall site-wide traffic until lock_timeout cancels it, and
+      each bin/migrate retry repeats the stall. This has caused production
+      5xx incidents.
+    - Most new team fields should not be on Team at all: a Team extension
+      model (posthog/models/team/README.md) only creates a new table, which
+      takes no lock on posthog_team.
+    - When DDL on a hot table is genuinely needed, the author accepts the risk
+      by adding "<app_label>.<migration_name>" to
+      hot_table_acknowledged_migrations.txt - a deliberate, reviewable act
+      that also coordinates the deploy.
+    """
+
+    HOT_MODELS = {"team", "user", "organization", "project"}
+
+    # Op types that carry the target model in `model_name`
+    FIELD_LEVEL_OPS = {
+        "AddField",
+        "RemoveField",
+        "AlterField",
+        "RenameField",
+        "AddConstraint",
+        "RemoveConstraint",
+        "AddIndex",
+        "RemoveIndex",
+    }
+    # Op types that carry the target model in `name`
+    MODEL_LEVEL_OPS = {
+        "DeleteModel",
+        "RenameModel",
+        "AlterModelTable",
+        "AlterUniqueTogether",
+        "AlterIndexTogether",
+    }
+
+    ACKNOWLEDGMENTS_FILE = Path(__file__).with_name("hot_table_acknowledged_migrations.txt")
+
+    # Only ALTER TABLE is matched; CONCURRENTLY index builds take SHARE UPDATE EXCLUSIVE, which
+    # doesn't block reads or writes. Mirrors the Postgres grammar: ALTER TABLE [ IF EXISTS ]
+    # [ ONLY ] [ schema. ] name, with optional double-quoting on the schema and table identifiers.
+    _ALTER_HOT_TABLE = re.compile(
+        r"ALTER\s+TABLE\s+"
+        r"(?:IF\s+EXISTS\s+)?"
+        r"(?:ONLY\s+)?"
+        r'(?:"?\w+"?\s*\.\s*)?'  # optional schema qualifier, e.g. public.
+        r'"?(posthog_team|posthog_user|posthog_organization|posthog_project)"?\b',
+        re.IGNORECASE,
+    )
+
+    def check_operation(self, op) -> list[str]:
+        return []  # Checked at migration level (needs the migration label for the acknowledgment hint)
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        label = f"{migration.app_label}.{migration.name}"
+        if label in self._acknowledged_migrations():
+            return []
+
+        violations = []
+        for op in self._descend(migration.operations):
+            table = self._hot_table_target(op, migration.app_label)
+            if table:
+                violations.append(self._violation(op, table, label))
+        return violations
+
+    def _acknowledged_migrations(self) -> set[str]:
+        if not self.ACKNOWLEDGMENTS_FILE.exists():
+            return set()
+        lines = self.ACKNOWLEDGMENTS_FILE.read_text().splitlines()
+        return {line.strip() for line in lines if line.strip() and not line.strip().startswith("#")}
+
+    def _descend(self, ops):
+        """Yield operations that emit SQL, descending into SeparateDatabaseAndState.database_operations.
+
+        state_operations never touch the database, so they are not descended.
+        """
+        for op in ops or []:
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                yield from self._descend(getattr(op, "database_operations", []) or [])
+            else:
+                yield op
+
+    def _hot_table_target(self, op, app_label: str) -> str | None:
+        """Return the hot table an operation alters, or None."""
+        op_type = op.__class__.__name__
+
+        # The hot models all live in the posthog app; same-named models in
+        # product apps map to different tables.
+        if app_label == "posthog":
+            model_name = None
+            if op_type in self.FIELD_LEVEL_OPS:
+                model_name = getattr(op, "model_name", None)
+            elif op_type in self.MODEL_LEVEL_OPS:
+                model_name = getattr(op, "name", None)
+            if model_name and model_name.lower() in self.HOT_MODELS:
+                return f"posthog_{model_name.lower()}"
+
+        # Hand-written DDL can hit a hot table from any app
+        if op_type == "RunSQL":
+            for attr in ("sql", "reverse_sql"):
+                table = self._hot_table_in_sql(getattr(op, attr, ""))
+                if table:
+                    return table
+
+        return None
+
+    def _hot_table_in_sql(self, sql) -> str | None:
+        sql = str(sql)
+        # Strip /* */, -- and # comments so table names inside comments don't match
+        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+        sql = re.sub(r"--[^\n]*", "", sql)
+        sql = re.sub(r"#[^\n]*", "", sql)
+
+        for statement in sql.split(";"):
+            # VALIDATE CONSTRAINT only takes SHARE UPDATE EXCLUSIVE, which doesn't block reads or writes
+            if "VALIDATE CONSTRAINT" in statement.upper():
+                continue
+            match = self._ALTER_HOT_TABLE.search(statement)
+            if match:
+                return match.group(1).lower()
+        return None
+
+    def _violation(self, op, table: str, label: str) -> str:
+        return (
+            f'❌ BLOCKED: {op.__class__.__name__} on "{table}" - this table is read on virtually every '
+            "request. Any ALTER TABLE on it takes an ACCESS EXCLUSIVE lock; while that lock request waits "
+            "behind in-flight queries, every later query on the table queues behind it, so even a "
+            "metadata-only ADD COLUMN can stall site-wide traffic until lock_timeout cancels it - and "
+            "each bin/migrate retry repeats the stall. This has caused production 5xx incidents.\n"
+            "Prefer not altering this table at all: new domain-specific team fields belong on a Team "
+            "extension model (see posthog/models/team/README.md), which only creates a new table.\n"
+            f'If this change genuinely must alter {table}, add "{label}" to '
+            "posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt to accept the "
+            "risk, and coordinate the deploy with #team-infrastructure for a low-traffic window.\n"
+            "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#altering-hot-tables"
+        )
+
+
 # Registry of all PostHog policies
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
     AtomicFalsePolicy(),
     ConcurrentIndexIdempotencyPolicy(),
+    HotTableAlterPolicy(),
 ]

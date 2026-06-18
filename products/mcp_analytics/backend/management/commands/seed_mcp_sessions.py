@@ -13,6 +13,7 @@ from posthog.models.person.util import create_person, create_person_distinct_id,
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -215,7 +216,10 @@ class Command(BaseCommand):
         ) -> tuple[str, dict[str, Any]]:
             if distinct_id in person_cache:
                 return person_cache[distinct_id]
-            existing_person = get_person_by_distinct_id(team_id=team.id, distinct_id=distinct_id)
+            with personhog_caller_tag("mcp-analytics/seed-sessions"):
+                existing_person = get_person_by_distinct_id(
+                    team_id=team.id, distinct_id=distinct_id, distinct_id_limit=0
+                )
             if existing_person:
                 person = existing_person
                 if properties:

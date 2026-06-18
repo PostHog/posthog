@@ -2,8 +2,8 @@ import { defaultConfig } from '~/config/config'
 
 import { generateEmailTrackingCode, generateShortEmailTrackingCode, parseEmailTrackingCode } from './tracking-code'
 
-// Hand-encode a raw payload the same way generateEmailTrackingCode does, so we can test
-// pre-fix legacy shapes (4-segment) without pulling in the generator.
+// Hand-encode a raw payload the same way the generators do, so we can test pre-fix legacy
+// (unsigned) shapes without pulling in the generator.
 const encodeRaw = (payload: string): string =>
     Buffer.from(payload, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
@@ -11,13 +11,15 @@ describe('email tracking code', () => {
     describe('parseEmailTrackingCode', () => {
         it.each([
             {
-                name: 'roundtrips all invocation fields including parentRunId',
+                // Generated codes are signed in the test env (ENCRYPTION_SALT_KEYS is set).
+                name: 'roundtrips all invocation fields including distinctId (signed)',
                 encoded: generateEmailTrackingCode({
                     functionId: 'fn-1',
                     id: 'inv-2',
                     teamId: 3,
                     parentRunId: 'batch-4',
                     state: { actionId: 'act-5' },
+                    distinctId: 'user@example.com',
                 }),
                 expected: {
                     functionId: 'fn-1',
@@ -26,6 +28,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    distinctId: 'user@example.com',
                     format: 'signed',
                 },
             },
@@ -38,6 +41,7 @@ describe('email tracking code', () => {
                         teamId: 3,
                         parentRunId: 'batch-4',
                         state: { actionId: 'act-5' },
+                        distinctId: 'user@example.com',
                     },
                     true
                 ),
@@ -48,6 +52,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: true,
+                    distinctId: 'user@example.com',
                     format: 'signed',
                 },
             },
@@ -62,11 +67,31 @@ describe('email tracking code', () => {
                     actionId: undefined,
                     parentRunId: undefined,
                     isTest: true,
+                    distinctId: undefined,
                     format: 'signed',
                 },
             },
             {
-                name: 'omits parentRunId when not supplied',
+                name: 'roundtrips with UUID distinctId (signed)',
+                encoded: generateEmailTrackingCode({
+                    functionId: 'abc-123',
+                    id: 'xyz-456',
+                    teamId: 7,
+                    distinctId: '550e8400-e29b-41d4-a716-446655440000',
+                }),
+                expected: {
+                    functionId: 'abc-123',
+                    invocationId: 'xyz-456',
+                    teamId: '7',
+                    actionId: undefined,
+                    parentRunId: undefined,
+                    isTest: false,
+                    distinctId: '550e8400-e29b-41d4-a716-446655440000',
+                    format: 'signed',
+                },
+            },
+            {
+                name: 'omits parentRunId and distinctId when not supplied (signed)',
                 encoded: generateEmailTrackingCode({
                     functionId: 'fn-1',
                     id: 'inv-2',
@@ -80,7 +105,30 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: undefined,
                     isTest: false,
+                    distinctId: undefined,
                     format: 'signed',
+                },
+            },
+            {
+                // The short code (SES tag carrier) is never signed and omits distinctId/isTest.
+                name: 'parses the unsigned short code used for the SES tag',
+                encoded: generateShortEmailTrackingCode({
+                    functionId: 'fn-1',
+                    id: 'inv-2',
+                    teamId: 3,
+                    parentRunId: 'batch-4',
+                    state: { actionId: 'act-5' },
+                    distinctId: 'user@example.com',
+                }),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    format: 'unsigned',
                 },
             },
             {
@@ -94,11 +142,12 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: undefined,
                     isTest: false,
+                    distinctId: undefined,
                     format: 'unsigned',
                 },
             },
             {
-                name: 'parses legacy 5-segment unsigned codes emitted before signing existed',
+                name: 'parses legacy 5-segment unsigned codes emitted before isTest/distinctId existed',
                 encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4'),
                 expected: {
                     functionId: 'fn-1',
@@ -107,6 +156,38 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
+                // Deployed master codes carry isTest at position 6 and no distinctId — must keep parsing.
+                name: 'parses legacy 6-segment codes with isTest at position 6 and no distinctId',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4:1'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: true,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
+                // Security: a forged UNSIGNED code carrying a distinct_id must NOT be trusted —
+                // distinct_id is only honored from signed codes, so this one parses with no distinctId.
+                name: 'ignores distinct_id on an unsigned (forged) code',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4::attacker-distinct-id'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
                     format: 'unsigned',
                 },
             },
@@ -136,7 +217,7 @@ describe('email tracking code', () => {
             const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
             const sig = code.split('.')[1]
             // Mint a different payload but reuse the original signature.
-            const tampered = `${encodeRaw('attacker:invX:1::')}.${sig}`
+            const tampered = `${encodeRaw('attacker:invX:1:::')}.${sig}`
             expect(parseEmailTrackingCode(tampered)).toBeNull()
         })
 
@@ -176,7 +257,7 @@ describe('email tracking code', () => {
             const original = defaultConfig.ENCRYPTION_SALT_KEYS
             defaultConfig.ENCRYPTION_SALT_KEYS = 'old-key-aaaaaaaaaaaaaaaaaaaaaaaa'
             const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
-            // Rotation: new key first, old key kept for verification grace period.
+            // Rotation: new key first, old key kept for the verification grace period.
             defaultConfig.ENCRYPTION_SALT_KEYS = 'new-key-bbbbbbbbbbbbbbbbbbbbbbbb,old-key-aaaaaaaaaaaaaaaaaaaaaaaa'
             try {
                 expect(parseEmailTrackingCode(code)?.format).toBe('signed')

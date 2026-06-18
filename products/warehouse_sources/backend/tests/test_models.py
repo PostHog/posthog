@@ -1,4 +1,7 @@
+import uuid
+
 import pytest
+from posthog.test.base import BaseTest
 
 from django.db.models import Model
 
@@ -45,6 +48,47 @@ def test_resolved_s3_folder_name(
     so callers fall back to the schema name."""
     schema = ExternalDataSchema(s3_folder_name=s3_folder_name, sync_type_config=sync_type_config)
     assert schema.resolved_s3_folder_name == expected
+
+
+class TestExternalDataSchemaSave(BaseTest):
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(self, name: str, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name, **kwargs)
+
+    def test_save_populates_s3_folder_name_from_name(self) -> None:
+        # The folder is the normalized name — never NULL for a new row.
+        schema = self._create("My Table")
+        assert schema.s3_folder_name == "my_table"
+        schema.refresh_from_db()
+        assert schema.s3_folder_name == "my_table"
+
+    def test_save_uses_legacy_key_when_present(self) -> None:
+        schema = self._create("public.users", sync_type_config={"dwh_storage_key": "users"})
+        assert schema.s3_folder_name == "users"
+
+    def test_save_does_not_overwrite_existing_folder(self) -> None:
+        schema = self._create("My Table", s3_folder_name="pinned")
+        assert schema.s3_folder_name == "pinned"
+
+    def test_partial_update_backfills_null_folder(self) -> None:
+        # A pre-existing NULL row heals on its next save, even a partial one.
+        schema = self._create("orders")
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(s3_folder_name=None)
+        schema.refresh_from_db()
+        assert schema.s3_folder_name is None
+
+        schema.status = "Completed"
+        schema.save(update_fields=["status", "updated_at"])
+        schema.refresh_from_db()
+        assert schema.s3_folder_name == "orders"
 
 
 @pytest.mark.parametrize(
