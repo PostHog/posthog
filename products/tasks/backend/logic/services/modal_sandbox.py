@@ -119,13 +119,13 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
 
 
 LOCAL_MODAL_DOCKERFILES = {
-    SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-base"),
-    SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-notebook"),
-    SandboxTemplate.VM_BASE: Path("products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-vm"),
-    SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-streamlit"),
+    SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
+    SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+    SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
+    SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
 }
-LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/logic/sandbox/images/install-skills.sh")
-LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/logic/sandbox/images/git-guard.sh")
+LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
+LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)

@@ -39,14 +39,14 @@ RUN pip install --no-cache-dir \
 
 # Streamlit reads config from $HOME/.streamlit, so the config lives under the
 # streamlit user's home.
-COPY --chown=streamlit:streamlit products/tasks/backend/logic/sandbox/images/streamlit_config.toml /home/streamlit/.streamlit/config.toml
+COPY --chown=streamlit:streamlit products/tasks/backend/sandbox/images/streamlit_config.toml /home/streamlit/.streamlit/config.toml
 
-COPY products/tasks/backend/logic/sandbox/images/streamlit_auth_proxy.py /usr/local/bin/streamlit_auth_proxy.py
+COPY products/tasks/backend/sandbox/images/streamlit_auth_proxy.py /usr/local/bin/streamlit_auth_proxy.py
 
 # In-sandbox shim. The shim talks to the local proxy on 127.0.0.1:8181, which
 # mediates the actual HogQL hop to PostHog using a token loaded from disk at
 # proxy startup. The user code never sees a bearer token.
-COPY products/tasks/backend/logic/sandbox/images/posthog_apps /usr/local/lib/python3.11/site-packages/posthog_apps
+COPY products/tasks/backend/sandbox/images/posthog_apps /usr/local/lib/python3.11/site-packages/posthog_apps
 
 # Modal tunnels port 8080 (the auth proxy). Port 8181 is bound to 127.0.0.1
 # only and is NOT exposed externally — it serves the bridge endpoint used by
