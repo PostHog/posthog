@@ -178,7 +178,7 @@ export function ActivitySubsteps({
                                 !isFailed && isCompletedSubstep && 'text-muted',
                                 !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                             )}
-                            content={activitySubstepText(substep ?? '', true)}
+                            content={activitySubstepText(substep ?? '', status === 'in_progress')}
                         />
                     </div>
                 )
@@ -260,7 +260,7 @@ export function Activity({
     children?: React.ReactNode
 }): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const shouldExpandDetails = hasDetails && status !== 'completed'
+    const shouldExpandDetails = hasDetails && status !== 'completed' && status !== 'failed'
     const [isDetailsExpanded, setIsDetailsExpanded] = useState(shouldExpandDetails)
 
     useLayoutEffect(() => {
