@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.gorgias.settings import GORGIAS_ENDPOINTS, VALID_SORT_FIELDS
+from posthog.temporal.data_imports.sources.gorgias.settings import GORGIAS_ENDPOINTS, GorgiasEndpointConfig
 
 # Gorgias caps `limit` at 100 on every list endpoint.
 PAGE_SIZE = 100
@@ -81,8 +81,19 @@ def _page_newest(items: list[Any], field: str) -> datetime | None:
     return max(parsed) if parsed else None
 
 
-def _is_incremental(should_use_incremental_field: bool, incremental_field: Optional[str]) -> bool:
-    return should_use_incremental_field and incremental_field in VALID_SORT_FIELDS
+def _incremental_sort_field(
+    config: GorgiasEndpointConfig, should_use_incremental_field: bool, incremental_field: Optional[str]
+) -> str | None:
+    """The field to sort `<field>:desc` for an incremental sync, or None for full refresh.
+
+    Guards against sending a sort the endpoint does not accept: an `order_by` Gorgias
+    rejects (or silently ignores) would break the newest-first ordering the watermark
+    stop condition relies on, so anything not in `sortable_datetime_fields` falls back
+    to full refresh.
+    """
+    if should_use_incremental_field and incremental_field in config.sortable_datetime_fields:
+        return incremental_field
+    return None
 
 
 def _get_auth_header(email: str, api_key: str) -> str:
@@ -139,7 +150,7 @@ def get_rows(
     # Gorgias has no server-side time filter. For incremental we sort the chosen field
     # newest-first and stop paginating once a whole page predates the watermark, so a
     # steady-state sync only pulls the changed prefix instead of every page.
-    sort_field = incremental_field if _is_incremental(should_use_incremental_field, incremental_field) else None
+    sort_field = _incremental_sort_field(config, should_use_incremental_field, incremental_field)
     order_by = f"{sort_field}:desc" if sort_field else config.order_by
     watermark = _coerce_to_utc(db_incremental_field_last_value) if sort_field else None
 
@@ -157,6 +168,11 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(request_cursor: str | None) -> dict[str, Any]:
+        # `cursor` is documented as "position in the list of resources" — the list is
+        # defined by `order_by`/`limit`, so we re-send them on every page to keep the
+        # sort stable. The docs list `cursor` and `order_by` as coexisting params (no
+        # mutual exclusion); dropping order_by on follow-up pages could reset to the
+        # endpoint default and corrupt the newest-first order incremental relies on.
         params: dict[str, Any] = {"limit": PAGE_SIZE, "order_by": order_by}
         if request_cursor:
             params["cursor"] = request_cursor
@@ -209,7 +225,7 @@ def gorgias_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GORGIAS_ENDPOINTS[endpoint]
-    incremental = _is_incremental(should_use_incremental_field, incremental_field)
+    incremental = _incremental_sort_field(config, should_use_incremental_field, incremental_field) is not None
 
     return SourceResponse(
         name=endpoint,
