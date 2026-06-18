@@ -1,4 +1,16 @@
-INTERVIEWS_QUERY = """
+# Nested relation that some BuildBetter accounts' schema (role-dependent) does not expose. Kept
+# separate so it can be dropped from the query when the API reports the field is unknown.
+INTERVIEW_MONOLOGUES_FIELD = """
+        monologues(order_by: {start_sec: asc}) {
+            id
+            speaker
+            text
+            start_sec
+            end_sec
+        }"""
+
+INTERVIEWS_QUERY = (
+    """
 query PaginatedInterviews($limit: Int!, $offset: Int!, $where: interview_bool_exp) {
     interview(limit: $limit, offset: $offset, order_by: {updated_at: asc}, where: $where) {
         id
@@ -47,16 +59,12 @@ query PaginatedInterviews($limit: Int!, $offset: Int!, $where: interview_bool_ex
             title
             content
             created_at
-        }
-        monologues(order_by: {start_sec: asc}) {
-            id
-            speaker
-            text
-            start_sec
-            end_sec
-        }
+        }"""
+    + INTERVIEW_MONOLOGUES_FIELD
+    + """
     }
 }"""
+)
 
 EXTRACTIONS_QUERY = """
 query PaginatedExtractions($limit: Int!, $offset: Int!, $where: extraction_bool_exp) {
@@ -172,4 +180,9 @@ QUERIES: dict[str, str] = {
     "extractions": EXTRACTIONS_QUERY,
     "persons": PERSONS_QUERY,
     "companies": COMPANIES_QUERY,
+}
+
+# endpoint -> {field name -> exact query block to drop when the account's schema lacks the field}
+OPTIONAL_QUERY_FIELDS: dict[str, dict[str, str]] = {
+    "interviews": {"monologues": INTERVIEW_MONOLOGUES_FIELD},
 }
