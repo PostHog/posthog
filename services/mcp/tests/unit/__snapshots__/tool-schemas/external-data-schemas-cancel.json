@@ -43,6 +43,18 @@
             ],
             "description": "Column name used to track sync progress."
         },
+        "incremental_field_lookback_seconds": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged."
+        },
         "incremental_field_type": {
             "anyOf": [
                 {
