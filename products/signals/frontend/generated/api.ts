@@ -25,6 +25,8 @@ import type {
     ScoutEmissionReportLinkApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportMergePrRequestApi,
+    SignalReportMergePrResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -164,6 +166,32 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsMergePrCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/merge_pr/`
+}
+
+/**
+ * Merge the report's implementation pull request into GitHub.
+ *
+ * Resolves the latest implementation PR URL for the report and the team's GitHub integration,
+ * then merges via the GitHub API. Defaults to a merge commit, falling back to squash when the
+ * repository disallows merge commits. On a successful merge the report is transitioned to
+ * resolved (tolerating an already-resolved state, since a GitHub webhook resolves it too).
+ */
+export const signalsReportsMergePrCreate = async (
+    projectId: string,
+    id: string,
+    signalReportMergePrRequestApi?: SignalReportMergePrRequestApi,
+    options?: RequestInit
+): Promise<SignalReportMergePrResponseApi> => {
+    return apiMutator<SignalReportMergePrResponseApi>(getSignalsReportsMergePrCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportMergePrRequestApi),
     })
 }
 

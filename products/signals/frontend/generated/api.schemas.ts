@@ -119,6 +119,44 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * * `merge` - merge
+ * * `squash` - squash
+ * * `rebase` - rebase
+ */
+export type MergeMethodEnumApi = (typeof MergeMethodEnumApi)[keyof typeof MergeMethodEnumApi]
+
+export const MergeMethodEnumApi = {
+    Merge: 'merge',
+    Squash: 'squash',
+    Rebase: 'rebase',
+} as const
+
+export interface SignalReportMergePrRequestApi {
+    /** GitHub merge method for the report's implementation pull request. Omit to use the default ('merge', a merge commit), which falls back to 'squash' if the repository disallows merge commits.
+     *
+     * * `merge` - merge
+     * * `squash` - squash
+     * * `rebase` - rebase */
+    merge_method?: MergeMethodEnumApi | null
+}
+
+export interface SignalReportMergePrResponseApi {
+    /** Whether GitHub merged the pull request. */
+    merged: boolean
+    /**
+     * SHA of the resulting merge commit, when GitHub returns one.
+     * @nullable
+     */
+    sha: string | null
+    /** The merge method GitHub ultimately used. */
+    merge_method: string
+    /** URL of the pull request that was merged. */
+    pr_url: string
+    /** The report after the merge, transitioned to resolved on success. */
+    report: SignalReportApi
+}
+
+/**
  * * `suppressed` - suppressed
  * * `potential` - potential
  */

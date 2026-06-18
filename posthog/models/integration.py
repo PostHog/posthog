@@ -2662,6 +2662,50 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def merge_pull_request(self, repository: str, pr_number: int, merge_method: str = "merge") -> dict[str, Any]:
+        """Merge a pull request via the GitHub API.
+
+        `merge_method` is one of "merge" (a merge commit), "squash", or "rebase". Returns a
+        structured result; on failure it carries GitHub's status code and message so the caller
+        can decide whether to retry with a different method.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = self._github_api_put(
+            f"https://api.github.com/repos/{org}/{repository}/pulls/{pr_number}/merge",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+            json_body={"merge_method": merge_method},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+
+        if response.status_code == 200:
+            merge_data = response.json()
+            return {
+                "success": True,
+                "merged": merge_data.get("merged", True),
+                "sha": merge_data.get("sha"),
+                "merge_method": merge_method,
+                "message": merge_data.get("message", ""),
+            }
+
+        message = response.text
+        try:
+            message = response.json().get("message", message)
+        except ValueError:
+            pass
+        return {
+            "success": False,
+            "merged": False,
+            "merge_method": merge_method,
+            "error": message,
+            "status_code": response.status_code,
+        }
+
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
         """Get information about a specific branch."""
         org = self.organization()

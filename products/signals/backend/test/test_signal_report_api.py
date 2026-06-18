@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
@@ -78,6 +79,133 @@ class TestSignalReportDeleteAPI(APIBaseTest):
     def test_delete_already_deleted_report_returns_404(self):
         report = self._create_report(report_status=SignalReport.Status.DELETED)
         response = self.client.delete(self._url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestSignalReportMergePrAPI(APIBaseTest):
+    PR_URL = "https://github.com/PostHog/posthog/pull/123"
+
+    def _url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/merge_pr/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+            signal_count=3,
+            total_weight=1.5,
+        )
+
+    def _create_github_integration(self, team=None) -> None:
+        Integration.objects.create(
+            team=team or self.team,
+            kind="github",
+            integration_id="install-123",
+            config={"account": {"type": "Organization", "name": "PostHog"}},
+            sensitive_config={"access_token": "ghs_token"},
+        )
+
+    @patch.object(GitHubIntegration, "merge_pull_request")
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_success_resolves_report(self, mock_fetch, mock_merge):
+        report = self._create_report()
+        self._create_github_integration()
+        mock_fetch.return_value = {str(report.id): self.PR_URL}
+        mock_merge.return_value = {"success": True, "merged": True, "sha": "abc123", "merge_method": "merge"}
+
+        response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["merged"] is True
+        assert body["sha"] == "abc123"
+        assert body["pr_url"] == self.PR_URL
+        assert body["report"]["status"] == SignalReport.Status.RESOLVED
+        mock_merge.assert_called_once_with("posthog", 123, merge_method="merge")
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+
+    @patch.object(GitHubIntegration, "merge_pull_request")
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_falls_back_to_squash(self, mock_fetch, mock_merge):
+        report = self._create_report()
+        self._create_github_integration()
+        mock_fetch.return_value = {str(report.id): self.PR_URL}
+        mock_merge.side_effect = [
+            {"success": False, "merged": False, "merge_method": "merge", "error": "not allowed", "status_code": 405},
+            {"success": True, "merged": True, "sha": "def456", "merge_method": "squash"},
+        ]
+
+        response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["merge_method"] == "squash"
+        assert mock_merge.call_count == 2
+        assert mock_merge.call_args_list[1].kwargs["merge_method"] == "squash"
+
+    @patch.object(GitHubIntegration, "merge_pull_request")
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_honors_explicit_method_without_fallback(self, mock_fetch, mock_merge):
+        report = self._create_report()
+        self._create_github_integration()
+        mock_fetch.return_value = {str(report.id): self.PR_URL}
+        mock_merge.return_value = {"success": True, "merged": True, "sha": "x", "merge_method": "rebase"}
+
+        response = self.client.post(self._url(str(report.id)), {"merge_method": "rebase"})
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_merge.assert_called_once_with("posthog", 123, merge_method="rebase")
+
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_without_linked_pr_returns_400(self, mock_fetch):
+        report = self._create_report()
+        self._create_github_integration()
+        mock_fetch.return_value = {}
+
+        response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_without_integration_returns_400(self, mock_fetch):
+        report = self._create_report()
+        mock_fetch.return_value = {str(report.id): self.PR_URL}
+
+        response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch.object(GitHubIntegration, "merge_pull_request")
+    @patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports")
+    def test_merge_pr_github_failure_returns_422(self, mock_fetch, mock_merge):
+        report = self._create_report()
+        self._create_github_integration()
+        mock_fetch.return_value = {str(report.id): self.PR_URL}
+        mock_merge.return_value = {
+            "success": False,
+            "merged": False,
+            "merge_method": "merge",
+            "error": "Pull Request is not mergeable",
+            "status_code": 405,
+        }
+
+        response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "mergeable" in response.json()["error"]
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    def test_merge_pr_other_teams_report_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = self._create_report(team=other_team)
+
+        response = self.client.post(self._url(str(report.id)))
+
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 

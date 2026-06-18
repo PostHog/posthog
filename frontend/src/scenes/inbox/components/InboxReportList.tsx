@@ -19,6 +19,8 @@ export interface InboxReportCardProps {
 interface InboxReportListProps extends ReportListLogicProps {
     Card: ComponentType<InboxReportCardProps>
     emptyState: { icon: JSX.Element; title: string; description: string }
+    /** Extra controls rendered next to the refresh button in the filter bar. */
+    headerActions?: React.ReactNode
 }
 
 /**
@@ -36,7 +38,7 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
     )
 }
 
-function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
+function InboxReportListInner({ tabKey, Card, emptyState, headerActions }: InboxReportListProps): JSX.Element {
     const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, refresh } = useActions(reportListLogic)
     const sentinelRef = useRef<HTMLDivElement>(null)
@@ -75,7 +77,11 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
-            <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
+            <InboxSearchFilterBar
+                onRefresh={() => refresh()}
+                refreshing={reportsResponseLoading}
+                actions={headerActions}
+            />
             <InboxBulkSelectionBar />
 
             {showSkeleton ? (

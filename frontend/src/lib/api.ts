@@ -244,6 +244,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import type {
+    SignalReportMergePrRequestApi,
+    SignalReportMergePrResponseApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
@@ -5140,6 +5144,15 @@ const api = {
         // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
+        },
+        async mergePr(
+            id: SignalReport['id'],
+            data?: SignalReportMergePrRequestApi
+        ): Promise<SignalReportMergePrResponseApi> {
+            return await new ApiRequest()
+                .signalReport(id)
+                .withAction('merge_pr')
+                .create({ data: data ?? {} })
         },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
         async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {

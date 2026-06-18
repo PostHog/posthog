@@ -19,6 +19,28 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Merge the report's implementation pull request into GitHub.
+ *
+ * Resolves the latest implementation PR URL for the report and the team's GitHub integration,
+ * then merges via the GitHub API. Defaults to a merge commit, falling back to squash when the
+ * repository disallows merge commits. On a successful merge the report is transitioned to
+ * resolved (tolerating an already-resolved state, since a GitHub webhook resolves it too).
+ */
+export const SignalsReportsMergePrCreateBody = /* @__PURE__ */ zod.object({
+    merge_method: zod
+        .union([
+            zod
+                .enum(['merge', 'squash', 'rebase'])
+                .describe('\* `merge` - merge\n\* `squash` - squash\n\* `rebase` - rebase'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "GitHub merge method for the report's implementation pull request. Omit to use the default ('merge', a merge commit), which falls back to 'squash' if the repository disallows merge commits.\n\n\* `merge` - merge\n\* `squash` - squash\n\* `rebase` - rebase"
+        ),
+})
+
+/**
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the

@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from datetime import timedelta
@@ -29,7 +30,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -44,7 +45,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
@@ -357,6 +358,28 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Omit to let the report re-enter the pipeline on the next matching signal."
         ),
     )
+
+
+class SignalReportMergePrRequestSerializer(serializers.Serializer):
+    merge_method = serializers.ChoiceField(
+        choices=[("merge", "merge"), ("squash", "squash"), ("rebase", "rebase")],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "GitHub merge method for the report's implementation pull request. Omit to use the default "
+            "('merge', a merge commit), which falls back to 'squash' if the repository disallows merge commits."
+        ),
+    )
+
+
+class SignalReportMergePrResponseSerializer(serializers.Serializer):
+    merged = serializers.BooleanField(help_text="Whether GitHub merged the pull request.")
+    sha = serializers.CharField(
+        allow_null=True, help_text="SHA of the resulting merge commit, when GitHub returns one."
+    )
+    merge_method = serializers.CharField(help_text="The merge method GitHub ultimately used.")
+    pr_url = serializers.CharField(help_text="URL of the pull request that was merged.")
+    report = SignalReportSerializer(help_text="The report after the merge, transitioned to resolved on success.")
 
 
 @extend_schema_view(
@@ -1060,6 +1083,96 @@ class SignalReportViewSet(
                     del report.prefetched_dismissal_artefacts
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @extend_schema(
+        request=SignalReportMergePrRequestSerializer,
+        responses={
+            200: SignalReportMergePrResponseSerializer,
+            400: OpenApiResponse(description="The report has no linked pull request or GitHub integration."),
+            422: OpenApiResponse(description="GitHub could not merge the pull request."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="merge_pr", required_scopes=["task:write"])
+    def merge_pr(self, request, pk=None, **kwargs):
+        """
+        Merge the report's implementation pull request into GitHub.
+
+        Resolves the latest implementation PR URL for the report and the team's GitHub integration,
+        then merges via the GitHub API. Defaults to a merge commit, falling back to squash when the
+        repository disallows merge commits. On a successful merge the report is transitioned to
+        resolved (tolerating an already-resolved state, since a GitHub webhook resolves it too).
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportMergePrRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_method = serializer.validated_data.get("merge_method")
+
+        pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+        if not pr_url:
+            return Response(
+                {"error": "This report has no linked pull request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match = re.match(r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)", pr_url)
+        if not match:
+            return Response(
+                {"error": "The linked pull request URL is not a recognized GitHub PR."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        repository = match.group("repo")
+        pr_number = int(match.group("number"))
+
+        # Resolve the team-level GitHub app integration directly. User integrations can't open PRs in
+        # the first place, so a report with a linked PR always has a team-level integration to merge with.
+        integration = (
+            Integration.objects.filter(team_id=self.team.id, kind="github")
+            .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+            .order_by("config__account__type", "created_at", "id")
+            .first()
+        )
+        if integration is None:
+            return Response(
+                {"error": "No GitHub app integration is connected for this team."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        github = GitHubIntegration(integration)
+
+        # Default to a merge commit, falling back to squash when the repository disallows merge commits
+        # (GitHub returns 405 "Merge commits are not allowed on this repository"). An explicit request
+        # method is honored verbatim with no fallback.
+        methods_to_try = [requested_method] if requested_method else ["merge", "squash"]
+        result: dict | None = None
+        for method in methods_to_try:
+            result = github.merge_pull_request(repository, pr_number, merge_method=method)
+            if result.get("success") or result.get("status_code") != 405:
+                break
+
+        if result is None or not result.get("success"):
+            message = (result or {}).get("error") or "GitHub could not merge the pull request."
+            return Response({"error": message}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The merge already happened on GitHub (an irreversible side effect), so it must not sit inside a
+        # transaction that could roll back. Transition to resolved for immediate UX; a parallel GitHub
+        # webhook resolves it too, so tolerate an invalid transition (e.g. already resolved).
+        try:
+            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+            report.save(update_fields=updated_fields)
+        except InvalidStatusTransition:
+            logger.info("SignalReport %s was already past a resolvable state when its PR merged", report.id)
+
+        response_payload = {
+            "merged": result.get("merged", True),
+            "sha": result.get("sha"),
+            "merge_method": result.get("merge_method", methods_to_try[0]),
+            "pr_url": pr_url,
+            "report": report,
+        }
+        response_serializer = SignalReportMergePrResponseSerializer(
+            response_payload, context=self._enriched_report_context(report)
+        )
+        return Response(response_serializer.data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])

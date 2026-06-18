@@ -27681,6 +27681,20 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * * `merge` - merge
+     * * `squash` - squash
+     * * `rebase` - rebase
+     */
+    export type MergeMethodEnum = typeof MergeMethodEnum[keyof typeof MergeMethodEnum];
+
+
+    export const MergeMethodEnum = {
+      Merge: 'merge',
+      Squash: 'squash',
+      Rebase: 'rebase',
+    } as const;
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -45119,6 +45133,31 @@ export namespace Schemas {
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
       release_to_everyone?: boolean;
+    }
+
+    export interface SignalReportMergePrRequest {
+      /** GitHub merge method for the report's implementation pull request. Omit to use the default ('merge', a merge commit), which falls back to 'squash' if the repository disallows merge commits.
+       *
+       * * `merge` - merge
+       * * `squash` - squash
+       * * `rebase` - rebase */
+      merge_method?: MergeMethodEnum | null;
+    }
+
+    export interface SignalReportMergePrResponse {
+      /** Whether GitHub merged the pull request. */
+      merged: boolean;
+      /**
+         * SHA of the resulting merge commit, when GitHub returns one.
+         * @nullable
+         */
+      sha: string | null;
+      /** The merge method GitHub ultimately used. */
+      merge_method: string;
+      /** URL of the pull request that was merged. */
+      pr_url: string;
+      /** The report after the merge, transitioned to resolved on success. */
+      report: SignalReport;
     }
 
     /**

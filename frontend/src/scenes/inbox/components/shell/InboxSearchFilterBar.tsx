@@ -86,6 +86,8 @@ interface InboxSearchFilterBarProps {
     /** Triggers a reload of the report list (lives on `inboxSceneLogic`). */
     onRefresh?: () => void
     refreshing?: boolean
+    /** Extra controls rendered next to the refresh button (e.g. the Rapid review entry). */
+    actions?: React.ReactNode
 }
 
 /**
@@ -98,6 +100,7 @@ export function InboxSearchFilterBar({
     searchPlaceholder = 'Search by title or description…',
     onRefresh,
     refreshing,
+    actions,
 }: InboxSearchFilterBarProps): JSX.Element {
     const { searchQuery, sortField, sortDirection, sourceProductFilter, priorityFilter } = useValues(inboxFiltersLogic)
     const { setSearchQuery, setSort, toggleSourceProduct, togglePriority } = useActions(inboxFiltersLogic)
@@ -174,17 +177,22 @@ export function InboxSearchFilterBar({
                 ))}
             </FilterPopover>
 
-            {onRefresh && (
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={<IconRefresh />}
-                    loading={refreshing}
-                    tooltip="Refresh"
-                    aria-label="Refresh"
-                    onClick={onRefresh}
-                    className="bg-surface-primary ml-auto"
-                />
+            {(onRefresh || actions) && (
+                <div className="ml-auto flex items-center gap-2">
+                    {actions}
+                    {onRefresh && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconRefresh />}
+                            loading={refreshing}
+                            tooltip="Refresh"
+                            aria-label="Refresh"
+                            onClick={onRefresh}
+                            className="bg-surface-primary"
+                        />
+                    )}
+                </div>
             )}
         </div>
     )
