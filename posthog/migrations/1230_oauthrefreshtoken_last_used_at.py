@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1227_alter_datadeletionrequest_delete_all_events"),
+        ("posthog", "1229_teamprovisioningconfig_application_idx"),
     ]
 
     operations = [
