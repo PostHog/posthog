@@ -26,20 +26,21 @@
     // `.Playlist__list` already has `overflow-y-auto flex-1 min-h-0`) instead of pushing
     // the whole page past 100vh.
     //
-    // `min-height: 0` is the load-bearing part: flex items default to `min-height: auto`,
-    // which refuses to shrink below their content's intrinsic height. That default — not
-    // any single magic number — is what let the list overflow once the banners ate into
-    // the available height. With it (plus matching `min-h-0` on the ancestor flex items)
-    // the content can shrink to fit and scroll internally.
+    // The explicit `min-height` is the load-bearing part: flex items default to
+    // `min-height: auto`, which refuses to shrink below their content's intrinsic
+    // height — that default is what let the list overflow once the banners ate into the
+    // available height. A small `10rem` floor (rather than `0`) still overrides that
+    // default so the content shrinks to fit and scrolls internally, while keeping the
+    // list from collapsing to an unusable height on very short viewports.
     flex: 1 1 0;
-    min-height: 0;
+    min-height: 10rem;
     overflow: hidden;
 
     // `height` provides a definite size for the non-flex contexts that also reuse this
     // class (person & group "Recordings" tab panels, storybook), where there is no flex
     // parent to fill against. In the flex contexts above it acts only as the flex-basis,
-    // and `flex-shrink: 1` + `min-height: 0` let the item shrink below it as needed, so it
-    // no longer forces extra page height when banners are present.
+    // and `flex-shrink: 1` + the small `min-height` floor let the item shrink below it as
+    // needed, so it no longer forces extra page height when banners are present.
     height: calc(100vh - 12rem);
 }
 
