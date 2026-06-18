@@ -1012,11 +1012,6 @@ export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ErrorTrackingGroupingRulesListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 export const ErrorTrackingGroupingRulesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()

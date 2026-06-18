@@ -50826,17 +50826,6 @@ export namespace Schemas {
     repository: string;
     };
 
-    export type EnvironmentsErrorTrackingGroupingRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type EnvironmentsErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -56674,17 +56663,6 @@ export namespace Schemas {
      * @minLength 1
      */
     repository: string;
-    };
-
-    export type ErrorTrackingGroupingRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type ErrorTrackingIssuesListParams = {

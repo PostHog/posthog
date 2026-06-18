@@ -23,7 +23,6 @@ import type {
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingGroupingRuleUpdateRequestApi,
-    ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueDetailApi,
     ErrorTrackingIssueEventsQueryRequestApi,
     ErrorTrackingIssueEventsResponseApi,
@@ -449,37 +448,18 @@ export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     )
 }
 
-export const getErrorTrackingGroupingRulesListUrl = (
-    projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/error_tracking/grouping_rules/?${stringifiedParams}`
-        : `/api/projects/${projectId}/error_tracking/grouping_rules/`
+export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/grouping_rules/`
 }
 
 export const errorTrackingGroupingRulesList = async (
     projectId: string,
-    params?: ErrorTrackingGroupingRulesListParams,
     options?: RequestInit
 ): Promise<ErrorTrackingGroupingRuleListResponseApi> => {
-    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(
-        getErrorTrackingGroupingRulesListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(getErrorTrackingGroupingRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
@@ -1232,6 +1212,24 @@ export const errorTrackingStackFramesRetrieve = async (
     return apiMutator<ErrorTrackingStackFrameApi>(getErrorTrackingStackFramesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingStackFramesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/stack_frames/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const errorTrackingStackFramesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getErrorTrackingStackFramesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

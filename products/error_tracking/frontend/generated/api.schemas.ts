@@ -1704,17 +1704,6 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
     repository: string
 }
 
-export type ErrorTrackingGroupingRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.

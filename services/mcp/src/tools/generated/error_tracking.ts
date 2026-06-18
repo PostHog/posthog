@@ -6,7 +6,6 @@ import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
     ErrorTrackingGroupingRulesCreateBody,
-    ErrorTrackingGroupingRulesListQueryParams,
     ErrorTrackingGroupingRulesUpdateBody,
     ErrorTrackingGroupingRulesUpdateParams,
     ErrorTrackingIssuesMergeCreateBody,
@@ -108,7 +107,7 @@ const errorTrackingGroupingRulesCreate = (): ToolBase<
     },
 })
 
-const ErrorTrackingGroupingRulesListSchema = ErrorTrackingGroupingRulesListQueryParams
+const ErrorTrackingGroupingRulesListSchema = z.object({})
 
 const errorTrackingGroupingRulesList = (): ToolBase<
     typeof ErrorTrackingGroupingRulesListSchema,
@@ -116,15 +115,12 @@ const errorTrackingGroupingRulesList = (): ToolBase<
 > => ({
     name: 'error-tracking-grouping-rules-list',
     schema: ErrorTrackingGroupingRulesListSchema,
+    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingGroupingRulesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ErrorTrackingGroupingRuleListResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return result
     },

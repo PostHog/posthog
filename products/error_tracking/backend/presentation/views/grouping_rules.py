@@ -142,6 +142,9 @@ class ErrorTrackingGroupingRuleListResponseSerializer(serializers.Serializer):
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingGroupingRuleSerializer
+    # The list endpoint returns all rules unpaginated ({"results": [...]}); without this the
+    # default paginator makes the schema advertise limit/offset params the view doesn't honor.
+    pagination_class = None
 
     @extend_schema(responses={200: OpenApiResponse(response=ErrorTrackingGroupingRuleListResponseSerializer)})
     def list(self, request, *args, **kwargs) -> Response:

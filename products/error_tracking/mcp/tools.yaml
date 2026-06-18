@@ -328,6 +328,9 @@ tools:
     error-tracking-stack-frames-batch-get-create:
         operation: error_tracking_stack_frames_batch_get_create
         enabled: false
+    error-tracking-stack-frames-destroy:
+        operation: error_tracking_stack_frames_destroy
+        enabled: false
     error-tracking-stack-frames-list:
         operation: error_tracking_stack_frames_list
         enabled: false

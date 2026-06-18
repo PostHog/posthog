@@ -3,6 +3,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
@@ -17,7 +18,7 @@ class ErrorTrackingStackFrameSerializer(DataclassSerializer):
         dataclass = contracts.ErrorTrackingStackFrame
 
 
-class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_read_actions = ["list", "retrieve", "batch_get"]
     scope_object_write_actions: list = []
