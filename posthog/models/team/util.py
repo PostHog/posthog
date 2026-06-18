@@ -114,8 +114,38 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
 
 
 def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
+    """Delete posthog_personlessdistinctid rows for teams via personhog RPC.
+
+    Falls back to the raw batched SQL delete when personhog is not available.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
+    """
+    from functools import partial
+
+    from posthog.models.person.util import _personhog_routed
+
     for team_id in team_ids:
-        _raw_delete_personless_distinct_ids_for_team(team_id)
+        _personhog_routed(
+            "delete_personless_distinct_ids_for_team",
+            partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
+            partial(_raw_delete_personless_distinct_ids_for_team, team_id),
+            team_id=team_id,
+        )
+
+
+def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    while True:
+        resp = client.delete_personless_distinct_ids_batch_for_team(
+            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+        )
+        if resp.deleted_count == 0:
+            break
 
 
 def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
