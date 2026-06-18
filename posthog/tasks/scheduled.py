@@ -69,7 +69,11 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
-from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
+from products.conversations.backend.tasks import (
+    flush_pending_email_replies,
+    poll_teams_shared_channels,
+    wake_snoozed_tickets,
+)
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
@@ -670,6 +674,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Pull ambient messages from MS Teams shared channels (which never push them
+    # over the bot webhook) into the ticket pipeline via Graph messages/delta.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        poll_teams_shared_channels.s(),
+        name="poll teams shared channels",
     )
     # Delete expired Streamlit bridge OAuth tokens.
     sender.add_periodic_task(

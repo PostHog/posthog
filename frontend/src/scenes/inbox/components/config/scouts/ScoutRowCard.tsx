@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGear, IconSparkles } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
@@ -43,10 +44,16 @@ export function ScoutRowCard({
         >
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <Tooltip title={config.skill_name}>
-                        <span className="truncate font-medium text-sm text-default">
+                    <Tooltip title={`${config.skill_name} · open skill`}>
+                        <Link
+                            to={urls.skill(config.skill_name)}
+                            target="_blank"
+                            targetBlankIcon={false}
+                            subtle
+                            className="truncate font-medium text-sm"
+                        >
                             {prettifyScoutSkillName(config.skill_name)}
-                        </span>
+                        </Link>
                     </Tooltip>
                     <ScoutOriginBadge skillName={config.skill_name} />
                     <DryRunBadge config={config} />
