@@ -70,15 +70,27 @@ describe('ComboChart', () => {
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
-    it('defaultSeriesType: "bar" treats untyped series as bars', () => {
-        const series: Series[] = [
-            { key: 'a', label: 'A', data: [40, 60, 50] }, // untyped → bar
-            { key: 'b', label: 'B', data: [42, 55, 53], type: 'line' },
-        ]
+    it('defaultSeriesType: "bar" treats an untyped series as a bar (band-gap suppresses it)', async () => {
+        // A bar is only surfaced when the cursor lands in its band-axis extent; a line would always
+        // show at the hovered column. So a band-gap probe that suppresses the tooltip proves the
+        // untyped series defaulted to a bar, not a line.
+        const series: Series[] = [{ key: 'a', label: 'A', data: [40, 60, 50] }]
         const { chart } = renderHogChart(
-            <ComboChart series={series} labels={LABELS} theme={THEME} config={{ defaultSeriesType: 'bar' }} />
+            <ComboChart
+                series={series}
+                labels={LABELS}
+                theme={THEME}
+                config={{ defaultSeriesType: 'bar', barLayout: 'grouped' }}
+            />
         )
-        expect(chart.seriesCount).toBe(2)
+        const d3Step = dimensions.plotWidth / LABELS.length
+        fireEvent.mouseMove(chart.element, {
+            clientX: dimensions.plotLeft + d3Step,
+            clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
+        expect(tooltipEl?.textContent ?? '').toBe('')
     })
 
     describe('hover & tooltip', () => {
@@ -134,10 +146,9 @@ describe('ComboChart', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
             // Tooltip is suppressed when the cursor is in a band gap — either the portal never
-            // mounts, or it mounts but ComboTooltip returns null and the portal stays empty.
-            if (tooltipEl !== null) {
-                expect(tooltipEl.textContent).toBe('')
-            }
+            // mounts (null) or it mounts empty because ComboTooltip returned null. Both collapse to
+            // "no content" in one unconditional assertion.
+            expect(tooltipEl?.textContent ?? '').toBe('')
         })
 
         it('renders bar+line on dual axes and shows both in the tooltip', async () => {
@@ -217,7 +228,7 @@ describe('ComboChart', () => {
                     />
                 )
                 chart.hoverAtIndex(1)
-                expect(onError).toHaveBeenCalled()
+                expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }), expect.anything())
             } finally {
                 consoleErrorSpy.mockRestore()
             }

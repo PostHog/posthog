@@ -21,9 +21,11 @@ export const DEFAULT_Y_AXIS_ID = 'left'
  *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
 export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
 
-/** Per-series geometry for mixed-type charts. Only {@link ComboChart} reads it; single-type
- *  charts (Bar/Line) ignore it entirely. */
+/** How a series is rendered in a mixed-type chart. */
 export type SeriesType = 'line' | 'bar' | 'area'
+
+/** Series type assumed when a `Series` sets no explicit `type`. */
+export const DEFAULT_SERIES_TYPE: SeriesType = 'line'
 
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */

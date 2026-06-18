@@ -1,4 +1,5 @@
 import { dimensions, makeSeries } from '../testing'
+import { computeBarAtIndex } from './bar-layout'
 import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
 import { computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
@@ -10,14 +11,13 @@ function typeOfWithDefault(defaultType: SeriesType): (s: Pick<Series, 'type'>) =
 
 describe('combo-scales', () => {
     describe('resolveSeriesType', () => {
-        it('returns the explicit type when set', () => {
-            expect(resolveSeriesType({ type: 'bar' }, 'line')).toBe('bar')
-            expect(resolveSeriesType({ type: 'area' }, 'line')).toBe('area')
-        })
-
-        it('falls back to the default when type is unset', () => {
-            expect(resolveSeriesType({}, 'line')).toBe('line')
-            expect(resolveSeriesType({}, 'bar')).toBe('bar')
+        it.each<[Pick<Series, 'type'>, SeriesType, SeriesType]>([
+            [{ type: 'bar' }, 'line', 'bar'],
+            [{ type: 'area' }, 'line', 'area'],
+            [{}, 'line', 'line'],
+            [{}, 'bar', 'bar'],
+        ])('resolveSeriesType(%o, %s) === %s', (series, defaultType, expected) => {
+            expect(resolveSeriesType(series, defaultType)).toBe(expected)
         })
     })
 
@@ -78,7 +78,6 @@ describe('combo-scales', () => {
                 const start = scales.band(label)!
                 expect(start).toBeGreaterThanOrEqual(dimensions.plotLeft)
                 expect(start + bw).toBeLessThanOrEqual(dimensions.plotLeft + dimensions.plotWidth)
-                expect(start + bw / 2).toBe(start + scales.band.bandwidth() / 2)
             }
         })
 
@@ -185,6 +184,63 @@ describe('combo-scales', () => {
                 seriesTypeOf: typeOfWithDefault('line'),
             })
             expect(scales.y.domain()).toEqual([0, 1])
+        })
+
+        it('brackets a degenerate domain when every value is identical', () => {
+            // All-equal-to-zero collapses min === max; the shared guard must keep the axis well-formed
+            // rather than mapping everything to NaN.
+            const s = makeSeries({ key: 's', data: [0, 0, 0], type: 'line' })
+            const scales = createComboScales([s], ['a', 'b', 'c'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+            })
+            const [min, max] = scales.y.domain()
+            expect(max).toBeGreaterThan(min)
+            expect(isFinite(scales.y(0))).toBe(true)
+        })
+
+        it('builds a log value scale when scaleType is log', () => {
+            const s = makeSeries({ key: 's', data: [10, 100, 1000], type: 'line' })
+            const scales = createComboScales([s], ['a', 'b', 'c'], dimensions, {
+                scaleType: 'log',
+                seriesTypeOf: typeOfWithDefault('line'),
+            })
+            // Larger values map to smaller y-pixels (axis inverted); a log scale stays monotonic.
+            expect(scales.y(1000)).toBeLessThan(scales.y(100))
+            expect(scales.y(100)).toBeLessThan(scales.y(10))
+        })
+    })
+
+    describe('createComboScales — stacked bars on a secondary axis', () => {
+        it('resolves a stacked bar against its own axis scale, not the primary', () => {
+            // Bars stacked on the right axis (values ~thousands) must be positioned against the right
+            // scale, not the left one (~tens). Regression guard: `computeBarAtIndex`'s stacked branch
+            // is axis-aware so combo can pass the whole scale set for both draw and hit-test.
+            const leftBar = makeSeries({ key: 'l', data: [10], type: 'bar' })
+            const r1 = makeSeries({ key: 'r1', data: [1000], type: 'bar', yAxisId: 'right' })
+            const r2 = makeSeries({ key: 'r2', data: [2000], type: 'bar', yAxisId: 'right' })
+            const series = [leftBar, r1, r2]
+            const barStackedData = computeStackData(series, ['a'])
+            const scales = createComboScales(series, ['a'], dimensions, {
+                barLayout: 'stacked',
+                seriesTypeOf: typeOfWithDefault('line'),
+                barStackedData,
+            })
+            // r2 is the top of the right-axis stack — its cumulative top is 1000 + 2000 = 3000.
+            const bar = computeBarAtIndex({
+                series: r2,
+                label: 'a',
+                dataIndex: 0,
+                scales,
+                layout: 'stacked',
+                isHorizontal: false,
+                stackedBand: barStackedData.get('r2'),
+                isTopOfStack: true,
+            })
+            expect(bar).not.toBeNull()
+            const rightScale = scales.yAxes.right.scale
+            expect(bar!.y).toBeCloseTo(rightScale(3000), 0)
+            // The left/primary scale (domain ~[0,10]) would place 3000 far off-plot — confirm it differs.
+            expect(Math.abs(bar!.y - scales.y(3000))).toBeGreaterThan(1)
         })
     })
 

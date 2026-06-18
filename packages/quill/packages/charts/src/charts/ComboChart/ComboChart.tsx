@@ -3,33 +3,31 @@ import React, { useCallback, useMemo } from 'react'
 
 import { bandCenter, computeBarAtIndex, computeSeriesBars, groupedBarCenter } from '../../core/bar-layout'
 import {
+    BAR_HIGHLIGHT_DARKEN,
     type BarRect,
     DEFAULT_BAR_CORNER_RADIUS,
     drawArea,
     drawBarHighlight,
     drawBars,
     drawGrid,
-    drawHighlightPoint,
     drawLine,
+    drawLineHoverPoints,
     drawPoints,
     type DrawContext,
+    withVerticalClip,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
+import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
 import {
-    type ComboChartPrivate,
-    createComboScales,
-    partitionByType,
-    resolveComboYScale,
-    resolveSeriesType,
-} from '../../core/combo-scales'
-import {
-    type BarScaleSet,
     buildSegmentResolveValue,
     buildStackedPositionValue,
     computeStackData,
+    computeTopStackedKeyByAxis,
+    resolveYScaleForSeries,
     type StackedBand,
+    toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
 import type {
@@ -45,9 +43,8 @@ import type {
     Series,
     SeriesType,
     TooltipContext,
-    YAxisScale,
 } from '../../core/types'
-import { DEFAULT_Y_AXIS_ID } from '../../core/types'
+import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { resolveBarsAtCursor } from '../BarChart/utils/bars-under-cursor'
 import { ComboTooltip } from './ComboTooltip'
@@ -90,7 +87,7 @@ function ComboChartInner<Meta = unknown>({
         showGrid = false,
         barLayout = 'stacked',
         barCornerRadius = DEFAULT_BAR_CORNER_RADIUS,
-        defaultSeriesType = 'line',
+        defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
     } = config ?? {}
 
@@ -112,22 +109,15 @@ function ComboChartInner<Meta = unknown>({
         return computeStackData(barSeries, labels)
     }, [barLayout, series, labels, seriesTypeOf])
 
-    // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series
-    // are skipped since lines/areas don't participate in bar stacking. Last write per axis wins,
-    // matching d3.stack's key order (mirrors BarChart's topStackedKeyByAxis).
-    const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
-        const m = new Map<string, string>()
-        if (barLayout !== 'stacked') {
-            return m
-        }
-        for (const s of series) {
-            if (s.visibility?.excluded || seriesTypeOf(s) !== 'bar') {
-                continue
-            }
-            m.set(s.yAxisId ?? DEFAULT_Y_AXIS_ID, s.key)
-        }
-        return m
-    }, [barLayout, series, seriesTypeOf])
+    // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
+    // skipped so lines/areas don't take part in bar stacking. Shares BarChart's helper.
+    const topStackedKeyByAxis = useMemo<Map<string, string>>(
+        () =>
+            barLayout !== 'stacked'
+                ? new Map()
+                : computeTopStackedKeyByAxis(series, { skip: (s) => seriesTypeOf(s) !== 'bar' }),
+        [barLayout, series, seriesTypeOf]
+    )
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
@@ -139,14 +129,6 @@ function ComboChartInner<Meta = unknown>({
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
-            const yAxes: Record<string, YAxisScale> = {}
-            for (const [axisId, { scale, position }] of Object.entries(comboScales.yAxes)) {
-                yAxes[axisId] = {
-                    scale: (v: number) => scale(v),
-                    ticks: () => scale.ticks?.(yTickCount) ?? [],
-                    position,
-                }
-            }
 
             // Pre-index series by key so the grouped `x` closure resolves seriesKey → type in O(1)
             // instead of scanning the array on every overlay/value-label call.
@@ -159,21 +141,20 @@ function ComboChartInner<Meta = unknown>({
 
             return {
                 x: (label: string, seriesKey?: string) => {
-                    if (seriesKey != null && barLayout === 'grouped') {
-                        // Only bars use the group scale; lines/areas fall through to band center.
-                        const s = seriesByKey.get(seriesKey)
-                        if (s && seriesTypeOf(s) === 'bar') {
-                            const xForSeries = groupedBarCenter(comboScales, label, seriesKey)
-                            if (xForSeries != null) {
-                                return xForSeries
-                            }
-                        }
+                    // Only grouped bars get a per-series sub-band offset; everything else (lines,
+                    // areas, the unkeyed call) anchors at the band center.
+                    if (seriesKey == null || barLayout !== 'grouped') {
+                        return bandCenter(comboScales, label)
+                    }
+                    const s = seriesByKey.get(seriesKey)
+                    if (s && seriesTypeOf(s) === 'bar') {
+                        return groupedBarCenter(comboScales, label, seriesKey) ?? bandCenter(comboScales, label)
                     }
                     return bandCenter(comboScales, label)
                 },
                 y: (v: number) => comboScales.y(v),
                 yTicks: () => comboScales.y.ticks?.(yTickCount) ?? [],
-                yAxes,
+                yAxes: toYAxisScales(comboScales.yAxes, yTickCount),
                 _private: comboPrivate,
             }
         },
@@ -206,18 +187,15 @@ function ComboChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
             }
 
-            // ── 1. Bars ───────────────────────────────────────────────────────────────
+            // ── 1. Bars ──────────────────────────────────────────────────────────────────────
+            // `comboScales` is structurally a `BarScaleSet`; `computeSeriesBars` resolves each
+            // series' own axis (`yAxes[id] ?? value`), so dual-axis bars draw against the right scale.
             for (const s of barSeries) {
                 const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const perSeriesScales: BarScaleSet = {
-                    band: comboScales.band,
-                    value: resolveComboYScale(comboScales, s),
-                    group: comboScales.group,
-                }
                 const bars = computeSeriesBars({
                     series: s,
                     labels: drawLabels,
-                    scales: perSeriesScales,
+                    scales: comboScales,
                     layout: barLayout,
                     isHorizontal: false,
                     stackedBand: barStackedData?.get(s.key),
@@ -226,35 +204,30 @@ function ComboChartInner<Meta = unknown>({
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
 
-            // ── 2. Area fills first, then lines + points. Two passes so every area sits below
-            //      every line regardless of input order — a single per-series loop would paint a
-            //      later area over an earlier line. Clip vertically so out-of-domain values stay
-            //      out of the axis gutters while edge markers/caps still render whole.
-            const CLIP_PAD = 8
-            ctx.save()
-            ctx.beginPath()
-            ctx.rect(0, dimensions.plotTop - CLIP_PAD, dimensions.width, dimensions.plotHeight + CLIP_PAD * 2)
-            ctx.clip()
-            for (const s of lineSeries) {
-                if (seriesTypeOf(s) !== 'area' && !s.fill) {
-                    continue
+            // ── 2. Area fills first, then lines + points. Two passes so every area sits below every
+            //      line regardless of input order — a single per-series loop would paint a later
+            //      area over an earlier line. Clipped vertically (shared with LineChart).
+            withVerticalClip(ctx, dimensions, () => {
+                for (const s of lineSeries) {
+                    if (seriesTypeOf(s) !== 'area' && !s.fill) {
+                        continue
+                    }
+                    drawArea(
+                        { ...baseDrawCtx, yScale: resolveYScaleForSeries(comboScales, s) },
+                        s,
+                        undefined,
+                        s.fill?.lowerData
+                    )
                 }
-                drawArea(
-                    { ...baseDrawCtx, yScale: resolveComboYScale(comboScales, s) },
-                    s,
-                    undefined,
-                    s.fill?.lowerData
-                )
-            }
-            for (const s of lineSeries) {
-                if (s.fill?.lowerData) {
-                    continue
+                for (const s of lineSeries) {
+                    if (s.fill?.lowerData) {
+                        continue
+                    }
+                    const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScaleForSeries(comboScales, s) }
+                    drawLine(drawCtx, s)
+                    drawPoints(drawCtx, s)
                 }
-                const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveComboYScale(comboScales, s) }
-                drawLine(drawCtx, s)
-                drawPoints(drawCtx, s)
-            }
-            ctx.restore()
+            })
         },
         [seriesTypeOf, showGrid, xTickFormatter, barLayout, barStackedData, topStackedKeyByAxis, barCornerRadius]
     )
@@ -281,8 +254,8 @@ function ComboChartInner<Meta = unknown>({
             const { bars: barSeries, lines: lineSeries } = partitionByType(coloredSeries, seriesTypeOf)
             let drewAny = false
 
-            // Bars: only highlight those whose band-axis extent contains the cursor. The hit set is
-            // band-axis only, so the shared bar resolver works directly on the combo scales.
+            // Bars: only highlight those whose band-axis extent contains the cursor. The shared bar
+            // resolver works directly on the combo scales (per-axis resolution inside computeBarAtIndex).
             const barHits = hoverPosition
                 ? resolveBarsAtCursor({
                       series: barSeries,
@@ -302,16 +275,11 @@ function ComboChartInner<Meta = unknown>({
                     continue
                 }
                 const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const perSeriesScales: BarScaleSet = {
-                    band: comboScales.band,
-                    value: resolveComboYScale(comboScales, s),
-                    group: comboScales.group,
-                }
                 const bar = computeBarAtIndex({
                     series: s,
                     label: hoveredLabel,
                     dataIndex: hoverIndex,
-                    scales: perSeriesScales,
+                    scales: comboScales,
                     layout: barLayout,
                     isHorizontal: false,
                     stackedBand: barStackedData?.get(s.key),
@@ -321,31 +289,22 @@ function ComboChartInner<Meta = unknown>({
                     continue
                 }
                 const barColor = barColorAt(s, bar.dataIndex)
-                const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
+                const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
                 drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 drewAny = true
             }
 
-            // Lines/areas — highlight ring at the band center for this index. Auxiliary overlays
-            // (trendlines, moving averages) opt out: they shouldn't surface as primary points on
-            // hover. Mirrors LineChart.drawHover.
+            // Lines/areas — highlight ring at the band center for this index (shared with LineChart).
             const x = bandCenter(comboScales, hoveredLabel)
-            if (x == null) {
-                return drewAny
-            }
-            for (const s of lineSeries) {
-                if (s.fill?.lowerData || s.overlay) {
-                    continue
-                }
-                const raw = s.data[hoverIndex]
-                if (raw == null || !isFinite(raw)) {
-                    continue
-                }
-                const y = resolveComboYScale(comboScales, s)(raw)
-                if (isFinite(y)) {
-                    drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
-                    drewAny = true
-                }
+            if (x != null) {
+                const drewLine = drawLineHoverPoints(ctx, lineSeries, theme.backgroundColor ?? '#ffffff', (s) => {
+                    const raw = s.data[hoverIndex]
+                    if (raw == null || !isFinite(raw)) {
+                        return null
+                    }
+                    return { x, y: resolveYScaleForSeries(comboScales, s)(raw) }
+                })
+                drewAny = drewAny || drewLine
             }
             return drewAny
         },
