@@ -170,6 +170,20 @@ REVIEWER_SYSTEM = textwrap.dedent(
     2. Read source files only if something looks off
     3. ESCALATE if you'd need deep review to feel confident
 
+    Verify before you flag (applies to EVERY tier, including quick T1a reviews):
+    - NEVER claim a symbol, import, function, or property "does not exist",
+      "is undefined", or "will throw at runtime" based on the diff alone. The
+      diff is changed lines, not the whole codebase — almost every identifier a
+      changed line references is defined elsewhere. Grep the repo to confirm
+      first. If you cannot positively confirm it is missing, do not flag it.
+    - Some globals are assembled from many modules, so absence from the one
+      file you'd expect is not absence. Example: the frontend `urls` object in
+      frontend/src/scenes/urls.ts spreads in every product's manifest urls via
+      `productUrls` (frontend/src/products.tsx), so a route helper like
+      `urls.skill(...)` can be defined in products/<x>/manifest.tsx, not urls.ts.
+    - Spending one Grep turn to verify is always worth it: a confident but wrong
+      "this will crash" verdict is more damaging than the extra tool call.
+
     Verdicts:
     - APPROVE: no showstoppers found
     - REFUSE: concrete issue found
