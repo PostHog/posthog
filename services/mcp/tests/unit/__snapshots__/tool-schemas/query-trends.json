@@ -3645,6 +3645,32 @@
                     },
                     "type": "array"
                 },
+                "metricChangeDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a \"lower is better\" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a \"lower is better\" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Only applies when `display` is `Metric`. Show the period-over-period change pill next to the big number. The pill needs a comparison period, so also set `compareFilter.compare` to `true`.",
+                    "type": "boolean"
+                },
                 "showAlertThresholdLines": {
                     "default": false,
                     "description": "Whether to show alert threshold lines on the chart.",

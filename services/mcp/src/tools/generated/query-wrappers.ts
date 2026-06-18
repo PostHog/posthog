@@ -523,6 +523,44 @@ const AssistantTrendsFilter = z.object({
             'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
         )
         .optional(),
+    metricChangeDecreaseColor: z
+        .string()
+        .describe(
+            'Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.'
+        )
+        .optional(),
+    metricChangeIncreaseColor: z
+        .string()
+        .describe(
+            'Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.'
+        )
+        .optional(),
+    metricColorByDirection: z.coerce
+        .boolean()
+        .describe(
+            'Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).'
+        )
+        .default(false)
+        .optional(),
+    metricLineDecreaseColor: z
+        .string()
+        .describe(
+            'Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a "lower is better" metric.'
+        )
+        .optional(),
+    metricLineIncreaseColor: z
+        .string()
+        .describe(
+            'Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a "lower is better" metric.'
+        )
+        .optional(),
+    metricShowChange: z.coerce
+        .boolean()
+        .describe(
+            'Only applies when `display` is `Metric`. Show the period-over-period change pill next to the big number. The pill needs a comparison period, so also set `compareFilter.compare` to `true`.'
+        )
+        .default(true)
+        .optional(),
     showAlertThresholdLines: z.coerce
         .boolean()
         .describe('Whether to show alert threshold lines on the chart.')
