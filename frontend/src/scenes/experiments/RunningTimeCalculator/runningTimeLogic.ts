@@ -173,9 +173,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 configOverrides ? { ...initialConfig, ...configOverrides } : initialConfig,
         ],
 
-        // Pulled out as a primitive so automaticCalculationInput stays stable when the experiment object
-        // is replaced (e.g. after persisting an estimate) but the mde value itself is unchanged.
+        // Pulled out as primitives so automaticCalculationInput stays stable when the experiment object
+        // is replaced (e.g. after persisting an estimate) but the underlying values are unchanged.
         mde: [(s) => [s.config], (config): number => config.mde],
+        mode: [(s) => [s.config], (config): RunningTimeConfig['mode'] => config.mode],
 
         // Legacy flow exposes metric results via experimentLogic; the recalculation flow exposes them
         // via experimentMetricsLogic. Pick whichever is active so automatic mode always has a baseline.
@@ -202,9 +203,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         // Request body for the automatic-mode calculation, or null when not applicable (manual mode / no results yet).
         automaticCalculationInput: [
-            (s) => [s.isManualMode, s.metricsWithResults, s.numberOfVariants, s.mde],
-            (isManualMode, results, numberOfVariants, mde): RunningTimeCalculationInputApi | null => {
-                if (isManualMode) {
+            (s) => [s.mode, s.metricsWithResults, s.numberOfVariants, s.mde],
+            (mode, results, numberOfVariants, mde): RunningTimeCalculationInputApi | null => {
+                // Gate on the in-form mode rather than the persisted mode. While the form is in manual mode
+                // (even if the experiment is still saved as automatic), the automatic estimate is neither
+                // shown nor persisted, so editing the MDE shouldn't fire a wasted automatic calculation.
+                if (mode !== 'automatic') {
                     return null
                 }
                 const firstMetric = results?.[0]
