@@ -91,6 +91,8 @@ products/revenue_analytics/** @rafaeelaudibert @PostHog/team-web-analytics
 # Feature Flags (Rust evaluator + remaining monolith tests) - owned by @PostHog/team-feature-flags
 # Note: the Django models and API moved to products/feature_flags/ (covered by products/feature_flags/product.yaml).
 rust/feature-flags/ @PostHog/team-feature-flags
+rust/flags-consumer/ @PostHog/team-feature-flags
+rust/flags_read_store_migrations/ @PostHog/team-feature-flags
 posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
 
 # Cohorts - owned by @PostHog/team-feature-flags
@@ -120,6 +122,7 @@ posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
 posthog/hogql/** @PostHog/team-data-tools
 posthog/hogql_queries/hogql_query_runner.py @PostHog/team-data-tools
+rust/hogql/ @PostHog/team-data-tools
 
 # Tracing/Metrics — owned by @PostHog/logs (logs itself comes from products/logs/product.yaml)
 products/tracing/** @PostHog/logs
@@ -133,6 +136,8 @@ products/error_tracking/mcp/** @PostHog/team-error-tracking
 products/error_tracking/skills/** @PostHog/team-error-tracking
 cli/** @PostHog/team-error-tracking
 rust/cymbal/** @PostHog/team-error-tracking
+rust/cymbal-resolution/** @PostHog/team-error-tracking
+rust/cymbal-proto/** @PostHog/team-error-tracking
 rust/common/symbol_data/** @PostHog/team-error-tracking
 
 # Notebooks - owned by @PostHog/team-platform-features
@@ -329,6 +334,25 @@ posthog/dags/detach_distinct_id.py @PostHog/team-ingestion
 posthog/dags/fix_missing_person_overrides.py @PostHog/team-ingestion
 posthog/dags/fix_person_id_overrides.py @PostHog/team-ingestion
 posthog/dags/person_property_reconciliation.py @PostHog/team-ingestion
+
+# Ingestion (Rust capture + Kafka + property defs) - owned by @PostHog/team-ingestion
+rust/capture/ @PostHog/team-ingestion
+rust/ingestion-consumer/ @PostHog/team-ingestion
+rust/kafka-deduplicator/ @PostHog/team-ingestion
+rust/kafka-assigner/ @PostHog/team-ingestion
+rust/kafka-assigner-proto/ @PostHog/team-ingestion
+rust/property-defs-rs/ @PostHog/team-ingestion
+rust/property-vals-rs/ @PostHog/team-ingestion
+
+# Personhog (persons gRPC service) - owned by @PostHog/team-ingestion
+rust/personhog-router/ @PostHog/team-ingestion
+rust/personhog-replica/ @PostHog/team-ingestion
+rust/personhog-leader/ @PostHog/team-ingestion
+rust/personhog-writer/ @PostHog/team-ingestion
+rust/personhog-coordination/ @PostHog/team-ingestion
+rust/personhog-common/ @PostHog/team-ingestion
+rust/personhog-proto/ @PostHog/team-ingestion
+rust/behavioral_cohorts_migrations/ @PostHog/team-ingestion
 
 # User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
 products/user_interviews/** @pauldambra @fivestarspicy @ksvat
