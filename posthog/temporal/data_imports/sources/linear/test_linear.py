@@ -5,6 +5,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 from tenacity import Future, RetryCallState
 
@@ -225,6 +226,68 @@ class TestMakePaginatedRequest:
 
         assert session.post.call_count == 5
 
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)")),
+            ("connection_reset", requests.exceptions.ConnectionError("Connection aborted")),
+        ]
+    )
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_transient_network_error_is_retried_then_succeeds(
+        self,
+        _name: str,
+        transient_exc: Exception,
+        mock_session_cls: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        # Linear's POSTs get no transport-level retry, so a transient network error must be folded
+        # into the application-level backoff rather than escaping on the first attempt.
+        session = MagicMock()
+        session.post.side_effect = [transient_exc, _make_response([{"id": "a"}], False, None)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_network_error_raises_retryable_error(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [
+            requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)") for _ in range(5)
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == 5
+
 
 class TestRateLimitBackoff:
     @parameterized.expand(
@@ -338,6 +401,10 @@ class TestLinearSourceNonRetryableErrors:
             ("transient_500", "500 Server Error for url: https://api.linear.app/graphql"),
             ("rate_limited", "Linear: rate limited (429)"),
             ("graphql_error", "Linear GraphQL error: Something failed"),
+            (
+                "read_timeout",
+                "Linear: transient network error - HTTPSConnectionPool(host='api.linear.app', port=443): Read timed out. (read timeout=60)",
+            ),
         ]
     )
     def test_non_retryable_errors_does_not_match_transient(self, _name: str, observed_error: str) -> None:

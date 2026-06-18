@@ -14,7 +14,20 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    CharField,
+    Count,
+    DateTimeField,
+    Exists,
+    F,
+    FilteredRelation,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+)
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -25,7 +38,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -50,7 +63,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
-from posthog.models.file_system.file_system import create_or_update_file, delete_file
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -98,6 +112,8 @@ from products.dashboards.backend.widget_query_throttle import get_dashboard_widg
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
+    count_active_widget_filters,
+    extract_widget_filters,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -124,6 +140,7 @@ DASHBOARD_SHARED_FIELDS = [
     "created_by",
     "last_accessed_at",
     "last_viewed_at",
+    "folder",
     "is_shared",
     "deleted",
     "creation_mode",
@@ -823,6 +840,13 @@ class DashboardBasicSerializer(
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
+    folder = serializers.SerializerMethodField(
+        help_text=(
+            "Path of the project-tree folder this dashboard is filed under in the file system, "
+            "e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the "
+            "dashboard has no file system entry. The dashboard's own name is not part of the path."
+        ),
+    )
 
     class Meta:
         model = Dashboard
@@ -835,6 +859,7 @@ class DashboardBasicSerializer(
             "created_by",
             "last_accessed_at",
             "last_viewed_at",
+            "folder",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -871,6 +896,19 @@ class DashboardBasicSerializer(
         if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_folder(self, dashboard: Dashboard) -> str | None:
+        # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard —
+        # the folder name can encode internal organisational structure.
+        if self.context.get("is_shared"):
+            return None
+        # `_folder_path` is annotated on DashboardsViewSet.dangerously_get_queryset (all actions).
+        # The file system path's last segment is the dashboard's own name; the folder is everything above it.
+        path = getattr(dashboard, "_folder_path", None)
+        if not path:
+            return None
+        return join_path(split_path(path)[:-1])
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1494,7 +1532,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
-        previous_widget_filters = (widget.config or {}).get("widgetFilters")
+        previous_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
         if "config" in widget_data:
             widget.config = validate_widget_config(
                 widget.widget_type,
@@ -1508,7 +1546,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget.last_modified_at = now()
         widget.save()
 
-        new_widget_filters = (widget.config or {}).get("widgetFilters")
+        new_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
         if "config" in widget_data and new_widget_filters != previous_widget_filters:
             report_user_action(
                 user,
@@ -1517,7 +1555,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     "widget_type": widget.widget_type,
                     "dashboard_id": dashboard.id,
                     "widget_id": str(widget.id),
-                    "filters_count": len(new_widget_filters) if new_widget_filters else 0,
+                    "filters_count": count_active_widget_filters(widget.widget_type, widget.config),
                 },
                 team=dashboard.team,
                 request=request,
@@ -1899,6 +1937,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     "400 error."
                 ),
             ),
+            OpenApiParameter(
+                "folder",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Return only dashboards filed directly in this project-tree folder, e.g. "
+                    "'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested "
+                    "sub-folders are not included."
+                ),
+            ),
         ],
     ),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
@@ -1945,7 +1993,28 @@ class DashboardsViewSet(
         if tags:
             queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
+        folder = self.request.query_params.get("folder")
+        if folder is not None:
+            queryset = self._apply_folder_filter(queryset, folder)
+
         return queryset
+
+    @staticmethod
+    def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:
+        # Keep dashboards whose default-surface, non-shortcut file system entry sits *directly* in `folder`
+        # (an empty string means the project root). `depth` pins it to direct children so dashboards nested in
+        # sub-folders don't leak in, and lets the filter ride the posthog_fs_team_s_typeref index via the
+        # correlated ref lookup. Stored paths are already escaped, so the prefix comparison stays segment-safe.
+        entries = FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE),
+            team_id=OuterRef("team_id"),
+            type="dashboard",
+            ref=Cast(OuterRef("id"), output_field=CharField()),
+            depth=len(split_path(folder)) + 1 if folder else 1,
+        ).exclude(shortcut=True)
+        if folder:
+            entries = entries.filter(path__startswith=f"{folder}/")
+        return queryset.filter(Exists(entries))
 
     @tracer.start_as_current_span("DashboardViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1992,6 +2061,27 @@ class DashboardsViewSet(
             ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
+
+        # Annotate the project-tree folder each dashboard is filed under, so responses can expose it
+        # without an extra round-trip. A single-valued correlated subquery against the file system —
+        # backed by the posthog_fs_team_s_typeref index on (team_id, surface, type, ref) — keeps this cheap
+        # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
+        # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
+        # stable when more than one non-shortcut entry exists for the same dashboard.
+        queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
+            _folder_path=Subquery(
+                FileSystem.objects.filter(
+                    surface_q(DEFAULT_SURFACE),
+                    team_id=OuterRef("team_id"),
+                    type="dashboard",
+                    ref=OuterRef("_ref_id"),
+                )
+                .exclude(shortcut=True)
+                .order_by("id")
+                .values("path")[:1],
+                output_field=CharField(),
+            )
+        )
 
         include_deleted = False
         if self.action in ("partial_update", "update") and hasattr(self, "request"):

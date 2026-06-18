@@ -8,7 +8,9 @@ import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
@@ -60,8 +62,10 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         executor = new HogExecutorService(
@@ -1938,8 +1942,10 @@ describe('Hog Executor', () => {
                     sesEndpoint: hub.SES_ENDPOINT,
                 },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
             return new HogExecutorService(

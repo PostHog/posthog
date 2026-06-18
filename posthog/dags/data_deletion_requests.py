@@ -9,6 +9,18 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+# Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
+# predicate (process_property_removal_per_shard → compile_hogql_predicate) builds the HogQL
+# database, whose virtual-field placeholder replacement lazily does
+# ``from common.hogvm.python.execute import …`` (posthog/hogql/placeholders.py). That import
+# first runs during op execution, when the Dagster run worker can no longer resolve the
+# top-level ``common`` namespace package off sys.path — yielding "No module named 'common'".
+# Importing it here, while the worker is still loading op modules with the repo root resolvable,
+# caches the chain in sys.modules so the op-time lazy import is a cache hit. Regular posthog.*
+# packages already get cached this way; common.hogvm is the only fresh import on the predicate
+# path, so it is the one that breaks without this.
+import posthog.hogql.compiler.bytecode  # noqa: F401
+
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
 from posthog.dags.common import JobOwners

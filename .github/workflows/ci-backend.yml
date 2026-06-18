@@ -297,7 +297,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common postgres salesforce stripe"
+                  coupled="common mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -422,6 +422,19 @@ jobs:
 
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile --filter=@posthog/root
+
+            - name: Restore test durations from cache
+              # Shard counts are derived from .test_durations (Amdahl). Restore the newest
+              # cache (refreshed daily by ci-backend-update-test-timing.yml) over the
+              # committed file so counts track current timings; on a miss the committed file
+              # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Discover products to test
               id: discover
@@ -758,6 +771,18 @@ jobs:
               run: |
                   bin/wait-for-docker temporal
                   python manage.py register_temporal_search_attributes
+
+            - name: Restore test durations from cache
+              # pytest-split distributes this product's tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -2230,6 +2255,18 @@ jobs:
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
+
+            - name: Restore test durations from cache
+              # pytest-split distributes Core/Temporal tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
