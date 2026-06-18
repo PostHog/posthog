@@ -616,7 +616,7 @@
         LEFT JOIN
           (SELECT posthog_test_test_table_1.id AS id,
                   posthog_test_test_table_1.prop_1 AS e__person__posthog_test_test_table_1___prop_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__person__posthog_test_test_table_1 ON equals(e__person.e__person___properties___email, e__person__posthog_test_test_table_1.e__person__posthog_test_test_table_1___prop_1)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `prop_1` String, `prop_2` String') AS posthog_test_test_table_1) AS e__person__posthog_test_test_table_1 ON equals(e__person.e__person___properties___email, e__person__posthog_test_test_table_1.e__person__posthog_test_test_table_1___prop_1)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), equals(e__person__posthog_test_test_table_1.id, 'false'))
         GROUP BY day_start)
      GROUP BY day_start

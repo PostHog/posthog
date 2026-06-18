@@ -207,7 +207,7 @@
                                NULL AS `$window_id`,
                                0 AS step_0,
                                if(1, 1, 0) AS step_1
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `id_with_nulls` Nullable(Int64), `id_decimal` Decimal(18, 2), `uuid` String, `user_id` String, `created` DateTime64(3, \'UTC\'), `event_name` String, `properties` Nullable(String)') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), equals(step_1, 1))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -379,7 +379,7 @@
                                NULL AS `$window_id`,
                                0 AS step_0,
                                if(1, 1, 0) AS step_1
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `id_with_nulls` Nullable(Int64), `id_decimal` Decimal(18, 2), `uuid` String, `user_id` String, `created` DateTime64(3, \'UTC\'), `event_name` String, `properties` Nullable(String)') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), equals(step_1, 1))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -536,7 +536,7 @@
                                NULL AS `$window_id`,
                                0 AS step_0,
                                if(1, 1, 0) AS step_1
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `id_with_nulls` Nullable(Int64), `id_decimal` Decimal(18, 2), `uuid` String, `user_id` String, `created` DateTime64(3, \'UTC\'), `event_name` String, `properties` Nullable(String)') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), equals(step_1, 1))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
