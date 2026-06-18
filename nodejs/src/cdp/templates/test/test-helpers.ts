@@ -198,6 +198,7 @@ export class TemplateTester {
                 sesEndpoint: config.SES_ENDPOINT,
             },
             undefined as any,
+            undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)

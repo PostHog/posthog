@@ -585,6 +585,27 @@ def create_or_update_teams_ticket(
     return ticket
 
 
+def _configured_support_channel_ids(settings: dict) -> set[str]:
+    """Return the set of Teams channel IDs configured for auto-ticket creation.
+
+    Merges the new ``teams_channels`` list with the legacy scalar
+    ``teams_channel_id`` so that teams that haven't re-saved settings after
+    the multi-channel migration still work.
+    """
+    ids: set[str] = set()
+    teams_channels = settings.get("teams_channels")
+    if isinstance(teams_channels, list):
+        for entry in teams_channels:
+            if isinstance(entry, dict):
+                channel_id = entry.get("channel_id")
+                if channel_id:
+                    ids.add(channel_id)
+    legacy = settings.get("teams_channel_id")
+    if legacy:
+        ids.add(legacy)
+    return ids
+
+
 def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
     """
     Handle a Teams message activity for the dedicated support channel.
@@ -606,7 +627,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         return
 
     settings_dict = team.conversations_settings or {}
-    configured_channel = settings_dict.get("teams_channel_id")
+    configured_channels = _configured_support_channel_ids(settings_dict)
 
     conversation_id = _extract_conversation_id(activity)
     is_reply = _is_reply(activity)
@@ -616,7 +637,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         if not Ticket.objects.filter(
             team=team, teams_channel_id=channel_id, teams_conversation_id=conversation_id
         ).exists():
-            if not configured_channel or configured_channel != channel_id:
+            if channel_id not in configured_channels:
                 return
 
         create_or_update_teams_ticket(
@@ -627,7 +648,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         )
         return
 
-    if not configured_channel or configured_channel != channel_id:
+    if channel_id not in configured_channels:
         return
 
     # Top-level message -> create new ticket

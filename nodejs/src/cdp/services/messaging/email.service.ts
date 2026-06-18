@@ -10,7 +10,8 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
-import { addTrackingToEmail } from './email-tracking.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
@@ -104,6 +105,7 @@ export class EmailService {
     constructor(
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner
@@ -213,6 +215,26 @@ export class EmailService {
             })
         }
 
+        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        if (
+            distinctId &&
+            !isTest &&
+            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
+        ) {
+            result.capturedPostHogEvents.push({
+                team_id: invocation.teamId,
+                timestamp: new Date().toISOString(),
+                distinct_id: distinctId,
+                event: success ? '$workflows_email_sent' : '$workflows_email_failed',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $workflow_action_id: invocation.state.actionId,
+                    $email_to: params.to.email,
+                    $email_subject: params.subject,
+                },
+            })
+        }
+
         return result
     }
 
@@ -274,10 +296,11 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = this.trackingCodeSigner.generate(result.invocation, isTest)
-        // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
-        // limit. Legacy backwards-compat carrier only; the full signed code (with isTest) rides in
-        // the header below, which the webhook reads first.
+        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
+        // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
+        // tag-value limit. The webhook reads the header first and only falls back to the tag.
+        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
@@ -320,9 +343,9 @@ export class EmailService {
         }
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
-        // 256-char-bounded the way SES tag values are, so they fit the signed code. The
-        // configuration set's event destination needs `IncludeOriginalHeaders: true` for the
-        // webhook to surface this header.
+        // 256-char-bounded the way SES tag values are, so they safely carry the signed code
+        // (with distinct_id). The configuration set's event destination needs
+        // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'

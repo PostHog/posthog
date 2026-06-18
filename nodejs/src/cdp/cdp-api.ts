@@ -130,6 +130,8 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
+            services.capturedEventsService,
+            services.teamWorkflowsConfigService,
             services.recipientsManager,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
