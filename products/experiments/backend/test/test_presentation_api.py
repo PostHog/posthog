@@ -367,6 +367,67 @@ class TestExperimentCRUD(APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
+    def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
+        action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
+        flag = FeatureFlag.objects.create(team=self.team, key=f"action-metric-flag-{index}", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"Action metric experiment {index}",
+            feature_flag=flag,
+            created_by=self.user,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+            metrics_secondary=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=f"Saved action metric {index}",
+            created_by=self.user,
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "ActionsNode", "id": action.id},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+        return experiment, action
+
+    def test_listing_experiments_with_action_metrics_is_not_nplus1(self) -> None:
+        # Action names are refreshed per metric during serialization; without batching this is one
+        # Action query per metric per experiment. Query count must stay flat as rows grow.
+        self._create_experiment_with_action_metrics(0)
+
+        with CaptureQueriesContext(connection) as single_row:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 1)
+
+        for i in range(1, 5):
+            self._create_experiment_with_action_metrics(i)
+
+        with CaptureQueriesContext(connection) as five_rows:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 5)
+
+        self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+
+    def test_listing_experiments_refreshes_action_names(self) -> None:
+        experiment, action = self._create_experiment_with_action_metrics(0)
+        action.name = "Renamed action"
+        action.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = next(r for r in response.json()["results"] if r["id"] == experiment.id)
+
+        self.assertEqual(result["metrics"][0]["source"]["name"], "Renamed action")
+        self.assertEqual(result["metrics_secondary"][0]["source"]["name"], "Renamed action")
+        self.assertEqual(result["saved_metrics"][0]["query"]["source"]["name"], "Renamed action")
+
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(

@@ -424,6 +424,19 @@ jobs:
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile --filter=@posthog/root
 
+            - name: Restore test durations from cache
+              # Shard counts are derived from .test_durations (Amdahl). Restore the newest
+              # cache (refreshed daily by ci-backend-update-test-timing.yml) over the
+              # committed file so counts track current timings; on a miss the committed file
+              # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
             - name: Discover products to test
               id: discover
               env:
@@ -759,6 +772,18 @@ jobs:
               run: |
                   bin/wait-for-docker temporal
                   python manage.py register_temporal_search_attributes
+
+            - name: Restore test durations from cache
+              # pytest-split distributes this product's tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -2232,6 +2257,18 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
+            - name: Restore test durations from cache
+              # pytest-split distributes Core/Temporal tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -2984,15 +3021,14 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Master pushes always; PRs only when labelled `capture-test-timings`. Skip forks (no secrets access).
+        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             always() &&
             github.repository == 'PostHog/posthog' &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.

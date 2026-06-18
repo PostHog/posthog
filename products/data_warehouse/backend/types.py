@@ -663,6 +663,8 @@ class ExternalDataSourceType(models.TextChoices):
     BRAINTRUST = "Braintrust", "Braintrust"
     STREAMELEMENTS = "StreamElements", "StreamElements"
     STREAMLABS = "Streamlabs", "Streamlabs"
+    DATORAMA = "Datorama", "Datorama"
+    AHREFS = "Ahrefs", "Ahrefs"
     CUSTOM = "Custom", "Custom"
 
 

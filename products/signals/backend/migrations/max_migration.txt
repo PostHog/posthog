@@ -1,1 +1,1 @@
-0040_alter_signalsourceconfig_source_product_and_more
+0041_alter_signalscoutconfig_run_interval_minutes

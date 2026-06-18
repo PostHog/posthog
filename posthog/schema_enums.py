@@ -1772,6 +1772,8 @@ class ExternalDataSourceType(StrEnum):
     BRAINTRUST = "Braintrust"
     STREAM_ELEMENTS = "StreamElements"
     STREAMLABS = "Streamlabs"
+    DATORAMA = "Datorama"
+    AHREFS = "Ahrefs"
     CUSTOM = "Custom"
 
 
@@ -3308,6 +3310,12 @@ class WebAnalyticsOrderByFields(StrEnum):
     RAGE_CLICKS = "RageClicks"
     DEAD_CLICKS = "DeadClicks"
     ERRORS = "Errors"
+
+
+class WebAnalyticsPreComputeStrategy(StrEnum):
+    PRE_AGGREGATED = "pre_aggregated"
+    LAZY_PRECOMPUTE = "lazy_precompute"
+    LIVE = "live"
 
 
 class WebStatsBreakdown(StrEnum):

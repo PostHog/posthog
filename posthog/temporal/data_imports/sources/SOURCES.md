@@ -237,6 +237,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - agilecrm
 - aha
+- ahrefs
 - airbyte
 - akeneo
 - algolia
@@ -322,6 +323,7 @@ doesn't conflict with concurrent PRs.
 - customerly
 - databricks
 - datascope
+- datorama
 - db2
 - dbt
 - deputy

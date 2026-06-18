@@ -66,7 +66,6 @@ export const CLI_SCOPE_PRESETS: { value: string; label: string; scopes: string[]
     { value: 'error_tracking', label: 'Error tracking', scopes: USE_CASE_SCOPES.error_tracking },
     { value: 'endpoints', label: 'Endpoint execution', scopes: USE_CASE_SCOPES.endpoints },
     { value: 'read_only', label: 'Read-only access', scopes: READ_ONLY_SCOPES },
-    { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
 
 function sameScopeSet(a: string[], b: string[]): boolean {
