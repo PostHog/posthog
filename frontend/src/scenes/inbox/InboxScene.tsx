@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
@@ -120,16 +121,21 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis, selectedReportId, selectedReport, selectedReportLoading } =
-        useValues(inboxSceneLogic)
+    const {
+        isRunningSessionAnalysis,
+        selectedReportId,
+        selectedReport,
+        selectedReportLoading,
+        selectedScoutSkillName,
+    } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { isDev } = useValues(preflightLogic)
 
-    // Detail route renders full-width over the list (desktop parity), but the list view stays *mounted*
-    // (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll container
-    // alive, so clicking "back" lands on the same scroll position with the same loaded pages — instead of
-    // remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId
+    // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
+    // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
+    // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
+    // instead of remounting and resetting to the first page at the top.
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
@@ -164,7 +170,9 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedReport ? (
+                    {selectedScoutSkillName ? (
+                        <ScoutDetailView skillName={selectedScoutSkillName} />
+                    ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />
                     ) : selectedReportLoading ? (
                         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
