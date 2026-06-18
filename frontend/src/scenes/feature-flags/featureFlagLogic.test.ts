@@ -1167,46 +1167,46 @@ describe('default release conditions for new flags', () => {
         return newLogic
     }
 
-    it('applies configured default release conditions to a new flag', async () => {
+    it.each([
+        {
+            label: 'applies the configured groups when the setting is enabled',
+            response: [200, { enabled: true, default_groups: DEFAULT_GROUPS }],
+            expectedAction: 'loadDefaultReleaseConditionsSuccess',
+            // Match the distinguishing rollout_percentage (42) so the assertion tolerates the
+            // per-group sort_key uuid that ensureSortKeys adds for React, while still proving the
+            // configured default — not NEW_FLAG's 0% group — was applied.
+            expectedGroups: [partial({ rollout_percentage: 42 })],
+        },
+        {
+            label: 'falls back to NEW_FLAG groups when the setting is disabled',
+            response: [200, { enabled: false, default_groups: DEFAULT_GROUPS }],
+            expectedAction: 'loadDefaultReleaseConditionsSuccess',
+            expectedGroups: NEW_FLAG.filters.groups,
+        },
+        {
+            label: 'falls back to NEW_FLAG groups when the load fails',
+            response: [500, { detail: 'error' }],
+            expectedAction: 'loadDefaultReleaseConditionsFailure',
+            expectedGroups: NEW_FLAG.filters.groups,
+        },
+    ])('$label', async ({ response, expectedAction, expectedGroups }) => {
         useMocks({
             get: {
-                [`/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`]: () => [
-                    200,
-                    { enabled: true, default_groups: DEFAULT_GROUPS },
-                ],
+                [`/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`]: () => response,
             },
         })
         initKeaTests()
 
         const newLogic = await mountNewFlag()
+        // Require the default-conditions load to have actually run before checking groups.
+        // Without this, the disabled/error cases are tautologies that also pass on master:
+        // a null or disabled config leaves the groups as NEW_FLAG.filters.groups either way, so
+        // asserting the load dispatched is what proves the loader awaited it before building the
+        // flag. The 500 case also exercises the catch/fallback branch in featureFlagLogic.
+        await expectLogic(newLogic).toDispatchActions([expectedAction])
         await expectLogic(newLogic).toMatchValues({
             featureFlag: partial({
-                filters: partial({
-                    groups: DEFAULT_GROUPS,
-                }),
-            }),
-        })
-        newLogic.unmount()
-    })
-
-    it('does not apply default release conditions when the setting is disabled', async () => {
-        useMocks({
-            get: {
-                [`/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`]: () => [
-                    200,
-                    { enabled: false, default_groups: DEFAULT_GROUPS },
-                ],
-            },
-        })
-        initKeaTests()
-
-        const newLogic = await mountNewFlag()
-        await expectLogic(newLogic).toMatchValues({
-            featureFlag: partial({
-                filters: partial({
-                    // Falls back to NEW_FLAG's default empty group when disabled.
-                    groups: NEW_FLAG.filters.groups,
-                }),
+                filters: partial({ groups: expectedGroups }),
             }),
         })
         newLogic.unmount()
