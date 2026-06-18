@@ -179,8 +179,8 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             query_params["search"] = params["search"]
         where = " AND ".join(conditions)
 
-        [[count]] = (
-            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — constant table name, WHERE built from string literals, values parameterized
+        [[count]] = (  # nosemgrep: clickhouse-fstring-param-audit
+            sync_execute(
                 f"SELECT count() FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk WHERE {where}",
                 query_params,
             )
