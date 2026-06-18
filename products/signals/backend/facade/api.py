@@ -66,7 +66,7 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
 
 # ---------------------------------------------------------------------------
 # Slack onboarding: the signal sources offered in the inbox onboarding flow.
-# One catalog drives the list, the "turn on" toggles, and the "connected" checks.
+# One catalog drives the list, the toggles, and the "connected" checks.
 # ---------------------------------------------------------------------------
 
 _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
@@ -151,8 +151,8 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
     for spec in _SOURCE_CATALOG:
         want_on = spec.key in selected
         if want_on and spec.needs_ai_approval and not ai_approved:
-            # Wanted but AI-gated: leave the source exactly as it is. Disabling here would silently
-            # turn off a previously-approved source when the full checkbox snapshot is re-submitted.
+            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
+            # previously-approved source when the full checkbox snapshot is re-submitted.
             blocked.append(spec.label)
             continue
         for source_product, source_type in spec.pairs:

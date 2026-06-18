@@ -81,7 +81,7 @@ class TestOnboarding:
 
         _, blocks = onboarding.build_onboarding_dm(self.integration, SlackIntegration(self.integration))
 
-        assert onboarding.INBOX_JOIN_ACTION_ID not in self._action_ids(blocks)  # no button without scope
+        assert onboarding.INBOX_JOIN_ACTION_ID not in self._action_ids(blocks)
         assert "workspace" in self._all_text(blocks)
 
     @patch("posthog.models.integration.WebClient")
@@ -100,7 +100,7 @@ class TestOnboarding:
 
         _, blocks = onboarding.build_onboarding_dm(self.integration, SlackIntegration(self.integration))
 
-        assert onboarding.INBOX_CREATE_ACTION_ID not in self._action_ids(blocks)  # no button without scope
+        assert onboarding.INBOX_CREATE_ACTION_ID not in self._action_ids(blocks)
         assert "/inbox" in self._all_text(blocks)
 
     @patch("posthog.models.integration.WebClient")
@@ -172,9 +172,7 @@ class TestOnboarding:
         assert any(
             f"/integrations/connect/github/?project_id={self.team.id}" in u and "connect_from=slack" in u for u in urls
         )
-        # the GitHub button is a URL button that opens OAuth in the browser
         assert onboarding.INBOX_GITHUB_CONNECT_ACTION_ID in self._action_ids(blocks)
-        # the inbox create button is still present alongside the GitHub button
         assert onboarding.INBOX_CREATE_ACTION_ID in self._action_ids(blocks)
 
     @patch("posthog.models.integration.WebClient")
@@ -187,7 +185,7 @@ class TestOnboarding:
             self.integration, SlackIntegration(self.integration), needs_github=False, already_in_channel=True
         )
 
-        assert blocks != []  # always a full message, even with every step done
+        assert blocks != []
         assert onboarding.INBOX_JOIN_ACTION_ID not in self._action_ids(blocks)
 
     @patch("posthog.models.integration.WebClient")
@@ -267,11 +265,11 @@ class TestOnboarding:
             self.integration, SlackIntegration(self.integration), already_in_channel=True
         )
 
-        # github done -> "✅ Connected"; channel done -> "✅ Posting to #posthog-inbox"; both shown, not pruned
+        # done steps render as '✅' lines, not pruned
         text = self._all_text(blocks)
         assert "Connected" in text
         assert "Posting to #posthog-inbox" in text
-        assert onboarding.INBOX_SOURCES_CHECKBOXES_ACTION in self._action_ids(blocks)  # pending sources interactive
+        assert onboarding.INBOX_SOURCES_CHECKBOXES_ACTION in self._action_ids(blocks)
 
     @patch("posthog.models.integration.WebClient")
     def test_build_dm_omits_ai_approval_when_done(self, mock_webclient_class):
@@ -292,7 +290,6 @@ class TestOnboarding:
         )
 
         assert all_done != []  # posted unconditionally on install
-        # done steps carry no actionable buttons, just their '✅' state
         assert onboarding.INBOX_JOIN_ACTION_ID not in self._action_ids(all_done)
         assert onboarding.INBOX_GITHUB_CONNECT_ACTION_ID not in self._action_ids(all_done)
 
@@ -398,7 +395,7 @@ class TestOnboarding:
 
         # Admin gets an inline checkbox (no browser/url) — approval happens in Slack.
         assert onboarding.INBOX_AI_APPROVAL_ACTION_ID in self._action_ids(blocks)
-        assert not any("organization-details" in u for u in self._url_buttons(blocks))  # no link-out
+        assert not any("organization-details" in u for u in self._url_buttons(blocks))
         ai_block = next(
             b for b in blocks if b.get("block_id", "").startswith(onboarding.INBOX_AI_APPROVAL_BLOCK_PREFIX)
         )
@@ -560,7 +557,6 @@ class TestOnboarding:
 
         assert blocks[0]["type"] == "section"
         assert "self-driving" in blocks[0]["text"]["text"]
-        # closing line sets the expectation
         assert "first report" in self._all_text(blocks)
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")

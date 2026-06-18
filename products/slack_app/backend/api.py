@@ -2102,8 +2102,7 @@ def _route_member_joined_channel(
         # event for every channel-membership change, so the volume is high.
         return ROUTE_HANDLED_LOCALLY
 
-    # The inbox channel is created by the onboarding flow with its own messaging — skip the
-    # generic "thanks for adding me" welcome so we don't double-message that channel.
+    # The onboarding flow has its own messaging for the inbox channel — skip the generic welcome here.
     if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
@@ -2869,13 +2868,8 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
-    """Remove the original ephemeral prompt via the interactivity ``response_url``.
-
-    Every click outcome is recorded as a public threaded message — the
-    ephemeral prompt has done its job by then and only the public message
-    should remain. Failures are logged but never raised: a click handler
-    that can't reach Slack still finished its DB work.
-    """
+    """Remove the original ephemeral prompt via the interactivity ``response_url`` once its public
+    threaded outcome has been posted."""
     _post_response_url(response_url, {"delete_original": True})
 
 
@@ -3108,7 +3102,6 @@ def _extract_inbox_hints(payload: dict) -> int | None:
             if isinstance(integration_id, int):
                 return integration_id
             continue
-        # The sources / AI-approval checkboxes carry the integration id in their block_id.
         block_id = action.get("block_id", "")
         for prefix in (onboarding.INBOX_SOURCES_BLOCK_PREFIX, onboarding.INBOX_AI_APPROVAL_BLOCK_PREFIX):
             if block_id.startswith(f"{prefix}:"):
@@ -3160,8 +3153,7 @@ def _reconnect_hint() -> str:
 
 
 def _handle_inbox_create(payload: dict) -> HttpResponse:
-    """'Create the PostHog inbox channel' button: create #posthog-inbox, set it as the team
-    default, and invite the clicker."""
+    """'Create the PostHog inbox channel' button: create #posthog-inbox and invite the clicker."""
     integration = _inbox_integration_from_payload(payload)
     slack_user_id = payload.get("user", {}).get("id", "")
     response_url = payload.get("response_url", "")
@@ -3211,8 +3203,7 @@ def _handle_inbox_join(payload: dict) -> HttpResponse:
 
 
 def _handle_inbox_ai_approval(payload: dict) -> HttpResponse:
-    """'Approve AI data processing' inline checkbox: ticking it approves in one move (no browser, no
-    modal, no message redraw — Slack shows the check). The approve helper re-checks ADMIN+ server-side."""
+    """'Approve AI data processing' checkbox: ticking it approves. The approve helper re-checks ADMIN+ server-side."""
     integration = _inbox_integration_from_payload(payload)
     slack_user_id = payload.get("user", {}).get("id", "")
     action = next(

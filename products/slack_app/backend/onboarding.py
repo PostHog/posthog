@@ -1,13 +1,7 @@
-"""PostHog inbox onboarding DM: a self-driving product intro built from four steps (GitHub, sources,
-reports/channel, AI approval).
+"""Inbox onboarding DM: a product intro built from four steps (GitHub, sources, reports/channel, AI approval).
 
-Block builders assemble the message; ``send_onboarding_dm`` delivers it; the interactivity helpers
-handle each button/checkbox click (channel join flips its block in place; sources/AI checkboxes act in
-place; GitHub opens OAuth in the browser). ``run_install_onboarding`` is the install entrypoint that
-ties channel setup (from :mod:`inbox_channel`) together with the DM.
-
-The interactivity helpers are called from ``api.py`` (the click router) and the analytics events flow
-through ``analytics.capture_slack_event``.
+Block builders assemble the message, ``send_onboarding_dm`` delivers it, and the interactivity helpers
+(called from ``api.py``) handle each click. ``run_install_onboarding`` is the install entrypoint.
 """
 
 from __future__ import annotations
@@ -40,18 +34,14 @@ from products.slack_app.backend.inbox_channel import (
 
 logger = structlog.get_logger(__name__)
 
-# Block Kit action ids for the onboarding DM buttons — kept in sync with the interactivity router.
+# Block Kit action ids for the onboarding DM, kept in sync with the interactivity router.
 INBOX_CREATE_ACTION_ID = "slack_inbox_create"
 INBOX_JOIN_ACTION_ID = "slack_inbox_join"
-# A URL button (opens the browser) that also fires an interaction so we can start the connect poll.
 INBOX_GITHUB_CONNECT_ACTION_ID = "slack_inbox_connect_github"
-# Sources are inline checkboxes — ticking one sets up that source immediately (no confirm). The
-# block_id carries the integration id so the toggle interaction can be region-routed.
+# The block_id carries the integration id so the checkbox interaction can be region-routed.
 INBOX_SOURCES_CHECKBOXES_ACTION = "slack_inbox_sources_select"
 INBOX_SOURCES_BLOCK_PREFIX = "slack_inbox_sources_block"
-# "Approve AI data processing" — the hard prerequisite; without it no signals are emitted at all.
-# Admins approve by ticking an inline checkbox (no modal, no browser, no message redraw); only ADMIN+
-# is allowed, re-checked server-side. The block_id carries the integration id for region routing.
+# AI approval is a hard prerequisite — without it no signals are emitted. block_id carries the integration id.
 INBOX_AI_APPROVAL_ACTION_ID = "slack_inbox_ai_approval"
 INBOX_AI_APPROVAL_BLOCK_PREFIX = "slack_inbox_ai_approval_block"
 
@@ -91,15 +81,14 @@ def _button(label: str, action_id: str, value: str) -> dict:
 
 
 def _public_url(path: str) -> str:
-    """Public base URL for links delivered to Slack. In local dev, prefer the ngrok tunnel so the
-    link is reachable from outside — mirrors ``OauthIntegration.redirect_uri``'s NGROK_URL preference."""
+    """Public base URL for links delivered to Slack. In local dev, prefer the ngrok tunnel so the link
+    is reachable from outside (mirrors ``OauthIntegration.redirect_uri``)."""
     if settings.DEBUG and settings.NGROK_URL:
         return f"{settings.NGROK_URL.rstrip('/')}{path}"
     return absolute_uri(path)
 
 
 def _done(text: str) -> dict:
-    """A greyed, checked context line for a step that's already complete (shown, not pruned)."""
     return _context(f":white_check_mark: {text}")
 
 
@@ -108,8 +97,7 @@ def _context(text: str) -> dict:
 
 
 def _github_connect_url(team_id: int) -> str:
-    """Login-gated entry that kicks off GitHub OAuth directly and returns to Slack afterwards.
-    One flow connects the team install (and links the user's personal GitHub via the callback)."""
+    """GitHub OAuth entry that returns to Slack — one flow connects the team install and the user's personal GitHub."""
     return _public_url(f"/integrations/connect/github/?project_id={team_id}&connect_from=slack")
 
 
@@ -136,8 +124,7 @@ def _github_blocks(integration: Integration, *, done: bool) -> list[dict]:
 
 
 def _sources_blocks(integration: Integration) -> list[dict]:
-    """Inline checkboxes (current state pre-checked) — ticking one sets that source up immediately,
-    unticking turns it off (no confirm). The integration id rides in the block_id for region routing."""
+    """Inline checkboxes (current state pre-checked) — ticking sets a source up immediately, unticking turns it off."""
     from products.signals.backend.facade.api import (
         onboarding_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
     )
@@ -198,9 +185,8 @@ def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: 
 
 
 def _ai_approval_blocks(integration: Integration, *, is_admin: bool) -> list[dict]:
-    """The approval prompt — only rendered when NOT yet approved (showing '✅ approved' would be noise).
-    Admins tick an inline checkbox to approve in one move (no browser, no message redraw); non-admins
-    get an 'ask an admin' note, since only ADMIN+ can toggle org settings."""
+    """The approval prompt — only rendered when not yet approved. Admins tick a checkbox to approve;
+    non-admins get an 'ask an admin' note, since only ADMIN+ can toggle org settings."""
     blocks: list[dict] = [
         _section(
             "*4. Approve AI data processing*\nTo investigate your product I use external AI "
@@ -240,11 +226,8 @@ def _ai_approval_blocks(integration: Integration, *, is_admin: bool) -> list[dic
     return blocks
 
 
-# Slack has no disabled buttons; a context block is the idiomatic greyed/done state. Used by the
-# channel create/join flow to flip its button to a '✅' line in place once the user is in the channel.
+# Slack has no disabled buttons; a context block is the idiomatic greyed/done state.
 def _replace_actions_with_context(blocks: list[dict], action_ids: set[str], text: str) -> list[dict]:
-    """Swap the actions block whose button carries one of ``action_ids`` for a greyed context line,
-    in place — used to flip the channel buttons to a done state."""
     return [
         _context(text)
         if (
@@ -272,10 +255,8 @@ def build_onboarding_dm(
 ) -> tuple[str, list[dict]]:
     """Return (fallback_text, Block Kit blocks) for the inbox onboarding DM.
 
-    Reads as a product intro: every step is always shown with its state — done steps render a '✅'
-    line in place (never collapse). The one exception is AI approval, which is omitted entirely once
-    approved (a '✅ approved' line would just be noise). Sources always render their checkboxes (current
-    state pre-checked). Always returns a full message; the DM is posted unconditionally on install.
+    Every step is always shown with its state (done steps render a '✅' line). AI approval is the one
+    exception: omitted once approved. Always returns a full message — the DM is posted unconditionally.
     """
     intro = _section(
         "👋 *Hi, I'm PostHog - self-driving for your product*\nI'm an AI agent on autopilot: I watch your product "
@@ -318,8 +299,7 @@ def _has_ai_approval(team_id: int) -> bool:
 
 
 def _is_org_admin(user_id: int, team_id: int) -> bool:
-    """Whether the user can actually toggle org settings (AI consent needs ADMIN+). Used to decide
-    between an actionable approval button and an 'ask an admin' note."""
+    """Whether the user can toggle org settings (AI consent needs ADMIN+)."""
     org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
     if org_id is None:
         return False
@@ -340,8 +320,7 @@ def _has_enabled_source(team_id: int) -> bool:
 
 
 def _resolve_onboarding_user(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> int | None:
-    """Resolve the Slack user to a PostHog user id (org-member email match), or None. Deferred
-    import because api.py imports this module at load time."""
+    """Resolve the Slack user to a PostHog user id (org-member email match), or None."""
     from products.slack_app.backend.api import (
         resolve_slack_user,  # noqa: PLC0415 — api.py imports this module; defer to break the cycle
     )
@@ -353,11 +332,9 @@ def _resolve_onboarding_user(slack: SlackIntegration, integration: Integration, 
 def _onboarding_status(
     integration: Integration, slack: SlackIntegration, slack_user_id: str, user_id: int | None = None
 ) -> tuple[int | None, dict[OnboardingStep, bool]]:
-    """Resolve the user and evaluate each step's done/not-done. The single source of truth for what's
-    left — used to build the DM, decide what to send, and detect completion. Pass ``user_id`` when the
-    caller already resolved it, to skip the repeat lookup."""
-    # One "Connect GitHub" flow links the team install and the user's personal GitHub, so it's done
-    # only when both exist.
+    """Resolve the user and evaluate each step's done/not-done — the source of truth for what's left.
+    Pass ``user_id`` when the caller already resolved it, to skip the repeat lookup."""
+    # GitHub is done only when both the team install and the user's personal GitHub exist.
     if user_id is None:
         user_id = _resolve_onboarding_user(slack, integration, slack_user_id)
     team_id = integration.team_id
@@ -386,11 +363,9 @@ def _build_from_status(
 
 
 def send_onboarding_dm(integration: Integration, slack_user_id: str) -> bool:
-    """DM a user the inbox onboarding (every step, done ones shown as '✅'). Returns True when a DM
-    was sent, False when the post failed.
+    """DM a user the inbox onboarding. Returns True when sent, False when the post failed.
 
-    Sent once on install (the post_save hook fires only for fresh installs), so it always posts -
-    no dedupe and no all-done shortcut.
+    Always posts (no dedupe, no all-done shortcut) — the install hook already fires only once.
     """
     if not slack_user_id:
         return False
@@ -437,8 +412,7 @@ def _chat_update_blocks(integration: Integration, channel: str, message_ts: str,
 def mark_channel_joined(
     integration: Integration, slack_user_id: str, channel: str, message_ts: str, original_blocks: list[dict]
 ) -> None:
-    """After create/join: flip just the channel block to a '✅' line in place — no full redraw of the
-    DM — then record completion."""
+    """After create/join: flip just the channel block to a '✅' line in place, then record completion."""
     swapped = _replace_actions_with_context(
         original_blocks,
         {INBOX_CREATE_ACTION_ID, INBOX_JOIN_ACTION_ID},
@@ -452,21 +426,17 @@ def mark_channel_joined(
 
 
 def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> list[str]:
-    """Sources checkbox toggled: sync the team's sources to the new selection (sets up / tears down the
-    underlying SignalSourceConfig), in place — no re-render, so the user can keep ticking. Returns the
-    labels of any sources that couldn't be turned on (AI data processing not approved yet)."""
+    """Sync the team's sources to the new selection. Returns the labels of any that couldn't be turned
+    on (AI data processing not approved yet)."""
     from products.signals.backend.facade.api import (
         set_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
     )
 
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None:
-        # Can't tie the clicker to an org member - don't mutate team state (same gate the AI-approval
-        # and dismiss handlers enforce).
+        # Can't tie the clicker to an org member — don't mutate team state.
         return []
     blocked = set_sources(integration.team_id, user_id, selected_keys)
-    # `blocked` is labels, `selected` is keys — report both rather than claim an "enabled" set that
-    # would overstate things when a source is AI-gated.
     capture_slack_event(
         integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys), blocked=blocked
     )
@@ -475,9 +445,8 @@ def apply_sources_selection(integration: Integration, slack_user_id: str, select
 
 
 def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> bool:
-    """Admin-only approval (no browser, no message redraw — Slack shows the ticked checkbox itself).
-    Re-checks ADMIN+ server-side, sets the org consent, records completion. Returns False if the
-    clicker isn't an admin."""
+    """Admin-only approval: re-checks ADMIN+ server-side, sets org consent, records completion.
+    Returns False if the clicker isn't an admin."""
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None or not _is_org_admin(user_id, integration.team_id):
         return False
@@ -495,9 +464,8 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
 
 
 def run_install_onboarding(integration: Integration) -> None:
-    """On a fresh install: auto-create the inbox channel, set the team default, invite the
-    installer, and DM them the onboarding. Gated on the install having ``channels:manage`` and
-    best-effort."""
+    """On a fresh install: create the inbox channel, invite the installer, and DM them the onboarding.
+    Gated on the install having ``channels:manage``; best-effort."""
     if not has_inbox_scopes(integration):
         return
     channel = ensure_inbox_channel(integration)

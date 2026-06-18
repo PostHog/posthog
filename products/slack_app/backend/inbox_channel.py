@@ -1,10 +1,4 @@
-"""PostHog inbox channel ops: find-or-create the ``#posthog-inbox`` channel and persist it as the
-team's signal notification channel.
-
-Shared by the install task (:mod:`onboarding`), the onboarding DM, and the ``member_joined``
-suppression guard so the create/persist logic lives in one place. The onboarding DM machine itself
-(Block Kit builders, send, status, interactivity) lives in :mod:`onboarding`.
-"""
+"""Find-or-create the ``#posthog-inbox`` channel and persist it as the team's signal notification channel."""
 
 from __future__ import annotations
 
@@ -20,9 +14,7 @@ logger = structlog.get_logger(__name__)
 INBOX_CHANNEL_NAME = "posthog-inbox"
 # Creating a public channel and inviting members both require this scope.
 INBOX_CHANNEL_REQUIRED_SCOPES: frozenset[str] = frozenset({"channels:manage"})
-# The full onboarding gate: besides managing the channel, it DMs the installer and posts reports into
-# the channel, both of which need chat:write. The onboarding runs for every install with these scopes
-# and no-ops for the rest (gated on scopes rather than a feature flag).
+# Onboarding also DMs the installer and posts reports, both needing chat:write. Gated on scopes, not a flag.
 INBOX_ONBOARDING_REQUIRED_SCOPES: frozenset[str] = INBOX_CHANNEL_REQUIRED_SCOPES | frozenset({"chat:write"})
 
 # Just long enough to absorb a concurrent install/join racing to create the same channel.
@@ -34,9 +26,7 @@ _MAX_CHANNEL_LIST_PAGES = 50
 
 
 def has_inbox_scopes(integration: Integration) -> bool:
-    """Whether the install granted the scopes the inbox onboarding needs — ``channels:manage`` (create
-    the channel and invite) and ``chat:write`` (DM the installer, post reports). Gated on this rather
-    than a feature flag, so onboarding is on for every install that has the scopes."""
+    """Whether the install granted the onboarding scopes. Gated on this rather than a feature flag."""
     return not SlackIntegration(integration).missing_scopes(INBOX_ONBOARDING_REQUIRED_SCOPES)
 
 
@@ -75,9 +65,8 @@ def _channel_exists(slack: SlackIntegration, channel_id: str) -> bool:
     try:
         channel = slack.client.conversations_info(channel=channel_id).get("channel") or {}
     except SlackApiError as e:
-        # Fail safe: only a definitive "gone" answer lets a caller replace a configured channel.
-        # A transient error (ratelimited, network) or missing visibility must NOT clobber the
-        # team's existing default notification channel.
+        # Fail safe: only a definitive "gone" answer replaces a configured channel; a transient error
+        # (ratelimited, network) must not clobber the team's existing default notification channel.
         return e.response.get("error") not in ("channel_not_found", "channel_is_archived")
     return bool(channel.get("id")) and not channel.get("is_archived", False)
 
@@ -85,8 +74,7 @@ def _channel_exists(slack: SlackIntegration, channel_id: str) -> bool:
 def _find_inbox_channel(slack: SlackIntegration) -> tuple[str, str] | None:
     """Return (channel_id, "#name") for an existing #posthog-inbox public channel, else None.
 
-    Bounded by ``_MAX_CHANNEL_LIST_PAGES`` and fails closed (None) on any Slack error so callers
-    never crash or loop forever on a large workspace or a misbehaving cursor.
+    Bounded by ``_MAX_CHANNEL_LIST_PAGES`` and fails closed (None) on any Slack error.
     """
     cursor: str | None = None
     for _ in range(_MAX_CHANNEL_LIST_PAGES):
@@ -139,8 +127,8 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
         return None
 
     if not _claim_channel_creation(integration.integration_id):
-        # Another actor is creating it right now. Resolve what they made; if it isn't visible yet,
-        # bail rather than racing a second create — the claim holder will finish and persist it.
+        # Another actor holds the create claim. Reuse what they made; if not visible yet, bail rather
+        # than racing a second create — the claim holder will finish and persist it.
         existing = _find_inbox_channel(slack)
         if existing:
             _set_team_channel(team_id, _channel_target(*existing))
@@ -165,10 +153,10 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
 
 
 def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_id: str) -> bool:
-    """Invite a Slack user into the inbox channel. Treats an existing membership as success.
+    """Invite a Slack user into the inbox channel; existing membership counts as success.
 
-    A bot isn't auto-added to a public channel it creates, and you can't invite others to a
-    channel you're not in, so on ``not_in_channel`` the bot joins (channels:join) and retries.
+    A bot isn't auto-added to a channel it creates and can't invite others to one it's not in, so on
+    ``not_in_channel`` the bot joins and retries.
     """
     slack = SlackIntegration(integration)
     for attempt in range(2):
@@ -195,7 +183,7 @@ def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_i
 
 def is_inbox_channel(integration: Integration, channel_id: str) -> bool:
     """True when ``channel_id`` is this team's inbox channel — by configured id, else by name
-    (covers the window before the team default is written)."""
+    (the name fallback covers the window before the team default is written)."""
     configured = _get_team_channel(integration.team_id)
     if configured and channel_id_from_target(configured) == channel_id:
         return True

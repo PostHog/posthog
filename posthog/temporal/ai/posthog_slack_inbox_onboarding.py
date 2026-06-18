@@ -30,9 +30,8 @@ class PostHogSlackInboxOnboardingWorkflow(PostHogWorkflow):
             run_posthog_slack_inbox_onboarding_activity,
             args=(inputs,),
             start_to_close_timeout=timedelta(seconds=POSTHOG_SLACK_INBOX_ONBOARDING_TIMEOUT_SECONDS),
-            # Single attempt: the onboarding DM is not idempotent, so a retry after a post-then-crash
-            # would re-DM the installer. Channel create/invite are idempotent and onboarding is
-            # best-effort, so we accept "no retry" over "possible duplicate DM".
+            # Single attempt: the onboarding DM isn't idempotent, so a retry after a post-then-crash
+            # would re-DM the installer. Onboarding is best-effort, so we accept "no retry" over a dup DM.
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
@@ -43,8 +42,8 @@ def run_posthog_slack_inbox_onboarding_activity(inputs: PostHogSlackInboxOnboard
 
 
 def run_posthog_slack_inbox_onboarding(integration_id: int) -> None:
-    """Create #posthog-inbox and DM the installer for a fresh Slack install. Plain function so it
-    is callable outside the Temporal worker (and unit-testable without an activity environment)."""
+    """Create #posthog-inbox and DM the installer for a fresh Slack install. Plain function so it's
+    callable outside the Temporal worker (and unit-testable without an activity environment)."""
     from posthog.models.integration import Integration
 
     from products.slack_app.backend.onboarding import run_install_onboarding

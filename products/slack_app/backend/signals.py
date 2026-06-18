@@ -13,10 +13,9 @@ from posthog.models.user_integration import UserIntegration
 def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegration, **kwargs) -> None:
     if instance.kind != UserIntegration.IntegrationKind.GITHUB:
         return
-    # Deferred: products.slack_app.backend.api imports posthog.temporal.ai workflows at module
-    # scope, which pulls the whole ee.hogai chat-agent core. This receiver is wired from
-    # AppConfig.ready(), so a module-level import would drag the AI core into every process's
-    # startup. The cache helper is only needed when a GitHub integration actually changes.
+    # Deferred: api.py imports the temporal.ai workflows (the whole ee.hogai core) at module scope.
+    # This receiver is wired from AppConfig.ready(), so a module-level import would drag that onto
+    # every process's startup path.
     from products.slack_app.backend.api import _invalidate_user_repo_list_cache  # noqa: PLC0415
 
     _invalidate_user_repo_list_cache(instance.user_id)
@@ -24,15 +23,13 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 @receiver(post_save, sender=Integration)
 def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> start the #posthog-inbox onboarding Temporal workflow, off the request
-    thread. Gated on the install having ``channels:manage`` (the scope the onboarding needs), so it's
-    on for every scoped install. Re-auth uses update_or_create (created=False), so only first installs
+    """Fresh Slack install -> start the #posthog-inbox onboarding workflow off the request thread.
+    Gated on ``channels:manage``. Re-auth uses update_or_create (created=False), so only first installs
     onboard."""
     if not created or instance.kind != "slack":
         return
 
-    # Deferred: inbox_channel is light, but keep the import lazy since this receiver is wired from
-    # AppConfig.ready(). The scope check is a cheap in-memory read of the granted scopes (no I/O).
+    # Deferred: keep the import lazy since this receiver is wired from AppConfig.ready().
     from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
 
     if not has_inbox_scopes(instance):

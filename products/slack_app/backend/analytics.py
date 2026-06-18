@@ -1,10 +1,6 @@
 """Reusable analytics helpers for the Slack app.
 
-One place to emit PostHog events from anywhere in the Slack app — request handlers (the
-interactivity/event webhooks) and Temporal activities (the poll-and-post workflow) alike — with a
-standard property bundle so events are queryable consistently.
-
-Use ``ph_scoped_capture`` (not ``posthoganalytics.capture``) so events survive being emitted from a
+Uses ``ph_scoped_capture`` (not ``posthoganalytics.capture``) so events survive being emitted from a
 Temporal worker, where the global client's background flush may never run before the worker exits.
 """
 
