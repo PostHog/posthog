@@ -339,7 +339,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     {hasLateFullSnapshot && !hidePlayerElements ? (
                                         <LemonBanner
                                             type="warning"
@@ -354,6 +353,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             </Link>
                                         </LemonBanner>
                                     ) : null}
+                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"
                                         draggable={draggable && !isCommenting}
