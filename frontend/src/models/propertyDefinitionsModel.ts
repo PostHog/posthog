@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -111,6 +112,9 @@ export type Option = {
     /** Current search input for this property key. */
     searchInput?: string
 }
+
+/** Disposable key prefix for per-property value-refresh polling timers, so they can be torn down on a team change. */
+export const POLL_DISPOSABLE_KEY_PREFIX = 'propertyValuePoll/'
 
 const getPropertyKey = (
     type: PropertyDefinitionType,
@@ -229,6 +233,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         // internal
         fetchAllPendingDefinitions: true,
         abortAnyRunningQuery: true,
+        // Clears all cached definitions and values, e.g. when the current team changes
+        resetCache: true,
     }),
     reducers({
         rawPropertyDefinitionStorage: [
@@ -240,11 +246,13 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         ...propertyDefinitions,
                     }
                 },
+                resetCache: () => ({ ...localProperties }),
             },
         ],
         options: [
             {} as Record<string, Option>,
             {
+                resetCache: () => ({}),
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
                 setOptions: (state, { key, values: rawValues, allowCustomValues, refreshing }) => {
                     const values = Array.isArray(rawValues) ? rawValues : []
@@ -463,26 +471,26 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
                 cache.abortController = null
 
-                // Schedule a poll when the backend signals a background refresh is in progress
-                cache.pollingTimeouts = cache.pollingTimeouts || {}
+                // Schedule a poll when the backend signals a background refresh is in progress.
+                // Re-adding with the same key replaces any previous timer for this property.
+                const pollKey = `${POLL_DISPOSABLE_KEY_PREFIX}${propertyKey}`
                 if (refreshing) {
-                    if (cache.pollingTimeouts[propertyKey]) {
-                        clearTimeout(cache.pollingTimeouts[propertyKey])
-                    }
-                    cache.pollingTimeouts[propertyKey] = setTimeout(() => {
-                        actions.loadPropertyValues({
-                            endpoint,
-                            type,
-                            newInput,
-                            propertyKey,
-                            eventNames,
-                            properties,
-                            refresh: 'force_cache',
-                        })
-                    }, 2000)
-                } else if (cache.pollingTimeouts[propertyKey]) {
-                    clearTimeout(cache.pollingTimeouts[propertyKey])
-                    delete cache.pollingTimeouts[propertyKey]
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadPropertyValues({
+                                endpoint,
+                                type,
+                                newInput,
+                                propertyKey,
+                                eventNames,
+                                properties,
+                                refresh: 'force_cache',
+                            })
+                        }, 2000)
+                        return () => clearTimeout(timerId)
+                    }, pollKey)
+                } else {
+                    cache.disposables.dispose(pollKey)
                 }
             } catch (e) {
                 // Bail if a newer listener invocation has superseded this one
@@ -503,6 +511,24 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+    })),
+    subscriptions(({ actions, cache }) => ({
+        currentTeamId: () => {
+            // Skip the initial mount fire so we don't wipe a freshly loaded cache
+            if (!cache.hasSeenCurrentTeamId) {
+                cache.hasSeenCurrentTeamId = true
+                return
+            }
+            // Tear down any in-flight request and scheduled value-refresh polls before clearing,
+            // so a late response can't write back into the cleared cache for the previous team
+            actions.abortAnyRunningQuery()
+            for (const key of Array.from(cache.disposables?.registry.keys() ?? [])) {
+                if (key.startsWith(POLL_DISPOSABLE_KEY_PREFIX)) {
+                    cache.disposables.dispose(key)
+                }
+            }
+            actions.resetCache()
         },
     })),
     selectors({

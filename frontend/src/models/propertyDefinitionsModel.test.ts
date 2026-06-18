@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { POLL_DISPOSABLE_KEY_PREFIX, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 
@@ -615,6 +618,90 @@ describe('the property definitions model', () => {
 
             expect(capturedUrls).toHaveLength(2)
             expect(capturedUrls[1]).toContain('refresh=force_cache')
+        })
+    })
+
+    describe('resetting the cache when the current team changes', () => {
+        const changeTeam = (id: number): void => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id })
+        }
+
+        it('clears cached property values for a key when the current team changes', async () => {
+            useMocks({
+                get: {
+                    '/api/person/values': () => [200, { results: [{ name: 'team-a@example.com' }], refreshing: false }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Person,
+                    propertyKey: 'email',
+                    newInput: undefined,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.options['email'].values).toEqual([{ name: 'team-a@example.com' }])
+
+            await expectLogic(logic, () => changeTeam(998)).toDispatchActions(['resetCache'])
+
+            expect(logic.values.options['email']).toBeUndefined()
+        })
+
+        it('clears cached property definitions when the current team changes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+            }).toFinishAllListeners()
+
+            expect(logic.values.rawPropertyDefinitionStorage['event/a string']).toEqual(
+                propertyDefinitions.find(({ name }) => name === 'a string')
+            )
+
+            await expectLogic(logic, () => changeTeam(998)).toDispatchActions(['resetCache'])
+
+            expect(logic.values.rawPropertyDefinitionStorage['event/a string']).toBeUndefined()
+            // local definitions are not team-scoped, so they survive the reset
+            expect(logic.values.rawPropertyDefinitionStorage['event/$session_duration']).not.toBeUndefined()
+        })
+
+        it('does not reset the cache on the initial subscription fire', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['resetCache'])
+
+            expect(logic.values.rawPropertyDefinitionStorage['event/a string']).toEqual(
+                propertyDefinitions.find(({ name }) => name === 'a string')
+            )
+        })
+
+        it('tears down a scheduled value-refresh poll on a team change so it cannot repopulate the cache', async () => {
+            useMocks({
+                get: {
+                    '/api/person/values': () => [200, { results: [{ name: 'team-a@example.com' }], refreshing: true }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Person,
+                    propertyKey: 'email',
+                    newInput: undefined,
+                })
+            }).toFinishAllListeners()
+
+            // a refresh-in-progress response schedules a poll registered as a disposable
+            const pollKey = `${POLL_DISPOSABLE_KEY_PREFIX}email`
+            expect(logic.cache.disposables.registry.has(pollKey)).toBe(true)
+
+            await expectLogic(logic, () => changeTeam(998)).toDispatchActions(['resetCache'])
+
+            // the scheduled poll is disposed, so a late refresh can't write back into the cleared cache
+            expect(logic.cache.disposables.registry.has(pollKey)).toBe(false)
+            expect(logic.values.options['email']).toBeUndefined()
         })
     })
 })
