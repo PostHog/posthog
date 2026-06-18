@@ -283,6 +283,9 @@ impl RawPythonFrame {
         if EXTERNAL_PACKAGE_PATH.is_match(&self.filename) {
             return true;
         }
+        if self.filename.contains('/') || self.filename.contains('\\') {
+            return false;
+        }
         self.module
             .as_deref()
             .and_then(|module| module.split('.').next())
@@ -423,6 +426,16 @@ mod test {
                 "app package shadowing a stdlib module stays in_app",
                 serde_json::json!({
                     "abs_path": "/app/logging/views.py",
+                    "filename": "logging/views.py",
+                    "function": "index",
+                    "module": "logging.views",
+                    "in_app": true,
+                }),
+                true,
+            ),
+            (
+                "pathless app package shadowing a stdlib module stays in_app",
+                serde_json::json!({
                     "filename": "logging/views.py",
                     "function": "index",
                     "module": "logging.views",
