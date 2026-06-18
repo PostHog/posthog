@@ -35,5 +35,7 @@ class TestWarehouseSyncStatusAPI(ClickhouseTestMixin, APIBaseTest):
             "error",
             "updated_at",
         }
-        assert body["initial_backfill"].keys() == {"complete", "progress_pct"}
+        # The Dagster backend can't determine one-time-load completeness, so it reports null here.
+        assert body["initial_backfill"] is None
+        assert body["state"] == "caught_up"
         assert body["total_rows_synced"] == 5

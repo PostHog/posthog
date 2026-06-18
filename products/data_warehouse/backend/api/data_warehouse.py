@@ -35,7 +35,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_warehouse.backend.api import managed_warehouse
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.data_warehouse.backend.warehouse_sync.contracts import WarehouseSyncStatusSerializer
-from products.data_warehouse.backend.warehouse_sync.factory import get_warehouse_sync_status_provider
+from products.data_warehouse.backend.warehouse_sync.dagster_provider import DagsterBackfillStatusProvider
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -954,7 +954,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(responses={200: WarehouseSyncStatusSerializer})
     @action(methods=["GET"], detail=False, url_path="warehouse_sync_status")
     def warehouse_sync_status(self, request: Request, **kwargs: Any) -> Response:
-        """Backend-neutral freshness of the managed warehouse's event data."""
-        provider = get_warehouse_sync_status_provider(str(self.team.organization_id))
-        dto = provider.get_status(str(self.team.organization_id))
+        """Freshness of the managed warehouse's event data.
+
+        The event backfill is platform-global (one shared run covers every team's events), so this
+        reflects the whole deployment's freshness, not a per-organization value.
+        """
+        dto = DagsterBackfillStatusProvider().get_status()
         return Response(WarehouseSyncStatusSerializer(dto).data)

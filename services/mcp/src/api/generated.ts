@@ -47713,8 +47713,8 @@ export namespace Schemas {
          * @nullable
          */
       last_activity_at: string | null;
-      /** One-time historical load status. */
-      initial_backfill: _InitialBackfill;
+      /** One-time historical load status, or null if the backend can't determine it. */
+      initial_backfill: _InitialBackfill | null;
       /**
          * Cumulative events moved into the warehouse.
          * @nullable

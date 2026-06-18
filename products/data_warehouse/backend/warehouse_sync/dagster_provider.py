@@ -6,10 +6,12 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.ducklake.backfill_telemetry import BACKFILL_PARTITION_EVENT
 
-from products.data_warehouse.backend.warehouse_sync.contracts import InitialBackfill, SyncError, WarehouseSyncStatusDTO
+from products.data_warehouse.backend.warehouse_sync.contracts import SyncError, WarehouseSyncStatusDTO
 
 PARTITION_START = date(2019, 1, 1)
 RECENT_FAILURE_WINDOW = timedelta(days=7)
+# A daily batch is "up to date" once its frontier is within ~2 days of now.
+CAUGHT_UP_LAG_SECONDS = 2 * 24 * 60 * 60
 
 # Latest event per partition_date for the telemetry team.
 _QUERY = """
@@ -32,7 +34,7 @@ def _empty(now: datetime, state: str) -> WarehouseSyncStatusDTO:
         fresh_through=None,
         lag_seconds=None,
         last_activity_at=None,
-        initial_backfill=InitialBackfill(complete=False, progress_pct=None),
+        initial_backfill=None,
         total_rows_synced=None,
         error=None,
         updated_at=now,
@@ -40,9 +42,17 @@ def _empty(now: datetime, state: str) -> WarehouseSyncStatusDTO:
 
 
 class DagsterBackfillStatusProvider:
+    """Platform-global backfill freshness.
+
+    The `events_ducklake_backfill` job runs once per day for every team's events, so this status is
+    a single deployment-wide fact, not per-organization. Freshness is the latest successful partition
+    date; it deliberately does NOT report one-time-backfill completeness, because historical
+    partitions predate this telemetry and a sparse event stream can't prove a contiguous load.
+    """
+
     backend = "dagster"
 
-    def get_status(self, organization_id: str) -> WarehouseSyncStatusDTO:
+    def get_status(self) -> WarehouseSyncStatusDTO:
         now = timezone.now()
         # Backfill telemetry is captured by ph_scoped_capture into the internal dogfooding project
         # that receives PostHog products' own events — the same one /api/llm_analytics reads back.
@@ -55,7 +65,6 @@ class DagsterBackfillStatusProvider:
             return _empty(now, "not_started")
 
         done = 0
-        failed = 0
         total_rows = 0
         fresh_date: date | None = None
         last_event_at: datetime | None = None
@@ -71,20 +80,14 @@ class DagsterBackfillStatusProvider:
                 if fresh_date is None or pd > fresh_date:
                     fresh_date = pd
             elif status == "failed":
-                failed += 1
                 if latest_failure is None or event_at > latest_failure[0]:
                     latest_failure = (event_at, error_message or "Backfill partition failed")
-
-        today = now.date()
-        total_span_days = max((today - PARTITION_START).days, 1)
 
         fresh_through = datetime.combine(fresh_date, time.max, tzinfo=UTC) if fresh_date is not None else None
         lag_seconds = int((now - fresh_through).total_seconds()) if fresh_through is not None else None
 
-        frontier_days = (fresh_date - PARTITION_START).days if fresh_date is not None else 0
-        progress_pct = min(max(round(100 * frontier_days / total_span_days), 0), 100)
-        complete = fresh_date is not None and fresh_date >= today - timedelta(days=1)
-
+        # Only surface failures whose latest event is recent; a stale historical failure must not
+        # pin the warehouse to an error state forever.
         recent_failure = latest_failure is not None and latest_failure[0] >= now - RECENT_FAILURE_WINDOW
         error = SyncError(message=latest_failure[1], since=latest_failure[0]) if recent_failure else None
 
@@ -92,10 +95,10 @@ class DagsterBackfillStatusProvider:
             state = "error"
         elif done == 0:
             state = "not_started"
-        elif complete:
+        elif lag_seconds is not None and lag_seconds <= CAUGHT_UP_LAG_SECONDS:
             state = "caught_up"
         else:
-            state = "seeding"
+            state = "lagging"
 
         return WarehouseSyncStatusDTO(
             backend=self.backend,
@@ -103,7 +106,7 @@ class DagsterBackfillStatusProvider:
             fresh_through=fresh_through,
             lag_seconds=lag_seconds,
             last_activity_at=last_event_at,
-            initial_backfill=InitialBackfill(complete=complete, progress_pct=progress_pct),
+            initial_backfill=None,
             total_rows_synced=total_rows or None,
             error=error,
             updated_at=now,

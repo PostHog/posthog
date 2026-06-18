@@ -30,8 +30,9 @@ class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
 
     @override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=None)
     def test_not_started_without_telemetry_team(self) -> None:
-        dto = DagsterBackfillStatusProvider().get_status("org-1")
+        dto = DagsterBackfillStatusProvider().get_status()
         assert dto.state == "not_started"
+        assert dto.initial_backfill is None
 
     def test_error_state_when_a_partition_failed(self) -> None:
         now = timezone.now()
@@ -40,7 +41,7 @@ class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
         self._emit("2020-01-01", "failed", timestamp=now, error_message="boom")
         flush_persons_and_events()
         with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
-            dto = DagsterBackfillStatusProvider().get_status("org-1")
+            dto = DagsterBackfillStatusProvider().get_status()
         assert dto.state == "error"
         assert dto.error is not None
         assert dto.error.message == "boom"
@@ -55,34 +56,32 @@ class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
         self._emit(yesterday, "success", timestamp=now, rows_exported=7)
         flush_persons_and_events()
         with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
-            dto = DagsterBackfillStatusProvider().get_status("org-1")
+            dto = DagsterBackfillStatusProvider().get_status()
         assert dto.state == "caught_up"
         assert dto.error is None
 
-    def test_seeding_state_when_frontier_in_past(self) -> None:
-        # A single success far in the past: frontier not at yesterday, so still seeding.
+    def test_lagging_when_frontier_is_behind(self) -> None:
+        # Latest success is far in the past, so the warehouse is behind the live edge.
+        # The Dagster backend never reports initial-backfill progress (it can't prove completeness).
         now = timezone.now()
         self._emit("2021-06-01", "success", timestamp=now, rows_exported=3)
         flush_persons_and_events()
         with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
-            dto = DagsterBackfillStatusProvider().get_status("org-1")
-        assert dto.initial_backfill.complete is False
-        assert dto.initial_backfill.progress_pct is not None
-        assert 0 < dto.initial_backfill.progress_pct < 100
-        assert dto.state == "seeding"
+            dto = DagsterBackfillStatusProvider().get_status()
+        assert dto.state == "lagging"
+        assert dto.initial_backfill is None
+        assert dto.fresh_through is not None
+        assert dto.lag_seconds is not None and dto.lag_seconds > 0
 
     def test_caught_up_when_frontier_reaches_yesterday(self) -> None:
-        # A success for yesterday means the frontier has caught up.
         now = timezone.now()
         yesterday = (now.date() - timedelta(days=1)).isoformat()
         self._emit(yesterday, "success", timestamp=now, rows_exported=9)
         flush_persons_and_events()
         with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
-            dto = DagsterBackfillStatusProvider().get_status("org-1")
-        assert dto.initial_backfill.complete is True
-        assert dto.initial_backfill.progress_pct is not None
-        assert dto.initial_backfill.progress_pct >= 99
+            dto = DagsterBackfillStatusProvider().get_status()
         assert dto.state == "caught_up"
+        assert dto.initial_backfill is None
 
     def test_latest_event_per_partition_wins(self) -> None:
         d = "2020-01-01"
@@ -93,6 +92,6 @@ class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
         self._emit(d, "success", timestamp=now, rows_exported=10)
         flush_persons_and_events()
         with override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
-            dto = DagsterBackfillStatusProvider().get_status("org-1")
+            dto = DagsterBackfillStatusProvider().get_status()
         assert dto.error is None  # the success supersedes the earlier failure
         assert dto.total_rows_synced == 10

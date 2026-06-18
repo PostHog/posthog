@@ -684,6 +684,3 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL"
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
 )
-
-# Which pipeline backs the warehouse sync-status API: "dagster" (current) or "viaduck" (future CDC).
-WAREHOUSE_SYNC_BACKEND = get_from_env("WAREHOUSE_SYNC_BACKEND", "dagster")

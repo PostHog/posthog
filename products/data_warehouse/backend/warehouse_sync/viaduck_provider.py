@@ -1,3 +1,12 @@
+"""Staged, not yet wired.
+
+When viaduck CDC replaces the Dagster event backfill, this provider will answer warehouse freshness
+per organization (viaduck routes rows to a per-tenant destination, so unlike the global Dagster
+backfill it genuinely takes an `organization_id`). Until `_fetch_destination` has a real source, the
+API does not select this provider — see `DagsterBackfillStatusProvider`. The neutral
+`WarehouseSyncStatusDTO` contract is shared so the swap stays a localized change.
+"""
+
 from dataclasses import dataclass
 from datetime import datetime
 

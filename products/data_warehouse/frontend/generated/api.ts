@@ -396,7 +396,10 @@ export const getDataWarehouseWarehouseSyncStatusRetrieveUrl = (projectId: string
 }
 
 /**
- * Backend-neutral freshness of the managed warehouse's event data.
+ * Freshness of the managed warehouse's event data.
+ *
+ * The event backfill is platform-global (one shared run covers every team's events), so this
+ * reflects the whole deployment's freshness, not a per-organization value.
  */
 export const dataWarehouseWarehouseSyncStatusRetrieve = async (
     projectId: string,

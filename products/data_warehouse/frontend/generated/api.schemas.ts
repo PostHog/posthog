@@ -226,8 +226,8 @@ export interface WarehouseSyncStatusApi {
      * @nullable
      */
     last_activity_at: string | null
-    /** One-time historical load status. */
-    initial_backfill: _InitialBackfillApi
+    /** One-time historical load status, or null if the backend can't determine it. */
+    initial_backfill: _InitialBackfillApi | null
     /**
      * Cumulative events moved into the warehouse.
      * @nullable

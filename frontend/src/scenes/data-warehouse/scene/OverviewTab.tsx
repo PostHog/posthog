@@ -46,7 +46,10 @@ function formatLag(seconds: number | null): string {
         return `${Math.round(seconds / 3600)}h`
     }
     const days = Math.round(seconds / 86400)
-    return `${days}d`
+    if (days < 365) {
+        return `${days}d`
+    }
+    return `${(days / 365).toFixed(1)}y`
 }
 
 function stateBadge(status: WarehouseSyncStatusApi): {
@@ -100,17 +103,19 @@ function FreshnessHero({ status }: { status: WarehouseSyncStatusApi }): JSX.Elem
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2">
-                <HeroStat
-                    label="Initial backfill"
-                    value={
-                        status.initial_backfill.complete
-                            ? 'Complete'
-                            : status.initial_backfill.progress_pct != null
-                              ? `${status.initial_backfill.progress_pct}%`
-                              : 'In progress'
-                    }
-                    sublabel="historical events"
-                />
+                {status.initial_backfill && (
+                    <HeroStat
+                        label="Initial backfill"
+                        value={
+                            status.initial_backfill.complete
+                                ? 'Complete'
+                                : status.initial_backfill.progress_pct != null
+                                  ? `${status.initial_backfill.progress_pct}%`
+                                  : 'In progress'
+                        }
+                        sublabel="historical events"
+                    />
+                )}
                 <HeroStat
                     label="Events synced"
                     value={formatRows(status.total_rows_synced)}
@@ -126,9 +131,13 @@ function FreshnessHero({ status }: { status: WarehouseSyncStatusApi }): JSX.Elem
     )
 }
 
-function LoadProgressBar({ status }: { status: WarehouseSyncStatusApi }): JSX.Element {
-    const pct = status.initial_backfill.complete ? 100 : (status.initial_backfill.progress_pct ?? 0)
-    const complete = status.initial_backfill.complete
+function LoadProgressBar({
+    initialBackfill,
+}: {
+    initialBackfill: NonNullable<WarehouseSyncStatusApi['initial_backfill']>
+}): JSX.Element {
+    const complete = initialBackfill.complete
+    const pct = complete ? 100 : (initialBackfill.progress_pct ?? 0)
 
     return (
         <div className="space-y-2">
@@ -220,7 +229,7 @@ export function OverviewTab(): JSX.Element {
                 </LemonBanner>
             )}
             {syncStatus && <FreshnessHero status={syncStatus} />}
-            {syncStatus && <LoadProgressBar status={syncStatus} />}
+            {syncStatus?.initial_backfill && <LoadProgressBar initialBackfill={syncStatus.initial_backfill} />}
         </div>
     )
 }

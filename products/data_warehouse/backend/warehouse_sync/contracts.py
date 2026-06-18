@@ -26,7 +26,9 @@ class WarehouseSyncStatusDTO:
     fresh_through: datetime | None
     lag_seconds: int | None
     last_activity_at: datetime | None
-    initial_backfill: InitialBackfill
+    # Null when the backend can't determine one-time-load progress (e.g. the Dagster backfill, whose
+    # historical partitions predate this telemetry). The CDC backend reports real seeding progress.
+    initial_backfill: InitialBackfill | None
     total_rows_synced: int | None
     error: SyncError | None
     updated_at: datetime
@@ -50,7 +52,9 @@ class WarehouseSyncStatusSerializer(serializers.Serializer[WarehouseSyncStatusDT
     fresh_through = serializers.DateTimeField(allow_null=True, help_text="Timestamp the warehouse is fresh through.")
     lag_seconds = serializers.IntegerField(allow_null=True, help_text="Seconds behind now/source, or null if unknown.")
     last_activity_at = serializers.DateTimeField(allow_null=True, help_text="Last time the pipeline made progress.")
-    initial_backfill = _InitialBackfillSerializer(help_text="One-time historical load status.")
+    initial_backfill = _InitialBackfillSerializer(
+        allow_null=True, help_text="One-time historical load status, or null if the backend can't determine it."
+    )
     total_rows_synced = serializers.IntegerField(
         allow_null=True, help_text="Cumulative events moved into the warehouse."
     )
