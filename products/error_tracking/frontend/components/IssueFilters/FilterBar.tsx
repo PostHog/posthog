@@ -206,7 +206,11 @@ const BarContents = ({
         }
         return [
             {
-                item: { name: trimmed } as TaxonomicDefinitionTypes,
+                item: {
+                    name: trimmed,
+                    // Surfaced in the preview pane (via useTaxonomicAutocompleteItemDetails → item.description).
+                    description: `Show only ${searchSubject} whose exception type, message, stack trace, or function contains what you've typed.`,
+                } as TaxonomicDefinitionTypes,
                 group: SEARCH_GROUP,
                 name: trimmed,
                 friendlyLabel: `Search ${searchSubject} matching "${trimmed}"`,

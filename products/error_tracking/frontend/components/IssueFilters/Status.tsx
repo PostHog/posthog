@@ -33,7 +33,10 @@ export function statusOptionLabelWithDescription(key: ErrorTrackingStatusSelectV
     const label = key === 'all' ? 'All' : STATUS_LABEL[key]
 
     return (
-        <div className="flex items-start gap-2 py-1">
+        // The filter menu renders this inside a quill subtree, where quill-bridge.scss rebinds
+        // PostHog colour tokens (e.g. --color-text-secondary). data-not-quill restores them so the
+        // status dot matches the v1 selector and the rest of the app. No-op outside [data-quill].
+        <div className="flex items-start gap-2 py-1" data-not-quill>
             <LemonBadge status={intent} size="small" className="mt-1 shrink-0" />
             <div className="flex flex-col gap-0.5 text-left">
                 <span className="text-sm font-semibold leading-tight">{label}</span>
