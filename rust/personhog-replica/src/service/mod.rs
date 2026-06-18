@@ -1283,7 +1283,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let person = self
             .storage
-            .reset_person_distinct_id_version(req.team_id, &req.distinct_id, req.version)
+            .reset_person_distinct_id_version(req.team_id, &req.distinct_id, req.min_version)
             .await
             .map_err(|e| log_and_convert_error(e, "reset_person_distinct_id_version"))?;
 

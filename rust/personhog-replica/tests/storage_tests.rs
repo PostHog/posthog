@@ -2625,6 +2625,43 @@ async fn test_reset_person_distinct_id_version_missing_returns_none() {
 }
 
 #[tokio::test]
+async fn test_reset_person_distinct_id_version_does_not_lower() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("repair_high_did", None).await.unwrap();
+
+    // Put the PDI at a high version first.
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET version = 200 WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_high_did")
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // A lower min_version must not lower it — but the person is still returned.
+    let returned = ctx
+        .storage
+        .reset_person_distinct_id_version(ctx.team_id, "repair_high_did", 150)
+        .await
+        .expect("reset should succeed")
+        .expect("person should still be returned when the distinct_id exists");
+    assert_eq!(returned.id, person.id);
+
+    let version: i64 = sqlx::query_scalar(
+        "SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_high_did")
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 200);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_reset_person_version_guarded_bump() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("rv_did", None).await.unwrap();

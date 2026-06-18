@@ -1280,7 +1280,7 @@ async fn test_reset_person_distinct_id_version() {
         .reset_person_distinct_id_version(Request::new(ResetPersonDistinctIdVersionRequest {
             team_id: ctx.team_id,
             distinct_id: "svc_repair_did".to_string(),
-            version: 150,
+            min_version: 150,
         }))
         .await
         .expect("RPC failed");
@@ -1304,7 +1304,7 @@ async fn test_reset_person_distinct_id_version_missing() {
         .reset_person_distinct_id_version(Request::new(ResetPersonDistinctIdVersionRequest {
             team_id: ctx.team_id,
             distinct_id: "svc_missing_did".to_string(),
-            version: 10,
+            min_version: 10,
         }))
         .await
         .expect("RPC failed");

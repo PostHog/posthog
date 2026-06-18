@@ -821,7 +821,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         distinct_id: &str,
-        version: i64,
+        min_version: i64,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
         let method = current_method_name();
@@ -838,15 +838,22 @@ impl PersonLookup for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
-        // Set the distinct_id's version and return its person in one round-trip.
-        // No row updated (distinct_id not re-used yet) yields no person.
+        // Resolve the distinct_id's person and guardedly bump its version in one
+        // round-trip. The `target` CTE returns the person whenever the distinct_id
+        // exists, while the `UPDATE` only fires when the stored version is below
+        // min_version — so an already-higher version is left intact but the person is
+        // still returned. No matching distinct_id yields no person.
         let row = sqlx::query_as!(
             Person,
             r#"
-            WITH updated AS (
+            WITH target AS (
+                SELECT person_id FROM posthog_persondistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            ),
+            updated AS (
                 UPDATE posthog_persondistinctid
                 SET version = $3
-                WHERE team_id = $1 AND distinct_id = $2
+                WHERE team_id = $1 AND distinct_id = $2 AND version < $3
                 RETURNING person_id
             )
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
@@ -856,11 +863,11 @@ impl PersonLookup for PostgresStorage {
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
             FROM posthog_person p
-            INNER JOIN updated u ON p.id = u.person_id AND p.team_id = $1
+            INNER JOIN target t ON p.id = t.person_id AND p.team_id = $1
             "#,
             team_id as i32,
             distinct_id,
-            version
+            min_version
         )
         .fetch_optional(&mut *conn)
         .await?;

@@ -655,9 +655,11 @@ class FakePersonHogClient:
         if person is None:
             return person_pb2.ResetPersonDistinctIdVersionResponse()
 
+        # Guarded bump: never lower the stored version. The person is returned whenever
+        # the distinct_id exists, even if the version is left unchanged.
         for mapping in self._distinct_ids.get((request.team_id, person.id), []):
-            if mapping.distinct_id == request.distinct_id:
-                mapping.version = request.version
+            if mapping.distinct_id == request.distinct_id and mapping.version < request.min_version:
+                mapping.version = request.min_version
         return person_pb2.ResetPersonDistinctIdVersionResponse(person=person)
 
     def reset_person_version(

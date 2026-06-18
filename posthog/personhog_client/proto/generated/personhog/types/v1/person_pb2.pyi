@@ -435,16 +435,16 @@ class SplitPersonResponse(_message.Message):
     def __init__(self, splits: _Optional[_Iterable[_Union[SplitResult, _Mapping]]] = ...) -> None: ...
 
 class ResetPersonDistinctIdVersionRequest(_message.Message):
-    __slots__ = ("team_id", "distinct_id", "version")
+    __slots__ = ("team_id", "distinct_id", "min_version")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
-    VERSION_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     distinct_id: str
-    version: int
+    min_version: int
 
     def __init__(
-        self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., version: _Optional[int] = ...
+        self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ...
     ) -> None: ...
 
 class ResetPersonDistinctIdVersionResponse(_message.Message):
