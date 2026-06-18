@@ -133,8 +133,6 @@ export interface TaxonomicFilterMenuProps {
     extraMenuItems?: ReactNode | ((api: { close: () => void }) => ReactNode)
     /** Forwarded to the main combobox's `leadingEntries` — consumer rows pinned above results. */
     comboboxLeadingEntries?: MenuFilterEntry[]
-    /** Hide the "Recent" dropdown entry (recents still lead the combobox's All surface). */
-    hideRecent?: boolean
     /**
      * When the dropdown menu is open, typing a printable character jumps straight into the combobox
      * search (seeded with that character) and the "New filter…" row hints "or start typing". Opt-in
@@ -209,7 +207,6 @@ export function TaxonomicFilterMenu({
     defaultOpenState,
     extraMenuItems,
     comboboxLeadingEntries,
-    hideRecent = false,
     typeToSearch = false,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
@@ -811,10 +808,10 @@ export function TaxonomicFilterMenu({
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
-                {!useInputTrigger && ((!hideRecent && recentEntries.length > 0) || pinnedEntries.length > 0) && (
+                {!useInputTrigger && (recentEntries.length > 0 || pinnedEntries.length > 0) && (
                     <DropdownMenuSeparator />
                 )}
-                {!hideRecent && recentEntries.length > 0 && (
+                {recentEntries.length > 0 && (
                     <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
                         Recent
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
