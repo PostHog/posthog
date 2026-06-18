@@ -129,4 +129,23 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(dashboardsModel).toFinishAllListeners()
         expect((api.update as jest.Mock).mock.calls.length > 0).toBe(shouldUpdate)
     })
+
+    it('startRenaming sets and stopRenaming / renameDashboard clear the renaming id', async () => {
+        await expectLogic(logic, () => logic.actions.startRenaming(1)).toMatchValues({ renamingDashboardId: 1 })
+        await expectLogic(logic, () => logic.actions.stopRenaming()).toMatchValues({ renamingDashboardId: null })
+        await expectLogic(logic, () => logic.actions.startRenaming(2)).toMatchValues({ renamingDashboardId: 2 })
+        await expectLogic(logic, () => logic.actions.renameDashboard(2, 'X')).toMatchValues({
+            renamingDashboardId: null,
+        })
+    })
+
+    it('toasts an error when loading dashboard folders fails', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        ;(api.fileSystem.list as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+        await expectLogic(logic, () => {
+            logic.actions.loadDashboardFileSystemEntries()
+        }).toDispatchActions(['loadDashboardFileSystemEntriesFailure'])
+        expect(error).toHaveBeenCalled()
+    })
 })

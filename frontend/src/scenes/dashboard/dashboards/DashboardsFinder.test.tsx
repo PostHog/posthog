@@ -10,22 +10,32 @@ jest.mock('lib/lemon-ui/Link', () => ({
     Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }))
 jest.mock('./DashboardCardMenu', () => ({ DashboardCardMenu: () => <span>menu</span> }))
+// Pass-through the dnd wrappers so the card renders without @dnd-kit pointer wiring.
+jest.mock('./dashboardsDnd', () => ({
+    DashboardsDndContext: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    DraggableDashboard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    DroppableFolder: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
 
 describe('DashboardsFinder', () => {
     const navigateToFolder = jest.fn()
     const pasteIntoFolder = jest.fn()
+    const renameDashboard = jest.fn()
+    const stopRenaming = jest.fn()
 
     afterEach(cleanup)
 
     beforeEach(() => {
         navigateToFolder.mockClear()
         pasteIntoFolder.mockClear()
+        renameDashboard.mockClear()
+        stopRenaming.mockClear()
         ;(useActions as jest.Mock).mockReturnValue({
             navigateToFolder,
             pasteIntoFolder,
             moveDashboardToFolder: jest.fn(),
-            renameDashboard: jest.fn(),
-            stopRenaming: jest.fn(),
+            renameDashboard,
+            stopRenaming,
         })
     })
 
@@ -74,5 +84,32 @@ describe('DashboardsFinder', () => {
         render(<DashboardsFinder />)
         fireEvent.click(screen.getByText('Paste into this folder'))
         expect(pasteIntoFolder).toHaveBeenCalledWith('Marketing')
+    })
+
+    it('commits a rename on blur for the dashboard being renamed', () => {
+        mockValues({
+            currentFolderContents: { subfolders: [], dashboards: [{ id: 1, name: 'Campaigns' }] },
+            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            renamingDashboardId: 1,
+        })
+        render(<DashboardsFinder />)
+        const input = screen.getByLabelText('Rename dashboard')
+        fireEvent.change(input, { target: { value: 'New name' } })
+        fireEvent.blur(input)
+        expect(renameDashboard).toHaveBeenCalledWith(1, 'New name')
+    })
+
+    it('cancels the rename on Escape without dispatching a rename', () => {
+        mockValues({
+            currentFolderContents: { subfolders: [], dashboards: [{ id: 1, name: 'Campaigns' }] },
+            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            renamingDashboardId: 1,
+        })
+        render(<DashboardsFinder />)
+        const input = screen.getByLabelText('Rename dashboard')
+        fireEvent.change(input, { target: { value: 'Changed' } })
+        fireEvent.keyDown(input, { key: 'Escape' })
+        expect(stopRenaming).toHaveBeenCalled()
+        expect(renameDashboard).not.toHaveBeenCalled()
     })
 })

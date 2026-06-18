@@ -129,6 +129,12 @@ export function DashboardsFinder(): JSX.Element {
                         />
                     ))}
                 </div>
+                {isEmpty ? (
+                    // Empty view (the breadcrumb above still navigates back), not a dead end (EC-06b).
+                    <div className="text-muted text-center py-8" data-attr="dashboards-finder-empty">
+                        This folder is empty.
+                    </div>
+                ) : null}
             </div>
         </DashboardsDndContext>
     )

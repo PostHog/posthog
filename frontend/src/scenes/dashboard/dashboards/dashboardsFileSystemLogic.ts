@@ -23,6 +23,9 @@ import {
 import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
+// Opaque per-caller tag for projectTreeDataLogic's move queue. Distinct from the dnd-kit DRAG_PREFIX
+// ('dashboards-grid') so the two unrelated uses of that string don't read as coupled.
+const DASHBOARDS_FS_LOGIC_KEY = 'dashboards-file-system'
 
 export interface ClipboardItem {
     mode: 'cut' | 'copy'
@@ -129,14 +132,16 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         moveDashboardToFolder: ({ dashboardId, folder }) => {
             const entry = values.entryByRef[String(dashboardId)]
             if (!entry) {
-                // A dashboard with no FileSystem row shows under Unfiled but can't be filed until its
-                // entry loads — surface that instead of the drag silently doing nothing.
-                lemonToast.warning('Could not move this dashboard yet — its folder entry is still loading.')
+                // No FileSystem row for this dashboard. Stay quiet while entries are still loading (the
+                // drag landed before the fetch returned); otherwise surface it rather than no-op silently.
+                if (!values.dashboardFileSystemEntriesLoading) {
+                    lemonToast.warning("Could not move this dashboard — it doesn't have a folder entry yet.")
+                }
                 return
             }
             const { newPath, isValidMove } = calculateMovePath(entry, folder)
             if (isValidMove) {
-                actions.moveItem(entry, newPath, true, 'dashboards-grid')
+                actions.moveItem(entry, newPath, true, DASHBOARDS_FS_LOGIC_KEY)
             }
         },
         pasteIntoFolder: ({ folder }) => {
