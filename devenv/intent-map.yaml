@@ -124,6 +124,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    ai_gateway:
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) — routes agent model calls; auto-provisions a phs_ credential + funds the ledger'
+        requires: [agent_runtime]
+        docker_profiles: []
+
     # Node.js capability groups - control which consumers run to reduce event loop contention
     nodejs_cdp:
         description: 'Node.js CDP - destinations, webhooks, and realtime alerts'

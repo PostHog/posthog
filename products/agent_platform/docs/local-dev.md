@@ -101,41 +101,41 @@ direct to providers. Useful if you're working on gateway integration,
 billing/quota plumbing, or `$ai_origin` analytics. Off by default —
 the runner uses direct providers when `AGENT_USE_AI_GATEWAY=false`.
 
-To turn it on (full credential e2e — `resolver` mode, real phs\_):
+To turn it on:
 
 1. **Clone the sibling repo** at `~/Development/ai-gateway`
    (override with `AI_GATEWAY_REPO`).
-2. **Create `~/Development/ai-gateway/.env`** with provider keys:
+2. **Add provider keys** to `~/Development/ai-gateway/.env`:
 
    ```bash
    AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
    AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
    ```
 
-   Note the `AI_GATEWAY_*` prefix. `bin/setup-gateway-e2e` sets
-   `AI_GATEWAY_AUTH_MODE=resolver` for you (so the gateway validates
-   the phs\_ instead of admitting every request as the anonymous team).
+   (`bin/setup-gateway-e2e` sets `AI_GATEWAY_AUTH_MODE=resolver` for you.)
 
-3. **Run [`bin/setup-gateway-e2e`](../../../bin/setup-gateway-e2e).** It
-   enables the gateway on your main local team, mints a deterministic
-   phs\_ project-secret key (`llm_gateway:read`), publishes its
-   credential blob to the **same Valkey the gateway reads**
-   (`localhost:6381` — Django's hypercache and the gateway must share
-   one Redis or the resolver 401s), funds that team's gateway ledger,
-   and writes `AGENT_USE_AI_GATEWAY=true` + `POSTHOG_AI_GATEWAY_KEY` +
-   `AI_GATEWAY_REDIS_URL` into `.env.local`. Idempotent.
-4. **Run the gateway** from the sibling repo (it picks up `resolver`
-   mode from its `.env`):
+3. **Enable the `ai_gateway` capability** in `hogli dev:setup` (it pulls in
+   `agent_runtime`).
 
-   ```bash
-   cd ~/Development/ai-gateway && bin/start gateway
-   ```
+`hogli start` then runs the `ai-gateway` pane
+([`bin/start-ai-gateway`](../../../bin/start-ai-gateway)): it provisions a phs*
+credential — enable the team, mint the deterministic dev phs*
+(`llm_gateway:read`), publish its blob to the **same Valkey the gateway reads**
+(`localhost:6381` — Django's hypercache and the gateway must share one Redis or
+the resolver 401s) — sets resolver mode, starts the gateway on the host, and
+funds the ledger once it's up. Idempotent.
 
-5. **Restart the agent-runner** so it picks up `.env.local`.
+The agent-runner uses the gateway **by default in dev** (config dev defaults, no
+`.env.local`); it authenticates with the static dev phs\_ and all cost bills to
+the team that owns it. To fall back to direct providers, set
+`AGENT_USE_AI_GATEWAY=false` in `.env.local`.
 
-The runner authenticates with the static phs\_ bearer
-(`POSTHOG_AI_GATEWAY_KEY`); all cost bills to the team that owns it.
-With nothing in `.env.local` the runner falls back to direct providers.
+Standalone (without the capability):
+
+```bash
+bin/setup-gateway-e2e
+cd ~/Development/ai-gateway && bin/start gateway
+```
 
 How model routing works:
 

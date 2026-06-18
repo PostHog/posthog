@@ -267,6 +267,14 @@ procs:
             layer: Processing
             tech: Node
 
+    ai-gateway:
+        shell: 'bin/wait-for-docker && bin/start-ai-gateway'
+        capability: ai_gateway
+        ready_pattern: 'listening on'
+        groups:
+            layer: Product services
+            tech: Go
+
     cymbal:
         shell: |-
             bin/wait-for-docker && \
