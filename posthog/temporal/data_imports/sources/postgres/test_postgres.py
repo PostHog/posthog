@@ -1437,6 +1437,75 @@ class TestPostgresSchemaDiscovery:
         connection.cursor.return_value = cursor_context
         return connection
 
+    @pytest.mark.parametrize("n_drops", [1, 2, 3])
+    def test_get_schemas_retries_repeated_pooler_drops_during_discovery_query(self, n_drops: int):
+        # `n_drops` successive Supavisor pooler drops on the first discovery query
+        # ("(EDBHANDLEREXITED) DbHandler exited", XX000 InternalError_), then a healthy connection.
+        # Each drop must reconnect and rerun the whole connect-and-discover cycle on a fresh
+        # connection, recovering once the pooler stops dropping the upstream backend — so connect is
+        # called once per dropped attempt plus once for the successful one.
+        dropping_connections = [
+            self._drop_on_execute_connection(
+                psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information")
+            )
+            for _ in range(n_drops)
+        ]
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[*dropping_connections, good_connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == n_drops + 1
+        assert set(schemas.keys()) == {"public.users"}
+        for dropped in dropping_connections:
+            dropped.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_reraises_after_exhausting_retries_on_sustained_discovery_drop(self):
+        # When every attempt hits the pooler drop on the discovery query, discovery exhausts its
+        # bounded in-process retries and re-raises the original error for Temporal to retry the whole
+        # activity — it does not loop forever. With _MAX_SETUP_CONNECTION_DROPPED_RETRIES attempts,
+        # connect is called once per attempt and each connection is closed before the next reconnect.
+        dropping_connections = [
+            self._drop_on_execute_connection(
+                psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information")
+            )
+            for _ in range(_MAX_SETUP_CONNECTION_DROPPED_RETRIES)
+        ]
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=dropping_connections,
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.InternalError_):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == _MAX_SETUP_CONNECTION_DROPPED_RETRIES
+        for dropped in dropping_connections:
+            dropped.close.assert_called_once()
+
     def test_get_schemas_retries_transient_connection_drop_on_connect(self):
         # A transient drop on the discovery connect ("server closed the connection unexpectedly")
         # is the same class of error the import read path already recovers from. Discovery must
