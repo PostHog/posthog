@@ -42,7 +42,6 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList, insightProps } from './tabs/issues/IssuesList'
-import { IssuesListRedesigned } from './tabs/issues/IssuesListRedesigned'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
@@ -112,46 +111,10 @@ const IssuesTab = (): JSX.Element => {
     )
 }
 
-const IssuesRedesignedTab = (): JSX.Element => {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { query } = useValues(errorTrackingSceneLogic)
-    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
-
-    const banners = (
-        <>
-            <ErrorTrackingIssueFilteringTool />
-            {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-            {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-        </>
-    )
-
-    return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic
-                logic={issuesDataNodeLogic}
-                props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
-            >
-                {banners}
-                <IssuesListRedesigned
-                    toolbar={
-                        <FilterBar
-                            variant="inline"
-                            reload={<IssueReloadButton />}
-                            logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
-                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                        />
-                    }
-                />
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
-    )
-}
-
 export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
-    const hasSearchBarRedesign = useFeatureFlag('ERROR_TRACKING_SEARCH_BAR_REDESIGN')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -175,15 +138,6 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Issues',
             content: <IssuesTab />,
         },
-        ...(hasSearchBarRedesign
-            ? [
-                  {
-                      key: 'issues-redesigned' as const,
-                      label: 'Issues redesigned',
-                      content: <IssuesRedesignedTab />,
-                  },
-              ]
-            : []),
         {
             key: 'insights',
             label: 'Insights',

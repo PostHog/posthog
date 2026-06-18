@@ -270,7 +270,9 @@ const BarContents = ({
                                 icon={<IconFilter />}
                                 active={open}
                                 tooltip={showSearch ? `Search and filter ${searchSubject}` : 'Filter by property'}
-                            />
+                            >
+                                {isInline ? 'Filter' : undefined}
+                            </LemonButton>
                         )}
                     />
                 </div>
