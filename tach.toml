@@ -690,7 +690,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -759,6 +759,29 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# legal_documents is not fully sealed, so it stays out of the canonical alternation above.
+# posthog/urls registers its pandadoc webhook (presentation.webhook) and posthog/admin
+# imports its admin inline (LegalDocumentInline) for the project-wide registry — admin
+# registration cannot route through the facade. The admin leak is permanent, so
+# backend:contract-check stays off for this product (cf. error_tracking below).
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.legal_documents",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.admin.*",
+]
+from = [
+    "products.legal_documents",
 ]
 
 # error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
