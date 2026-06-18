@@ -900,7 +900,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_normalize_filter_group(self, _name, input_value, expected):
-        from products.logs.backend.api import LogsViewSet
+        from products.logs.backend.presentation.views.api import LogsViewSet
 
         self.assertEqual(LogsViewSet._normalize_filter_group(input_value), expected)
 

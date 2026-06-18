@@ -151,17 +151,17 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     query_strategy = query_strategy or "strategy_resolution_failed"
                     clickhouse_query_type = clickhouse_query_type or None
 
-                used_preaggregated_label = "unknown"
+                pre_compute_strategy_label = "unknown"
                 if response is not None:
-                    val = getattr(response, "usedPreAggregatedTables", None)
-                    if val is not None:
-                        used_preaggregated_label = str(val).lower()
+                    strategy = getattr(response, "preComputeStrategy", None)
+                    if strategy is not None:
+                        pre_compute_strategy_label = str(strategy)
 
                 query_strategy_label = query_strategy or "none"
                 metric_labels = {
                     "query_kind": query_kind,
                     "query_strategy": query_strategy_label,
-                    "used_preaggregated": used_preaggregated_label,
+                    "pre_compute_strategy": pre_compute_strategy_label,
                     "breakdown": breakdown_label,
                     "has_conversion_goal": has_conversion_goal,
                 }
@@ -187,7 +187,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     clickhouse_query_type=clickhouse_query_type,
                     breakdown=breakdown_label,
                     has_conversion_goal=has_conversion_goal,
-                    used_preaggregated=used_preaggregated_label,
+                    pre_compute_strategy=pre_compute_strategy_label,
                     duration_s=round(duration_s, 4),
                     error=bool(error_type),
                     error_type=error_type or None,

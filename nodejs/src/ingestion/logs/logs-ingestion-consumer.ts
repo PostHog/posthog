@@ -575,6 +575,9 @@ export class LogsIngestionConsumer {
                             async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
                         )
 
+                        let bytesUncompressedHeaderOverride: number | undefined
+                        let bytesCompressedHeaderOverride: number | undefined
+
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
                         // (→ bytes_ingested) and `recordsAllowed` reflect only what survived the drops.
@@ -624,6 +627,16 @@ export class LogsIngestionConsumer {
                                         billingRow.recordsAllowed - resolved.recordsDropped
                                     )
                                 }
+
+                                // Scale both size headers down by the same dropped content fraction so
+                                // downstream accounting sees only the surviving bytes.
+                                const compressedCredit = billingByteReductionForDrops(
+                                    message.bytesCompressed,
+                                    resolved.contentBytesDropped,
+                                    resolved.contentBytesTotal
+                                )
+                                bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
+                                bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
                             }
                         }
 
@@ -653,6 +666,12 @@ export class LogsIngestionConsumer {
                                     team_id: message.teamId.toString(),
                                     'json-parse': jsonParse.toString(),
                                     'retention-days': retentionDays.toString(),
+                                    ...(bytesUncompressedHeaderOverride !== undefined
+                                        ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                        : {}),
+                                    ...(bytesCompressedHeaderOverride !== undefined
+                                        ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                        : {}),
                                 },
                             },
                         ])

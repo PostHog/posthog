@@ -672,6 +672,74 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["attr"] == "has_implementation_pr"
         assert body["code"] == "invalid_input"
 
+    # --- actionability filter ---
+
+    def test_filter_actionability_single_value(self):
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert {r["id"] for r in body["results"]} == {str(not_actionable.id)}
+        assert body["count"] == 1
+
+    def test_filter_actionability_multiple_values(self):
+        immediate = self._create_report(title="Immediate")
+        self._actionability_artefact(immediate, actionability="immediately_actionable")
+        needs_input = self._create_report(title="Needs input")
+        self._actionability_artefact(needs_input, actionability="requires_human_input")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="immediately_actionable,requires_human_input"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(immediate.id), str(needs_input.id)}
+
+    def test_filter_actionability_excludes_reports_without_judgment(self):
+        # A report with no actionability_judgment artefact (annotation is NULL) is excluded.
+        unjudged = self._create_report(title="Unjudged")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(unjudged.id) not in ids
+        assert str(not_actionable.id) in ids
+
+    def test_filter_actionability_count_via_limit_one(self):
+        for i in range(3):
+            report = self._create_report(title=f"NA report {i}")
+            self._actionability_artefact(report, actionability="not_actionable")
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable", limit=1))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == 1
+
+    def test_filter_actionability_absent_returns_all(self):
+        a = self._create_report(title="A")
+        self._actionability_artefact(a, actionability="immediately_actionable")
+        b = self._create_report(title="B")
+        self._actionability_artefact(b, actionability="not_actionable")
+
+        response = self.client.get(self._list_url())
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(a.id), str(b.id)} <= ids
+
+    def test_filter_actionability_invalid_value_returns_400(self):
+        response = self.client.get(self._list_url(actionability="maybe_later"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "actionability"
+        assert body["code"] == "invalid_input"
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):
@@ -804,6 +872,69 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["actionability"] is None
 
+    # --- dismissal reason ---
+
+    def _dismissal_artefact(
+        self,
+        report: SignalReport,
+        *,
+        reason: str | None,
+        note: str = "",
+        created_at=None,
+    ) -> SignalReportArtefact:
+        payload: dict = {"note": note, "user_id": None, "user_uuid": None}
+        if reason is not None:
+            payload["reason"] = reason
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=json.dumps(payload),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        return art
+
+    @parameterized.expand(
+        [
+            # Known reason code with a note: both are surfaced verbatim.
+            ("known_reason_with_note", "wontfix_intentional", "by design", "wontfix_intentional", "by design"),
+            # Reason codes are client-owned, so an unrecognised code passes through;
+            # an empty note collapses to null.
+            ("unknown_reason_passes_through", "some_brand_new_code", "", "some_brand_new_code", None),
+        ]
+    )
+    def test_list_surfaces_dismissal_reason_and_note(self, _name, reason, note, expected_reason, expected_note):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason=reason, note=note)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == expected_reason
+        assert row["dismissal_note"] == expected_note
+
+    def test_list_dismissal_reason_null_without_artefact(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] is None
+        assert row["dismissal_note"] is None
+
+    def test_list_uses_latest_dismissal_artefact_by_created_at(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason="report_unclear", created_at=timezone.now() - timedelta(days=1))
+        self._dismissal_artefact(report, reason="analysis_wrong")
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == "analysis_wrong"
+
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
@@ -874,6 +1005,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == expected_final_status
+
+        # The response serializes the report after the dismissal artefact is written, so it must
+        # reflect the just-saved reason/note — not a stale prefetch evaluated before the write.
+        assert response.json()["dismissal_reason"] == expected_reason
+        assert response.json()["dismissal_note"] == expected_note
 
         artefacts = list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)

@@ -14,6 +14,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
@@ -272,7 +273,8 @@ def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]
     unique_ids = list({distinct_id for distinct_id in distinct_ids if distinct_id})
     if not unique_ids:
         return {}
-    return get_persons_mapped_by_distinct_id(team_id, unique_ids)
+    with personhog_caller_tag("mcp-analytics/persons"):
+        return get_persons_mapped_by_distinct_id(team_id, unique_ids)
 
 
 def _person_display(person: Person | None) -> dict[str, str]:

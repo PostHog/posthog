@@ -19,7 +19,7 @@ import {
 import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { experimentMetricsLogicType } from './experimentMetricsLogicType'
-import { hasEnded, isLaunched } from './experimentsLogic'
+import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
     metadata: {
@@ -199,10 +199,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
         /**
-         * Recalculations only make sense for a running experiment: a draft has no results to fetch, and a
-         * stopped one is frozen. Gates both the latest-fetch and triggering a new run.
+         * Recalculations only make sense once an experiment has launched: a draft has no results to fetch.
+         * A stopped experiment still has final results to compute and display, so it is included here — this
+         * mirrors the backend, which only rejects recalculation for drafts (`is_launched`). Gates both the
+         * latest-fetch and triggering a new run.
          */
-        const experimentIsRunning = (): boolean => isLaunched(props.experiment) && !hasEnded(props.experiment)
+        const experimentIsLaunched = (): boolean => isLaunched(props.experiment)
 
         /**
          * some local helpers for the listeners closure
@@ -266,8 +268,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     return
                 }
-                // Don't fetch for draft or stopped experiments — there's nothing to recalculate.
-                if (!experimentIsRunning()) {
+                // Don't fetch for draft experiments — there's nothing to recalculate yet.
+                if (!experimentIsLaunched()) {
                     actions.setRecalculationLoading(false)
                     return
                 }
@@ -324,10 +326,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * Don't recalculate draft or stopped experiments; a config-change edit on either shouldn't
-                 * kick off a run.
+                 * Don't recalculate draft experiments; a config-change edit on a draft shouldn't kick off a
+                 * run. Stopped experiments are allowed — they still need their final results computed.
                  */
-                if (!experimentIsRunning()) {
+                if (!experimentIsLaunched()) {
                     return
                 }
                 /**

@@ -4,7 +4,7 @@ from temporalio import activity
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 
-from products.error_tracking.backend.recommendations.refresh import refresh_teams_recommendations_batched
+from products.error_tracking.backend.logic.recommendations.refresh import refresh_teams_recommendations_batched
 from products.error_tracking.backend.temporal.recommendations_refresh.types import (
     RecommendationsRefreshInputs,
     RefreshBatchInputs,

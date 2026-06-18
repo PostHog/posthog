@@ -8,6 +8,7 @@ from psycopg.pq import TransactionStatus
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import TemporaryFileSizeExceedsLimitException
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
@@ -127,6 +128,103 @@ class TestBuildQueryEnabledColumns:
         rendered = composed.as_string()
         assert rendered.startswith('SELECT "email", "id", "created_at" FROM')
         assert 'WHERE "created_at"' in rendered
+
+
+class TestBuildQueryRowFilters:
+    def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
+    def test_full_refresh_row_filter(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filters_compose_with_incremental(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=True,
+            table_type=None,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "created_at"' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
+
+    def test_sampling_query_is_not_filtered(self):
+        # Row filters apply only to the real data path; the sampling/estimation query stays unfiltered.
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            add_sampling=True,
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert '"age"' not in rendered
+
+    def test_in_filter_renders_parenthesized_list(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("age", "IN", [21, 30, 40])],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_not_in_string_list_values_are_escaped_literals(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                self._filter("name", "NOT IN", ["a", "'; DROP TABLE y; --"], category=ColumnTypeCategory.STRING)
+            ],
+        )
+        rendered = composed.as_string()
+        assert "\"name\" NOT IN ('a', '''; DROP TABLE y; --')" in rendered
+
+    def test_string_value_is_escaped_literal_not_injectable(self):
+        # psycopg's sql.Literal inlines values, but escapes them: the `;` stays inside a quoted
+        # literal (single quote doubled), so it can't break out into executable SQL.
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("name", "=", "x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING)],
+        )
+        rendered = composed.as_string()
+        assert "'x''; DROP TABLE y; --'" in rendered
 
 
 class TestRedshiftColumnToArrowField:
