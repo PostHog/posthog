@@ -24,6 +24,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
+    NO_ACCESS_LEVEL,
     RESOURCE_INHERITANCE_MAP,
     AccessControlLevel,
     UserAccessControl,
@@ -156,8 +157,9 @@ class TestAccessLevelHelpersProperties(TestCase):
 
         provided = [level for level in [default_arg, role_arg] if level is not None]
         assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-        if default_arg is not None and (role_arg is not None or True):
-            assert (result.inherited_access_level_reason == "project_default") == (default_arg is not None)
+        # The inherited reason is "project_default" exactly when a default level is present,
+        # regardless of whether a role override is also present.
+        assert (result.inherited_access_level_reason == "project_default") == (default_arg is not None)
 
 
 # ------------------------------------------------------------
@@ -295,6 +297,23 @@ def project_rows(draw):
     return _row_specs(draw, ("object",), st.sampled_from(PROJECT_LEVELS))
 
 
+@st.composite
+def queryset_scenario(draw):
+    # Several objects of one resource, each with its own object-level rows, plus a
+    # set of resource-level rows. Drives the queryset/object-id resolution path
+    # (filter_queryset_by_access_level / blocked_resource_ids_by_scope) where the
+    # interaction across multiple objects and resource-level access matters.
+    resource, model_cls = draw(st.sampled_from(OBJECT_MODELS))
+    effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+    object_level = st.sampled_from(ordered_access_levels(resource))
+    resource_level = st.sampled_from(ordered_access_levels(effective))
+
+    n_objects = draw(st.integers(min_value=1, max_value=3))
+    objects = [(_row_specs(draw, ("object",), object_level), draw(st.booleans())) for _ in range(n_objects)]
+    resource_specs = _row_specs(draw, ("resource",), resource_level)
+    return resource, model_cls, objects, resource_specs
+
+
 # Plain members are the only level where row resolution matters, so bias toward them
 membership_levels_st = st.one_of(st.just(OrganizationMembership.Level.MEMBER), st.sampled_from(ALL_MEMBERSHIP_LEVELS))
 
@@ -338,6 +357,52 @@ def oracle_resource_access_level(resource: APIScopeObject, specs: list[RowSpec],
         return highest_access_level(effective)
     matching: list[AccessControlLevel] = [s.level for s in specs if s.target in MATCHING]
     return _max_level(matching, ordered_access_levels(effective)) or default_access_level(effective)
+
+
+def oracle_blocked_and_allowed_object_ids(
+    object_specs_by_id: dict[str, list[RowSpec]],
+) -> tuple[set[str], set[str]]:
+    # Mirrors _blocked_and_allowed_object_ids over the rows visible to self.user
+    # (only MATCHING targets survive _filter_options). Explicit (role/member) rows
+    # decide an object: any non-"none" explicit row allows it, otherwise it's blocked.
+    # With no explicit row, the object is blocked only when every default row is "none".
+    blocked: set[str] = set()
+    allowed: set[str] = set()
+    for resource_id, specs in object_specs_by_id.items():
+        matching = [s for s in specs if s.target in MATCHING]
+        if not matching:
+            continue
+        explicit = [s for s in matching if s.target != "team_default"]
+        if not explicit:
+            if all(s.level == NO_ACCESS_LEVEL for s in matching):
+                blocked.add(resource_id)
+            continue
+        if any(s.level != NO_ACCESS_LEVEL for s in explicit):
+            allowed.add(resource_id)
+        else:
+            blocked.add(resource_id)
+    return blocked, allowed
+
+
+def oracle_visible_object_ids(
+    resource: APIScopeObject,
+    resource_specs: list[RowSpec],
+    object_specs_by_id: dict[str, list[RowSpec]],
+    creator_ids: set[str],
+    model_has_creator: bool,
+    is_org_admin: bool,
+) -> set[str]:
+    # Mirrors filter_queryset_by_access_level (include_all_if_admin=False).
+    all_ids = set(object_specs_by_id)
+    blocked, allowed = oracle_blocked_and_allowed_object_ids(object_specs_by_id)
+    has_resource_access = oracle_resource_access_level(resource, resource_specs, is_org_admin) != NO_ACCESS_LEVEL
+    creators = creator_ids if model_has_creator else set()
+
+    if not has_resource_access and allowed:
+        return (allowed | creators) & all_ids
+    if blocked:
+        return all_ids - (blocked - creators)
+    return all_ids
 
 
 def oracle_can_modify(
@@ -471,6 +536,86 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
         )
         assert self._fresh_uac().access_level_for_resource(resource) == expected
+
+    @given(data=resource_level_rows(), membership_level=membership_levels_st)
+    @settings(max_examples=100, deadline=None)
+    def test_has_resource_access_and_blocked_resources_match_oracle(self, data, membership_level):
+        resource, specs = data
+        self._set_membership_level(membership_level)
+        self._materialize(specs, resource, obj=None)
+        is_org_admin = membership_level >= OrganizationMembership.Level.ADMIN
+
+        uac = self._fresh_uac()
+        level = oracle_resource_access_level(resource, specs, is_org_admin=is_org_admin)
+        assert uac.has_resource_access(resource) == (level != NO_ACCESS_LEVEL)
+
+        # blocked_resources lists resources with resource-level rows the user can't access;
+        # rows land on the inheritance parent, and only rows matching the user are visible.
+        effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+        if is_org_admin or not any(s.target in MATCHING for s in specs):
+            expected_blocked: list[str] = []
+        else:
+            expected_blocked = [effective] if level == NO_ACCESS_LEVEL else []
+        assert uac.blocked_resources == expected_blocked
+
+    @given(scenario=queryset_scenario(), membership_level=membership_levels_st)
+    @settings(max_examples=50, deadline=None)
+    def test_filter_queryset_by_access_level_matches_oracle(self, scenario, membership_level):
+        resource, model_cls, objects, resource_specs = scenario
+        self._set_membership_level(membership_level)
+
+        object_specs_by_id: dict[str, list[RowSpec]] = {}
+        creator_ids: set[str] = set()
+        built_pks: list = []
+        for specs, owned in objects:
+            creator = self.user if owned else self.other_user
+            obj = build_instance(model_cls, self.team, creator)
+            self._materialize(specs, resource, obj)
+            object_specs_by_id[str(obj.pk)] = specs
+            built_pks.append(obj.pk)
+            if owned:
+                creator_ids.add(str(obj.pk))
+        self._materialize(resource_specs, resource, obj=None)
+
+        manager: Any = model_cls._default_manager
+        base = manager.for_team(self.team.id) if hasattr(manager, "for_team") else manager
+        queryset = base.filter(pk__in=built_pks)
+
+        filtered = self._fresh_uac().filter_queryset_by_access_level(queryset)
+        result_ids = {str(pk) for pk in filtered.values_list("pk", flat=True)}
+
+        expected = oracle_visible_object_ids(
+            resource,
+            resource_specs,
+            object_specs_by_id,
+            creator_ids,
+            model_has_creator=model_has_created_by(model_cls),
+            is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
+        )
+        assert result_ids == expected
+
+    @given(scenario=queryset_scenario(), membership_level=membership_levels_st)
+    @settings(max_examples=50, deadline=None)
+    def test_blocked_resource_ids_by_scope_matches_oracle(self, scenario, membership_level):
+        resource, model_cls, objects, resource_specs = scenario
+        self._set_membership_level(membership_level)
+
+        object_specs_by_id: dict[str, list[RowSpec]] = {}
+        for specs, owned in objects:
+            creator = self.user if owned else self.other_user
+            obj = build_instance(model_cls, self.team, creator)
+            self._materialize(specs, resource, obj)
+            object_specs_by_id[str(obj.pk)] = specs
+        # Resource-level rows must not leak into the object-scope result
+        self._materialize(resource_specs, resource, obj=None)
+
+        result = self._fresh_uac().blocked_resource_ids_by_scope
+
+        if membership_level >= OrganizationMembership.Level.ADMIN:
+            assert result == {}
+            return
+        blocked, _allowed = oracle_blocked_and_allowed_object_ids(object_specs_by_id)
+        assert result == ({resource: blocked} if blocked else {})
 
     @given(
         data=object_resource_and_rows(),
