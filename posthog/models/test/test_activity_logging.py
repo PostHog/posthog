@@ -1,8 +1,17 @@
+import json
 from typing import cast
 
 from django.test import TestCase
 
-from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
+from posthog.models.activity_logging.activity_log import (
+    AuditableScope,
+    Change,
+    Detail,
+    describe_change,
+    dict_changes_between,
+)
+from posthog.models.integration import Integration
+from posthog.models.utils import ActivityDetailEncoder
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -77,3 +86,15 @@ class TeatActivityLog(TestCase):
         }
 
         self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])
+
+    def test_activity_detail_encoder_serializes_integration(self):
+        # Subscriptions tied to an integration place a raw Integration instance into the change
+        # detail; the encoder must serialize it rather than raising TypeError.
+        integration = Integration(id=7, kind=Integration.IntegrationKind.SLACK)
+        detail = Detail(
+            changes=[Change(type="Subscription", action="created", field="integration", before=None, after=integration)]
+        )
+
+        serialized = json.loads(json.dumps(detail, cls=ActivityDetailEncoder))
+
+        self.assertEqual(serialized["changes"][0]["after"], {"id": 7, "kind": "slack"})

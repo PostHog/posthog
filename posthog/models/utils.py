@@ -699,4 +699,9 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Integration":
+            return {
+                "id": obj.id,
+                "kind": obj.kind,
+            }
         return json.JSONEncoder.default(self, obj)
