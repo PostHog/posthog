@@ -30,13 +30,23 @@ MIN_SIGNAL_CONFIDENCE = 0.4
 
 
 class SignalFinding(BaseModel, frozen=True):
-    """Optional side-mission finding: a product issue worth surfacing as a PostHog Signal."""
+    """Optional side-mission finding: a bug, crash, or design flaw the recording itself reveals. See the side-mission prompt block."""
 
+    visual_evidence: str = Field(
+        description=(
+            "What you saw in the recording that reveals this issue. Describe the visual detail the events do not "
+            "capture. Examples: a spinner overlapping a button so it looks clickable; an error toast that flashed "
+            "off-screen before it could be read; a layout shift that moved the target out from under the cursor; a "
+            "control that looks disabled but isn't; content rendered overlapping or truncated; visible hesitation or "
+            "repeated mis-aiming. If you can't point to something visual, and the events alone already show the "
+            "issue, return `signal: null` instead."
+        )
+    )
     description: str = Field(
         description=(
-            "Self-contained prose a reader with no session context can act on: what happened, where in the "
-            "product, and the user impact — concrete, per the side-mission instructions. "
-            "Plain prose, no `(event_uuid …)` citation markers."
+            "Actionable prose a reader with no session context can act on. Say what happened, where in the product, "
+            "and the user impact. When they're visible on screen, quote the exact labels, button text, and URL paths "
+            "so a downstream agent can grep for them. Use plain prose. Do not use `(event_uuid …)` citation markers."
         )
     )
     confidence: float = Field(
@@ -56,8 +66,8 @@ def _with_signal_field(base: type[BaseModel]) -> type[BaseModel]:
             Field(
                 default=None,
                 description=(
-                    "Only when the session surfaced a clear, actionable product issue per the side mission; "
-                    "null otherwise. Most sessions warrant null."
+                    "Set only when watching the session revealed a bug, crash, or design flaw per the side "
+                    "mission. Otherwise null. Most sessions warrant null."
                 ),
             ),
         ),

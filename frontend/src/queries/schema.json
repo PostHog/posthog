@@ -37449,9 +37449,21 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "visual_evidence": {
+                    "description": "What the recording visually showed that the analytics events don't capture — the basis for a Vision finding.",
+                    "type": "string"
                 }
             },
-            "required": ["scanner_id", "scanner_name", "scanner_type", "observation_id", "session_id", "confidence"],
+            "required": [
+                "scanner_id",
+                "scanner_name",
+                "scanner_type",
+                "observation_id",
+                "session_id",
+                "confidence",
+                "visual_evidence"
+            ],
             "type": "object"
         },
         "ReplayVisionScannerFindingSignalInput": {

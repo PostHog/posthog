@@ -2090,7 +2090,11 @@ class TestEmitObservationSignalActivity:
         defaults: dict = {
             "team_id": observation.team_id,
             "observation_id": observation.id,
-            "signal": SignalFinding(description="Broken checkout CTA on /cart", confidence=confidence),
+            "signal": SignalFinding(
+                visual_evidence="The spinner overlapped the CTA, making it look clickable while it was inert",
+                description="Broken checkout CTA on /cart",
+                confidence=confidence,
+            ),
         }
         defaults.update(overrides)
         return EmitObservationSignalInputs(**defaults)
@@ -2113,6 +2117,7 @@ class TestEmitObservationSignalActivity:
         assert kwargs["extra"]["scanner_type"] == "monitor"
         assert kwargs["extra"]["session_id"] == observation.session_id
         assert kwargs["extra"]["confidence"] == 0.8
+        assert kwargs["extra"]["visual_evidence"].startswith("The spinner overlapped")
 
     @pytest.mark.parametrize("confidence", [0.0, 0.39])
     def test_skips_findings_below_the_confidence_floor(self, confidence: float) -> None:
@@ -2180,7 +2185,11 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
             ),
             call_scanner_provider_activity: ScannerCallOutput(
                 model_output=model_output,
-                signal=SignalFinding(description="Checkout CTA is broken on /cart", confidence=0.8),
+                signal=SignalFinding(
+                    visual_evidence="The error toast flashed off-screen before it could be read",
+                    description="Checkout CTA is broken on /cart",
+                    confidence=0.8,
+                ),
             ),
             emit_observation_signal_activity: 1,
         },
@@ -2216,7 +2225,11 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
             ),
             call_scanner_provider_activity: ScannerCallOutput(
                 model_output=model_output,
-                signal=SignalFinding(description="Checkout CTA is broken on /cart", confidence=0.8),
+                signal=SignalFinding(
+                    visual_evidence="The error toast flashed off-screen before it could be read",
+                    description="Checkout CTA is broken on /cart",
+                    confidence=0.8,
+                ),
             ),
         },
         activity_errors={emit_observation_signal_activity: TimeoutError("start-to-close exceeded")},

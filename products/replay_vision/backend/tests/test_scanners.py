@@ -639,16 +639,45 @@ class TestSignalSideMission:
             _build_replay_scanner(scanner_type=scanner_type, scanner_config=config, emits_signals=True)
         )
         parsed = scanner.llm_response_model().model_validate(
-            {**payload, "confidence": 0.9, "signal": {"description": "Broken CTA on /cart", "confidence": 0.8}}
+            {
+                **payload,
+                "confidence": 0.9,
+                "signal": {
+                    "visual_evidence": "The submit spinner overlapped the button so it looked clickable",
+                    "description": "Broken CTA on /cart",
+                    "confidence": 0.8,
+                },
+            }
         )
         signal = getattr(parsed, "signal", None)
         assert isinstance(signal, SignalFinding)
         assert signal.description == "Broken CTA on /cart"
+        assert signal.visual_evidence.startswith("The submit spinner")
         # `finalize` must still produce the persisted output; the finding travels separately on ScannerCallOutput.
         assert scanner.finalize(parsed) is not None
+
+    def test_signal_requires_visual_evidence(self) -> None:
+        # `visual_evidence` is the gate forcing the finding to be grounded in the recording, not the events.
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
+        with pytest.raises(ValidationError):
+            scanner.llm_response_model().model_validate(
+                {
+                    "verdict": "yes",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "signal": {"description": "x", "confidence": 0.8},
+                }
+            )
 
     @pytest.mark.parametrize("emits_signals, expected", [(True, True), (False, False)])
     def test_prompt_includes_side_mission_only_when_emitting(self, emits_signals: bool, expected: bool) -> None:
         scanner = scanner_from_db(_build_replay_scanner(emits_signals=emits_signals))
         rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=["event"], rows=[]))
         assert ("signal_side_mission" in rendered) == expected
+
+    def test_side_mission_demands_video_grounding_and_excludes_events(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
+        rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=["event"], rows=[]))
+        assert "visual_evidence" in rendered  # lever 2: must come from watching the video
+        assert "not a Vision finding" in rendered  # lever 1: don't re-emit what events already capture
+        assert "name the specific events and their sequence" not in rendered  # lever 3: old event-steering removed

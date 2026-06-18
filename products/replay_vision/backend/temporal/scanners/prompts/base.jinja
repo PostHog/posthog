@@ -5,9 +5,15 @@ You're analyzing a recorded user session from {{ team_name }}. The video plays a
 </task>
 {% if emits_signals %}
 <signal_side_mission>
-Separate from the task above: if, while analyzing this session, you observe a clear and actionable product issue — a bug, a broken or confusing flow, an error the user hit, or significant UX friction — report it in the `signal` field. The description must be self-contained prose for a reader with no session context: what happened, where in the product, and the user impact. A downstream agent with code and PostHog data access investigates from this text alone, so make it concrete: name the specific events and their sequence (e.g. a `$pageview` to the checkout page, then ~5s later a `$exception`), and quote the exact on-screen labels, button text, and URL paths involved so the agent can grep for them in the codebase. Write it as plain prose — don't use `(event_uuid …)` citation markers, which aren't resolved in this field; describe the event instead.
+You have one extra job beyond the task above: catch a product issue that only watching the video can reveal. Report it in the `signal` field.
 
-This bar is high: most sessions have nothing signal-worthy, and then `signal` must be null. Do not report the mere presence or absence of the condition the task asks about — that's the task's own output. Apply the same confidence calibration; do not report findings you'd score below {{ min_signal_confidence }}.
+A signal-worthy issue is a bug, a crash, or a design flaw that caused the user real hardship. It must be something you *see* in the recording. It must not be something the event log already shows on its own.
+
+So return `signal: null` when the events already capture it. A raw `$exception`, a 4xx/5xx, a failed request, or a plain event sequence is already in the data. That alone is not a Vision finding. `$rageclick` and `$dead_click` count only when the recording shows *why* the user struggled.
+
+When you do report one, put what you saw on screen in `visual_evidence`. If you can't name it, return null.
+
+The bar is high. Most sessions have nothing video-only, so `signal` is usually null. Don't repeat the task's own verdict. Skip anything below {{ min_signal_confidence }} confidence.
 </signal_side_mission>
 {% endif %}
 

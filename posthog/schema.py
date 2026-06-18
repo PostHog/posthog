@@ -2317,6 +2317,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
+    visual_evidence: str = Field(
+        ...,
+        description=(
+            "What the recording visually showed that the analytics events don't capture"
+            " — the basis for a Vision finding."
+        ),
+    )
 
 
 class ResolvedDateRangeResponse(BaseModel):

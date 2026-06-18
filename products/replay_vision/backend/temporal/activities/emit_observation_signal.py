@@ -50,6 +50,7 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                 "observation_id": str(observation.id),
                 "session_id": observation.session_id,
                 "confidence": inputs.signal.confidence,
+                "visual_evidence": inputs.signal.visual_evidence,
             },
         )
         return 1

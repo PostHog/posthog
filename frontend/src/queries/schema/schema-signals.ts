@@ -393,6 +393,8 @@ export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
     session_id: string
     /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
     confidence: number
+    /** What the recording visually showed that the analytics events don't capture — the basis for a Vision finding. */
+    visual_evidence: string
 }
 
 export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
