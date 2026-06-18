@@ -6969,3 +6969,26 @@ class TestMySQLPrinter(BaseTest):
         printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
         with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
             printer._print_identifier("bad%name")
+
+
+class TestSnowflakePrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+    ) -> str:
+        node = parse_expr(query, backend="cpp-json") if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="snowflake", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="snowflake",
+            stack=[prepared_select_query],
+        )
