@@ -64,6 +64,10 @@ PENDING_AUTH_TTL_SECONDS = 600
 # Email codes get a longer window than browser auth codes: the user has to switch to
 # their inbox (or an agent has to poll it) before the code comes back for exchange.
 EMAIL_CODE_TTL_SECONDS = 600
+LINK_METHOD_BROWSER = "browser"
+LINK_METHOD_EMAIL_CODE = "email_code"
+DEFAULT_LINK_METHOD = LINK_METHOD_BROWSER
+VALID_LINK_METHODS = (LINK_METHOD_BROWSER, LINK_METHOD_EMAIL_CODE)
 EMAIL_CODE_RATE_LIMIT_PREFIX = "provisioning_email_code_rate:"
 EMAIL_CODE_RATE_LIMIT_MAX_SENDS = 3
 EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS = 3600
@@ -414,8 +418,8 @@ def account_requests(request: Request) -> Response:
             status=400,
         )
 
-    link_method = data.get("link_method", "")
-    if link_method not in ("", "browser", "email_code"):
+    link_method = data.get("link_method") or DEFAULT_LINK_METHOD
+    if link_method not in VALID_LINK_METHODS:
         return Response(
             {
                 "id": request_id,
@@ -523,7 +527,7 @@ def _handle_existing_user(
     code_challenge: str = "",
     code_challenge_method: str = "S256",
     authenticated_user: User | None = None,
-    link_method: str = "",
+    link_method: str = DEFAULT_LINK_METHOD,
 ) -> Response:
     # Account-takeover defense: a partner with skip_existing_user_consent=True may only mint
     # silently for an *existing* account when the caller proved a prior trust relationship with
@@ -570,7 +574,7 @@ def _handle_existing_user(
             )
         # Partners without the flag fall back to browser consent rather than erroring:
         # every client must handle requires_auth anyway, so the flow still completes.
-        if link_method == "email_code" and partner.provisioning_can_link_via_email_code:
+        if link_method == LINK_METHOD_EMAIL_CODE and partner.provisioning_can_link_via_email_code:
             return _require_email_code(
                 request_id,
                 user,
