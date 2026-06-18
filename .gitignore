@@ -136,6 +136,9 @@ frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
 
+# CI log downloads (gh-logs-grab / gh run download)
+/logs/
+
 # Watchman cache
 .watchman-cookie-*
 

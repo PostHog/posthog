@@ -203,7 +203,7 @@ describe('buildAgentTools', () => {
     it('maps provider-safe names back to original ids', async () => {
         const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
         const built = await buildAgentTools(rev, makeDeps(rev))
-        expect(built.nameToId.get('_posthog_query')).toBe('@posthog/query')
+        expect(built.nameToId.get('posthog_query')).toBe('@posthog/query')
         // Tools are registered under their original id; the safe form is only
         // applied on the wire by the driver's streamFn.
         expect(byId(built, '@posthog/query').name).toBe('@posthog/query')
