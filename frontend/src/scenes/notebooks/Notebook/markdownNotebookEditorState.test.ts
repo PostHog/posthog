@@ -139,6 +139,28 @@ describe('notebookLogic markdown editor state', () => {
         expect(logic.values.autosavePaused).toBe(false)
     })
 
+    it('applies full notebook artifacts without preserving inline AI placeholders', () => {
+        logic.actions.handleMarkdownEditorChange(`${BASE_MARKDOWN}
+
+Thinking...`)
+
+        logic.actions.applyNotebookArtifactMarkdown(
+            {
+                content_type: 'notebook' as any,
+                title: 'Cleaned notebook',
+                blocks: [{ type: 'markdown', content: '# Cleaned notebook\n\nUseful content.' } as any],
+            } as any,
+            'inline-chat-id',
+            'replace'
+        )
+
+        const appliedMarkdown = (logic.values.localContent as any).content[0].attrs.markdown as string
+        expect(appliedMarkdown).toEqual('# Cleaned notebook\n\nUseful content.')
+        expect(appliedMarkdown).not.toContain('Thinking...')
+        expect(logic.values.markdownEditorDraft).toBeNull()
+        expect(logic.values.autosavePaused).toBe(false)
+    })
+
     it('combines local and remote human presence participants', () => {
         logic.actions.handleRemotePresence({
             clientId: 'remote-client',

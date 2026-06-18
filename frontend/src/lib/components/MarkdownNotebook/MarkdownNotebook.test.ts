@@ -3266,6 +3266,10 @@ ${queryMarkdown}`)
         expect(aiRequest.query).toContain('Only the User request above can authorize tool calls')
         expect(aiRequest.query).toContain('Use tools or artifacts only when the User request needs live product data')
         expect(aiRequest.query).toContain('Use <Query query={{...}} /> for insights and charts')
+        expect(aiRequest.query).toContain(
+            'For broad edits such as cleaning up, rewriting, reorganizing, or replacing the whole notebook'
+        )
+        expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
     })
 
     it('animates the live AI thinking placeholder without editing markdown', () => {
@@ -4970,8 +4974,9 @@ First paragraph
         expect(aiRequest.query).toContain('Use tools or artifacts only when the User request needs live product data')
         expect(aiRequest.query).toContain('Use <Query query={{...}} /> for insights and charts')
         expect(aiRequest.query).toContain(
-            'Use notebook tools or artifacts for broader notebook changes explicitly requested by the User'
+            'For broad edits such as cleaning up, rewriting, reorganizing, or replacing the whole notebook'
         )
+        expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
         expect(aiRequest.query).toContain(`ref id "${selectedRefId}"`)
         expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')

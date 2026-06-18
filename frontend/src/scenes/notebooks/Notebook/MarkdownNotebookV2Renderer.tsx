@@ -123,6 +123,16 @@ export function MarkdownNotebookV2(): JSX.Element {
             const inlineAIRequest = getInlineAIRequest(chatId)
             if (inlineAIRequest) {
                 const artifactMarkdown = notebookArtifactContentToMarkdown(content)
+                if (mode === 'replace') {
+                    applyNotebookArtifactMarkdown(content, chatId, mode)
+                    inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] = 1
+                    inlineAIResponseNodeIndicesRef.current[inlineAIRequest.chatId] = Math.max(
+                        0,
+                        getMarkdownBlockCount(artifactMarkdown) - 1
+                    )
+                    return
+                }
+
                 const replacedNodeCount = inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] ?? 1
                 updateMarkdownEditorValue((currentMarkdown) => {
                     const result = replaceNotebookAIResponseMarkdown(
