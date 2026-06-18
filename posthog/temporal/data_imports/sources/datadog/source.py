@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -47,6 +48,7 @@ class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DATADOG,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Datadog",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect your Datadog account to sync logs, events, monitors, dashboards, and more into the PostHog Data warehouse.

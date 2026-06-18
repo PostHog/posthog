@@ -43,8 +43,14 @@ describe('dashboardsLogic', () => {
                 pinned: true,
             }),
         },
-        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType }) },
-        { ...dashboard({ created_by: { uuid: 'user2' } as UserBasicType, name: 'needle' }) },
+        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType, folder: 'Marketing/Website' }) },
+        {
+            ...dashboard({
+                created_by: { uuid: 'user2' } as UserBasicType,
+                name: 'needle',
+                folder: 'Marketing/Website',
+            }),
+        },
         {
             ...dashboard({
                 created_by: { uuid: 'USER_UUID' } as UserBasicType,
@@ -118,6 +124,18 @@ describe('dashboardsLogic', () => {
         })
     })
 
+    it('filters client-side by folder when no search is active', async () => {
+        const inFolder = allDashboards.filter((d) => (d as DashboardType).folder === 'Marketing/Website')
+        expectLogic(logic, () => {
+            logic.actions.setFilters({ folder: 'Marketing/Website' })
+        }).toMatchValues({
+            dashboards: truth(
+                (dashboards: DashboardType[]) =>
+                    dashboards.length === inFolder.length && dashboards.every((d) => d.folder === 'Marketing/Website')
+            ),
+        })
+    })
+
     it('shows correct dashboards when filtering by name and shared', async () => {
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: 'user2', shared: true })
@@ -174,8 +192,8 @@ describe('dashboardsLogic', () => {
         const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': (req) => {
-                    if (req.url.searchParams.get('search')) {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('search')) {
                         return [200, { count: 1, next: null, previous: null, results: [needleDashboard] }]
                     }
                     return [200, { count: 7, next: null, previous: null, results: allDashboards }]
@@ -216,8 +234,8 @@ describe('dashboardsLogic', () => {
         let lastRequestUrl: URL | null = null
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': (req) => {
-                    lastRequestUrl = req.url
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    lastRequestUrl = new URL(request.url)
                     return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },

@@ -3,3 +3,5 @@ routes:
       database: visual_review
     - app_label: warehouse_sources_queue
       database: warehouse_sources_queue
+    - app_label: agent_platform
+      database: agent_platform

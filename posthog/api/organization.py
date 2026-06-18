@@ -464,15 +464,30 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization.is_pending_deletion = True
         organization.save(update_fields=["is_pending_deletion"])
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, org/team records, ClickHouse, email
-        delete_organization_data_and_notify_task.delay(
-            team_ids=team_ids,
-            organization_id=str(organization_id),
-            user_id=user.id,
-            organization_name=organization_name,
-            project_names=project_names,
+        # Hand off all deletion work (bulky postgres, batch exports, org/team records,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_organization_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_organization_workflow(
+                team_ids=team_ids,
+                organization_id=str(organization_id),
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+            )
+        else:
+            delete_organization_data_and_notify_task.delay(
+                team_ids=team_ids,
+                organization_id=str(organization_id),
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+            )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {

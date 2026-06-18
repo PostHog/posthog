@@ -44,13 +44,13 @@ Suggested entry format:
 
 **Caveats.** The exact pruning loss depends on the team's mix of `$session_id` values; a team with only UUIDv7 ids might see better index behavior. Not measured per-mix.
 
-**Takeaway.** The minmax index did not save the unbounded query: the column also holds the literal string `'null'` (millions of rows/day on team 2) and other non-UUID values, so each granule's `[min, max]` range is wide enough to contain any UUIDv7 and almost nothing is excluded. Minmax on strings only prunes when values correlate tightly with insertion order across the _whole_ column, not just the subset you care about. The structural fix is the same as any single-entity lookup: carry a timestamp bound. When the id is a UUIDv7, the client can derive that bound from the id's embedded 48-bit ms timestamp (plus clock-skew slack and a fallback window for non-parsing ids) — 33x faster and 68x fewer rows than the unbounded form here.
+**Takeaway.** The minmax index did not save the unbounded query: the column also holds the literal string `'null'` (millions of rows/day on team 2) and other non-UUID values, so each granule's `[min, max]` range is wide enough to contain any UUIDv7 and almost nothing is excluded. Minmax on strings only prunes when values correlate tightly with insertion order across the _whole_ column, not just the subset you care about. The structural fix is the same as any single-entity lookup: carry a timestamp bound. When the id is a UUIDv7, the client can derive that bound from the id's embedded 48-bit ms timestamp (plus clock-skew slack and a fallback window for non-parsing ids): 33x faster and 68x fewer rows than the unbounded form here.
 
 ---
 
 ## 2026-06-10: Pre-filtering a window-function scan with an IN-subquery doubled the cost; JSON parsing dominates, window sorts are cheap
 
-**Context.** MCP analytics "neighbors before/after" queries (`products/mcp_analytics/frontend/mcpAnalyticsToolDetailLogic.ts`): a CTE scans all 7 days of a team's `mcp_tool_call` events, computes `lagInFrame`/`leadInFrame` over every conversation, then filters to one target tool. Looked like wasted work — most conversations don't contain the target tool.
+**Context.** MCP analytics "neighbors before/after" queries (`products/mcp_analytics/frontend/mcpAnalyticsToolDetailLogic.ts`): a CTE scans all 7 days of a team's `mcp_tool_call` events, computes `lagInFrame`/`leadInFrame` over every conversation, then filters to one target tool. Looked like wasted work: most conversations don't contain the target tool.
 
 **Question.** Does adding `AND conv_id IN (SELECT DISTINCT conv_id ... WHERE tool = '<target>')` to shrink the window input make the query faster?
 
@@ -71,7 +71,7 @@ The "optimization" was ~1.8× slower and read ~2× the bytes for both tool share
 
 **Takeaway.** The scan (decompress + JSON-parse `properties`) dominates; the window sort it was meant to shrink is trivial by comparison. An IN-subquery over the same events table is a second full scan, so it roughly doubles the dominant cost for zero win. Don't pre-filter partitions of a window function when the filter requires re-scanning the same table you're windowing over.
 
-Also learned while measuring: ClickHouse 26.x's **query condition cache** makes repeat runs of the same query read only the granules that matched last time (we saw 13.1M rows drop to 816 on run 2). Disable it with `use_query_condition_cache=0` when measuring, and don't credit it for production point-lookups whose predicate changes per request (e.g. per-session lookups) — each new predicate is a cold run. And Metabase caches identical native queries entirely: add a changing comment/nonce per run or your "5 runs" are 1 run.
+Also learned while measuring: ClickHouse 26.x's **query condition cache** makes repeat runs of the same query read only the granules that matched last time (we saw 13.1M rows drop to 816 on run 2). Disable it with `use_query_condition_cache=0` when measuring, and don't credit it for production point-lookups whose predicate changes per request (e.g. per-session lookups); each new predicate is a cold run. And Metabase caches identical native queries entirely: add a changing comment/nonce per run or your "5 runs" are 1 run.
 
 ---
 

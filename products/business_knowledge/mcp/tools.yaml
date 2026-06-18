@@ -23,6 +23,22 @@ tools:
             Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
             Use after searching knowledge to get more surrounding context for a specific result.
         feature_flag: product-business-knowledge
+    business-knowledge-documents-search:
+        operation: business_knowledge_documents_search_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search business knowledge
+        description: >
+            Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
+            document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
+            for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
+            for a listwise LLM rerank pass when top-result precision matters.
+        feature_flag: product-business-knowledge
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false

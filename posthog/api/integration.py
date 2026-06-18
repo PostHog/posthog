@@ -75,6 +75,9 @@ from posthog.permissions import (
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -628,6 +631,27 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
+        flows_using_integration = get_active_hog_flows_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        functions_using_integration = get_enabled_hog_functions_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        used_by = []
+        if flows_using_integration:
+            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            used_by.append(f"active workflows: {flow_names}")
+        if functions_using_integration:
+            function_names = ", ".join(
+                sorted(function.name or str(function.id) for function in functions_using_integration)
+            )
+            used_by.append(f"enabled data pipelines: {function_names}")
+        if used_by:
+            raise ValidationError(
+                f"This integration is used by {' and '.join(used_by)}. "
+                "Update them to use a different integration before disconnecting it."
+            )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
@@ -672,12 +696,11 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
-        is_sandbox = request.GET.get("is_sandbox", "").lower() in ("true", "1", "yes")
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, is_sandbox=is_sandbox)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)

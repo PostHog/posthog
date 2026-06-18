@@ -20,7 +20,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsCreateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -83,7 +85,9 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -138,7 +142,9 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsPartialUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod

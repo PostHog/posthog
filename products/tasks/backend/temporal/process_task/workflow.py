@@ -87,7 +87,7 @@ class CIFollowUpDecision(StrEnum):
 
 
 # Legacy re-exports kept while process_task is still on the worker. New
-# workers should import these directly from `products.tasks.backend.temporal.constants`.
+# workers should import them directly from `products.tasks.backend.temporal.constants`.
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,
@@ -204,10 +204,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
-            lambda: self._task_completed
-            or self._heartbeat_received
-            or self._pending_followup is not None
-            or len(self._pending_followups) > 0
+            lambda: (
+                self._task_completed
+                or self._heartbeat_received
+                or self._pending_followup is not None
+                or len(self._pending_followups) > 0
+            )
         )
         return TaskEvent.SIGNAL_RECEIVED
 
@@ -244,14 +246,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
         # env var bypasses the floor, but only when explicitly set AND short —
         # so a misconfigured large value still respects the CI floor.
+        base_timeout = self.context.inactivity_timeout()
         ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
         testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
-            INACTIVITY_TIMEOUT < ci_follow_up_floor
+            base_timeout < ci_follow_up_floor
         )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            max(base_timeout, ci_follow_up_floor)
             if ci_follow_up_scheduled and not testing_override_active
-            else INACTIVITY_TIMEOUT
+            else base_timeout
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),

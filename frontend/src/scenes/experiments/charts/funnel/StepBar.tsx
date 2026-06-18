@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useRef } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 
 import {
     ExperimentActorsQuery,

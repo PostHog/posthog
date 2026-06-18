@@ -1,0 +1,77 @@
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+
+{% block preheader %}Data warehouse sync failures in {{ team.name }}{% endblock %}
+
+{% block heading %}Data warehouse sync failures{% endblock %}
+
+{% block section %}
+<p style="color: #374151;">
+    Some data warehouse syncs are failing in project <strong>{{ team.name }}</strong>.
+    {% if has_paused %}
+    Syncs marked <strong>paused</strong> hit an error we can't retry (for example invalid credentials or an
+    unreachable host) &mdash; fix the source configuration, then re-enable syncing to resume. Other syncs will
+    be retried automatically on their next scheduled run.
+    {% else %}
+    They will be retried automatically on their next scheduled run, but the data in these tables may be out of
+    date until a sync succeeds.
+    {% endif %}
+</p>
+
+{% regroup schemas by source_id as source_groups %}
+{% for group in source_groups %}
+<div style="background-color: #ffffff; border: 1px solid #e5e7eb; border-left: 4px solid {% if group.list.0.paused %}#dc3545{% else %}#fd7e14{% endif %}; border-radius: 8px; padding: 16px 20px; margin-bottom: 12px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+        <tr>
+            <td align="left" style="text-align: left;">
+                <a href="{{ group.list.0.source_url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 700; font-size: 1em;">{{ group.list.0.source_type }}</a>
+                {% if group.list.0.source_prefix %}<span style="color: #9ca3af; font-size: 0.85em;">&nbsp;{{ group.list.0.source_prefix }}</span>{% endif %}
+            </td>
+            <td align="right" style="text-align: right; color: #9ca3af; font-size: 0.8em; white-space: nowrap;">
+                {{ group.list|length }} sync{{ group.list|length|pluralize }} failing
+            </td>
+        </tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse; margin-top: 10px;">
+        {% for schema in group.list %}
+        <tr>
+            <td align="left" style="padding: 9px 8px 9px 0; border-top: 1px solid #f3f4f6; vertical-align: top; text-align: left; white-space: nowrap;">
+                <a href="{{ schema.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ schema.schema_name|truncatechars:32 }}</a>
+            </td>
+            <td align="left" style="padding: 9px 8px; border-top: 1px solid #f3f4f6; vertical-align: top; text-align: left; color: #6b7280; font-size: 0.85em; word-break: break-word;">
+                {{ schema.error|truncatechars:90 }}
+            </td>
+            <td align="right" style="padding: 9px 0 9px 8px; border-top: 1px solid #f3f4f6; vertical-align: top; text-align: right; white-space: nowrap;">
+                {% if schema.paused %}
+                <span style="background-color: #fee2e2; color: #b91c1c; border-radius: 9999px; padding: 2px 10px; font-size: 0.75em; font-weight: 600;">Paused &mdash; action required</span>
+                {% else %}
+                <span style="background-color: #f3f4f6; color: #6b7280; border-radius: 9999px; padding: 2px 10px; font-size: 0.75em;">Will retry</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endfor %}
+
+{% if omitted_count %}
+<p style="font-size: 0.9em; color: #374151; margin-top: 8px;">
+    &hellip;and <strong>{{ omitted_count }}</strong> more failing syncs &mdash;
+    <a href="{{ sources_url }}" target="_blank" style="color: #111827; font-weight: 600;">view them all in PostHog</a>.
+</p>
+{% endif %}
+
+<p style="font-size: 0.85em; color: #6b7280; margin-top: 16px;">
+    Click a source to open it in PostHog, or a sync name to see its history and full error details.
+</p>
+
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/cdp/sources?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

@@ -308,4 +308,37 @@ describe('FilterMapBatchPipeline', () => {
             expect(subPipelineFeed).toHaveBeenCalledTimes(1)
         })
     })
+
+    describe('error poisoning', () => {
+        it('poisons permanently after a source (mapping) error', async () => {
+            const previousPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewBatchPipeline<string>().build()
+            const throwingMapping: FilterMapMappingFunction<
+                string,
+                string,
+                { message: Message },
+                { message: Message }
+            > = () => {
+                throw new Error('mapping boom')
+            }
+            const pipeline = new FilterMapBatchPipeline(previousPipeline, throwingMapping, subPipeline)
+            pipeline.feed([createOkContext('hello', context1)])
+
+            await expect(pipeline.next()).rejects.toThrow('mapping boom')
+            await expect(pipeline.next()).rejects.toThrow('mapping boom')
+        })
+
+        it('poisons permanently after a subpipeline error', async () => {
+            const previousPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockRejectedValueOnce(new Error('sub boom')).mockResolvedValue(null),
+            }
+            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            pipeline.feed([createOkContext('hello', context1)])
+
+            await expect(pipeline.next()).rejects.toThrow('sub boom')
+            await expect(pipeline.next()).rejects.toThrow('sub boom')
+        })
+    })
 })

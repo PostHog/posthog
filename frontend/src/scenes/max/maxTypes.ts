@@ -60,12 +60,14 @@ export interface MaxErrorTrackingIssueContext {
     name?: string | null
 }
 
+export type EvaluationRuntime = 'hog' | 'llm_judge' | 'sentiment'
+
 export interface MaxEvaluationContext {
     type: MaxContextType.EVALUATION
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: EvaluationRuntime
     hog_source?: string | null
 }
 
@@ -73,6 +75,9 @@ export interface MaxNotebookContext {
     type: MaxContextType.NOTEBOOK
     id: string // short_id
     name?: string | null
+    markdown_with_insertion_placeholder?: string
+    insertion_placeholder_block_id?: string
+    insertion_placeholder_marker?: string
 }
 
 // The main shape for the UI context sent to the backend
@@ -139,7 +144,7 @@ type MaxEvaluationContextInput = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }
 }
@@ -221,7 +226,7 @@ export const createMaxContextHelpers = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }): MaxEvaluationContextInput => ({
         type: MaxContextType.EVALUATION,

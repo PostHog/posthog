@@ -120,6 +120,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
             metadata={"task_id": ctx.task_id},
+            **ctx.sandbox_resource_overrides(),
         )
 
         sandbox = Sandbox.create(config)

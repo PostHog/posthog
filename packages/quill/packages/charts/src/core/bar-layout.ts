@@ -1,6 +1,6 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
-import type { Series } from './types'
+import type { ResolvedSeries, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
@@ -116,6 +116,54 @@ export function computeSeriesBars({
     return result
 }
 
+/** One drawn series and its computed rects — the unit both BarChart and ComboChart iterate. */
+export interface BarLayer {
+    series: ResolvedSeries
+    bars: BarRect[]
+}
+
+export interface BuildBarLayersOptions {
+    series: readonly ResolvedSeries[]
+    labels: string[]
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedData?: Map<string, StackedBand>
+    topStackedKeyByAxis: Map<string, string>
+}
+
+/** Compute the bar rects for every visible series — the per-series `computeSeriesBars` loop shared by
+ *  `drawBarChartStatic` and ComboChart so the band/axis/stack wiring lives in one place. Excluded
+ *  series are dropped; nulls (overlay/CI-band series with no stacked entry) are filtered out. */
+export function buildBarLayers({
+    series,
+    labels,
+    scales,
+    layout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+}: BuildBarLayersOptions): BarLayer[] {
+    const layers: BarLayer[] = []
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bars = computeSeriesBars({
+            series: s,
+            labels,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand: stackedData?.get(s.key),
+            isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+        }).filter((b): b is BarRect => b !== null)
+        layers.push({ series: s, bars })
+    }
+    return layers
+}
+
 export interface ComputeBarAtIndexOptions {
     series: Series
     label: string
@@ -175,11 +223,18 @@ export function computeBarAtIndex({
             return null
         }
         const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-        return makeBarRect(isHorizontal, slot.x, slot.width, valueScale(0), valuePixel, corners, dataIndex)
+        // A fixed `valueDomain` (e.g. [50, 100]) makes `valueScale(0)` extrapolate outside the
+        // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
+        const [r0, r1] = valueScale.range()
+        const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
     }
 
-    const topPixel = scales.value(stackedBand!.top[dataIndex])
-    const bottomPixel = scales.value(stackedBand!.bottom[dataIndex])
+    // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
+    // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
+    // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
+    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
     if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
         return null
     }
@@ -192,7 +247,7 @@ export function computeBarAtIndex({
     // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
     // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
     // rounding and the stack's outer edge stay put.
-    const sitsOnBaseline = Math.abs(bottomPixel - scales.value(0)) < 0.001
+    const sitsOnBaseline = Math.abs(bottomPixel - valueScale(0)) < 0.001
     const overlappedBottom = sitsOnBaseline
         ? bottomPixel
         : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)

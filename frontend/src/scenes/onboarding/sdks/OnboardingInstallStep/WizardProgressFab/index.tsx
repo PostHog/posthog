@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconX } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
@@ -45,6 +46,7 @@ function WizardProgressFabInner(): JSX.Element | null {
         now,
     } = useValues(wizardProgressTrackerLogic)
     const { dismiss } = useActions(wizardProgressTrackerLogic)
+    const { reportWizardSyncProgressExpanded } = useActions(eventUsageLogic)
 
     const [expanded, setExpanded] = useState(false)
 
@@ -72,7 +74,20 @@ function WizardProgressFabInner(): JSX.Element | null {
             >
                 <button
                     type="button"
-                    onClick={() => setExpanded((v) => !v)}
+                    onClick={() => {
+                        const next = !expanded
+                        setExpanded(next)
+                        // Only the expand direction is an intentful "show me the details"
+                        // signal worth tracking; collapsing is just tidying up.
+                        if (next) {
+                            reportWizardSyncProgressExpanded({
+                                workflowId: latestSession?.workflow_id,
+                                skillId: latestSession?.skill_id,
+                                displayState,
+                                progressPct,
+                            })
+                        }
+                    }}
                     className="w-full text-left flex items-center gap-3 px-3 py-3 hover:bg-bg-3000 transition-colors cursor-pointer"
                     aria-label={expanded ? 'Collapse wizard details' : 'Expand wizard details'}
                     aria-expanded={expanded}

@@ -25,7 +25,7 @@ class TestResendSource:
 
         assert config.name.value == "Resend"
         assert config.label == "Resend"
-        assert config.releaseStatus == "alpha"
+        assert config.releaseStatus == "ga"
         assert config.iconPath == "/static/services/resend.png"
         assert len(config.fields) == 1
 

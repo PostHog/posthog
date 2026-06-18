@@ -1,9 +1,10 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
-import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
+import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ToolInputValidationError } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -29,9 +30,19 @@ export interface ExecInnerCallProperties {
     error_message?: string
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
+    /**
+     * Estimated input/output tokens for the inner tool call. Carried so single-exec
+     * mode attributes token usage to the real tool rather than the `exec` wrapper.
+     */
+    input_tokens?: number
+    output_tokens?: number
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
+
+export interface ExecToolOptions {
+    requireDestructiveConfirmation?: boolean
+}
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
@@ -48,6 +59,29 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+    let rest = input.trim()
+    let forceJson = false
+    let confirmed = false
+
+    while (rest) {
+        const parsed = parseCommand(rest)
+        if (parsed.verb === '--json') {
+            forceJson = true
+            rest = parsed.rest
+            continue
+        }
+        if (parsed.verb === '--confirm') {
+            confirmed = true
+            rest = parsed.rest
+            continue
+        }
+        break
+    }
+
+    return { forceJson, confirmed, rest }
+}
+
 // Extracts the inner tool name from an exec `call` command, e.g.
 // "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
 // malformed input. Used by analytics to surface the real tool being invoked
@@ -57,19 +91,18 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     if (verb !== 'call' || !rest) {
         return
     }
-    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
-    if (!argv) {
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
         return
     }
-    const innerName = parseCommand(argv).verb
+    const innerName = parseCommand(callArgs).verb
     return innerName || undefined
 }
 
-// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
-// mode: given a request, return the inner tool's { name, description } when
-// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
-// here (alongside parseExecCallInnerToolName) so tests can import the exact
-// same factory the production code uses — no copy-pasted resolver lambda.
+// Resolves the inner tool an `exec` call targets: given a request, return the
+// inner tool's { name, description } when the agent invoked it via
+// `call <tool> ...`, or undefined otherwise. Lives here (alongside
+// parseExecCallInnerToolName) so callers and tests share one factory.
 export function createExecInnerToolCallResolver(
     allTools: ReadonlyArray<Tool<ZodObjectAny>>
 ): (request: unknown) => { name: string; description: string } | undefined {
@@ -159,7 +192,8 @@ export function createExecTool(
     commandReference: string,
     mcpConsumer: string | undefined,
     trackInnerCall?: ExecInnerCallTracker,
-    scopeGatedTools: ScopeGatedTool[] = []
+    scopeGatedTools: ScopeGatedTool[] = [],
+    options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -310,15 +344,19 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
-                    const forceJson = rest.startsWith('--json ') || rest === '--json'
-                    const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
+                        throw new Error(
+                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
+                        )
+                    }
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}
@@ -378,12 +416,7 @@ export function createExecTool(
                     if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
-                        trackInnerCall?.(tool.name, {
-                            duration_ms: durationMs,
-                            success: true,
-                            output_format: 'structured',
-                        })
-                        return markExecPayload(
+                        const payload = markExecPayload(
                             buildToolResultPayload({
                                 handlerResult: result,
                                 toolMeta: tool._meta,
@@ -397,30 +430,41 @@ export function createExecTool(
                                 includeUiResponseMeta: true,
                             })
                         )
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'structured',
+                            input_tokens: estimateTokens(input),
+                            output_tokens: estimateResponseTokens(payload),
+                        })
+                        return payload
                     }
 
+                    // Serialize once so the token estimate measures the exact text
+                    // returned to the client, not the raw object.
+                    let outputText: string
+                    if (useJson) {
+                        outputText = JSON.stringify(result)
+                    } else {
+                        // Optimized mode: when the handler attached a backend-formatted table
+                        // via `__formatted_results_override`, return ONLY that string. The raw
+                        // `results`/`_posthogUrl` payload would otherwise duplicate the table
+                        // and crowd it out — buildToolResultPayload makes the same choice for
+                        // the non-exec path, this keeps exec consistent.
+                        const formattedOverride =
+                            result !== null && typeof result === 'object'
+                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                                : undefined
+                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                    }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
                         success: true,
                         output_format: useJson ? 'json' : 'text',
+                        input_tokens: estimateTokens(input),
+                        output_tokens: estimateTokens(outputText),
                     })
-                    if (useJson) {
-                        return JSON.stringify(result)
-                    }
-                    // Optimized mode: when the handler attached a backend-formatted table
-                    // via `__formatted_results_override`, return ONLY that string. The raw
-                    // `results`/`_posthogUrl` payload would otherwise duplicate the table
-                    // and crowd it out — buildToolResultPayload makes the same choice for
-                    // the non-exec path, this keeps exec consistent.
-                    if (result !== null && typeof result === 'object') {
-                        const formattedOverride = (result as Record<string, unknown>)[
-                            POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY
-                        ]
-                        if (typeof formattedOverride === 'string') {
-                            return formattedOverride
-                        }
-                    }
-                    return formatResponse(result)
+                    return outputText
                 }
 
                 default:

@@ -1,6 +1,7 @@
 from .constants import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
+    EmbeddingStatus,
     RefreshInterval,
     RefreshStatus,
     SafetyVerdict,
@@ -14,6 +15,7 @@ from .knowledge_source import KnowledgeSource
 __all__ = [
     "REFRESH_INTERVAL_TIMEDELTAS",
     "CrawlMode",
+    "EmbeddingStatus",
     "KnowledgeChunk",
     "KnowledgeDocument",
     "KnowledgeSource",

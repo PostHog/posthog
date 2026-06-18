@@ -14,11 +14,10 @@ if TYPE_CHECKING:
 import pydantic
 import posthoganalytics
 
-from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
-
 from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
+from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -95,6 +94,10 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     def clean(self) -> None:
         try:
+            # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
+            # where this model loads in every process.
+            from posthog.schema import InsightThreshold  # noqa: PLC0415
+
             config = InsightThreshold.model_validate(self.configuration)
         except pydantic.ValidationError as e:
             raise ValidationError(f"Invalid threshold configuration: {e}")

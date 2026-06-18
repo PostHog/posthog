@@ -10,11 +10,11 @@ from parameterized import parameterized
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
+from posthog.tasks.email_utils import compute_week_over_week_change
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.weekly_digest import (
     auto_select_project_for_user,
-    compute_week_over_week_change,
     get_crash_free_sessions,
     get_daily_exception_counts,
     get_exception_counts,

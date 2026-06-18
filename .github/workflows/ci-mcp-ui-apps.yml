@@ -76,7 +76,8 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+              # Match services/mcp/Dockerfile exactly
+              run: pnpm --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Check generated UI apps are up to date
               run: |
