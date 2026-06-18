@@ -3361,50 +3361,71 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+@pytest.mark.parametrize("pipeline_mode", ["non_dlt"], indirect=True)
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client, pipeline_mode):
+    # The retry/short-circuit behaviour lives in the workflow + activity layer, upstream of the
+    # v3/non_dlt split, so running a single pipeline mode is enough — running both just doubles the
+    # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
+    # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
+    # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
+    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    resumable_retry_cap = 3
+    non_retryable_attempts = 2
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.MAX_RESUMABLE_SOURCE_RETRIES",
+            resumable_retry_cap,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.common.extract.NON_RETRYABLE_ERROR_RETRY_LIMIT",
+            non_retryable_attempts - 1,
+        ),
+    ):
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
-    # Resumable source syncs retry up to 15 times
-    assert mock_get_rows.call_count == 15
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
-    non_retryable_error = next(iter(non_retryable_errors.keys()))
+        # Resumable source syncs retry up to the configured cap
+        assert mock_get_rows.call_count == resumable_retry_cap
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception(non_retryable_error)
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        non_retryable_error = next(iter(non_retryable_errors.keys()))
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception(non_retryable_error)
 
-    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
-    assert mock_get_rows.call_count == 4
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
+
+        # Non-retryable errors short-circuit before reaching the resumable cap
+        assert mock_get_rows.call_count == non_retryable_attempts
+        assert non_retryable_attempts < resumable_retry_cap
 
 
 @pytest.mark.django_db(transaction=True)

@@ -53,6 +53,11 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
     return f"posthog:data_warehouse:non_retryable_errors:{team_id}:{source_id}:{run_id}"
 
 
+# A source-classified non-retryable error still gets a small retry budget before we give up, in
+# case the failure was transient despite matching a known pattern.
+NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+
+
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
     if not source.job_inputs:
         return
@@ -169,9 +174,11 @@ async def handle_non_retryable_error(
         )
         attempts = await redis_client.incr(retry_key)
 
-        if attempts <= 3:
+        if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
             await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
-            await logger.adebug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
+            await logger.adebug(
+                f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
+            )
             raise error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")

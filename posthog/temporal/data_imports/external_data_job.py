@@ -69,6 +69,12 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 LOGGER = get_logger(__name__)
 
+# Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
+# iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
+# expensive retry-exhaustion paths fast.
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
@@ -393,11 +399,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
-            # Cap retries at 3 in local dev so failing syncs don't loop for
-            # tens of minutes while developers iterate. Prod cadence is
-            # unchanged.
-            max_resumable_attempts = 3 if settings.DEBUG else 15
-            max_incremental_attempts = 3 if settings.DEBUG else 9
+            max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
+            max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
 
             if is_resumable_source:
                 timeout_params = {
