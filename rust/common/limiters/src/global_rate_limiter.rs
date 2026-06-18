@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,6 +27,17 @@ const GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER: &str =
     "global_rate_limiter_tier_transitions_total";
 const GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM: &str = "global_rate_limiter_estimate_drift";
 const GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM: &str = "global_rate_limiter_sync_staleness_ms";
+const GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE: &str = "global_rate_limiter_cache_size";
+const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction_total";
+const GLOBAL_RATE_LIMITER_TIER_COUNT_DRIFT_GAUGE: &str = "global_rate_limiter_tier_count_drift";
+
+/// Full-scan reconciliation cadence (ticks) to erase tier-counter drift.
+const TIER_RECONCILE_INTERVAL_TICKS: u64 = 60;
+/// Trip an early reconcile when |sum(tier_counts) - entry_count| exceeds this
+/// fraction of entry_count (catches lost create/evict deltas between scans).
+const TIER_RECONCILE_TRIPWIRE_FRACTION: f64 = 0.005;
+/// Tier label order, indexed by `PressureTier::index()`.
+const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 
 /// Pressure tiers for adaptive sync scheduling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +71,16 @@ impl PressureTier {
             Self::Low => "low",
             Self::Normal => "normal",
             Self::Hot => "hot",
+        }
+    }
+
+    /// Index into the incremental `tier_counts` array (see `TIER_LABELS`).
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Idle => 0,
+            Self::Low => 1,
+            Self::Normal => 2,
+            Self::Hot => 3,
         }
     }
 }
@@ -331,6 +353,11 @@ pub struct GlobalRateLimiterImpl {
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
     pending_sync: Arc<DashSet<String>>,
     scope: &'static str,
+    /// Live entry count per pressure tier, indexed by `PressureTier::index()`.
+    /// Maintained incrementally (create/sync/evict) so tier gauges emit in O(1)
+    /// instead of scanning the whole cache each tick. `i64` tolerates transient
+    /// negatives from racing deltas; periodic reconciliation erases drift.
+    tier_counts: Arc<[AtomicI64; 4]>,
 }
 
 #[async_trait]
@@ -379,15 +406,34 @@ impl GlobalRateLimiterImpl {
             ));
         }
 
+        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
+        let tier_counts: Arc<[AtomicI64; 4]> = Arc::new(std::array::from_fn(|_| AtomicI64::new(0)));
+
         let cache = Cache::builder()
             .max_capacity(config.local_cache_max_entries)
             .time_to_live(config.local_cache_ttl)
             .time_to_idle(config.local_cache_idle_timeout)
+            .eviction_listener({
+                let tier_counts = tier_counts.clone();
+                move |_key, entry: CacheEntry, cause| {
+                    // Replaced is an in-place update, not a removal; the tier delta
+                    // for it is applied at the insert site, so skip it here.
+                    if cause != moka::notification::RemovalCause::Replaced {
+                        tier_counts[PressureTier::from_pressure(entry.pressure).index()]
+                            .fetch_sub(1, Ordering::Relaxed);
+                        metrics::counter!(
+                            GLOBAL_RATE_LIMITER_EVICTION_COUNTER,
+                            "scope" => scope,
+                            "cause" => removal_cause_str(cause),
+                        )
+                        .increment(1);
+                    }
+                }
+            })
             .build();
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
         let pending_sync = Arc::new(DashSet::new());
-        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
 
         let limiter = Self {
             config: config.clone(),
@@ -395,6 +441,7 @@ impl GlobalRateLimiterImpl {
             update_tx: Some(update_tx),
             pending_sync: pending_sync.clone(),
             scope,
+            tier_counts: tier_counts.clone(),
         };
 
         Self::spawn_background_task(
@@ -404,6 +451,7 @@ impl GlobalRateLimiterImpl {
             cache,
             pending_sync,
             scope,
+            tier_counts,
         );
 
         Ok(limiter)
@@ -489,6 +537,8 @@ impl GlobalRateLimiterImpl {
                 pressure: 0.0,
             };
             self.cache.insert(key.to_string(), entry);
+            // Fresh entry is born Idle (pressure 0.0); sync may move its tier later.
+            self.tier_counts[PressureTier::Idle.index()].fetch_add(1, Ordering::Relaxed);
             self.pending_sync.insert(key.to_string());
 
             (count as f64, false)
@@ -554,11 +604,13 @@ impl GlobalRateLimiterImpl {
         cache: Cache<String, CacheEntry>,
         pending_sync: Arc<DashSet<String>>,
         scope: &'static str,
+        tier_counts: Arc<[AtomicI64; 4]>,
     ) {
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(config.tick_interval);
             // Pre-aggregate writes by (key, epoch)
             let mut write_batch: HashMap<(String, i64), u64> = HashMap::new();
+            let mut tick_n: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -573,7 +625,7 @@ impl GlobalRateLimiterImpl {
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch, scope,
+                                        &pending_sync, &mut write_batch, scope, &tier_counts, tick_n,
                                     ).await;
                                 }
                                 break;
@@ -581,9 +633,10 @@ impl GlobalRateLimiterImpl {
                         }
                     }
                     _ = tick.tick() => {
+                        tick_n = tick_n.wrapping_add(1);
                         Self::tick(
                             &config, &redis_instances, &cache,
-                            &pending_sync, &mut write_batch, scope,
+                            &pending_sync, &mut write_batch, scope, &tier_counts, tick_n,
                         ).await;
                     }
                 }
@@ -595,6 +648,7 @@ impl GlobalRateLimiterImpl {
     ///
     /// Drains pending reads + writes, builds a single pipeline, executes it,
     /// and processes read responses to update cache entries.
+    #[allow(clippy::too_many_arguments)]
     async fn tick(
         config: &GlobalRateLimiterConfig,
         redis_instances: &[Arc<dyn Client + Send + Sync>],
@@ -602,8 +656,14 @@ impl GlobalRateLimiterImpl {
         pending_sync: &Arc<DashSet<String>>,
         write_batch: &mut HashMap<(String, i64), u64>,
         scope: &'static str,
+        tier_counts: &Arc<[AtomicI64; 4]>,
+        tick_n: u64,
     ) {
         let tick_start = Instant::now();
+
+        // Refresh tier + cache-size gauges in O(1) every tick (even idle ones),
+        // with a rare full-scan reconcile to erase drift.
+        Self::emit_and_reconcile_tiers(cache, tier_counts, scope, tick_n);
 
         // Drain pending sync set (lock-free: iterate then clear)
         let sync_keys: Vec<String> = pending_sync.iter().map(|r| r.key().clone()).collect();
@@ -637,11 +697,20 @@ impl GlobalRateLimiterImpl {
                 &sync_keys,
                 &writes,
                 scope,
+                tier_counts,
             )
             .await;
         } else {
-            Self::tick_multi_instance(config, redis_instances, cache, &sync_keys, &writes, scope)
-                .await;
+            Self::tick_multi_instance(
+                config,
+                redis_instances,
+                cache,
+                &sync_keys,
+                &writes,
+                scope,
+                tier_counts,
+            )
+            .await;
         }
 
         metrics::histogram!(GLOBAL_RATE_LIMITER_TICK_HISTOGRAM, "scope" => scope)
@@ -649,6 +718,7 @@ impl GlobalRateLimiterImpl {
     }
 
     /// Execute a tick against a single Redis instance (the common case).
+    #[allow(clippy::too_many_arguments)]
     async fn tick_single_instance(
         config: &GlobalRateLimiterConfig,
         redis: &Arc<dyn Client + Send + Sync>,
@@ -657,6 +727,7 @@ impl GlobalRateLimiterImpl {
         sync_keys: &[String],
         writes: &HashMap<(String, i64), u64>,
         scope: &'static str,
+        tier_counts: &Arc<[AtomicI64; 4]>,
     ) {
         let redis_idx_str = redis_idx.to_string();
         let now = Utc::now();
@@ -753,7 +824,9 @@ impl GlobalRateLimiterImpl {
                     )
                     .record(pipeline_start.elapsed().as_micros() as f64 / 1000.0);
 
-                    Self::process_read_results(config, cache, sync_keys, &results, now, scope);
+                    Self::process_read_results(
+                        config, cache, sync_keys, &results, now, scope, tier_counts,
+                    );
                 }
                 Ok(Err(e)) => {
                     metrics::counter!(
@@ -793,6 +866,7 @@ impl GlobalRateLimiterImpl {
         sync_keys: &[String],
         writes: &HashMap<(String, i64), u64>,
         scope: &'static str,
+        tier_counts: &Arc<[AtomicI64; 4]>,
     ) {
         // Partition reads by Redis instance
         let mut read_partitions: Vec<Vec<String>> = vec![Vec::new(); redis_instances.len()];
@@ -822,6 +896,7 @@ impl GlobalRateLimiterImpl {
                 let cache = cache.clone();
                 let reads = std::mem::take(&mut read_partitions[idx]);
                 let writes_partition = std::mem::take(&mut write_partitions[idx]);
+                let tier_counts = tier_counts.clone();
 
                 async move {
                     Self::tick_single_instance(
@@ -832,6 +907,7 @@ impl GlobalRateLimiterImpl {
                         &reads,
                         &writes_partition,
                         scope,
+                        &tier_counts,
                     )
                     .await;
                 }
@@ -851,6 +927,7 @@ impl GlobalRateLimiterImpl {
         results: &[Option<Vec<u8>>],
         now: DateTime<Utc>,
         scope: &'static str,
+        tier_counts: &Arc<[AtomicI64; 4]>,
     ) {
         let now_instant = Instant::now();
 
@@ -881,18 +958,27 @@ impl GlobalRateLimiterImpl {
             }
             let pressure = estimated / threshold as f64;
 
-            // Track tier transitions
-            if let Some(old_entry) = cache.get(key) {
-                let old_tier = PressureTier::from_pressure(old_entry.pressure);
-                let new_tier = PressureTier::from_pressure(pressure);
-                if old_tier != new_tier {
-                    metrics::counter!(
-                        GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
-                        "scope" => scope,
-                        "from" => old_tier.as_str(),
-                        "to" => new_tier.as_str(),
-                    )
-                    .increment(1);
+            // Track tier transitions and maintain incremental tier counts.
+            let new_tier = PressureTier::from_pressure(pressure);
+            match cache.get(key) {
+                Some(old_entry) => {
+                    let old_tier = PressureTier::from_pressure(old_entry.pressure);
+                    if old_tier != new_tier {
+                        metrics::counter!(
+                            GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
+                            "scope" => scope,
+                            "from" => old_tier.as_str(),
+                            "to" => new_tier.as_str(),
+                        )
+                        .increment(1);
+                        tier_counts[old_tier.index()].fetch_sub(1, Ordering::Relaxed);
+                        tier_counts[new_tier.index()].fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                // Evicted between cache-miss insert and this sync (listener already
+                // decremented it); the re-insert below recreates it at new_tier.
+                None => {
+                    tier_counts[new_tier.index()].fetch_add(1, Ordering::Relaxed);
                 }
             }
 
@@ -910,26 +996,59 @@ impl GlobalRateLimiterImpl {
                 },
             );
         }
+    }
 
-        // Update tier gauge counts
-        let mut tier_counts = [0u64; 4];
-        for (_, entry) in cache.iter() {
-            let tier = PressureTier::from_pressure(entry.pressure);
-            match tier {
-                PressureTier::Idle => tier_counts[0] += 1,
-                PressureTier::Low => tier_counts[1] += 1,
-                PressureTier::Normal => tier_counts[2] += 1,
-                PressureTier::Hot => tier_counts[3] += 1,
+    /// Emit the tier + cache-size gauges in O(1) from the incremental counters.
+    ///
+    /// Reconciles against a full `cache.iter()` recompute either on a fixed
+    /// cadence (`TIER_RECONCILE_INTERVAL_TICKS`) or when the O(1) tripwire
+    /// (`sum(tier_counts)` vs `entry_count`) shows the counters have drifted.
+    /// Reconciliation runs in this background task, takes no cache lock, and is
+    /// off the per-event hot path.
+    fn emit_and_reconcile_tiers(
+        cache: &Cache<String, CacheEntry>,
+        tier_counts: &Arc<[AtomicI64; 4]>,
+        scope: &'static str,
+        tick_n: u64,
+    ) {
+        let entry_count = cache.entry_count();
+        let counter_sum: i64 = tier_counts.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+        let drift_total = (counter_sum - entry_count as i64).unsigned_abs();
+        let tripwire =
+            entry_count > 0 && drift_total as f64 > TIER_RECONCILE_TRIPWIRE_FRACTION * entry_count as f64;
+
+        if tick_n.is_multiple_of(TIER_RECONCILE_INTERVAL_TICKS) || tripwire {
+            let mut actual = [0i64; 4];
+            for (_, entry) in cache.iter() {
+                actual[PressureTier::from_pressure(entry.pressure).index()] += 1;
+            }
+            for i in 0..4 {
+                let drift = (tier_counts[i].load(Ordering::Relaxed) - actual[i]).abs();
+                metrics::gauge!(GLOBAL_RATE_LIMITER_TIER_COUNT_DRIFT_GAUGE, "scope" => scope, "tier" => TIER_LABELS[i])
+                    .set(drift as f64);
+                tier_counts[i].store(actual[i], Ordering::Relaxed);
             }
         }
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "idle")
-            .set(tier_counts[0] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "low")
-            .set(tier_counts[1] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "normal")
-            .set(tier_counts[2] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "hot")
-            .set(tier_counts[3] as f64);
+
+        for i in 0..4 {
+            let count = tier_counts[i].load(Ordering::Relaxed).max(0);
+            metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => TIER_LABELS[i])
+                .set(count as f64);
+        }
+        metrics::gauge!(GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE, "scope" => scope)
+            .set(entry_count as f64);
+    }
+}
+
+/// Map a Moka removal cause to a stable metric label (Replaced is filtered out
+/// before this is called).
+fn removal_cause_str(cause: moka::notification::RemovalCause) -> &'static str {
+    use moka::notification::RemovalCause;
+    match cause {
+        RemovalCause::Expired => "expired",
+        RemovalCause::Explicit => "explicit",
+        RemovalCause::Size => "size",
+        RemovalCause::Replaced => "replaced",
     }
 }
 
@@ -964,6 +1083,14 @@ mod tests {
             global_write_timeout: Duration::from_millis(10),
             metrics_scope: "test".to_string(),
         }
+    }
+
+    fn empty_tier_counts() -> Arc<[AtomicI64; 4]> {
+        Arc::new(std::array::from_fn(|_| AtomicI64::new(0)))
+    }
+
+    fn tier_count(tier_counts: &Arc<[AtomicI64; 4]>, tier: PressureTier) -> i64 {
+        tier_counts[tier.index()].load(Ordering::Relaxed)
     }
 
     // --- Epoch calculation tests (parameterized) ---
@@ -1623,8 +1750,15 @@ mod tests {
         let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
 
         let now = DateTime::from_timestamp(90, 0).unwrap(); // progress = 0.5 in 60s window
+        let tier_counts = empty_tier_counts();
         GlobalRateLimiterImpl::process_read_results(
-            &config, &cache, &sync_keys, &results, now, "test",
+            &config,
+            &cache,
+            &sync_keys,
+            &results,
+            now,
+            "test",
+            &tier_counts,
         );
 
         let entry = cache.get("entity_a").unwrap();
@@ -1667,8 +1801,15 @@ mod tests {
         let sync_keys = vec!["custom_entity".to_string()];
         let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
         let now = DateTime::from_timestamp(90, 0).unwrap();
+        let tier_counts = empty_tier_counts();
         GlobalRateLimiterImpl::process_read_results(
-            &config, &cache, &sync_keys, &results, now, "test",
+            &config,
+            &cache,
+            &sync_keys,
+            &results,
+            now,
+            "test",
+            &tier_counts,
         );
 
         let entry = cache.get("custom_entity").unwrap();
@@ -1710,8 +1851,15 @@ mod tests {
 
             let sync_keys = vec!["key".to_string()];
             let results: Vec<Option<Vec<u8>>> = vec![Some(b"5".to_vec()), Some(b"2".to_vec())];
+            let tier_counts = empty_tier_counts();
             GlobalRateLimiterImpl::process_read_results(
-                &config, &cache, &sync_keys, &results, now, "test",
+                &config,
+                &cache,
+                &sync_keys,
+                &results,
+                now,
+                "test",
+                &tier_counts,
             );
 
             let entry = cache.get("key").unwrap();
@@ -1720,6 +1868,109 @@ mod tests {
                 "local_pending should be 0 after sync regardless of prior value ({prior_pending})"
             );
         }
+    }
+
+    // --- Incremental tier counter tests ---
+
+    fn seed_entry(pressure: f64) -> CacheEntry {
+        CacheEntry {
+            estimated_count: 0.0,
+            synced_at: Instant::now() - Duration::from_secs(30),
+            local_pending: 0,
+            pressure,
+        }
+    }
+
+    #[test]
+    fn test_tier_delta_on_sync_transition() {
+        let config = test_config(); // threshold 10
+        let cache = Cache::builder().max_capacity(100).build();
+        cache.insert("k".to_string(), seed_entry(0.0)); // born Idle
+        let tier_counts = empty_tier_counts();
+        tier_counts[PressureTier::Idle.index()].store(1, Ordering::Relaxed);
+
+        // weighted = 3 * 0.5 + 7 = 8.5 -> pressure 0.85 -> Hot
+        let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
+        let now = DateTime::from_timestamp(90, 0).unwrap();
+        GlobalRateLimiterImpl::process_read_results(
+            &config,
+            &cache,
+            &["k".to_string()],
+            &results,
+            now,
+            "test",
+            &tier_counts,
+        );
+
+        assert_eq!(tier_count(&tier_counts, PressureTier::Idle), 0);
+        assert_eq!(tier_count(&tier_counts, PressureTier::Hot), 1);
+    }
+
+    #[test]
+    fn test_tier_delta_none_branch_creates() {
+        let config = test_config();
+        let cache = Cache::builder().max_capacity(100).build();
+        let tier_counts = empty_tier_counts();
+
+        // key absent (evicted between miss-insert and sync); recreate at synced tier.
+        // weighted = 1 * 0.5 + 2 = 2.5 -> pressure 0.25 -> Low
+        let results: Vec<Option<Vec<u8>>> = vec![Some(b"2".to_vec()), Some(b"1".to_vec())];
+        let now = DateTime::from_timestamp(90, 0).unwrap();
+        GlobalRateLimiterImpl::process_read_results(
+            &config,
+            &cache,
+            &["k".to_string()],
+            &results,
+            now,
+            "test",
+            &tier_counts,
+        );
+
+        assert_eq!(tier_count(&tier_counts, PressureTier::Low), 1);
+        assert!(cache.get("k").is_some());
+    }
+
+    #[test]
+    fn test_reconcile_corrects_skewed_counters() {
+        let cache = Cache::builder().max_capacity(100).build();
+        cache.insert("a".to_string(), seed_entry(0.0)); // idle
+        cache.insert("b".to_string(), seed_entry(0.0)); // idle
+        cache.insert("c".to_string(), seed_entry(0.0)); // idle
+        cache.insert("d".to_string(), seed_entry(0.9)); // hot
+        cache.run_pending_tasks();
+
+        let tier_counts = empty_tier_counts();
+        tier_counts[PressureTier::Idle.index()].store(99, Ordering::Relaxed); // artificial drift
+
+        // tick_n multiple of the interval forces a full-scan reconcile.
+        GlobalRateLimiterImpl::emit_and_reconcile_tiers(
+            &cache,
+            &tier_counts,
+            "test",
+            TIER_RECONCILE_INTERVAL_TICKS,
+        );
+
+        assert_eq!(tier_count(&tier_counts, PressureTier::Idle), 3);
+        assert_eq!(tier_count(&tier_counts, PressureTier::Hot), 1);
+        assert_eq!(tier_count(&tier_counts, PressureTier::Low), 0);
+        assert_eq!(tier_count(&tier_counts, PressureTier::Normal), 0);
+    }
+
+    #[test]
+    fn test_reconcile_tripwire_triggers_off_cadence() {
+        let cache = Cache::builder().max_capacity(100).build();
+        for i in 0..10 {
+            cache.insert(format!("k{i}"), seed_entry(0.0)); // all idle
+        }
+        cache.run_pending_tasks();
+
+        let tier_counts = empty_tier_counts();
+        tier_counts[PressureTier::Idle.index()].store(100, Ordering::Relaxed); // > 0.5% drift
+
+        // tick_n = 1 is NOT a reconcile cadence tick; the tripwire must fire anyway.
+        GlobalRateLimiterImpl::emit_and_reconcile_tiers(&cache, &tier_counts, "test", 1);
+
+        assert_eq!(tier_count(&tier_counts, PressureTier::Idle), 10);
     }
 
     #[test]

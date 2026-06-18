@@ -49,7 +49,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │     - Measure drift vs local estimate                         │  │
 │  │     - Update CacheEntry (estimated_count, pressure, synced_at)│  │
 │  │     - Reset local_pending to 0 (Redis now includes our writes)│  │
-│  │     - Track tier transitions                                  │  │
+│  │     - Apply tier-count delta (-old/+new) for the transition   │  │
 │  └───────────────────────────┬────────────────────────────────────┘  │
 │                              │                                       │
 └──────────────────────────────┼───────────────────────────────────────┘
@@ -200,6 +200,8 @@ If local traffic pushes an idle entity above the 10% boundary,
 it's promoted to Low on the very next request — no waiting for a stale sync interval.
 
 Tier boundaries are pressure-based (level / threshold), so they apply correctly to custom keys regardless of threshold magnitude. A custom key with a 100× higher limit than the default will sync at the same relative cadence when at equivalent pressure.
+
+**Tier gauges are maintained incrementally.** Per-tier entry counts live in an `Arc<[AtomicI64; 4]>` updated by delta: `+Idle` on cache-miss create, `-old/+new` at sync when the tier changes, and `-tier` in the Moka `eviction_listener` (skipping `Replaced`, which is an in-place update). The background tick emits the `sync_tier_gauge` and `cache_size` gauges from these counters in O(1) instead of scanning the cache. A full-scan reconciliation runs every `TIER_RECONCILE_INTERVAL_TICKS` (and early, via an O(1) `sum(counts)` vs `entry_count` tripwire) to overwrite the counters and erase drift; the reconcile records `tier_count_drift` so accuracy is observable.
 
 ## Data Model
 
@@ -372,8 +374,11 @@ When multiple Redis instances are configured, work is partitioned by consistent 
 | `global_rate_limiter_tick_ms` | Histogram | Full tick duration |
 | `global_rate_limiter_pipeline_size` | Histogram | Entities per pipeline (read/write) |
 | `global_rate_limiter_pending_sync_size` | Gauge | Backpressure signal |
-| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers |
+| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (incremental) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
+| `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
+| `global_rate_limiter_eviction_total` | Counter | Cache evictions by cause (size/expired/explicit) |
+| `global_rate_limiter_tier_count_drift` | Gauge | Incremental-vs-actual tier count gap at reconcile (accuracy) |
 | `global_rate_limiter_estimate_drift` | Histogram | Local vs Redis accuracy |
 | `global_rate_limiter_sync_staleness_ms` | Histogram | Real staleness at access time |
 | `global_rate_limiter_error_total` | Counter | Pipeline errors and timeouts |
