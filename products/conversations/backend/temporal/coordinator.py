@@ -105,6 +105,10 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if has_ai_note:
             continue
 
+        # Any comment that isn't from the customer and isn't our own AI note means a human
+        # already engaged (replies use "support"/"team", the compose flow uses "human"), so
+        # don't auto-draft. Allowlisting specific author_types here would silently miss
+        # "human" and any future type.
         has_team_reply = (
             Comment.objects.filter(
                 team_id=team.id,
@@ -116,9 +120,6 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             )
             .exclude(
                 item_context__author_type="AI",
-            )
-            .filter(
-                item_context__author_type__in=["support", "team"],
             )
             .exists()
         )
@@ -146,9 +147,12 @@ async def collect_eligible_tickets_activity(_input: CoordinatorInput) -> Collect
 class SupportReplyCoordinatorWorkflow:
     """Coordinator: polls for new tickets, gates them, fans out child reply workflows.
 
-    Dispatch is fire-and-forget via ParentClosePolicy.ABANDON. Child workflow IDs
-    are deterministic per (ticket_id, tick_id) so retries/replays are idempotent.
-    ScheduleOverlapPolicy.SKIP prevents concurrent ticks.
+    Dispatch is fire-and-forget via ParentClosePolicy.ABANDON. Child workflow IDs are
+    deterministic per ticket (`support-reply-<ticket_id>`), so the same ticket can never be
+    drafted twice: the lookback window (6m) intentionally overlaps the schedule interval (5m),
+    and REJECT_DUPLICATE makes a second dispatch of an already-started/closed child a no-op
+    even before its AI note lands and the DB dedupe can see it. ScheduleOverlapPolicy.SKIP
+    only guards against a slow tick overlapping the next one.
     """
 
     @staticmethod
@@ -171,12 +175,13 @@ class SupportReplyCoordinatorWorkflow:
         if not tickets:
             return CoordinatorOutput(eligible_count=0, started_count=0, skipped_count=0)
 
-        tick_id = workflow.info().workflow_id
         started = 0
         skipped = 0
 
-        for idx, ticket in enumerate(tickets):
-            child_id = f"support-reply-{ticket.ticket_id}-{tick_id}-{idx}"
+        for ticket in tickets:
+            # Keyed on ticket id only (not the tick id) so REJECT_DUPLICATE dedupes the same
+            # ticket across overlapping ticks, not just within a single coordinator run.
+            child_id = f"support-reply-{ticket.ticket_id}"
             try:
                 await workflow.start_child_workflow(
                     SupportReplyWorkflow.run,

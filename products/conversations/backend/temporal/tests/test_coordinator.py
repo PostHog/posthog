@@ -48,6 +48,7 @@ class TestCollectEligible:
             ("ai_data_processing_not_approved", {"ai_data_processing_approved": False}),
             ("no_ready_sources", {"has_ready_sources": False}),
             ("has_ai_note", {"has_ai_note": True}),
+            ("has_team_reply", {"has_team_reply": True}),
             ("rollout_off", {"rollout": False}),
         ]
     )
@@ -71,6 +72,7 @@ class TestCollectEligible:
         ai_data_processing_approved = overrides.get("ai_data_processing_approved", True)
         has_ready = overrides.get("has_ready_sources", True)
         has_ai = overrides.get("has_ai_note", False)
+        has_team_reply = overrides.get("has_team_reply", False)
         rollout = overrides.get("rollout", True)
 
         ticket, ticket_id, team = _make_ticket(
@@ -84,12 +86,13 @@ class TestCollectEligible:
         mock_has_ready.return_value = has_ready
 
         # AI note check
-        mock_comment_qs = MagicMock()
-        mock_comment_qs.exists.return_value = has_ai
-        # Team reply check
-        mock_team_reply_qs = MagicMock()
-        mock_team_reply_qs.exists.return_value = False
-        mock_comment_model.objects.filter.side_effect = [mock_comment_qs, mock_team_reply_qs]
+        mock_ai_qs = MagicMock()
+        mock_ai_qs.exists.return_value = has_ai
+        # Team reply check: .filter().exclude().exclude().exists() — exclude returns self.
+        mock_team_chain = MagicMock()
+        mock_team_chain.exclude.return_value = mock_team_chain
+        mock_team_chain.exists.return_value = has_team_reply
+        mock_comment_model.objects.filter.side_effect = [mock_ai_qs, mock_team_chain]
 
         mock_rollout.return_value = rollout
 
@@ -115,10 +118,9 @@ class TestCollectEligible:
         # No AI note
         mock_ai_qs = MagicMock()
         mock_ai_qs.exists.return_value = False
-        # No team reply — the chain: .filter().exclude().exclude().filter().exists()
+        # No team reply — the chain: .filter().exclude().exclude().exists()
         mock_team_chain = MagicMock()
         mock_team_chain.exclude.return_value = mock_team_chain
-        mock_team_chain.filter.return_value = mock_team_chain
         mock_team_chain.exists.return_value = False
         mock_comment_model.objects.filter.side_effect = [mock_ai_qs, mock_team_chain]
 
