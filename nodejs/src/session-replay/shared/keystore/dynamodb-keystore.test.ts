@@ -104,6 +104,48 @@ describe('DynamoDBKeyStore', () => {
             expect(result.sessionState).toBe('ciphertext')
         })
 
+        // Duplicate @smithy/core copies split the schema TypeRegistry across module realms, so the
+        // SDK can throw an untyped error for a conditional-check failure: a bare `Error` carrying the
+        // code in `.message` (name `Error`), or one carrying it in `.name`. Both must still be treated
+        // as a collision rather than re-thrown.
+        it.each([
+            ['code in message (bare Error)', Object.assign(new Error('ConditionalCheckFailedException'), {})],
+            [
+                'code in name',
+                Object.assign(new Error('Key already exists'), { name: 'ConditionalCheckFailedException' }),
+            ],
+        ])('should treat untyped conditional-check failure (%s) as an existing key', async (_label, thrown) => {
+            const existingEncryptedKey = new Uint8Array([201, 202, 203])
+            const existingPlaintextKey = new Uint8Array([
+                11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+            ])
+
+            ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValueOnce(thrown).mockResolvedValueOnce({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    encrypted_key: { B: existingEncryptedKey },
+                    session_state: { S: 'ciphertext' },
+                },
+            })
+            ;(mockKMSClient.send as jest.Mock)
+                .mockResolvedValueOnce({ Plaintext: mockPlaintextKey, CiphertextBlob: mockEncryptedKey })
+                .mockResolvedValueOnce({ Plaintext: existingPlaintextKey })
+
+            const result = await keyStore.generateKey('session-123', 1)
+
+            expect(result.encryptedKey).toEqual(Buffer.from(existingEncryptedKey))
+            expect(result.sessionState).toBe('ciphertext')
+        })
+
+        it('should re-throw genuinely unrelated DynamoDB errors', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValueOnce(
+                Object.assign(new Error('Throughput exceeded'), { name: 'ProvisionedThroughputExceededException' })
+            )
+
+            await expect(keyStore.generateKey('session-123', 1)).rejects.toThrow('Throughput exceeded')
+        })
+
         it('should calculate expiration based on retention days', async () => {
             mockRetentionService.getSessionRetentionDays.mockResolvedValue(90)
 

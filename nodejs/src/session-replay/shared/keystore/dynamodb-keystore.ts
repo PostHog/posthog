@@ -13,6 +13,24 @@ import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
+const CONDITIONAL_CHECK_FAILED = 'ConditionalCheckFailedException'
+
+/**
+ * Detect a DynamoDB conditional-check failure across the ways the AWS SDK can surface it.
+ *
+ * Normally the SDK throws a typed `ConditionalCheckFailedException`. But when duplicate
+ * @smithy/core copies split the schema TypeRegistry across module realms, the protocol
+ * deserializer can't resolve the error (or even the synthetic base exception) and falls back
+ * to a bare `new Error(errorCode)` — so the code lands in `.message` with `.name === 'Error'`,
+ * defeating both `instanceof` and a `.name` check. Match all three signals to stay robust.
+ */
+function isConditionalCheckFailure(error: unknown): boolean {
+    if (error instanceof ConditionalCheckFailedException) {
+        return true
+    }
+    const { name, message } = (error ?? {}) as { name?: string; message?: string }
+    return name === CONDITIONAL_CHECK_FAILED || message === CONDITIONAL_CHECK_FAILED
+}
 
 /**
  * Keystore backed by DynamoDB and KMS.
@@ -65,10 +83,7 @@ export class DynamoDBKeyStore implements KeyStore {
                 })
             )
         } catch (error) {
-            if (
-                error instanceof ConditionalCheckFailedException ||
-                (error as Error)?.name === 'ConditionalCheckFailedException'
-            ) {
+            if (isConditionalCheckFailure(error)) {
                 // Key already exists — return the existing key instead of overwriting
                 return this.getKey(sessionId, teamId)
             }
