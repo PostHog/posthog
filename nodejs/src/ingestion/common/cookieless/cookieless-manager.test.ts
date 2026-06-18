@@ -1044,7 +1044,7 @@ describe('CookielessManager', () => {
 
         // Don't import, as importing from outside our package directory will change the shape of the build directory
         // instead, just find the file path and load it directly
-        const TEST_CASES_PATH = path.resolve(__dirname, '../../../../rust/common/cookieless/src/test_cases.json')
+        const TEST_CASES_PATH = path.resolve(__dirname, '../../../../../rust/common/cookieless/src/test_cases.json')
         const TEST_CASES: Record<string, any[]> = parseJSON(fs.readFileSync(TEST_CASES_PATH, 'utf8'))
 
         describe('doHash', () => {
