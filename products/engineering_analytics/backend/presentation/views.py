@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
+    GitHubSourceSerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     WorkflowHealthItemSerializer,
@@ -74,7 +75,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
-    scope_object_read_actions = ["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
+    scope_object_read_actions = ["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
     scope_object_write_actions: list[str] = []
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -82,6 +83,21 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if isinstance(exc, GitHubSourceNotConnectedError):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return super().handle_exception(exc)
+
+    @extend_schema(
+        operation_id="engineering_analytics_sources",
+        responses={200: GitHubSourceSerializer(many=True)},
+        description=(
+            "The team's connected GitHub data warehouse sources, oldest first. Populate a source picker "
+            "from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect "
+            "GitHub more than once (e.g. one source per repository); this lists them all, including any whose "
+            "tables aren't fully synced yet."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def sources(self, request: Request, **kwargs) -> Response:
+        result = api.list_github_sources(team=self.team, user_access_control=self.user_access_control)
+        return Response(GitHubSourceSerializer(instance=result, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_ci_cards",

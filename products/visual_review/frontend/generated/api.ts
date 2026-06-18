@@ -272,7 +272,7 @@ export const getVisualReviewReposRunsListUrl = (
 }
 
 /**
- * List runs in this repo, optionally filtered by review state.
+ * List runs in this repo, optionally filtered by review state and free-text search.
  */
 export const visualReviewReposRunsList = async (
     projectId: string,
@@ -363,7 +363,7 @@ export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualRev
 }
 
 /**
- * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or free-text search.
  */
 export const visualReviewRunsList = async (
     projectId: string,

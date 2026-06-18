@@ -2,6 +2,7 @@ from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
+from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.utils import (
     prepare_and_print_ast,
@@ -19,5 +20,6 @@ __all__ = [
     "HogQLPrinter",
     "ClickHousePrinter",
     "DuckDBPrinter",
+    "MySQLPrinter",
     "PostgresPrinter",
 ]
