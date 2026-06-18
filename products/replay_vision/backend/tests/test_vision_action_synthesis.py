@@ -236,6 +236,18 @@ class TestMarkdownToSlack(BaseTest):
         self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
 
+    def test_truncation_does_not_re_expose_defanged_url(self) -> None:
+        # A non-PostHog URL straddling SLACK_TEXT_MAX must stay defanged after truncation.
+        # If truncation splits a `` `url` `` code span the bare-URL re-run must catch it.
+        from products.replay_vision.backend.temporal.vision_actions.synthesis import SLACK_TEXT_MAX
+
+        padding = "a" * (SLACK_TEXT_MAX - 5)
+        evil = "https://evil.example.com/exfil"
+        out = _markdown_to_slack(padding + evil)
+        # The host must not appear as a live (unquoted) URL in the output.
+        sanitized = out.replace("`https://evil.example.com/exfil`", "")
+        self.assertNotIn("https://evil.example.com/exfil", sanitized)
+
 
 class TestStripExternalLinks(BaseTest):
     @parameterized.expand(
@@ -258,6 +270,12 @@ class TestStripExternalLinks(BaseTest):
         # The host must never survive as a live link — only inside an inert code span at most.
         self.assertNotIn("](https://evil.example.com", out)
         self.assertNotIn("(https://evil.example.com", out)
+
+    def test_orphan_dest_backticks_without_adding_a_paren(self) -> None:
+        # The orphan-dest rule wraps only the URL; the source markdown's own `)` balances the `(`,
+        # so the defanged output must not gain a second closing paren.
+        out = strip_external_links_markdown("[x](https://evil.example.com\nmore)")
+        self.assertEqual(out, "[x](`https://evil.example.com`\nmore)")
 
     @parameterized.expand(
         [

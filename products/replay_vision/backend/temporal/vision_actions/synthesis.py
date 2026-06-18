@@ -143,6 +143,8 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     if isinstance(action.synthesis_config, dict):
         guide = action.synthesis_config.get("prompt_guide")
         if isinstance(guide, str) and guide.strip():
+            # prompt_guide is team-set config (written via the API, never recording-derived) — safe to
+            # treat as a trusted instruction.
             prompt_guide = f"The team asked you to focus on: {guide.strip()}\n\n"
 
     # Lead with the (trusted) guide so the fenced untrusted observation block is always the last
@@ -170,4 +172,7 @@ def _markdown_to_slack(markdown: str) -> str:
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:
         text = text[:SLACK_TEXT_MAX].rstrip() + "\n\n…_(truncated — see the full group summary in PostHog)_"
+        # Re-run link sanitization: truncation may have split a defanged `` `url` `` code span,
+        # dropping the closing backtick and re-exposing the bare URL to Slack's auto-unfurler.
+        text = strip_external_links_markdown(text)
     return text
