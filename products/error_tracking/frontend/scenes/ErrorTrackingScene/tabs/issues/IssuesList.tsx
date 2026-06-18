@@ -1,10 +1,4 @@
 import { BindLogic, useValues } from 'kea'
-import { useMemo } from 'react'
-
-import { Tooltip } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -22,60 +16,14 @@ import { IssueActions } from 'products/error_tracking/frontend/components/IssueA
 import { useErrorTrackingSearchBarRedesign } from 'products/error_tracking/frontend/components/IssueFilters/SearchBarVariantToggle'
 import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
-import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
-import {
-    formatCompactVolumeHoverDate,
-    formatCompactVolumeHoverOccurrences,
-} from 'products/error_tracking/frontend/components/VolumeSparkline/formatCompactVolumeHover'
-import { VolumeSparkline } from 'products/error_tracking/frontend/components/VolumeSparkline/VolumeSparkline'
-import { applyVolumeSpikeHighlights, useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
-import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
-import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
+
+import { IssueCountColumn, IssueCountCell, IssueVolumeCell } from './issueListCells'
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const record = props.record as ErrorTrackingIssue
-    if (!record.aggregations) {
-        throw new Error('No aggregations found')
-    }
-    const sparklineKey = record.id ?? 'issue-unknown'
-    const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
-    const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)
-    const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
-    const data = useMemo(() => applyVolumeSpikeHighlights(baseData, spikeEvents), [baseData, spikeEvents])
-
-    const { hoveredDatum, isBarHighlighted } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
-
-    return (
-        <div className="flex w-full min-w-0 justify-center">
-            <div className="flex w-56 max-w-full min-w-0 flex-col">
-                <div className="h-12 min-h-12 w-full">
-                    <VolumeSparkline
-                        className="h-full"
-                        data={data}
-                        layout="compact"
-                        xAxis="minimal"
-                        sparklineKey={sparklineKey}
-                    />
-                </div>
-                <div
-                    className={cn(
-                        'flex h-3 w-full items-center justify-between gap-1 px-px text-[9px] leading-none text-muted',
-                        isBarHighlighted ? 'opacity-100' : 'opacity-0'
-                    )}
-                >
-                    <span className="min-w-0 truncate">
-                        {hoveredDatum ? formatCompactVolumeHoverDate(hoveredDatum) : '\u00a0'}
-                    </span>
-                    <span className="min-w-0 shrink-0 text-right tabular-nums">
-                        {hoveredDatum ? formatCompactVolumeHoverOccurrences(hoveredDatum) : '\u00a0'}
-                    </span>
-                </div>
-            </div>
-        </div>
-    )
+    return <IssueVolumeCell record={props.record as ErrorTrackingIssue} />
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
@@ -99,20 +47,7 @@ const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
-    const aggregations = (record as ErrorTrackingIssue).aggregations
-    const count = aggregations ? aggregations[columnName as 'occurrences' | 'sessions' | 'users'] : 0
-
-    return (
-        <span className="text-lg font-medium">
-            {columnName === 'sessions' && count === 0 ? (
-                <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
-                    -
-                </Tooltip>
-            ) : (
-                humanFriendlyLargeNumber(count)
-            )}
-        </span>
-    )
+    return <IssueCountCell record={record as ErrorTrackingIssue} columnName={columnName as IssueCountColumn} />
 }
 
 const ISSUE_COUNT_COLUMN_WIDTH = 'clamp(4.75rem, 5vw, 5.5rem)'

@@ -77,6 +77,8 @@ export interface FilterBarProps {
     showSearch?: boolean
     /** What free-text search applies to — drives the placeholder and search action label. */
     searchSubject?: string
+    /** Drop the bordered/filled container, leaving just the buttons and chips on the surface. */
+    chromeless?: boolean
     className?: string
 }
 
@@ -99,6 +101,7 @@ export function FilterBar({
     showIssueControls = true,
     showSearch = true,
     searchSubject = 'issues',
+    chromeless = false,
     className,
 }: FilterBarProps): JSX.Element {
     const { filterGroup } = useValues(issueFiltersLogic)
@@ -121,6 +124,7 @@ export function FilterBar({
                 showIssueControls={showIssueControls}
                 showSearch={showSearch}
                 searchSubject={searchSubject}
+                chromeless={chromeless}
                 className={className}
             />
         </UniversalFilters>
@@ -128,7 +132,7 @@ export function FilterBar({
 }
 
 type BarProps = Required<
-    Pick<FilterBarProps, 'taxonomicGroupTypes' | 'showIssueControls' | 'showSearch' | 'searchSubject'>
+    Pick<FilterBarProps, 'taxonomicGroupTypes' | 'showIssueControls' | 'showSearch' | 'searchSubject' | 'chromeless'>
 > &
     Pick<FilterBarProps, 'reload' | 'logicKey' | 'quickFilterContext' | 'className'>
 
@@ -173,6 +177,7 @@ const BarContents = ({
     showIssueControls,
     showSearch,
     searchSubject,
+    chromeless,
     className,
 }: BarProps): JSX.Element => {
     const { searchQuery: panelQuery } = useTaxonomicFilterContext()
@@ -197,7 +202,8 @@ const BarContents = ({
     return (
         <div
             className={cn(
-                'flex items-center min-h-11 pr-1.5 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm',
+                'flex items-center pr-1.5',
+                chromeless ? 'min-h-9' : 'min-h-11 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm',
                 className
             )}
         >
