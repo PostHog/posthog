@@ -980,14 +980,26 @@ snapshots:
         hash: v1.k794b7964.923047d63ec1ae864e60b7b86cfac17b0d5f6219a30d49cd5136f01ff0484e29.NuIevRcOCohA9RKgPAqDQ4LePOvXKSWlle-moHjrNMQ
     components-insighttooltip--math-tags-single-series--light:
         hash: v1.k794b7964.d24656089329001d29308a16f3e6a1c3e462bc441399753a7d34cbbbcbea7b52.5lWzjuoDbPhC3rdjisXnHNn7RfsfgBdtjtl89icOwlc
+    components-integrations-slack--slack-full-page-connect--dark:
+        hash: v1.k794b7964.51583f338ebbc9431907cf88e2a9203eac9d935bf9b1239c4719ec2b0d8fde60.QaekG_L27F8dbaTbN7cZhq55VHrO7eZoZzasZQJ8zcQ
+    components-integrations-slack--slack-full-page-connect--light:
+        hash: v1.k794b7964.887985c176c1acc4a271e7035ff0df683b21db6df6a4b2e5ee5b9d57ea450892.Fu27S76ove9JpMONVMPLJKnrFC6tKRtcWQJ_x4zEAWA
+    components-integrations-slack--slack-full-page-connected-all-scopes--dark:
+        hash: v1.k794b7964.a98f3a60ecef683efb4fdf3cbc58286ebc98f570b44fe24c97ed0668c51064eb.DPIIxII9L49YGcc_NOiAjR8p2cJ_5JDuw5c2hwVcYac
+    components-integrations-slack--slack-full-page-connected-all-scopes--light:
+        hash: v1.k794b7964.b23d81fff71cd1d4cee2efa42ba7a4db827ad2a0ec09138716f01f3605b99322.KMT66t2fhW4MExoWKAe6__v5CL8l4L5qBLjHOI029MY
+    components-integrations-slack--slack-full-page-connected-missing-scopes--dark:
+        hash: v1.k794b7964.13446a4ebca85a6c734614405d1e52e58c8b4526650761a81c7c9dea1487e108.kYq2Z2ogm7O6RInvJ5UGxBuxHzaR_Vp2-18KmOlp27A
+    components-integrations-slack--slack-full-page-connected-missing-scopes--light:
+        hash: v1.k794b7964.d6899b66373d28d2340c90fad643cc13a62301ca1454c084ba1036a8d2c1d5b4.jLOVtJQun2Ow8TsRSoRB0-BpkgDTNeVT_1GVriGXMQ4
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.0Jsmo2XKYiKkfSVMN4GzeK-ePRjh4q_l60Ez2M90L58
     components-integrations-slack--slack-integration--light:
         hash: v1.k794b7964.5e31191fe884081eaecccc0ca410571bfea114969731061b25274559c377e9c2.48o8xuoIkdsSSYnrrvbAKMwn9XvAGobjR0zC3-wD7bc
     components-integrations-slack--slack-integration-added--dark:
-        hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.bsnv2iCt7wmYW7NkkBCcYY4qe9uGkjk1co5S1VY-12A
+        hash: v1.k794b7964.a1ad42b0f0f975569b93110a669febd3e486f6b90ee785b80979ae83dcbff1db.hV7aqt2bShW5KttL4NDjY3p-mcL2bXJKtEJJvQhn8ao
     components-integrations-slack--slack-integration-added--light:
-        hash: v1.k794b7964.5e31191fe884081eaecccc0ca410571bfea114969731061b25274559c377e9c2.Tz-VqjD9I4B2AkjAU8Z5Aje26LxOJs2i3LfzLBbLoPU
+        hash: v1.k794b7964.ed6cb6ffb8918525982aca7a4eed6c21a239d5cacfe49c0c81898e842fd012ac.c_YqaIbzzzNXueagP2l8S4VMtTe870p7kVDnC6P-27A
     components-integrations-slack--slack-integration-instance-not-configured--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.VkdQOtlSqpDDliAWoEWxISdK8UUYqJyt7gFvAGeB7HE
     components-integrations-slack--slack-integration-instance-not-configured--light:
@@ -6613,9 +6625,9 @@ snapshots:
     scenes-other-billing-product--billing-product-without-addons--light:
         hash: v1.k794b7964.3455fe6bd5eb074408ff091675444e597f9c7a34d232faa0f392a3fcb4f6e021.2FmYvUHcc47NK-z0ntILzg44Any6Y947VSerITyrL6k
     scenes-other-integration-landing-page--connected--dark:
-        hash: v1.k794b7964.c3f38cb69619148711f73cbd2358e9879a628dedce0133ddf4a55c909eb74023.TKSLIKWkZhyP9yVqCUNnOWE-phlM8jkN2hg7yhVk-x8
+        hash: v1.k794b7964.7012e3f23570ed0bdf0af3b947fa8b09bb1a40edd59928bea76c9472eef444a1.yWbx-kU4Sx_plVguU1neQn8eHFiPseBMjmr8tCiy6O0
     scenes-other-integration-landing-page--connected--light:
-        hash: v1.k794b7964.75ccf59d3aeba8ec4f6036dacc9812fad6ac24ebcc8988f74c0de3b4d0ae2ffb.NXnkDcwqc_lAqnRMFjZA4hgi6DiLOx_pL6TfEKmzK7s
+        hash: v1.k794b7964.ecea4a3cebed2c5fba619695c4ca576cfa0ce3a9a818af498791c1080be2675e.nkq28LhIVvheqMxYLdV5Od1eeCXKI1AFgIKfcbUOAEw
     scenes-other-integration-landing-page--not-connected--dark:
         hash: v1.k794b7964.cbc1efc83f9f31ee7ed22a7da2be3ec19e7e6f6568a5b43ade5f75ee4aaccbc5.u1nKAJkTALr_RPPMm4EA68pFFF4JE03AJBqWleTvbJk
     scenes-other-integration-landing-page--not-connected--light:
