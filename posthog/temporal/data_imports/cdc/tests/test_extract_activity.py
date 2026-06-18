@@ -1247,10 +1247,10 @@ class TestCleanupOrphanSlotsRetentionCap:
 
     def _setup(self, mock_get_adapter, MockSourceModel, lag_mb, cap_mb):
         source = _make_source()
-        qs = MockSourceModel.objects.filter.return_value
-        qs.exclude.return_value.exclude.return_value.exclude.return_value.exclude.return_value = [source]
+        MockSourceModel.objects.filter.return_value.iterator.return_value = [source]
 
         cdc_config = MagicMock()
+        cdc_config.enabled = True
         cdc_config.slot_name = "posthog_slot"
         cdc_config.publication_name = "posthog_pub"
         cdc_config.management_mode = "posthog"
@@ -1265,10 +1265,13 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_retention_cap_lowers_critical_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_retention_cap_lowers_critical_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity
+    ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
@@ -1279,10 +1282,13 @@ class TestCleanupOrphanSlotsRetentionCap:
         assert source.status is MockSourceModel.Status.ERROR
         source.save.assert_called()
 
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_unlimited_retention_keeps_configured_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_unlimited_retention_keeps_configured_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity
+    ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
         cleanup_orphan_slots_activity()

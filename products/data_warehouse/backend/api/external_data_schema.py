@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     validate_and_coerce_row_filters,
 )
+from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -1115,7 +1116,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
 
-        source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
+        # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
+        # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
+        source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
 
         data = {
