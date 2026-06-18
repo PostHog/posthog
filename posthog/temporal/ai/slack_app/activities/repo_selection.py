@@ -197,13 +197,3 @@ async def discover_posthog_code_repository_via_agent_activity(
         repo_research_task_id=research_ids.get("task_id"),
         repo_research_run_id=research_ids.get("run_id"),
     )
-
-
-@activity.defn
-def classify_posthog_code_task_needs_repo_activity(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-) -> bool:
-    from products.slack_app.backend.api import classify_task_needs_repo
-
-    return classify_task_needs_repo(event_text, thread_messages)

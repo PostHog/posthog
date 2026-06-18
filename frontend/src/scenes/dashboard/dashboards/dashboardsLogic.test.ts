@@ -43,8 +43,14 @@ describe('dashboardsLogic', () => {
                 pinned: true,
             }),
         },
-        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType }) },
-        { ...dashboard({ created_by: { uuid: 'user2' } as UserBasicType, name: 'needle' }) },
+        { ...dashboard({ created_by: { uuid: 'USER_UUID' } as UserBasicType, folder: 'Marketing/Website' }) },
+        {
+            ...dashboard({
+                created_by: { uuid: 'user2' } as UserBasicType,
+                name: 'needle',
+                folder: 'Marketing/Website',
+            }),
+        },
         {
             ...dashboard({
                 created_by: { uuid: 'USER_UUID' } as UserBasicType,
@@ -115,6 +121,18 @@ describe('dashboardsLogic', () => {
                     dashboards[1].created_by?.uuid === 'user2'
                 )
             }),
+        })
+    })
+
+    it('filters client-side by folder when no search is active', async () => {
+        const inFolder = allDashboards.filter((d) => (d as DashboardType).folder === 'Marketing/Website')
+        expectLogic(logic, () => {
+            logic.actions.setFilters({ folder: 'Marketing/Website' })
+        }).toMatchValues({
+            dashboards: truth(
+                (dashboards: DashboardType[]) =>
+                    dashboards.length === inFolder.length && dashboards.every((d) => d.folder === 'Marketing/Website')
+            ),
         })
     })
 

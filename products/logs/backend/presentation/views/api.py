@@ -37,22 +37,22 @@ from posthog.models import User
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
 )
-from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
-from products.logs.backend.sampling_api import LogsSamplingRuleViewSet
+from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
+from products.logs.backend.presentation.views.explain import LogExplainViewSet
+from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
+from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
-from products.logs.backend.views_api import LogsViewViewSet
 
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
 

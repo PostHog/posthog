@@ -152,7 +152,7 @@ EXCEPTION_PAIR_PROBABILITY = 0.6
 
 
 class Command(BaseCommand):
-    help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
+    help = "Seed $mcp_tool_call events into ClickHouse for local testing of MCP analytics."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
@@ -169,7 +169,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Delete existing mcp_tool_call events for the team before seeding (clean slate).",
+            help="Delete existing $mcp_tool_call events for the team before seeding (clean slate).",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -194,7 +194,7 @@ class Command(BaseCommand):
         if clear:
             sync_execute(
                 f"ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE team_id = %(team_id)s "
-                "AND (event = 'mcp_tool_call' OR (event = '$exception' AND JSONExtractString(properties, '$mcp_tool_name') != '')) "
+                "AND (event = '$mcp_tool_call' OR (event = '$exception' AND JSONExtractString(properties, '$mcp_tool_name') != '')) "
                 "SETTINGS mutations_sync=1",
                 {"team_id": team_id},
             )
@@ -301,7 +301,7 @@ class Command(BaseCommand):
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
                 create_event(
                     event_uuid=uuid.uuid4(),
-                    event="mcp_tool_call",
+                    event="$mcp_tool_call",
                     team=team,
                     distinct_id=distinct_id,
                     timestamp=timestamp,

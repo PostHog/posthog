@@ -1,14 +1,25 @@
 import uuid as uuid_lib
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.test import override_settings
 
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
+from posthog.models import data_deletion_request as ddr
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    RequestType,
+    cached_compile_hogql_predicate,
+    invalidate_compiled_predicate_cache,
+)
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+
+LOCMEM_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "ddr-test"}}
 
 TEAM_ID = 99999
 
@@ -28,6 +39,16 @@ def _base_kwargs(**overrides) -> dict:
     }
     kwargs.update(overrides)
     return kwargs
+
+
+def _recording_compile() -> tuple[list[str], Callable]:
+    calls: list[str] = []
+
+    def fake_compile(obj):
+        calls.append(obj.hogql_predicate)
+        return "equals(1, 1)", {"k": "v"}
+
+    return calls, fake_compile
 
 
 @pytest.mark.parametrize(
@@ -426,3 +447,78 @@ def test_event_and_property_removal_rejects_person_fields(request_type, override
     request = DataDeletionRequest(**kwargs)
     with pytest.raises(ValidationError, match=match):
         request.clean()
+
+
+def test_team_id_immutable_after_creation():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
+    request._loaded_team_id = request.team_id  # simulate a row loaded from the DB
+    request.team_id = TEAM_ID + 1
+    with pytest.raises(ValidationError, match="team_id cannot be changed"):
+        request.clean()
+
+
+def test_team_id_unchanged_allows_other_edits():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
+    request._loaded_team_id = request.team_id
+    request.events = ["$pageview", "$autocapture"]
+    request.clean()  # team_id unchanged → no raise
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_reuses_cache_on_repeat():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
+        # Second call for the same predicate is served from cache — no recompile.
+        assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
+        assert len(calls) == 1
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_when_predicate_text_changes():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
+        # Changing the predicate text recompiles via the source guard, even without explicit clear.
+        request.hogql_predicate = "properties.$browser = 'Firefox'"
+        cached_compile_hogql_predicate(request)
+        assert len(calls) == 2
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_after_explicit_invalidation():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
+        # Explicit invalidation forces a recompile on the next call.
+        invalidate_compiled_predicate_cache(request.pk)
+        cached_compile_hogql_predicate(request)
+        assert len(calls) == 2
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], hogql_predicate=""))
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=AssertionError("should not compile")):
+        assert cached_compile_hogql_predicate(request) == ("", {})

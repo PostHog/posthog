@@ -26,6 +26,9 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // of equal length. The current/previous split is applied in `buildKPIs` against
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
+//
+// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
+// legacy `mcp_tool_call` alias, so matching both names would double-count it.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -34,7 +37,7 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
@@ -54,7 +57,7 @@ SELECT
     uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
     max(timestamp) AS last_seen
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_session_id IS NOT NULL
     AND properties.$mcp_session_id != ''
     AND properties.$mcp_tool_name IS NOT NULL
@@ -76,7 +79,7 @@ SELECT
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
@@ -92,7 +95,7 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
     AND {filters}
@@ -108,7 +111,7 @@ SELECT
     countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
     countIf(toBool(properties.$mcp_is_error)) AS errors
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
@@ -123,7 +126,7 @@ SELECT
     toString(properties.$mcp_tool_name) AS tool,
     count() AS calls
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
