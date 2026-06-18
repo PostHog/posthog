@@ -415,18 +415,41 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
-    def test_listing_experiments_refreshes_action_names(self) -> None:
+    def test_retrieving_experiment_refreshes_action_names(self) -> None:
+        # Action-name refresh lives on the detail response — the list endpoint no longer
+        # returns metrics (see ExperimentBasicSerializer).
         experiment, action = self._create_experiment_with_action_metrics(0)
         action.name = "Renamed action"
         action.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = next(r for r in response.json()["results"] if r["id"] == experiment.id)
+        result = response.json()
 
         self.assertEqual(result["metrics"][0]["source"]["name"], "Renamed action")
         self.assertEqual(result["metrics_secondary"][0]["source"]["name"], "Renamed action")
         self.assertEqual(result["saved_metrics"][0]["query"]["source"]["name"], "Renamed action")
+
+    def test_list_omits_heavy_metric_fields_kept_on_detail(self) -> None:
+        # The list view never renders metric definitions, so they're excluded from the list
+        # response (letting the query defer the JSON columns and skip the saved-metric prefetch).
+        # The detail response still includes them.
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+
+        list_result = next(
+            r
+            for r in self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+            if r["id"] == experiment.id
+        )
+        for omitted in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertNotIn(omitted, list_result)
+        # Fields the list view does use are still present.
+        for kept in ["name", "status", "feature_flag", "parameters"]:
+            self.assertIn(kept, list_result)
+
+        detail_result = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}").json()
+        for present in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertIn(present, detail_result)
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"

@@ -283,16 +283,6 @@ export interface ExperimentRunningTimeCalculationApi {
     recommended_sample_size?: number | null
 }
 
-export interface ExperimentToSavedMetricApi {
-    readonly id: number
-    experiment: number
-    saved_metric: number
-    metadata?: unknown
-    readonly created_at: string
-    readonly query: unknown
-    readonly name: string
-}
-
 /**
  * * `web` - web
  * * `product` - product
@@ -303,6 +293,121 @@ export const ExperimentTypeEnumApi = {
     Web: 'web',
     Product: 'product',
 } as const
+
+/**
+ * * `won` - won
+ * * `lost` - lost
+ * * `inconclusive` - inconclusive
+ * * `stopped_early` - stopped_early
+ * * `invalid` - invalid
+ */
+export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+
+export const ConclusionEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
+
+export const ExperimentStatusEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Paused: 'paused',
+    Stopped: 'stopped',
+} as const
+
+/**
+ * Lightweight, read-only serializer for the experiment list endpoint.
+ *
+ * The list view (and the MCP list tool) render only scalar and feature-flag fields,
+ * never the metric definitions. Dropping ``metrics``/``metrics_secondary``/``saved_metrics``
+ * here lets the list query defer the large JSON columns and skip the saved-metric prefetch
+ * plus per-row fingerprinting — that work belongs to the detail response served by
+ * ``ExperimentSerializer``. See ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+ */
+export interface ExperimentBasicApi {
+    readonly id: number
+    /**
+     * Name of the experiment.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Description of the experiment hypothesis and expected outcomes.
+     * @maxLength 3000
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+    feature_flag_key: string
+    readonly feature_flag: MinimalFeatureFlagApi
+    readonly holdout: ExperimentHoldoutApi
+    /** @nullable */
+    readonly exposure_cohort: number | null
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /** Whether the experiment is archived. */
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** Experiment type: web for frontend UI changes, product for backend/API changes.
+     *
+     * * `web` - web
+     * * `product` - product */
+    type?: ExperimentTypeEnumApi | null
+    /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
+    conclusion?: ConclusionEnumApi | null
+    /**
+     * Comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status: ExperimentStatusEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedExperimentBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentBasicApi[]
+}
+
+export interface ExperimentToSavedMetricApi {
+    readonly id: number
+    experiment: number
+    saved_metric: number
+    metadata?: unknown
+    readonly created_at: string
+    readonly query: unknown
+    readonly name: string
+}
 
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
@@ -514,32 +619,6 @@ export interface ExperimentApiMetricApi {
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
 
 /**
- * * `won` - won
- * * `lost` - lost
- * * `inconclusive` - inconclusive
- * * `stopped_early` - stopped_early
- * * `invalid` - invalid
- */
-export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
-
-export const ConclusionEnumApi = {
-    Won: 'won',
-    Lost: 'lost',
-    Inconclusive: 'inconclusive',
-    StoppedEarly: 'stopped_early',
-    Invalid: 'invalid',
-} as const
-
-export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
-
-export const ExperimentStatusEnumApi = {
-    Draft: 'draft',
-    Running: 'running',
-    Paused: 'paused',
-    Stopped: 'stopped',
-} as const
-
-/**
  * Mixin for serializers to add user access control fields
  */
 export interface ExperimentApi {
@@ -630,15 +709,6 @@ export interface ExperimentApi {
      * @nullable
      */
     readonly user_access_level: string | null
-}
-
-export interface PaginatedExperimentListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExperimentApi[]
 }
 
 /**

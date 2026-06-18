@@ -20209,6 +20209,76 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    /**
+     * Lightweight, read-only serializer for the experiment list endpoint.
+     *
+     * The list view (and the MCP list tool) render only scalar and feature-flag fields,
+     * never the metric definitions. Dropping ``metrics``/``metrics_secondary``/``saved_metrics``
+     * here lets the list query defer the large JSON columns and skip the saved-metric prefetch
+     * plus per-row fingerprinting — that work belongs to the detail response served by
+     * ``ExperimentSerializer``. See ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+     */
+    export interface ExperimentBasic {
+      readonly id: number;
+      /**
+         * Name of the experiment.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
+      description?: string | null;
+      /** @nullable */
+      start_date?: string | null;
+      /** @nullable */
+      end_date?: string | null;
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+      feature_flag_key: string;
+      readonly feature_flag: MinimalFeatureFlag;
+      readonly holdout: ExperimentHoldout;
+      /** @nullable */
+      readonly exposure_cohort: number | null;
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /** Whether the experiment is archived. */
+      archived?: boolean;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Experiment type: web for frontend UI changes, product for backend/API changes.
+       *
+       * * `web` - web
+       * * `product` - product */
+      type?: ExperimentTypeEnum | null;
+      /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+       *
+       * * `won` - won
+       * * `lost` - lost
+       * * `inconclusive` - inconclusive
+       * * `stopped_early` - stopped_early
+       * * `invalid` - invalid */
+      conclusion?: ConclusionEnum | null;
+      /**
+         * Comment about the experiment conclusion.
+         * @nullable
+         */
+      conclusion_comment?: string | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
     export interface ExperimentExposureCriteria {
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
@@ -29070,6 +29140,15 @@ export namespace Schemas {
       results: EventSchema[];
     }
 
+    export interface PaginatedExperimentBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExperimentBasic[];
+    }
+
     export interface PaginatedExperimentHoldoutList {
       count: number;
       /** @nullable */
@@ -29077,15 +29156,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExperimentHoldout[];
-    }
-
-    export interface PaginatedExperimentList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Experiment[];
     }
 
     export interface PaginatedExperimentSavedMetricList {

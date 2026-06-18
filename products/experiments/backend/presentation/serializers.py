@@ -539,6 +539,69 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
 
+class ExperimentBasicSerializer(ExperimentSerializer):
+    """Lightweight, read-only serializer for the experiment list endpoint.
+
+    The list view (and the MCP list tool) render only scalar and feature-flag fields,
+    never the metric definitions. Dropping ``metrics``/``metrics_secondary``/``saved_metrics``
+    here lets the list query defer the large JSON columns and skip the saved-metric prefetch
+    plus per-row fingerprinting — that work belongs to the detail response served by
+    ``ExperimentSerializer``. See ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+    """
+
+    class Meta(ExperimentSerializer.Meta):
+        fields = [
+            "id",
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "feature_flag_key",
+            "feature_flag",
+            "holdout",
+            "exposure_cohort",
+            "parameters",
+            "running_time_calculation",
+            "archived",
+            "deleted",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "type",
+            "conclusion",
+            "conclusion_comment",
+            "status",
+            "user_access_level",
+        ]
+        # Mirror ExperimentSerializer's read-only set (minus saved_metrics, which isn't a field
+        # here) so each field's optionality matches the full type — keeping ExperimentApi a
+        # structural superset of ExperimentBasicApi, which consumers rely on.
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "feature_flag",
+            "exposure_cohort",
+            "holdout",
+            "status",
+            "user_access_level",
+        ]
+        # Default ListSerializer — the metric action-name batching in ExperimentListSerializer
+        # is unnecessary here and would touch the deferred metric columns (an N+1).
+        list_serializer_class = serializers.ListSerializer
+
+    def get_fields(self):
+        # Skip ExperimentSerializer.get_fields, which configures the write-only ``holdout_id``
+        # field that this read-only list serializer does not expose.
+        return serializers.ModelSerializer.get_fields(self)
+
+    def to_representation(self, instance):
+        # No metric/saved-metric fields here, so skip ExperimentSerializer's per-row
+        # date-range normalization and fingerprint computation.
+        return serializers.ModelSerializer.to_representation(self, instance)
+
+
 class EndExperimentSerializer(serializers.Serializer):
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
