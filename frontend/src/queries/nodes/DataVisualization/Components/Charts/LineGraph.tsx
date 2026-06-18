@@ -10,7 +10,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonTable, lemonToast } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import {
@@ -46,7 +46,14 @@ import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../da
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
 import { SqlLineGraph } from './SqlLineGraph'
-import { MAX_SERIES, canRenderSqlLineGraph } from './sqlLineGraphAdapter'
+import {
+    AREA_FILL_OPACITY,
+    canRenderSqlLineGraph,
+    capYSeriesData,
+    exceedsMaxSeries,
+    isAreaSeries,
+    warnTooManySeries,
+} from './sqlLineGraphAdapter'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -64,10 +71,6 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     }
 
     return GraphType.Line
-}
-
-const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean => {
-    return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 }
 
 const axisLabelFont = {
@@ -138,7 +141,6 @@ export type LineGraphProps = {
     className?: string
 }
 
-// Legacy chart.js renderer. The exported `LineGraph` below routes to it or the new SqlLineGraph.
 const LegacyLineGraph = ({
     xData,
     yData,
@@ -171,20 +173,13 @@ const LegacyLineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
-    const ySeriesData = useMemo(() => {
-        if (!yData) {
-            return null
+    useEffect(() => {
+        if (exceedsMaxSeries(yData, dashboardId)) {
+            warnTooManySeries(yData!.length)
         }
-        if (yData.length > MAX_SERIES) {
-            if (!dashboardId) {
-                lemonToast.warning(
-                    `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
-                )
-            }
-            return yData.slice(0, MAX_SERIES)
-        }
-        return yData
     }, [yData, dashboardId])
+
+    const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
     const datasets = useMemo(() => {
         if (!ySeriesData) {
@@ -194,7 +189,7 @@ const LegacyLineGraph = ({
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
             const hasAreaFill = isAreaSeries(visualizationType, settings)
-            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, AREA_FILL_OPACITY) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
@@ -733,11 +728,9 @@ const LegacyLineGraph = ({
     )
 }
 
-// Routes to the new SQL line graph when the flag is on and the inputs are supported; otherwise the
-// legacy chart.js path renders unchanged.
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.DATA_VIZ_QUILL_CHARTS]
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
     if (newChartsEnabled && canRenderSqlLineGraph(props)) {
         return <SqlLineGraph {...props} />

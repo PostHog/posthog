@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
     type ChartTheme,
@@ -12,8 +12,16 @@ import {
 import { buildTheme } from 'lib/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
 import { LineGraphProps } from './LineGraph'
-import { buildLineChartConfig, buildSeries, capYSeriesData } from './sqlLineGraphAdapter'
+import {
+    buildLineChartConfig,
+    buildSeries,
+    capYSeriesData,
+    exceedsMaxSeries,
+    warnTooManySeries,
+} from './sqlLineGraphAdapter'
 
 export interface SqlLineGraphModel {
     series: Series[]
@@ -25,7 +33,6 @@ export interface SqlLineGraphModel {
     toggleSeries: (key: string) => void
 }
 
-/** Builds everything the {@link SqlLineGraph} component renders, or null when there's nothing to draw. */
 export function useSqlLineGraph({
     xData,
     yData,
@@ -35,16 +42,26 @@ export function useSqlLineGraph({
     goalLines,
 }: LineGraphProps): SqlLineGraphModel | null {
     const { timezone } = useValues(teamLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
 
-    const ySeriesData = useMemo(() => capYSeriesData(yData, dashboardId), [yData, dashboardId])
+    // Fire the cap warning as a side effect — capYSeriesData itself stays pure.
+    useEffect(() => {
+        if (exceedsMaxSeries(yData, dashboardId)) {
+            warnTooManySeries(yData!.length)
+        }
+    }, [yData, dashboardId])
+
+    const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
     const allSeries = useMemo(
         () => (ySeriesData ? buildSeries(ySeriesData, visualizationType) : []),
         [ySeriesData, visualizationType]
     )
 
-    const theme = useMemo(() => buildTheme(), [])
+    // buildTheme reads CSS vars at call time; re-derive when the user toggles light/dark.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const config = useMemo(
         () => (xData ? buildLineChartConfig({ xData, chartSettings, timezone, goalLines }) : undefined),

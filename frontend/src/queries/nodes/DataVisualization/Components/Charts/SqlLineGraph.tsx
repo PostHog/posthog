@@ -10,10 +10,10 @@ import { useSqlLineGraph } from './useSqlLineGraph'
 const handleChartError = makeChartErrorHandler('sql-line-chart')
 
 /**
- * SQL line/area graph rendered via @posthog/quill-charts, gated behind the `data-viz-quill-charts`
- * flag (see {@link LineGraph}). Handles line, area, dual y-axis, and goal lines; everything else
- * falls back to the legacy chart.js path. Tooltip content is quill's DefaultTooltip until PR2 ports
- * the rich InsightTooltip.
+ * SQL line/area graph rendered via @posthog/quill-charts, gated behind the
+ * `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles line, area, and goal
+ * lines; everything else falls back to the legacy chart.js path. Tooltip content is quill's
+ * DefaultTooltip — the rich InsightTooltip isn't bridged over yet.
  */
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element | null => {
     const model = useSqlLineGraph(props)
