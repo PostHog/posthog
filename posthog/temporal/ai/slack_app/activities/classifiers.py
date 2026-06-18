@@ -24,25 +24,48 @@ def classify_task_needs_repo(
 
     Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
     False if it does not (analytics, data queries, PostHog config).
-    Defaults to True on error (conservative — falls back to picker).
+
+    Biased toward False: a false negative answers an analytics ask with no repo
+    (recoverable — the user re-asks with code intent), while a false positive
+    walls the user behind the Connect-GitHub gate even for "what's my DAU".
+    Defaults to False on error for the same reason.
     """
     conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
 
+    # Substring match: keep the shortest form that uniquely identifies the
+    # concept without colliding with code-review vocabulary. Plurals are used
+    # only when the singular substring-matches a common non-analytics word
+    # (e.g. `event` → `eventually`, `person` → `personal`).
     product_debug_terms = (
+        # Product/config debugging
         "automation",
         "destination",
-        "slack destination",
         "posthog ai feedback",
         "feature flag",
         "experiment",
         "survey",
         "dashboard",
         "insight",
-        "session replay",
         "recording",
         "mcp",
         "webhook",
+        # Analytics primitives and data asks
+        "events",
+        "persons",
+        "cohort",
+        "trend",
+        "funnel",
+        "retention",
+        "hogql",
+        "replay",
+        "breakdown",
+        "dau",
+        "mau",
+        "error tracking",
+        "llm analytics",
+        "revenue",
+        "marketing analytics",
     )
     explicit_code_patterns = (
         r"\brepository\b",
@@ -88,8 +111,10 @@ def classify_task_needs_repo(
         "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
         "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
-        "there's no good match.\n\n"
+        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
+        "names). Analytics, data, and configuration asks are the common case and should not be "
+        "walled behind a Connect-GitHub prompt on a guess.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
@@ -106,10 +131,16 @@ def classify_task_needs_repo(
         if content.startswith("```"):
             content = content.strip("`").removeprefix("json").strip()
         parsed = json.loads(content)
-        return bool(parsed.get("needs_repo", True))
+        # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
+        # bool("false") is True, which would flip the defensive bias — handle
+        # strings explicitly and treat any other unexpected shape as False.
+        value = parsed.get("needs_repo", False)
+        if isinstance(value, str):
+            return value.strip().lower() == "true"
+        return value is True
     except Exception:
         logger.exception("slack_app_classify_task_needs_repo_failed")
-        return True
+        return False
 
 
 @activity.defn
