@@ -2323,7 +2323,7 @@ jobs:
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
-                        --splitting-algorithm=duration_based_chunks \
+                        --splitting-algorithm=optimal_chunks \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
@@ -2398,7 +2398,7 @@ jobs:
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
-                          --splitting-algorithm=duration_based_chunks \
+                          --splitting-algorithm=optimal_chunks \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \

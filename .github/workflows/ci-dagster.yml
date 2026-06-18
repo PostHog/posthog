@@ -386,7 +386,7 @@ jobs:
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm=optimal_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
