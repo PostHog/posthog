@@ -283,9 +283,6 @@ impl RawPythonFrame {
         if EXTERNAL_PACKAGE_PATH.is_match(&self.filename) {
             return true;
         }
-        if self.filename.contains('/') || self.filename.contains('\\') {
-            return false;
-        }
         self.module
             .as_deref()
             .and_then(|module| module.split('.').next())
@@ -434,14 +431,14 @@ mod test {
                 true,
             ),
             (
-                "pathless app package shadowing a stdlib module stays in_app",
+                "pathless stdlib package submodule is demoted",
                 serde_json::json!({
-                    "filename": "logging/views.py",
-                    "function": "index",
-                    "module": "logging.views",
+                    "filename": "concurrent/futures/thread.py",
+                    "function": "run",
+                    "module": "concurrent.futures.thread",
                     "in_app": true,
                 }),
-                true,
+                false,
             ),
             (
                 "explicit client false is never promoted",
