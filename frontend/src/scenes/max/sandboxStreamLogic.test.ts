@@ -603,6 +603,38 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
 
+        it('places replayed setup progress below the human turn it belongs to', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/progress', {
+                    sessionId: 's',
+                    step: 'agent',
+                    status: 'completed',
+                    label: 'Started agent',
+                    group: 'setup:run-1',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'build me a dashboard' },
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual(['human_message', 'progress'])
+            expect(logic.values.threadItems[0]).toMatchObject({
+                type: 'human_message',
+                text: 'build me a dashboard',
+            })
+            expect(logic.values.threadItems[1]).toMatchObject({
+                type: 'progress',
+                progressSteps: [{ key: 'agent', status: 'completed', label: 'Started agent' }],
+            })
+        })
+
         it('does not render a live (non-replay) user_message_chunk — it is echoed on send instead', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
