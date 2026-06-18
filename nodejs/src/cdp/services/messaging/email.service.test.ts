@@ -10,6 +10,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 
@@ -89,6 +90,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL
         )
@@ -102,6 +104,7 @@ describe('EmailService', () => {
             const serviceWithoutSES = new EmailService(
                 { sesAccessKeyId: '', sesSecretAccessKey: '', sesRegion: '', sesEndpoint: '' },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL
             )
@@ -363,7 +366,7 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
-        it('should include tracking code in the email', async () => {
+        it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
             })
@@ -423,7 +426,8 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            // The SES tag carries the short unsigned code (no dot); the signed code rides in the header.
+            // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
+            // rides in the header.
             expect(sentCommand.input).toMatchObject({
                 ConfigurationSetName: 'posthog-messaging',
                 Content: {
@@ -614,6 +618,9 @@ describe('EmailService', () => {
         })
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
+            // The header is the authoritative tracking-code carrier (the EmailTag is the
+            // bounded backwards-compat fallback). It rides on every outbound message,
+            // regardless of transactional vs. marketing category.
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
@@ -623,7 +630,10 @@ describe('EmailService', () => {
                 (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
             )
             expect(trackingHeader).toBeDefined()
-            // The SES tag carries a different (shorter, unsigned) code so it stays under the 256-char cap.
+            expect(typeof trackingHeader.Value).toBe('string')
+            expect(trackingHeader.Value.length).toBeGreaterThan(0)
+            // The SES EmailTag carries a *different* (shorter, unsigned) code so it stays under the
+            // 256-char tag-value limit even when distinct_id is long.
             expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })
 
@@ -631,6 +641,50 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+        })
+
+        it('should capture a $workflows_email_sent PostHog event on success', async () => {
+            // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                team_id: team.id,
+                distinct_id: 'distinct_id',
+                event: '$workflows_email_sent',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $workflow_action_id: invocation.state.actionId,
+                    $email_to: 'test@example.com',
+                    $email_subject: 'Test Subject',
+                },
+            })
+        })
+
+        it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
+            // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(0)
+        })
+
+        it('should capture a $workflows_email_failed PostHog event on failure', async () => {
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            sendEmailSpy.mockRejectedValue(new Error('SES error'))
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeDefined()
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+            expect(result.capturedPostHogEvents[0]).toMatchObject({
+                event: '$workflows_email_failed',
+                distinct_id: 'distinct_id',
+            })
         })
     })
 })
