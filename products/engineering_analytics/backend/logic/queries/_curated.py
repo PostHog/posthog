@@ -66,12 +66,21 @@ class CuratedGitHubSource:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
         return f"({workflow_runs.build_query(self._tables.workflow_runs)})"
 
+    def runs_cte(self) -> str:
+        """CTE materializing the curated workflow-runs source once.
+
+        ``ci_rollup`` and ``runs_by_pr`` both derive from the same runs source; reading them from
+        this shared CTE keeps the (JSON- and timestamp-parsing) source to a single scan per query
+        instead of inlining — and re-parsing — it once per rollup.
+        """
+        return f"runs AS {self.run_source()}"
+
     def ci_rollup_cte(self) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
         Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's CI status
-        is its newest run per workflow), then aggregates per SHA. The join target for the cards
-        and pull-request-list queries; ``head_sha`` is the only link between a PR and its CI.
+        is its newest run per workflow), then aggregates per SHA. Reads the shared ``runs`` CTE
+        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI.
         """
         return f"""
             ci_rollup AS (
@@ -80,14 +89,16 @@ class CuratedGitHubSource:
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
                     countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
-                    countIf(s != 'completed') AS pending
+                    -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
+                    -- over an all-NULL group returns NULL — count those as pending, not vanished.
+                    countIf(s IS NULL OR s != 'completed') AS pending
                 FROM (
                     SELECT
                         head_sha,
                         workflow_name,
                         argMax(status, run_started_at) AS s,
                         argMax(conclusion, run_started_at) AS c
-                    FROM {self.run_source()} AS r
+                    FROM runs AS r
                     GROUP BY head_sha, workflow_name
                 )
                 GROUP BY head_sha
@@ -101,7 +112,44 @@ class CuratedGitHubSource:
         with the curated pull-requests source — the two steps the cards and PR-list queries always
         do together.
         """
-        return f"WITH {self.ci_rollup_cte()} {select}".replace("__PR_SOURCE__", self.pr_source())
+        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte()], select)
+
+    def runs_by_pr_cte(self) -> str:
+        """CTE: per-PR activity from the workflow runs attributed to each PR.
+
+        A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
+        the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
+        (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
+        association (``pr_number = 0``) and are excluded.
+
+        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
+        restart per repository, so the PR-list join is qualified by repo to stay correct — as
+        repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
+        today (the warehouse GitHub source syncs one ``owner/repo``), so the qualifier is a no-op
+        now; it keeps the rollup correct if a source ever spans repos, instead of silently
+        cross-attributing runs to a same-numbered PR in another repo.
+        """
+        return f"""
+            runs_by_pr AS (
+                SELECT
+                    repo_owner,
+                    repo_name,
+                    pr_number,
+                    count(DISTINCT head_sha) AS pushes,
+                    countIf(run_attempt > 1) AS rerun_cycles
+                FROM runs AS r
+                WHERE pr_number > 0
+                GROUP BY repo_owner, repo_name, pr_number
+            )
+        """
+
+    def pr_list_rollup_query(self, select: str) -> str:
+        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
+        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()], select)
+
+    def _compose_pr_query(self, ctes: list[str], select: str) -> str:
+        """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
+        return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
     def run(
         self,

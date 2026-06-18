@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -19378,7 +19378,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
       /**
@@ -19392,6 +19392,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -19433,6 +19436,7 @@ export namespace Schemas {
     /**
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
      */
     export type EvaluationTypeEnum = typeof EvaluationTypeEnum[keyof typeof EvaluationTypeEnum];
 
@@ -19440,16 +19444,19 @@ export namespace Schemas {
     export const EvaluationTypeEnum = {
       LlmJudge: 'llm_judge',
       Hog: 'hog',
+      Sentiment: 'sentiment',
     } as const;
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
 
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Sentiment: 'sentiment',
     } as const;
 
     export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
@@ -19521,16 +19528,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
@@ -20485,15 +20494,23 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentMetricsRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
@@ -20560,10 +20577,14 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -25393,6 +25414,97 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
+    }
+
+    /**
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     */
+    export type TierEnum = typeof TierEnum[keyof typeof TierEnum];
+
+
+    export const TierEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    export interface IdentityMatchingLink {
+      /** Identity matching run that produced this link. */
+      job_id: string;
+      /** Scoring model that produced the link, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Anonymous distinct ID that the model linked to an identified person. */
+      orphan_distinct_id: string;
+      /** Canonical distinct ID representing the matched identified person. */
+      anchor_person_key: string;
+      /** Link score: weighted rule points for 'rules_v1', a 0-1 probability for 'logreg_v1'. */
+      score: number;
+      /** Score margin over the runner-up candidate person for this orphan. */
+      margin: number;
+      /** Confidence tier derived from score thresholds.
+       *
+       * * `high` - high
+       * * `medium` - medium
+       * * `low` - low */
+      tier: TierEnum;
+      /** When the link was computed (UTC). */
+      computed_at: string;
+      /** Distinct (IP, day) combinations both sides were seen on. */
+      shared_ip_days: number;
+      /** Distinct IPs both sides were seen on. */
+      shared_ips: number;
+      /** Device count on the least crowded shared IP-day; small values suggest a household IP. */
+      min_ip_block_size: number;
+      /** Both sides were seen in the same city. */
+      geo_city_match: boolean;
+      /** Both sides reported the same timezone. */
+      timezone_match: boolean;
+      /** Both sides reported the same browser language. */
+      language_match: boolean;
+      /** A byte-identical user agent was seen on both sides. */
+      ua_exact_match: boolean;
+      /** The orphan's traffic came from an in-app browser or webview. */
+      orphan_is_webview: boolean;
+      /** The sides form a mobile + desktop device pair. */
+      device_type_complement: boolean;
+      /** Number of days on which the two sides shared an IP. */
+      days_overlap: number;
+      /** Average overlap (0-1) of pages visited by the two sides on shared IP-days. */
+      avg_path_jaccard: number;
+      /** The orphan arrived via a paid click ID (gclid, li_fat_id, ...) inside the window. */
+      orphan_paid_touch: boolean;
+      /** The matched person already had a paid click ID inside the window. */
+      anchor_paid_touch: boolean;
+    }
+
+    export interface IdentityMatchingLinksResponse {
+      /** Links ordered by score, descending. */
+      results: IdentityMatchingLink[];
+      /** Total links matching the filters, ignoring pagination. */
+      count: number;
+    }
+
+    export interface IdentityMatchingRunModelCount {
+      /** Scoring model, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Number of links this model produced in the run. */
+      link_count: number;
+    }
+
+    export interface IdentityMatchingRun {
+      /** Identity matching run identifier (the Dagster run ID). */
+      job_id: string;
+      /** When the run wrote its links (UTC). */
+      computed_at: string;
+      /** Link counts per scoring model in this run. */
+      models: IdentityMatchingRunModelCount[];
+    }
+
+    export interface IdentityMatchingRunsResponse {
+      /** Runs ordered by recency, most recent first. */
+      results: IdentityMatchingRun[];
     }
 
     /**
@@ -34745,7 +34857,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
@@ -34759,6 +34871,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -34782,16 +34897,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
@@ -41679,6 +41796,15 @@ export namespace Schemas {
       open_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
     }
 
     export interface PullRequestList {
@@ -43963,32 +44089,20 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update
-     */
-    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
-
-
-    export const RecalculateMetricsRequestTriggerEnum = {
-      Manual: 'manual',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-    } as const;
-
-    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
-       * * `manual` - manual
-       * * `experiment_launch` - experiment_launch
-       * * `experiment_stop` - experiment_stop
-       * * `experiment_update` - experiment_update */
-      trigger?: RecalculateMetricsRequestTriggerEnum;
+       * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      trigger?: TriggerEnum;
     }
 
     export interface RecomputeResult {
@@ -58346,6 +58460,56 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    export type IdentityMatchingLinksListParams = {
+    /**
+     * Identity matching run to read. Defaults to the team's most recent run.
+     */
+    job_id?: string;
+    /**
+     * Page size, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Only return links with a score at or above this.
+     */
+    min_score?: number;
+    /**
+     * Only return links produced by this scoring model, e.g. 'rules_v1'.
+     * @minLength 1
+     */
+    model_version?: string;
+    /**
+     * Pagination offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Case-insensitive substring match on the orphan distinct ID or the matched person key.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Only return links in this confidence tier.
+     *
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     * @minLength 1
+     */
+    tier?: IdentityMatchingLinksListTier;
+    };
+
+    export type IdentityMatchingLinksListTier = typeof IdentityMatchingLinksListTier[keyof typeof IdentityMatchingLinksListTier];
+
+
+    export const IdentityMatchingLinksListTier = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
     } as const;
 
     export type InsightVariablesListParams = {
