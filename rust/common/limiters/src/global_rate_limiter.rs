@@ -825,7 +825,13 @@ impl GlobalRateLimiterImpl {
                     .record(pipeline_start.elapsed().as_micros() as f64 / 1000.0);
 
                     Self::process_read_results(
-                        config, cache, sync_keys, &results, now, scope, tier_counts,
+                        config,
+                        cache,
+                        sync_keys,
+                        &results,
+                        now,
+                        scope,
+                        tier_counts,
                     );
                 }
                 Ok(Err(e)) => {
@@ -1014,8 +1020,8 @@ impl GlobalRateLimiterImpl {
         let entry_count = cache.entry_count();
         let counter_sum: i64 = tier_counts.iter().map(|c| c.load(Ordering::Relaxed)).sum();
         let drift_total = (counter_sum - entry_count as i64).unsigned_abs();
-        let tripwire =
-            entry_count > 0 && drift_total as f64 > TIER_RECONCILE_TRIPWIRE_FRACTION * entry_count as f64;
+        let tripwire = entry_count > 0
+            && drift_total as f64 > TIER_RECONCILE_TRIPWIRE_FRACTION * entry_count as f64;
 
         if tick_n.is_multiple_of(TIER_RECONCILE_INTERVAL_TICKS) || tripwire {
             let mut actual = [0i64; 4];
