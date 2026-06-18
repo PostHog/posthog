@@ -1499,6 +1499,13 @@ export type TrendsFilter = {
     /** Show the period-over-period change pill on the Metric display.
      * @default true */
     metricShowChange?: boolean
+    /** Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: hex color used when the trend is good. Defaults to green. */
+    metricGoodColor?: string
+    /** Metric display: hex color used when the trend is bad. Defaults to red. */
+    metricBadColor?: string
 }
 
 export type CalendarHeatmapFilter = {
@@ -1533,6 +1540,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showAnnotations',
     'metricGoodDirection',
     'metricShowChange',
+    'metricColorByDirection',
+    'metricGoodColor',
+    'metricBadColor',
 ])
 
 export interface BoxPlotDatum {

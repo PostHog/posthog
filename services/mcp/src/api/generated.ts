@@ -2303,6 +2303,12 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Metric display: hex color used when the trend is bad. Defaults to red. */
+      metricBadColor?: string | null;
+      /** Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color. */
+      metricColorByDirection?: boolean | null;
+      /** Metric display: hex color used when the trend is good. Defaults to green. */
+      metricGoodColor?: string | null;
       /** Metric display: whether an increase is a good trend (green pill) or a bad one (red pill). */
       metricGoodDirection?: MetricGoodDirection | null;
       /** Show the period-over-period change pill on the Metric display. */

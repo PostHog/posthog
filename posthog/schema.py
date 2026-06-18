@@ -7676,6 +7676,20 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    metricBadColor: str | None = Field(
+        default=None,
+        description=("Metric display: hex color used when the trend is bad. Defaults to red."),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=(
+            "Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color."
+        ),
+    )
+    metricGoodColor: str | None = Field(
+        default=None,
+        description=("Metric display: hex color used when the trend is good. Defaults to green."),
+    )
     metricGoodDirection: MetricGoodDirection | None = Field(
         default=MetricGoodDirection.UP,
         description=("Metric display: whether an increase is a good trend (green pill) or a bad one (red pill)."),
