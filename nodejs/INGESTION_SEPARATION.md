@@ -282,7 +282,7 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 Target layout (chosen with the product owner — `lanes/`, not `products/`, to avoid overloading the
 monorepo's top-level `products/` and to match the term used throughout this plan):
 
-```
+```text
 src/ingestion/
   lanes/         <- the 8 lanes (each keeps isolated test selection)
     analytics/ ai/ heatmaps/ error-tracking/ logs/ metrics/ session-replay/ ingestionwarnings/
@@ -416,14 +416,13 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   new errors, guard green. Next: Phase 3 (split mixed cdp/ingestion tests) and Phase 4 (CI selection).
 - Plan extended (product-owner decisions). Also merged master twice more, including #63064 "unify
   ingestion lag metrics across pipelines" — resolved against the ai/hog-transformer inversion by keeping
-  the contract/factory and adopting master's `EmitEventStepOutput` return + `createRecordIngestionLagStep`
-  - `groupId` removal. Added two phases and renumbered CI:
-  * Phase 4 — restructure into `lanes/` + `framework/`/`steps/`/`common/`. Named `lanes/` (not
+  the contract/factory and adopting master's `EmitEventStepOutput` return, `createRecordIngestionLagStep`,
+  and the `groupId` removal. Added two phases and renumbered CI:
+  - Phase 4 — restructure into `lanes/` + `framework/`/`steps/`/`common/`. Named `lanes/` (not
     `products/`) to avoid overloading the monorepo's top-level `products/` and to match the plan's term.
-  * Phase 5 — standardize ingestion imports on `~/`. Investigation showed `~/` is the codebase standard
+  - Phase 5 — standardize ingestion imports on `~/`. Investigation showed `~/` is the codebase standard
     (~900 uses outside ingestion, recommended in `.eslintrc.js`, first-class `tsconfig` alias), so the
     goal is consistency for the ~158 files that currently mix `~/` and `../`, not removing `~/`.
-  * Phase 6 — CI test selection (was Phase 4).
-    Order matters: restructure (4) -> import-standardize (5) -> CI (6). `~/` is kept precisely so the
-    Phase-4 moves stay codemod-friendly (relative paths would break on every move). Nothing executed yet
-    for Phases 4–6 — these are plan entries.
+  - Phase 6 — CI test selection (was Phase 4). Order matters: restructure (4) -> import-standardize (5) ->
+    CI (6); `~/` is kept precisely so the Phase-4 moves stay codemod-friendly (relative paths would break
+    on every move). Nothing executed yet for Phases 4–6 — these are plan entries.
