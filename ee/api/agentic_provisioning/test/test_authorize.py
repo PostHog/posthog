@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
@@ -97,41 +99,32 @@ class TestAgenticAuthorize(APIBaseTest):
             provisioning_skip_existing_user_consent=True,
         )
 
-    def test_consent_required_state_not_auto_approved_for_skip_consent_partner(self):
-        # A skip-consent partner whose request fell through to consent (trust not proven) must
-        # not be silently auto-approved at the authorize step, even for a single-org/single-team
-        # user. The pending state's consent_required flag forces the consent UI.
+    @parameterized.expand(
+        [
+            # consent_required=True forces the consent UI for a skip-consent partner whose request
+            # fell through to consent (trust not proven), even for a single-org/single-team user.
+            ("consent_required_flag_set", {"consent_required": True}),
+            # Fail closed: a partner-identified pending state missing the flag (e.g. cached by an
+            # older pod mid-deploy) must not auto-approve either.
+            ("flag_missing_fails_closed", {}),
+        ]
+    )
+    def test_skip_consent_partner_not_auto_approved(self, name, extra):
         partner = self._make_skip_consent_partner()
+        state = f"state_{name}"
         self._set_pending_auth(
-            "state_consent_required",
+            state,
             self.user.email,
             partner_id=str(partner.id),
             partner_name=partner.name,
-            consent_required=True,
+            **extra,
         )
-        res = self.client.get("/api/agentic/authorize?state=state_consent_required")
+        res = self.client.get(f"/api/agentic/authorize?state={state}")
         assert res.status_code == 302
         assert "/agentic/authorize?" in res["Location"]
         assert not res["Location"].startswith("https://partner.example.com/callback")
         assert "code=" not in res["Location"]
-        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consent_required") is not None
-
-    def test_skip_consent_partner_without_flag_fails_closed_to_consent(self):
-        # Fail closed: a partner-identified pending state missing consent_required (e.g. cached
-        # by an older pod mid-deploy) must not auto-approve — it falls through to the consent UI.
-        partner = self._make_skip_consent_partner()
-        self._set_pending_auth(
-            "state_no_flag",
-            self.user.email,
-            partner_id=str(partner.id),
-            partner_name=partner.name,
-        )
-        res = self.client.get("/api/agentic/authorize?state=state_no_flag")
-        assert res.status_code == 302
-        assert "/agentic/authorize?" in res["Location"]
-        assert not res["Location"].startswith("https://partner.example.com/callback")
-        assert "code=" not in res["Location"]
-        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_no_flag") is not None
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}") is not None
 
     @override_settings(
         STRIPE_SIGNING_SECRET=HMAC_SECRET,
