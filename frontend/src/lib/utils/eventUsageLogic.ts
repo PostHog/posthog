@@ -1478,6 +1478,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportDashboardMovedToFolder: async ({ fromPath, toPath }) => {
+            // Primary-metric (folder-organization adoption) signal. The spec's `method`/`multi_select_count`
+            // props are added in the measurement increment — the shared, arm-agnostic move path can't set them.
             posthog.capture('dashboard moved to folder', {
                 from_path: fromPath,
                 to_path: toPath,

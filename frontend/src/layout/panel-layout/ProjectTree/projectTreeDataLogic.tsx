@@ -277,7 +277,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (action.item.type === 'dashboard') {
                                 // Arm-agnostic primary-metric signal: fired wherever a dashboard is filed
                                 // (grid, finder, or sidebar) so the dashboards-list-view experiment can
-                                // compare organizing rates across arms.
+                                // compare organizing rates across arms. This shared path can't attribute the
+                                // interaction, so `method` (drag|menu|clipboard) and undo net-out are deferred
+                                // to the measurement increment; it fires once per move, the Undo re-move included.
                                 eventUsageLogic.actions.reportDashboardMovedToFolder(oldPath, newPath)
                             }
                             lemonToast.success('Item moved successfully', {

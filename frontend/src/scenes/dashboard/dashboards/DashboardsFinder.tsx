@@ -34,10 +34,12 @@ function FinderDashboardCard({
                     defaultValue={dashboard.name || ''}
                     aria-label="Rename dashboard"
                     className="w-full bg-transparent border-b border-primary"
+                    // onBlur is the single commit path. Enter blurs into it; Escape resets the value
+                    // first so the unmount-blur is a no-op rename. Keeps a rename from firing twice.
                     onBlur={(e) => renameDashboard(dashboard.id, e.currentTarget.value)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                            renameDashboard(dashboard.id, e.currentTarget.value)
+                            e.currentTarget.blur()
                         } else if (e.key === 'Escape') {
                             e.currentTarget.value = dashboard.name || ''
                             stopRenaming()

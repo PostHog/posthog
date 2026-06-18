@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -97,9 +98,35 @@ describe('dashboardsFileSystemLogic', () => {
         }).toDispatchActions(['duplicateDashboard'])
     })
 
-    it('renameDashboard updates the dashboard name', async () => {
-        await expectLogic(dashboardsModel, () => {
-            logic.actions.renameDashboard(1, 'New name')
-        }).toDispatchActions(['updateDashboard'])
+    it('moveDashboardToFolder warns instead of silently no-op when the dashboard has no FileSystem entry', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        const warning = jest.spyOn(lemonToast, 'warning').mockReturnValue('' as any)
+        logic.actions.moveDashboardToFolder(999, 'Product')
+        expect(warning).toHaveBeenCalled()
+    })
+
+    it('pasteIntoFolder with an empty clipboard does not move or duplicate', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        expect(logic.values.clipboard).toBeNull()
+        ;(api.fileSystem.move as jest.Mock).mockClear()
+        ;(api.create as jest.Mock).mockClear()
+        logic.actions.pasteIntoFolder('Marketing')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(api.fileSystem.move).not.toHaveBeenCalled()
+        expect(api.create).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['a new non-empty name', 'New name', true],
+        ['an empty/whitespace name', '   ', false],
+        ['the unchanged current name', 'A', false],
+    ])('renameDashboard dispatches updateDashboard only for %s', async (_description, name, shouldUpdate) => {
+        // Seed a dashboard so the same-name guard has a current name ('A') to compare against.
+        dashboardsModel.actions.duplicateDashboardSuccess({ id: 1, name: 'A' } as any)
+        ;(api.update as jest.Mock).mockClear()
+        logic.actions.renameDashboard(1, name)
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(dashboardsModel).toFinishAllListeners()
+        expect((api.update as jest.Mock).mock.calls.length > 0).toBe(shouldUpdate)
     })
 })

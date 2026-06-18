@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -66,6 +67,13 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             {
                 loadDashboardFileSystemEntries: async (): Promise<FileSystemEntry[]> => {
                     const response = await api.fileSystem.list({ type: 'dashboard', limit: DASHBOARD_FS_PAGE_LIMIT })
+                    if (response.results.length >= DASHBOARD_FS_PAGE_LIMIT) {
+                        // v1 reads a single page; surplus dashboards fall back to Unfiled in the grid/finder.
+                        // Pagination is deferred — warn so the truncation is detectable rather than silent.
+                        console.warn(
+                            `dashboardsFileSystemLogic: hit the ${DASHBOARD_FS_PAGE_LIMIT}-entry page limit — some dashboards may appear under Unfiled.`
+                        )
+                    }
                     return response.results
                 },
             },
@@ -121,6 +129,9 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         moveDashboardToFolder: ({ dashboardId, folder }) => {
             const entry = values.entryByRef[String(dashboardId)]
             if (!entry) {
+                // A dashboard with no FileSystem row shows under Unfiled but can't be filed until its
+                // entry loads — surface that instead of the drag silently doing nothing.
+                lemonToast.warning('Could not move this dashboard yet — its folder entry is still loading.')
                 return
             }
             const { newPath, isValidMove } = calculateMovePath(entry, folder)
@@ -137,9 +148,10 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 actions.moveDashboardToFolder(item.dashboardId, folder)
             } else {
                 const source = values.dashboards.find((dashboard) => dashboard.id === item.dashboardId)
-                // Reuses the canonical duplicate, so the copy inherits exactly the established Duplicate
-                // behavior (no new sharing/subscription handling — see CH-03). The copy lands in its default
-                // folder; auto-placing it into `folder` needs the new entry after duplication (follow-up).
+                // Reuses the canonical duplicate so the copy inherits exactly the established Duplicate
+                // behavior (no new sharing/subscription handling). Known v1 limitation: the copy lands in
+                // its default (Unfiled) folder, not the paste target — placing it needs the new FileSystem
+                // entry after duplication, deferred as a follow-up.
                 actions.duplicateDashboard({ id: item.dashboardId, name: source?.name, duplicateTiles: true })
             }
             actions.clearClipboard()
@@ -160,6 +172,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         // the copy appears (it syncs its own FileSystem entry via FileSystemSyncMixin).
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
+        },
+        loadDashboardFileSystemEntriesFailure: () => {
+            // Without this the folder structure silently collapses to Unfiled (kea-loaders only
+            // console.errors), so the degraded state would look like a genuinely flat project.
+            lemonToast.error('Could not load dashboard folders — they may appear unorganized. Refresh to retry.')
         },
     })),
     afterMount(({ actions }) => {

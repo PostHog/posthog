@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the A/C/B dashboards-list experiment behind a multivariate flag — this plan covers **Increment 1 only** (foundation + grid arm + the core `opened from list` event); Increments 2–5 are outlined for their own plans.
+**Goal:** Ship the A/C/B dashboards-list experiment behind a multivariate flag — this plan was written for **Increment 1** (foundation + grid arm); see the implementation note below for what the branch actually delivered after the primary-metric pivot.
 
 **Architecture:** A multivariate flag `dashboards-list-view` (control|grid|finder) resolves through a small registry (mirroring `authFlowVariants`) to a `DashboardsContent` switch. Control renders today's `DashboardsTableContainer` unchanged. Grid renders a new `DashboardsGrid` backed by a focused `dashboardsFileSystemLogic` that reads the dashboards subtree from the existing `projectTreeDataLogic` and delegates writes (move) back to it — `FileSystem` rows stay the single source of truth.
 
 **Tech Stack:** TypeScript, React, kea + kea-test-utils, `@testing-library/react`, `@dnd-kit/core` (existing), PostHog frontend conventions.
+
+> **Implementation note (post-pivot, supersedes the per-increment scoping below):** After the primary metric pivoted to **folder-organization adoption**, the load-bearing instrumentation became the `dashboard moved to folder` event (fired on the shared, arm-agnostic `projectTreeDataLogic` move path), not the `opened from list` event — so `opened from list` (REQ-16) is reassigned to the measurement increment and is intentionally absent from this branch. To "test and iterate on the final result," this branch also bundles the finder arm (Increment 2) and the clipboard/rename/delete power-features (Increment 3) alongside the foundation + grid arm; all three are gated behind the same flag. The full `dashboard moved to folder` prop contract (`method`, `multi_select_count`) and undo net-out (EC-28d) remain measurement-increment work — the shared move path can't attribute the interaction.
 
 ## Global Constraints
 

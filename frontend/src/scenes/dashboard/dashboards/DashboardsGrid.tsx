@@ -12,7 +12,7 @@ import { DashboardBasicType } from '~/types'
 
 import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { DashboardFolderGroup } from './dashboardsFileSystemUtils'
+import { DashboardFolderGroup, folderLabel } from './dashboardsFileSystemUtils'
 
 function DashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.Element {
     return (
@@ -49,7 +49,7 @@ function FolderGroup({
                 >
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <IconFolder className="text-muted" />
-                    <span>{group.folder}</span>
+                    <span>{folderLabel(group.folder)}</span>
                     <span className="text-muted font-normal">· {group.dashboards.length}</span>
                 </button>
             </DroppableFolder>

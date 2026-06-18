@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DashboardsContent } from './DashboardsContent'
 
 jest.mock('./DashboardsTable', () => ({ DashboardsTableContainer: () => <div>table-arm</div> }))
@@ -12,7 +14,7 @@ jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn() }))
 
 function renderWithFlag(value: string | undefined): void {
     ;(useValues as jest.Mock).mockReturnValue({
-        featureFlags: value === undefined ? {} : { 'dashboards-list-view': value },
+        featureFlags: value === undefined ? {} : { [FEATURE_FLAGS.DASHBOARDS_LIST_VIEW]: value },
     })
     render(<DashboardsContent />)
 }
