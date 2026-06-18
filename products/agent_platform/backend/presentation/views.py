@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
@@ -79,6 +80,7 @@ from .serializers import (
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
+    PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
@@ -137,6 +139,23 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
+            # Append structured upstream errors (custom-tool compile failures carry
+            # errors=[{kind, message, line}]) so the caller + concierge model see the
+            # concrete reason, not just the opaque `tool_compile_failed` code.
+            sub_errors = e.body.get("errors")
+            if isinstance(sub_errors, list) and sub_errors:
+                parts: list[str] = []
+                for er in sub_errors:
+                    if not isinstance(er, dict) or not isinstance(er.get("message"), str):
+                        continue
+                    kind = er.get("kind")
+                    line = er.get("line")
+                    prefix = f"{kind}: " if isinstance(kind, str) else ""
+                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    parts.append(f"{prefix}{er['message']}{suffix}")
+                if parts:
+                    joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
             detail_str = e.body
@@ -159,8 +178,7 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
 
     Bound to (app, rev) so a captured token can't be replayed against a
     different draft, and to `aud = agent-ingress.preview` so it can't be
-    replayed against any other agent-platform service. See
-    docs/agent-platform/plans/draft-preview-auth.md.
+    replayed against any other agent-platform service.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
@@ -495,6 +513,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # don't want the scope to drift between methods.
         "env_keys_key",
         "approvals_decide",
+        # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
+        # feeds, or kills a draft session, driving the agent's configured
+        # tools and incurring inference cost. That's a write-class capability,
+        # so it lives here even though it targets a non-live revision. The GET
+        # `listen` counterpart (read-only SSE tail) stays in read actions.
+        "preview_proxy",
     ]
     scope_object_read_actions = [
         "list",
@@ -504,10 +528,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "session_logs",
         "stats",
         "env_keys_list",
-        # POST → `preview_proxy`, GET (SSE `listen`) → `preview_proxy_get`.
-        # DRF uses the bound function name as `view.action`, so the GET
-        # variant is its own entry in the scope-check map.
-        "preview_proxy",
+        # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
+        # name as `view.action`, so the GET variant is its own scope-map entry;
+        # the mutating POST sibling (`preview_proxy`) is a write action above.
         "preview_proxy_get",
         "preview_token",
         "approvals_list",
@@ -724,7 +747,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="agent_applications_preview_proxy",
         parameters=_PREVIEW_PROXY_PARAMETERS,
-        request=None,
+        # Document the forwarded body (`run`/`send` carry `message`) so the
+        # generated MCP tool exposes it — without this the tool had no way to
+        # pass a chat message. SCHEMA-ONLY: the action never validates against
+        # this serializer; the raw body is forwarded to ingress verbatim (shape
+        # varies by `rest`, extra keys pass through). It exists purely to shape
+        # the generated tool / OpenAPI. Response is the ingress SSE stream.
+        request=PreviewProxyInvokeRequestSerializer,
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
     )
     @action(
         detail=True,
@@ -741,11 +771,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         Closes the anonymous-draft-invoke gap: the public ingress URL refuses
         non-live invokes that don't carry the `x-agent-preview-secret` header;
-        this proxy attaches it after authenticating the Django caller. See
-        docs/agent-platform/plans/draft-preview-auth.md.
+        this proxy attaches it after authenticating the Django caller.
 
         URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
-        Auth: standard PAT / session — `agents:read` scope.
+        Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+        is a mutating invoke; the read-only `listen` GET is `agents:read`).
         """
         application = self.get_object()
         if application is None:
@@ -1254,8 +1284,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"results": LogEntrySerializer(rows, many=True).data})
 
     # ──────────────────────────── approval-gated tools ────────────────────────
-    # See docs/agent-platform/plans/approval-gated-tools.md.
-    #
     # AGENT_DB is node-owned (per CLAUDE.md rule #2 in products/agent_platform).
     # Django never queries `agent_tool_approval_request` directly — these
     # actions auth-check on the Django side, then proxy through
@@ -1423,12 +1451,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Application not found")
         self._require_team_admin()
         try:
-            payload = _janitor().get_approval(approval_id)
+            payload = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # Cross-check ownership: the janitor doesn't know about teams.
-        if payload.get("application_id") != str(application.id):
-            raise NotFound("Approval not found")
         return Response(payload)
 
     @extend_schema(
@@ -1466,19 +1491,27 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._require_team_admin()
         body = DecideApprovalRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        # Cross-check ownership before forwarding.
         try:
-            existing = _janitor().get_approval(approval_id)
+            existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        if existing.get("application_id") != str(application.id):
-            raise NotFound("Approval not found")
-        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and not getattr(
-            request.user, "is_authenticated", False
+        # When the spec sets `allow_agent_approver: False`, only a human acting
+        # interactively may decide. Accept either SessionAuthentication, or an
+        # OAuth bearer carrying the dedicated `agent_approvals:write` scope —
+        # the scope is intentionally separate from `agents:write` so a generic
+        # agent token cannot decide its own approval, and is hidden from the
+        # personal-API-key flow so only OAuth clients (e.g. PostHog Code) that
+        # put a human in the loop at decide time can request it via consent.
+        authenticator = request.successful_authenticator
+        is_session = isinstance(authenticator, SessionAuthentication)
+        is_oauth_with_decide_scope = isinstance(authenticator, OAuthAccessTokenAuthentication) and (
+            "agent_approvals:write" in (getattr(authenticator.access_token, "scope", "") or "").split()
+        )
+        if (
+            existing.get("approver_scope", {}).get("allow_agent_approver") is False
+            and not is_session
+            and not is_oauth_with_decide_scope
         ):
-            # PATs / service tokens are rejected unless the spec opts in.
-            # Real PAT-vs-user discrimination would go here; for v0 we rely
-            # on Django auth + the admin check above as a coarse filter.
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(
@@ -1489,6 +1522,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 decided_by=str(request.user.uuid) if request.user and request.user.is_authenticated else "",
                 edited_args=body.validated_data.get("edited_args"),
                 reason=body.validated_data.get("reason"),
+                application_id=str(application.id),
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
@@ -1601,11 +1635,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application = self.get_application()
         # Fresh revisions start in `draft`. Parent revision is optional — if
         # set, this revision can later be diff'd against it for review.
+        # bundle_uri is optional metadata; fill the `fs://<slug>/` convention
+        # when the caller leaves it blank so a no-source create "just works".
+        bundle_uri = serializer.validated_data.get("bundle_uri") or f"fs://{application.slug}/"
         serializer.save(
             application=application,
             team_id=application.team_id,
             state="draft",
             created_by_id=self.request.user.id,
+            bundle_uri=bundle_uri,
         )
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -1763,7 +1801,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # /tools/<id>/ share a single @action with mapping chains below.
 
     # ── typed bundle authoring API ──────────────────────────────────────
-    # See docs/agent-platform/plans/typed-bundle-authoring-api.md. Django
+    # Django
     # is a thin proxy: every byte of the payload flows through to the
     # janitor unchanged. The legacy file-grain endpoints (file/, bundle/
     # with mode) were removed.
@@ -1875,7 +1913,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     available_keys = {str(k) for k in env_map}
             except (ValueError, TypeError):
                 pass
-        for i, secret_name in enumerate(revision.spec.get("secrets") or []):
+        for i, secret_entry in enumerate(revision.spec.get("secrets") or []):
+            # spec.secrets[] entries are either bare strings (back-compat,
+            # resolvable but no host binding) or {name, allowed_hosts}.
+            # Both forms carry a name that must exist in encrypted_env.
+            if isinstance(secret_entry, str):
+                secret_name = secret_entry
+            elif isinstance(secret_entry, dict):
+                secret_name = secret_entry.get("name") or ""
+            else:
+                secret_name = ""
+            if not secret_name:
+                continue
             if secret_name not in available_keys:
                 errors.append(
                     {
@@ -1941,8 +1990,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         thing?' is unanswerable until the cron actually fires.
 
         Idempotent via `request_id`: repeat clicks with the same id resolve
-        to the same session id rather than firing N times. See
-        `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+        to the same session id rather than firing N times.
         """
         revision: AgentRevision = self.get_object()
         cron_name = request.data.get("cron_name")
@@ -1978,8 +2026,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             "Concatenates the platform framework preamble, the "
                             "bundle's `agent.md` (or `spec.entrypoint`), and the "
                             "skills index. Inspect before promotion to confirm "
-                            "the model will see what you expect — see "
-                            "docs/agent-platform/plans/framework-system-prompt.md §4."
+                            "the model will see what you expect."
                         ),
                     ),
                 },
