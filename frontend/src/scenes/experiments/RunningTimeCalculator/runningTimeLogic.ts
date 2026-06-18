@@ -32,7 +32,6 @@ import {
 import type { runningTimeLogicType } from './runningTimeLogicType'
 
 export interface RunningTimeLogicProps {
-    experimentId: Experiment['id']
     experiment: Experiment
 }
 
@@ -52,32 +51,35 @@ export interface ManualPreview {
 export const runningTimeLogic = kea<runningTimeLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeLogic']),
     props({} as RunningTimeLogicProps),
-    key((props) => `${props.experimentId}`),
+    key((props) => `${props.experiment.id}`),
 
-    connect((props: RunningTimeLogicProps) => ({
-        values: [
-            experimentLogic({ experimentId: props.experimentId }),
-            ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
-            // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
-            experimentMetricsLogic({ experiment: props.experiment }),
-            [
-                'primaryMetricsResults as recalcPrimaryMetricsResults',
-                'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+    connect((props: RunningTimeLogicProps) => {
+        const experimentId = props.experiment.id
+        return {
+            values: [
+                experimentLogic({ experimentId }),
+                ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
+                // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
+                experimentMetricsLogic({ experiment: props.experiment }),
+                [
+                    'primaryMetricsResults as recalcPrimaryMetricsResults',
+                    'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+                ],
+                modalsLogic,
+                ['isRunningTimeConfigModalOpen'],
+                experimentsConfigLogic,
+                ['defaultMinimumDetectableEffect'],
+                featureFlagLogic,
+                ['featureFlags'],
             ],
-            modalsLogic,
-            ['isRunningTimeConfigModalOpen'],
-            experimentsConfigLogic,
-            ['defaultMinimumDetectableEffect'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-        actions: [
-            experimentLogic({ experimentId: props.experimentId }),
-            ['setExperiment'],
-            modalsLogic,
-            ['closeRunningTimeConfigModal'],
-        ],
-    })),
+            actions: [
+                experimentLogic({ experimentId }),
+                ['setExperiment'],
+                modalsLogic,
+                ['closeRunningTimeConfigModal'],
+            ],
+        }
+    }),
 
     actions({
         setConfig: (config: Partial<RunningTimeConfig>) => ({ config }),
@@ -346,7 +348,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 recommended_sample_size: targetSampleSize,
             }
 
-            await api.update(`api/projects/${currentProjectId}/experiments/${props.experimentId}`, {
+            await api.update(`api/projects/${currentProjectId}/experiments/${props.experiment.id}`, {
                 running_time_calculation: updatedRunningTimeCalculation,
             })
 
@@ -412,7 +414,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // Await so the experiment reflects the saved config before resetConfig below. Otherwise the
                 // transient (overrides cleared, experiment not yet updated) would re-trigger the automatic
                 // auto-persist with stale values and revert the save.
-                await experimentLogic({ experimentId: props.experimentId }).asyncActions.updateExperiment(update)
+                await experimentLogic({ experimentId: props.experiment.id }).asyncActions.updateExperiment(update)
             } catch {
                 // Keep the modal open (don't close/reset below) so the user can retry.
                 lemonToast.error('Failed to save running time settings. Please try again.')
