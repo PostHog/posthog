@@ -376,9 +376,12 @@ def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
-        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
-            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
-        raise
+        if not (connect_kwargs.get("options") and _is_options_startup_param_unsupported(e)):
+            raise
+    # Retry outside the `except` block: a genuine failure on the options-less connect (bad
+    # password, tenant not found) must propagate on its own, not chained to the benign — and now
+    # recovered — "options unsupported" error, which otherwise masks the real cause in error tracking.
+    return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
 
 
 def _connect_to_postgres(
@@ -801,15 +804,21 @@ def _rls_active_from_conn(
         # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
         # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
         # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
-        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
-        # don't re-capture it (mirrors `_get_partition_settings`).
+        # a downstream symptom. A harsher variant of the same thing: an earlier probe (or a transient
+        # drop — SSH-tunnel hiccup, idle cull, failover) leaves the shared connection closed/broken,
+        # so our `cursor()` call surfaces as `OperationalError: the connection is closed`. Both are
+        # already-handled downstream symptoms, not bugs in this lookup, so don't re-capture them
+        # (mirrors `_get_partition_settings` and the caller's own connection-level handler).
         #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
-            e, "row_security_active"
+        if (
+            not connection.closed
+            and not connection.broken
+            and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
+            and not _is_unsupported_function_error(e, "row_security_active")
         ):
             capture_exception(e)
         return {}
