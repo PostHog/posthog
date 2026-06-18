@@ -190,7 +190,7 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <div className="flex flex-nowrap items-center gap-x-1">
+                        <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
                             <MathTag
                                 math={action?.math}
                                 mathProperty={action?.math_property}

@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    columns_in_position_order,
     remove_named_tuples,
+    stamp_column_positions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -136,6 +138,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
+        if isinstance(self.columns, dict):
+            stamp_column_positions(self.columns)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -336,7 +340,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        for column, type in columns.items():
+        # jsonb scrambles key order, so restore the stamped column positions
+        for column, type in columns_in_position_order(columns):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

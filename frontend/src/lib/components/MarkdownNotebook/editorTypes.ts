@@ -40,6 +40,7 @@ export type InsertCommand = {
     aliases?: string[]
     icon?: ReactNode
     closeOnRun?: boolean
+    disabled?: boolean
     run: (targetNodeId: string) => void
 }
 
@@ -52,6 +53,7 @@ export type InsertMenuState = {
     removeNodeOnClose?: boolean
     source?: 'slash' | 'selection'
     selectedMarkdown?: string
+    selectedRefId?: string
 }
 
 export type InsertMenuSelectionDirection = 'next' | 'previous'

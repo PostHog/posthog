@@ -600,6 +600,7 @@ rules:
                       regex: |
                           (?x)(
                               CIMDVerificationToken
+                              |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -667,6 +668,7 @@ rules:
                 regex: |
                     (?x)(
                         CIMDVerificationToken
+                        |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain

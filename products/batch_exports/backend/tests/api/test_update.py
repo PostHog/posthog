@@ -50,7 +50,7 @@ def bigquery_integration(team, user):
 
 def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user):
     destination_data: dict[str, t.Any] = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -127,7 +127,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
     offset_hour = None if interval == "hour" else 1
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -162,7 +162,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # We should be able to update the destination config, excluding the aws
     # credentials. The existing values should be preserved.
     new_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -398,7 +398,7 @@ def test_can_patch_schedule_configuration(
     provided, we should keep the existing value.
     """
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -646,7 +646,7 @@ def test_put_rejects_destination_type_change(
 def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, organization, team, user):
     """Test we can patch a schema with a HogQL query."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -734,7 +734,7 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
 
 def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
