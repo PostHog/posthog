@@ -18,19 +18,21 @@ import { IntegrationType } from '~/types'
  * banner below, the OAuth landing-page status hook, etc.) reaches the same verdict.
  */
 export function getGrantedScopes(integration: IntegrationType): string[] {
-    const scopes: any[] = []
-    const possibleScopeLocation = [integration.config.scope, integration.config.scopes]
+    const candidates: string[][] = []
 
-    possibleScopeLocation.map((scope) => {
-        if (typeof scope === 'string') {
-            scopes.push(scope.split(' '))
-            scopes.push(scope.split(','))
+    for (const raw of [integration.config.scope, integration.config.scopes]) {
+        if (typeof raw === 'string') {
+            // Pick the delimiter explicitly. Pushing both comma- and space-split results and
+            // letting "longest array wins" decide was a heuristic that silently mangled mixed
+            // delimiters like ``"read write,admin"`` into one of several wrong shapes.
+            const split = raw.includes(',') ? raw.split(',') : raw.split(' ')
+            candidates.push(split.map((scope) => scope.trim()).filter(Boolean))
+        } else if (Array.isArray(raw)) {
+            candidates.push(raw)
         }
-        if (typeof scope === 'object') {
-            scopes.push(scope)
-        }
-    })
-    return scopes.filter((scope: any) => typeof scope === 'object').reduce((a, b) => (a.length > b.length ? a : b), [])
+    }
+
+    return candidates.reduce((a, b) => (a.length > b.length ? a : b), [] as string[])
 }
 
 /** Scopes from ``schema.requiredScopes`` that the integration hasn't granted. */
