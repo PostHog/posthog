@@ -7,6 +7,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { Metric } from 'scenes/insights/views/Metric/Metric'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -110,6 +111,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.BoldNumber) {
             return <BoldNumber {...commonProps} />
+        }
+        if (display === ChartDisplayType.Metric) {
+            return <Metric {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             return (

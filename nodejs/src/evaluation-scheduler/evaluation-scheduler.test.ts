@@ -8,8 +8,6 @@ import {
 } from '~/ai-observability/_tests/fixtures'
 import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { parseTeamsList } from '~/ingestion/event-processing/split-ai-events-step'
-import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 import { logger } from '~/utils/logger'
 
 import {
@@ -23,21 +21,20 @@ import {
     unwrapOrLog,
 } from './evaluation-scheduler'
 
-jest.mock('~/ai-observability/services/temporal.service')
+jest.mock('~/ai-observability/services/temporal.service', () => {
+    const actual = jest.requireActual('~/ai-observability/services/temporal.service')
+    return {
+        ...actual,
+        TemporalService: jest.fn(),
+    }
+})
 jest.mock('~/ai-observability/services/evaluation-manager.service')
 jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
-    let hub: Hub
-
     const teamId = 1
 
-    beforeEach(async () => {
-        hub = await createHub()
-    })
-
-    afterEach(async () => {
-        await closeHub(hub)
+    afterEach(() => {
         jest.clearAllMocks()
     })
 
@@ -650,6 +647,38 @@ describe('Evaluation Scheduler', () => {
             const evaluation = createEvaluation({
                 team_id: teamId,
                 provider_key_id: null,
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(providerKeyManager.getProviderKey).not.toHaveBeenCalled()
+            expect(temporalService.startEvaluationRunWorkflow).toHaveBeenCalledWith(
+                evaluation.id,
+                event,
+                evaluation.evaluation_type
+            )
+        })
+
+        it('does not provider-key gate sentiment evaluations', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                evaluation_type: 'sentiment',
+                evaluation_config: { source: 'user_messages' },
+                output_type: 'sentiment',
+                output_config: {},
+                provider_key_id: 'key-1',
                 conditions: [
                     createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
                 ],

@@ -91,6 +91,10 @@ class TestRecalculateMetricsRequestSerializer(BaseTest):
     @parameterized.expand(
         [
             ("manual",),
+            ("cold_run",),
+            ("stale_refresh",),
+            ("auto_refresh",),
+            ("config_change",),
             ("experiment_launch",),
             ("experiment_stop",),
             ("experiment_update",),

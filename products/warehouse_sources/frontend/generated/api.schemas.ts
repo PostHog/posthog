@@ -13,6 +13,7 @@
  * * `append` - append
  * * `webhook` - webhook
  * * `cdc` - cdc
+ * * `xmin` - xmin
  */
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
@@ -22,6 +23,7 @@ export const SyncTypeEnumApi = {
     Append: 'append',
     Webhook: 'webhook',
     Cdc: 'cdc',
+    Xmin: 'xmin',
 } as const
 
 /**
@@ -31,6 +33,7 @@ export const SyncTypeEnumApi = {
  * * `date` - date
  * * `timestamp` - timestamp
  * * `objectid` - objectid
+ * * `xid` - xid
  */
 export type IncrementalFieldTypeEnumApi = (typeof IncrementalFieldTypeEnumApi)[keyof typeof IncrementalFieldTypeEnumApi]
 
@@ -41,6 +44,7 @@ export const IncrementalFieldTypeEnumApi = {
     Date: 'date',
     Timestamp: 'timestamp',
     Objectid: 'objectid',
+    Xid: 'xid',
 } as const
 
 /**
@@ -140,7 +144,8 @@ export interface ExternalDataSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -154,7 +159,8 @@ export interface ExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
      *
@@ -271,7 +277,8 @@ export interface PatchedExternalDataSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -285,7 +292,8 @@ export interface PatchedExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
      *
@@ -2438,7 +2446,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
