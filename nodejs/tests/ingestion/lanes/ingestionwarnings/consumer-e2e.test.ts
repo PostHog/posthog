@@ -5,9 +5,13 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/config'
-import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
+import {
+    ClientWarningsConsumerConfig,
+    ClientWarningsSharedScope,
+    createClientWarningsConsumer,
+} from '~/ingestion/lanes/ingestionwarnings/consumer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {
@@ -15,12 +19,11 @@ import {
     IngesterLike,
     createKafkaMessages,
     createTestWithTeamIngester,
+    fetchIngestionWarnings,
     waitForClickHouseKafkaConsumer,
 } from '~/tests/helpers/ingestion-e2e'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
-
-import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
 
@@ -53,10 +56,10 @@ function constComponent<T extends object>(value: T): Component<T> {
     return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }
 }
 
-class HeatmapsTestIngester implements IngesterLike {
+class ClientWarningsTestIngester implements IngesterLike {
     private stopScope?: () => Promise<void>
 
-    constructor(private readonly consumerScope: ReturnType<typeof createHeatmapsConsumer>) {}
+    constructor(private readonly consumerScope: ReturnType<typeof createClientWarningsConsumer>) {}
 
     async start(): Promise<void> {
         const { stop } = await this.consumerScope.start()
@@ -75,42 +78,37 @@ class HeatmapsTestIngester implements IngesterLike {
     }
 }
 
-async function fetchHeatmaps(clickhouse: Clickhouse, teamId: number): Promise<any[]> {
-    return (await clickhouse.query(`SELECT * FROM heatmaps WHERE team_id = ${teamId}`)) as unknown as any[]
-}
-
-describe('Heatmaps consumer E2E', () => {
+describe('ClientWarnings consumer E2E', () => {
     const testWithTeamIngester = createTestWithTeamIngester({}, (infra) => {
-        const config: HeatmapsConsumerConfig = {
+        const config: ClientWarningsConsumerConfig = {
             ...infra.config,
             ...getDefaultIngestionOutputsConfig(),
-            INGESTION_CONSUMER_GROUP_ID: 'heatmaps-e2e-test',
-            INGESTION_CONSUMER_CONSUME_TOPIC: 'heatmaps-e2e-test',
-            INGESTION_PIPELINE: 'heatmaps',
+            INGESTION_CONSUMER_GROUP_ID: 'clientwarnings-e2e-test',
+            INGESTION_CONSUMER_CONSUME_TOPIC: 'clientwarnings-e2e-test',
+            INGESTION_PIPELINE: 'clientwarnings',
             INGESTION_LANE: null,
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
         }
 
         // Empty producer env values fall back to the rdkafka defaults (broker
         // `kafka:9092`), which is the same broker the rest of the test suite
-        // produces to — so the registry's heatmaps producer reaches ClickHouse.
+        // produces to — so the registry's warnings producer reaches ClickHouse.
         const registryConfig = {
             ...getDefaultKafkaUpstreamProducerEnvConfig(),
             ...getDefaultKafkaDownstreamProducerEnvConfig(),
         }
-        const sharedScope: HeatmapsSharedScope = newScope('heatmaps-e2e-shared', (b) =>
+        const sharedScope: ClientWarningsSharedScope = newScope('clientwarnings-e2e-shared', (b) =>
             b
                 .add('postgres', constComponent(infra.postgres))
                 .add('redisPool', constComponent(infra.redisPool))
                 .add('teamManager', constComponent(infra.teamManager))
-                .add('cookielessManager', new CookielessManagerComponent(infra.config, infra.redisPool))
                 .add(
                     'producerRegistry',
                     new KafkaProducerRegistryComponent(infra.config.KAFKA_CLIENT_RACK, registryConfig)
                 )
         )
 
-        return new HeatmapsTestIngester(createHeatmapsConsumer(config, sharedScope))
+        return new ClientWarningsTestIngester(createClientWarningsConsumer(config, sharedScope))
     })
 
     let clickhouse: Clickhouse
@@ -129,28 +127,20 @@ describe('Heatmaps consumer E2E', () => {
         clickhouse.close()
     })
 
-    testWithTeamIngester('extracts heatmap data to ClickHouse', {}, async ({ ingester, team, token }) => {
+    testWithTeamIngester('produces a client_ingestion_warning to ClickHouse', {}, async ({ ingester, team, token }) => {
         const event = new EventBuilder(team)
-            .withEvent('$$heatmap')
-            .withProperties({
-                $session_id: 'session-1',
-                $viewport_width: 1024,
-                $viewport_height: 768,
-                $current_url: 'http://localhost:3000/',
-                $heatmap_data: {
-                    'http://localhost:3000/': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
-                },
-            })
+            .withEvent('$$client_ingestion_warning')
+            .withProperties({ $$client_ingestion_warning_message: 'test message' })
             .build()
 
         const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages([event], token))
         await backgroundTask
 
         await waitForExpect(async () => {
-            const heatmaps = await fetchHeatmaps(clickhouse, team.id)
-            expect(heatmaps.length).toBe(1)
-            expect(heatmaps[0].type).toBe('click')
-            expect(heatmaps[0].session_id).toBe('session-1')
+            const warnings = await fetchIngestionWarnings(clickhouse, team.id)
+            expect(warnings.length).toBe(1)
+            expect(warnings[0].type).toBe('client_ingestion_warning')
+            expect(warnings[0].details.message).toBe('test message')
         }, 30_000)
     })
 })

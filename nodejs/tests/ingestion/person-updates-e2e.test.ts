@@ -17,6 +17,7 @@ import { v4 } from 'uuid'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -27,8 +28,6 @@ import { createUserTeamAndOrganization, resetTestDatabase } from '~/tests/helper
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
-
-import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
+import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -21,8 +22,6 @@ import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase 
 import { InternalPerson } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
-
-import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
 jest.mock('~/utils/token-bucket', () => {

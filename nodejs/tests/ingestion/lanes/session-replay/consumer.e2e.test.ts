@@ -24,6 +24,8 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '~/config/kafka-topics'
+import { SessionRecordingIngester } from '~/ingestion/lanes/session-replay/consumer'
+import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/lanes/session-replay/rrweb-types'
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/lanes/session-replay/shared/outputs'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -36,9 +38,6 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/utils/event-ingestion-restrictions/redis-schema'
 import { parseJSON } from '~/utils/json-parse'
-
-import { SessionRecordingIngester } from './consumer'
-import { MouseInteractions, RRWebEventSource, RRWebEventType } from './rrweb-types'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
 const TEST_CONFIG = {

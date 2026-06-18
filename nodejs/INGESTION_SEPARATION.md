@@ -304,13 +304,18 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 - [x] Split ingestion logic into its own test (no tests removed). N/A — nothing mixed to split (above).
       Optional future tidy: relocate the shared `cdp/_tests/redis` + `cdp/_tests/fixtures` helpers used by
       a few ingestion tests to a neutral `tests/helpers/` spot (benign test-infra reach, not blocking).
-- [ ] Move integration/e2e tests into their dedicated folders; keep unit tests beside source.
-      NOTE: keep the dedicated folders **per-lane** (e.g. `lanes/<lane>/integration/`) so the CI
-      path-based test selection (Phase 6) can still attribute an integration/e2e test to its lane — a
-      single top-level folder would break that mapping. Do this with/after Phase 4 (the restructure) so
-      the folders land in their final `lanes/<lane>/` home. Sizable; best done where the full suite can
-      run (CI/devbox) since it changes many test paths.
-- [ ] **Exit gate:** `pnpm test:full` green.
+- [x] Move e2e tests into the `tests/` tree (per product-owner direction: e2e tests live under `tests/`,
+      not co-located, and not a per-lane `integration/` subfolder). Mirror the src path under `tests/` so
+      the `lanes/<lane>` segment is preserved and Phase 6 path-based selection can still attribute a test
+      to its lane: `src/ingestion/<p>` -> `tests/ingestion/<p>`. Moved the 6 e2e suites
+      (`ingestion-e2e`, `person-properties-metadata.e2e`, `person-updates-e2e`, and the heatmaps /
+      ingestionwarnings / session-replay `consumer*e2e`) plus the session-replay snapshot; rewrote their
+      `./` source imports to `~/ingestion/...` and reformatted. Unit tests stay beside source. (Mirrors the
+      existing `tests/worker/ingestion/` precedent; `pnpm test`'s `service-e2e|postgres-parity` ignore is
+      unaffected, so these still run in the same shard set.)
+- [ ] (Optional, not requested) the 12 `*.integration.test.ts` under `src/ingestion` stay co-located for
+      now — only e2e was asked to move. Revisit if integration tests should follow the same pattern.
+- [ ] **Exit gate:** `pnpm test:full` green (CI on PR #64506 after this push).
 
 ### Phase 4 — restructure ingestion folder (lanes/ + semantic groups)
 
@@ -554,3 +559,12 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
 - Loop note: the CI-not-triggering heuristic proved correct this run — merging master immediately
   re-triggered CI, then it surfaced two real, fixable failures (prettier import-order, cookieless fs path)
   that local gates had missed, exactly the "CI is the source of truth" pattern the loop is built around.
+- Phase 3 e2e relocation (product-owner direction: e2e tests belong under `tests/`): moved the 6 e2e suites
+  from `src/ingestion/...` to `tests/ingestion/...` (mirroring the src path so `lanes/<lane>` survives for
+  Phase 6 attribution) + the session-replay snapshot. Rewrote each moved file's `./` source import to
+  `~/ingestion/...` (the only relative imports they had), then reformatted (sort-imports moved them into the
+  `~/` group — the codemod->format lesson again). Validated: targets exist, static import-resolution 0
+  broken, guard 0, eslint 0, prettier clean. No test-script/jest-config changes needed — `pnpm test`
+  already runs `tests/**` and only ignores `service-e2e|postgres-parity`, so the suites run unchanged, just
+  relocated. Integration tests left co-located (only e2e was requested). Pushing for CI to confirm the
+  relocated suites still run + pass.
