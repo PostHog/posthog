@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -92,8 +93,23 @@ const getCdcSyncSupported = (
     }
 }
 
+const getXminSyncSupported = (
+    schema: ExternalDataSourceSyncSchema
+): { disabled: true; disabledReason: string } | { disabled: false } => {
+    if (!schema.xmin_available) {
+        return {
+            disabled: true,
+            disabledReason: 'This table has no primary key, which is required for xmin',
+        }
+    }
+
+    return {
+        disabled: false,
+    }
+}
+
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
     appendField: string | null
 ): string | undefined => {
@@ -114,7 +130,7 @@ const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
     appendSyncSupported: boolean
-): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' => {
+): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
     }
@@ -152,9 +168,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
+    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
+    const xminSyncSupported = getXminSyncSupported(schema)
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
@@ -184,7 +202,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const radioOptions: {
-        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc'
+        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
         disabledReason?: string
         label: JSX.Element
     }[] = []
@@ -280,6 +298,29 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             />
                         </div>
                     )}
+                </div>
+            ),
+        })
+    }
+
+    if (!hideNonWebhookOptions && xminFlagEnabled && schema.xmin_available) {
+        radioOptions.push({
+            value: 'xmin',
+            disabledReason: (xminSyncSupported.disabled && xminSyncSupported.disabledReason) || undefined,
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">xmin replication</h4>
+                    </div>
+                    <p className="mb-2">
+                        Incremental replication using Postgres' internal <code>xmin</code> system column to track
+                        changed rows — no <code>updated_at</code> column required. Each sync reads only rows inserted or
+                        updated since the last run. Requires a primary key on the source table.
+                    </p>
+                    <p className="mb-2">
+                        Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
+                        column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
+                    </p>
                 </div>
             ),
         })
@@ -522,6 +563,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             onSave('webhook', null, null, null)
         } else if (radioValue === 'cdc') {
             onSave('cdc', null, null, null, cdcTableMode)
+        } else if (radioValue === 'xmin') {
+            // xmin carries no user-picked incremental field; the source projects the system column.
+            onSave('xmin', null, null, null)
         } else if (radioValue === 'incremental') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
             if (!fieldSelected) {
