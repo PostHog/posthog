@@ -68,7 +68,6 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
-    | 'refreshEnabled'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -105,7 +104,6 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
-    refreshEnabled,
     loading,
     loadingQueued,
     rename,
@@ -279,9 +277,9 @@ export function InsightMeta({
         )
     }
 
-    // Only suppress this tile's icon while this tile itself is refreshing (a full-dashboard
-    // refresh marks every tile as loading, so it still hides them all). Other tiles keep their
-    // icon — disabled with a reason — while a different tile refreshes.
+    // Suppress this tile's icon only while this tile itself is refreshing (a full-dashboard
+    // refresh marks every tile as loading, so it still hides them all). Other tiles stay
+    // refreshable — the batched refresh already caps concurrency, so there's no need to block.
     const tileRefreshing = !!(loading || loadingQueued)
     const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
@@ -289,11 +287,7 @@ export function InsightMeta({
             : null
     const refreshDisabledReason = nextRefreshFromNow
         ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : // `refreshEnabled` is false both while another tile refreshes and during the initial
-          // dashboard load, so keep the message accurate for both rather than naming a tile.
-          !refreshEnabled
-          ? 'The dashboard is busy — please wait…'
-          : undefined
+        : undefined
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
