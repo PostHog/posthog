@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsDailyRateLimitError
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
+    INITIAL_ANALYTICS_LOOKBACK_DAYS,
     LinkedInAdsResumeConfig,
     LinkedinAdsSchema,
     _convert_date_object_to_date,
@@ -697,3 +698,64 @@ class TestLinkedinAdsSource:
         rows = list(items)
         assert rows == []
         manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
+    def test_initial_sync_starts_from_bounded_lookback_not_epoch(self, mock_client_func, should_use_incremental_field):
+        """First sync of an analytics resource has no cursor. The start date must be the bounded
+        lookback, not 1970 — syncing stats from the epoch fans out into decades of empty yearly
+        windows that exhaust LinkedIn's daily call budget."""
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = [([], None)]
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager()
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaign_stats",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="date_start" if should_use_incremental_field else None,
+            incremental_field_type=IncrementalFieldType.Date if should_use_incremental_field else None,
+            db_incremental_field_last_value=None,
+        )
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
+
+        date_start = mock_client.get_data_by_resource.call_args[1]["date_start"]
+        parsed = dt.date.fromisoformat(date_start)
+        expected_floor = (dt.datetime.now() - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).date()
+        assert abs((parsed - expected_floor).days) <= 1
+
+    def test_incremental_resume_uses_saved_cursor_not_lookback(self, mock_client_func):
+        """A resumed incremental sync must honour the saved cursor verbatim — the lookback floor
+        only applies to the first sync, never clamps an existing cursor."""
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = [([], None)]
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager()
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaign_stats",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=dt.date(2024, 1, 1),
+        )
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
+
+        assert mock_client.get_data_by_resource.call_args[1]["date_start"] == "2024-01-01"
