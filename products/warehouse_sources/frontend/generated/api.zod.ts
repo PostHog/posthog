@@ -2468,6 +2468,8 @@ export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
+export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = true
+
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
         .enum([
@@ -3120,6 +3122,12 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSourcesSetupCreateBodyDescriptionMax)
         .nullish()
         .describe('Human-readable description.'),
+    direct_query_enabled: zod
+        .boolean()
+        .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
+        .describe(
+            'Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.'
+        ),
 })
 
 /**

@@ -87,6 +87,9 @@ const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSch
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,

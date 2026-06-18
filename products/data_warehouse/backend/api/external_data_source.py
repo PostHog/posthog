@@ -1122,6 +1122,14 @@ class SourceSetupSerializer(serializers.Serializer):
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupWebhookSerializer(serializers.Serializer):
@@ -2313,6 +2321,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
