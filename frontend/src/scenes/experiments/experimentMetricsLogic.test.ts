@@ -252,19 +252,17 @@ describe('experimentMetricsLogic', () => {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
                 },
                 post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async (req) => {
-                        capturedBody = await req.json()
-                        return [201, pendingRecalculation]
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
                     },
                 },
             })
             mountLogic()
 
-            // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create → store pending
-            await expectLogic(logic).toDispatchActions(['triggerRecalculation', 'setCurrentRecalculation'])
-            expect(logic.values.currentRecalculation).toEqual(
-                expect.objectContaining({ id: 'recalc-2', status: 'pending' })
-            )
+            // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create.
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
@@ -278,16 +276,19 @@ describe('experimentMetricsLogic', () => {
                     ],
                 },
                 post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async (req) => {
-                        capturedBody = await req.json()
-                        return [201, pendingRecalculation]
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
                     },
                 },
             })
             mountLogic()
 
             // Stale results still load, but a fresh run is kicked off in the background.
-            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
+            await expectLogic(logic)
+                .toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
+                .toFinishAllListeners()
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(capturedBody).toEqual({ trigger: 'stale_refresh' })
         })
