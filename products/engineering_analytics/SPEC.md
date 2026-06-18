@@ -190,7 +190,7 @@ Use the current default; revisit when the relevant data lands (§9).
 - Commits-till-merged — same; comes with the lifecycle-event data.
 - Provider Protocol — wait for a second provider. The read-layer boundary is already drawn to make extraction mechanical.
 - Stateful / persisted UI (saved views, persisted filters) — a separate decision once the read-only scene proves out.
-- Cost attribution (agent-token and CI-minute cost per PR) — deferred. Token cost is an LLM analytics join: the `$ai_*_cost_usd` properties on generation events, resolved to a PR via `head_sha`, since the agent can only stamp a commit SHA at capture time (the PR usually doesn't exist yet). The grouping is LLM analytics' own; this product owns the SHA→PR join plus outcome/lifecycle enrichment. The lever is _cost per outcome_, which needs the lifecycle + git history data above (revert/fixup graph, changed files). See README → "What pays for the destination".
+- Cost attribution (agent-token and CI-minute cost per PR) — deferred. Token cost is an LLM analytics join: the `$ai_*_cost_usd` properties on generation events, resolved to a PR by **branch** (head ref → `github_pull_requests.head.ref`), not `head_sha` — the PR snapshot is current-state-only, so a SHA join matches only the latest push and drops every earlier one (undercount). The agent can stamp the branch at capture time even though the PR doesn't exist yet. The grouping is LLM analytics' own; this product owns the branch→PR join plus outcome/lifecycle enrichment. The lever is _cost per outcome_, which needs the lifecycle + git history data above (revert/fixup graph, changed files). See README → "What pays for the destination".
 
 ## 9. Data sources
 

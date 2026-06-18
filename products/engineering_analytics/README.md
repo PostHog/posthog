@@ -124,7 +124,8 @@ Roughly in order of "impossible elsewhere":
 - **The full three-ledger picture.** Human-hours + CI-minutes + tokens on the same unit (the PR) — the only place an agent-authored change and a human one are economically comparable.
 
 Division of labor matters: LLM analytics does the cost grouping itself (it groups by any key on the event).
-This product's job is the **join** — resolving the key the agent can actually stamp at capture time (a commit **SHA**, since the PR often doesn't exist yet) to a PR via `github_pull_requests.head_sha`, then enriching it with outcome and lifecycle.
+This product's job is the **join** — the agent stamps the **branch** at capture time (it knows the branch; the PR often doesn't exist yet), and we resolve that branch to a PR via `github_pull_requests.head.ref`, then enrich with outcome and lifecycle.
+Not the commit SHA: the PR snapshot is current-state-only, so a SHA join matches only the latest push and silently drops every earlier one — undercounting exactly the multi-push work.
 Review and CI-bot spend self-attributes (the PR exists by then); the coding slice is the part that needs us.
 
 So cost is a _payload_, not a new surface: it rides the same lifecycle model, and it's the forcing function that makes ingesting that model — and the git history behind it — worth funding.
