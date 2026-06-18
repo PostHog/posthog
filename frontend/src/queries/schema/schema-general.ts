@@ -3460,10 +3460,26 @@ export interface SymbolStatsRow {
      */
     count_pct_change: number | null
     /**
+     * Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p50_duration_pct_change: number | null
+    /**
      * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
      * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
      */
     p95_duration_pct_change: number | null
+    /**
+     * Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p99_duration_pct_change: number | null
+    /**
+     * Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when
+     * the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a
+     * 0→N new-error spike, which surfaces as null rather than a delta.
+     */
+    error_rate_pct_change: number | null
 }
 
 export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {

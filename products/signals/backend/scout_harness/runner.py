@@ -332,6 +332,11 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        # Tag every scout $ai_generation with a coarse pipeline stage so scout spend is
+        # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id).
+        # Constant 'scout' keeps ai_stage a low-cardinality stage enum (peer of research /
+        # repo_selection / implementation); per-scout granularity comes from scout_name (task_title).
+        ai_stage="scout",
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +

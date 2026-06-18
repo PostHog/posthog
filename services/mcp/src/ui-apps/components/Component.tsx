@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
+import { ChartHeader } from './ChartHeader'
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { inferVisualizationType } from './infer-visualization'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
@@ -43,9 +44,7 @@ export function Component({ data }: ComponentProps): ReactElement {
         return (
             <Card>
                 <CardContent>
-                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Results
-                    </div>
+                    <ChartHeader title="Results" />
                     <Empty>
                         <EmptyHeader>
                             <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
@@ -103,33 +102,9 @@ export function Component({ data }: ComponentProps): ReactElement {
         }
     }
 
-    const getTitle = (): string => {
-        switch (visualizationType) {
-            case 'trends':
-                return 'Trends'
-            case 'funnel':
-                return 'Funnel'
-            case 'lifecycle':
-                return 'Lifecycle'
-            case 'retention':
-                return 'Retention'
-            case 'paths':
-                return 'Paths'
-            case 'table':
-                return 'Query results'
-            default:
-                return 'Results'
-        }
-    }
-
     return (
         <Card>
-            <CardContent>
-                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {getTitle()}
-                </div>
-                {renderVisualization()}
-            </CardContent>
+            <CardContent>{renderVisualization()}</CardContent>
         </Card>
     )
 }
