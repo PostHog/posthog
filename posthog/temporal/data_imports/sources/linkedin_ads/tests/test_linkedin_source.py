@@ -24,6 +24,9 @@ class TestLinkedInAdsSource:
             "REVOKED_ACCESS_TOKEN",
             "The token used in the request has expired",
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
+            # DAY-window 429: the daily call budget only resets at midnight UTC, so the run must stop
+            # rather than retry. The client raises this stable prefix.
+            'LinkedIn daily rate limit reached (429): {"status":429,"serviceErrorCode":101,"code":"TOO_MANY_REQUESTS","message":"Resource level throttle APPLICATION_AND_MEMBER DAY limit for calls to this resource is reached."}',
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):
@@ -105,9 +108,9 @@ class TestLinkedInAdsSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            # Transient transport / 5xx errors must stay retryable.
+            # Transient transport / 5xx and short-window (non-DAY) 429s must stay retryable.
             "LinkedIn API error (retryable, 503): service unavailable",
-            'LinkedIn daily rate limit reached (429): {"message":"throttled","status":429}',
+            'LinkedIn API error (retryable, 429): {"message":"Resource level throttle MINUTE limit reached.","status":429}',
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
@@ -165,3 +168,30 @@ class TestLinkedInAdsSource:
         error_message = str(exc_info.value)
         patterns = self.source.get_non_retryable_errors()
         assert not any(pattern in error_message for pattern in patterns)
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_daily_rate_limit_error_is_non_retryable(self, mock_restli_client):
+        """A DAY-window 429 raises LinkedinAdsDailyRateLimitError; its message must match a
+        get_non_retryable_errors pattern, else the job retries the doomed call until midnight UTC."""
+        body = json.dumps(
+            {
+                "status": 429,
+                "serviceErrorCode": 101,
+                "code": "TOO_MANY_REQUESTS",
+                "message": "Resource level throttle APPLICATION_AND_MEMBER DAY limit for calls to this resource is reached.",
+            }
+        )
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 429
+        mock_response.response.text = body
+        mock_restli_client.return_value.finder.return_value = mock_response
+
+        client = LinkedinAdsClient("test_access_token")
+        with pytest.raises(Exception) as exc_info:
+            client.get_accounts()
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"LinkedIn daily rate limit error '{error_message}' does not match any non-retryable pattern"
+        )

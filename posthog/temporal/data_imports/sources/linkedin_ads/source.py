@@ -62,6 +62,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
             # the stable prefix only — the offending value that follows varies per source.
             "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
+            # A DAY-window 429 is the per-member/app daily call budget, which only resets at midnight
+            # UTC — retrying within the run just burns whatever budget is left. Stop the job so the
+            # next scheduled sync resumes once the limit has reset. Matches the stable message prefix
+            # the client raises (the 429 body that follows is volatile).
+            "LinkedIn daily rate limit reached": "LinkedIn's daily API rate limit for this ad account has been reached. The limit resets each day, and PostHog will automatically resume syncing on the next scheduled run.",
         }
 
     @property
