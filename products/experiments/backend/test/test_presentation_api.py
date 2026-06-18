@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
@@ -7116,3 +7117,52 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+
+class TestExperimentSerializerSuperset(unittest.TestCase):
+    """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
+
+    ExperimentBasicApi is a structural subset of ExperimentApi in generated frontend types.
+    If a field is added to the detail serializer but forgotten in the basic one the superset
+    invariant holds — but the reverse (basic grows a field not in detail) would break it, and
+    a mismatched read_only/required on a shared field would produce divergent nullability.
+    """
+
+    def test_basic_fields_are_subset_of_full_fields(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        basic_field_names = set(basic.fields.keys())
+        full_field_names = set(full.fields.keys())
+        extra = basic_field_names - full_field_names
+        self.assertFalse(
+            extra,
+            f"ExperimentBasicSerializer has fields not present in ExperimentSerializer: {extra}. "
+            "ExperimentBasicApi must remain a structural subset of ExperimentApi.",
+        )
+
+    def test_shared_fields_have_matching_read_only_and_required(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        shared = set(basic.fields.keys()) & set(full.fields.keys())
+        mismatches: list[str] = []
+        for name in sorted(shared):
+            b_field = basic.fields[name]
+            f_field = full.fields[name]
+            if b_field.read_only != f_field.read_only:
+                mismatches.append(f"{name}: read_only basic={b_field.read_only} full={f_field.read_only}")
+            if b_field.required != f_field.required:
+                mismatches.append(f"{name}: required basic={b_field.required} full={f_field.required}")
+        self.assertFalse(
+            mismatches,
+            "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
+        )
