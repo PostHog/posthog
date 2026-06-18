@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.7.28 — 2026-06-18
+
+### Patch changes
+
+- [f0bb5426d5](https://github.com/PostHog/posthog/commit/f0bb5426d51601a7e39c4d3bcadbe592962ab980) Remove the `posthog-cli api` experimental opt-in and skip unavailable generated tools without warning noise. — Thanks @cvolzer3!
+
+## 0.7.27 — 2026-06-18
+
+### Patch changes
+
+- [7be64cbe1e](https://github.com/PostHog/posthog/commit/7be64cbe1e982e27c1d863146a6268986b7a3ca3) Fix the post-login hint so `posthog-cli login` suggests a valid next command based on the scopes authorized for the generated key. — Thanks @cvolzer3!
+
 ## 0.7.26 — 2026-06-18
 
 ### Patch changes

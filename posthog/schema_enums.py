@@ -1038,6 +1038,12 @@ class SourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
 
 
+class EvaluationRuntime(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+    SENTIMENT = "sentiment"
+
+
 class CorrelationType(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
@@ -2316,11 +2322,6 @@ class MaxBillingContextSubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
     CUSTOM = "custom"
-
-
-class EvaluationType(StrEnum):
-    HOG = "hog"
-    LLM_JUDGE = "llm_judge"
 
 
 class Goal(Enum):
