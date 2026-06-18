@@ -8,6 +8,8 @@ import { METRIC_DEFAULT_DECREASE_COLOR, METRIC_DEFAULT_INCREASE_COLOR } from 'sc
 
 import { insightLogic } from '../insightLogic'
 
+const PRESET_COLORS = getSeriesColorPalette()
+
 function DirectionColorPickers({
     increaseColor,
     decreaseColor,
@@ -19,14 +21,12 @@ function DirectionColorPickers({
     onIncrease: (color: string) => void
     onDecrease: (color: string) => void
 }): JSX.Element {
-    const presetColors = getSeriesColorPalette()
-
     return (
         <div className="flex flex-col gap-1 pl-5">
             <div className="flex items-center justify-between gap-2 p-1 px-2">
                 <span className="font-normal">Increase</span>
                 <LemonColorPicker
-                    colors={presetColors}
+                    colors={PRESET_COLORS}
                     selectedColor={increaseColor}
                     onSelectColor={onIncrease}
                     showCustomColor
@@ -36,7 +36,7 @@ function DirectionColorPickers({
             <div className="flex items-center justify-between gap-2 p-1 px-2">
                 <span className="font-normal">Decrease</span>
                 <LemonColorPicker
-                    colors={presetColors}
+                    colors={PRESET_COLORS}
                     selectedColor={decreaseColor}
                     onSelectColor={onDecrease}
                     showCustomColor

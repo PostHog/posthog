@@ -206,6 +206,10 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+                // Headline + sparkline needs a bit more room than the bare BoldNumber tile.
+                defaultW = 3
+                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {
