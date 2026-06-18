@@ -72,28 +72,36 @@ class TestExpressionFieldFactories:
 
 
 class TestIsBotField:
-    def test_returns_compare_operation(self):
+    def test_returns_bool_cast(self):
         field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert field.expr.op == ast.CompareOperationOp.NotEq
+        assert isinstance(field.expr, ast.Call)
+        assert field.expr.name == "toBool"
+        comparison = field.expr.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert comparison.op == ast.CompareOperationOp.NotEq
 
     def test_uses_multiMatchAnyIndex(self):
         field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert isinstance(field.expr.left, ast.Call)
-        assert field.expr.left.name == "multiMatchAnyIndex"
+        assert isinstance(field.expr, ast.Call)
+        comparison = field.expr.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert isinstance(comparison.left, ast.Call)
+        assert comparison.left.name == "multiMatchAnyIndex"
 
     def test_compares_against_zero(self):
         field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert isinstance(field.expr.right, ast.Constant)
-        assert field.expr.right.value == 0
+        assert isinstance(field.expr, ast.Call)
+        comparison = field.expr.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert isinstance(comparison.right, ast.Constant)
+        assert comparison.right.value == 0
 
     def test_wraps_user_agent_in_ifnull(self):
         field = create_is_bot_field(name="$virt_is_bot")
-        expr = field.expr
-        assert isinstance(expr, ast.CompareOperation)
-        index_call = expr.left
+        assert isinstance(field.expr, ast.Call)
+        comparison = field.expr.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        index_call = comparison.left
         assert isinstance(index_call, ast.Call)
         safe_ua = index_call.args[0]
         assert isinstance(safe_ua, ast.Call)

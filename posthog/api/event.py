@@ -47,6 +47,7 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -424,7 +425,8 @@ class EventViewSet(
 
     def _get_people(self, query_result: List[dict], team: Team) -> "dict[str, Person]":  # noqa: UP006
         distinct_ids = list({event["distinct_id"] for event in query_result})
-        return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        with personhog_caller_tag("persons/events-api"):
+            return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
         parameters=[

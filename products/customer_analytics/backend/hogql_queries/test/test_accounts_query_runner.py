@@ -28,7 +28,9 @@ except ImportError:
 @override_settings(IN_UNIT_TESTING=True)
 class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def _run_query(self, user: User | None = None, **query_kwargs) -> tuple[AccountsQueryRunner, AccountsQueryResponse]:
-        runner = AccountsQueryRunner(query=AccountsQuery(**query_kwargs), team=self.team, user=user)
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(**query_kwargs), team=self.team, user=user if user is not None else self.user
+        )
         return runner, runner.calculate()
 
     def _ids(self, user: User | None = None, **query_kwargs) -> list[str]:
@@ -217,10 +219,11 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         # resolves to the same accounts no matter which user opens it.
         target = create_account(team_id=self.team.id, name="Target", _properties={"csm": {"id": 7, "email": "t@x.com"}})
         create_account(team_id=self.team.id, name="Other", _properties={"csm": {"id": 8, "email": "o@x.com"}})
+        other_user = self._create_user("other@example.com")
         as_user = self._ids(user=self.user, assignedToUserIds=[7])
-        anonymous = self._ids(user=None, assignedToUserIds=[7])
+        as_other_user = self._ids(user=other_user, assignedToUserIds=[7])
         self.assertEqual(as_user, [str(target.id)])
-        self.assertEqual(as_user, anonymous)
+        self.assertEqual(as_user, as_other_user)
 
     def test_assigned_to_user_unknown_id_matches_nothing(self):
         create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
@@ -297,6 +300,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -320,6 +324,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count DESC", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -353,6 +358,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=[f"tupleElement({role_key}, 2)"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -381,6 +387,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=[f"tupleElement({role_key}, 2) DESC"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -431,7 +438,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_custom_select_uses_only_requested_columns(self):
         create_account(team_id=self.team.id, name="A")
-        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team)
+        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team, user=self.user)
         response = runner.calculate()
         self.assertEqual(runner.columns, ["id", "name"])
         self.assertEqual(len(response.results[0]), 2)
@@ -536,6 +543,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count DESC"],
             ),
             team=self.team,
+            user=self.user,
         )
         self.assertEqual(runner._deferred_columns, [])
         self.assertIn("notebook_count", runner._main_column_names)

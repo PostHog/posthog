@@ -445,8 +445,9 @@ class UserAccessControl:
         return True
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
-        if not EE_AVAILABLE:
+        if not EE_AVAILABLE or not self.access_controls_supported:
             return []
+
         # Team-scoped lookups are served from the single bulk preload (filtered in memory);
         # org-scoped lookups fall through to a targeted query.
         if self._can_serve_from_preload(filters):
@@ -1003,6 +1004,10 @@ class UserAccessControl:
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}
 
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return {}
+
         object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
         for ac in self._cached_access_controls:
             if ac.resource_id is not None:
@@ -1040,6 +1045,10 @@ class UserAccessControl:
             return queryset
 
         if not EE_AVAILABLE:
+            return queryset
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
             return queryset
 
         # Subquery to check if user has "admin" on the FileSystem's team/project

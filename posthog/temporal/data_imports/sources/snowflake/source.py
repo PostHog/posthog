@@ -206,12 +206,23 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
             # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
             "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
+            # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
+            # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
+            # was revoked, after the schema was discovered. The driver raises "<object> does not exist
+            # or not authorized" on `SHOW PRIMARY KEYS` / the data query. Retrying can never succeed
+            # until the user restores the object or re-grants access. The object name and query id in
+            # the message are volatile, so we match on the stable trailing phrase.
+            "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
             # won't help — the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Snowflake SQL compilation error 002057: a view's declared column list no longer
+            # matches the columns its query produces, so the view itself fails to compile. This is
+            # a broken object on the source side that retrying can't repair.
+            "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
 
     def validate_credentials(

@@ -7,8 +7,11 @@ from unittest.mock import MagicMock
 
 import pymysql
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
     STATEMENT_TIMEOUT_SECONDS,
@@ -68,6 +71,12 @@ def _make_inputs(schema_name: str = "messages", **overrides) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
+
+
+def _connection_for_cursor(cursor: MagicMock) -> MagicMock:
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    return conn
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +226,108 @@ def cursor() -> MagicMock:
     c.fetchone.return_value = None
     c.description = None
     return c
+
+
+class TestSchemaDiscovery:
+    def test_schema_field_is_optional(self):
+        field = next(field for field in MySQLSource().get_source_config.fields if field.name == "schema")
+
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.required is False
+        assert (
+            MySQLSourceConfig.from_dict(
+                {
+                    "host": "localhost",
+                    "port": 3306,
+                    "database": "d",
+                    "user": "u",
+                    "password": "p",
+                    "using_ssl": "false",
+                }
+            ).schema
+            is None
+        )
+
+    def test_get_columns_uses_plain_table_names_when_schema_configured(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("app", "users", "email", "varchar", "YES"),
+        ]
+
+        columns = impl.get_columns(_connection_for_cursor(cursor), _make_config(schema="app"), names=None)
+
+        assert columns == {"users": [("id", "int", False), ("email", "varchar", True)]}
+        sql, params = cursor.execute.call_args.args
+        assert "table_schema = %(schema)s" in sql
+        assert params["schema"] == "app"
+
+    def test_get_columns_uses_qualified_table_names_when_schema_blank(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("billing", "users", "id", "bigint", "NO"),
+            ("billing", "invoices", "amount", "decimal", "YES"),
+        ]
+
+        columns = impl.get_columns(_connection_for_cursor(cursor), _make_config(schema=""), names=None)
+
+        assert columns == {
+            "app.users": [("id", "int", False)],
+            "billing.users": [("id", "bigint", False)],
+            "billing.invoices": [("amount", "decimal", True)],
+        }
+        sql, params = cursor.execute.call_args.args
+        assert "table_schema NOT IN %(system_schemas)s" in sql
+        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys")
+
+    def test_get_columns_filters_qualified_names_when_schema_blank(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id", "int", "NO"),
+            ("billing", "users", "id", "bigint", "NO"),
+        ]
+
+        columns = impl.get_columns(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            names=["billing.users"],
+        )
+
+        assert columns == {"billing.users": [("id", "bigint", False)]}
+        _, params = cursor.execute.call_args.args
+        assert params["names"] == ("users",)
+
+    def test_get_primary_keys_maps_duplicate_table_names_to_qualified_names(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "id"),
+            ("billing", "users", "billing_id"),
+        ]
+
+        primary_keys = impl.get_primary_keys(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            ["app.users", "billing.users"],
+        )
+
+        assert primary_keys == {"app.users": ["id"], "billing.users": ["billing_id"]}
+
+    def test_get_leading_index_columns_maps_duplicate_table_names_to_qualified_names(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", "created_at"),
+            ("billing", "users", "updated_at"),
+        ]
+
+        indexed_columns = impl.get_leading_index_columns(
+            _connection_for_cursor(cursor),
+            _make_config(schema=""),
+            ["app.users", "billing.users"],
+        )
+
+        assert indexed_columns == {"app.users": {"created_at"}, "billing.users": {"updated_at"}}
+
+    def test_get_source_metadata_records_source_location(self, impl):
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["app.users", "billing.invoices"])
+
+        assert metadata.schema_by_table == {"app.users": "app", "billing.invoices": "billing"}
+        assert metadata.table_name_by_table == {"app.users": "users", "billing.invoices": "invoices"}
 
 
 class TestGetPrimaryKeysForTable:
@@ -609,6 +720,24 @@ def _drain_source():
     list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
 
 
+class TestBuildPipelineSourceLocation:
+    def test_uses_schema_metadata_when_schema_is_blank(self, build_pipeline_mocks):
+        source = MySQLImplementation().build_pipeline(
+            _make_config(schema=""),
+            _make_inputs(
+                schema_name="analytics.users",
+                schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
+            ),
+        )
+
+        assert source.name == "analytics_users"
+        assert cast(MagicMock, MySQLImplementation.get_primary_keys_for_table).call_args.args[-2:] == (
+            "analytics",
+            "users",
+        )
+        assert cast(MagicMock, MySQLImplementation.get_table_metadata).call_args.args[-2:] == ("analytics", "users")
+
+
 class TestStreamingConnectionTimeouts:
     def test_read_timeout_is_passed_to_streaming_connection(self, build_pipeline_mocks):
         mock_connect, _, _ = build_pipeline_mocks
@@ -804,6 +933,66 @@ class TestBuildQueryEnabledColumns:
         assert "WHERE `created_at` > %(incremental_value)s" in query
 
 
+class TestBuildQueryRowFilters:
+    def test_full_refresh_row_filter(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `age` > %(row_filter_0)s" in query
+        assert params == {"row_filter_0": 21}
+
+    def test_in_filter_expands_to_named_placeholders(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE `age` IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert params == {"row_filter_0_0": 21, "row_filter_0_1": 30}
+
+    def test_row_filters_compose_with_incremental(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `created_at` > %(incremental_value)s AND `age` > %(row_filter_0)s" in query
+        assert params == {"incremental_value": "2025-01-01", "row_filter_0": 21}
+
+    def test_value_never_interpolated(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in query
+        assert params == {"row_filter_0": "x'; DROP TABLE y; --"}
+
+
 class TestMySQLSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -922,27 +1111,39 @@ class TestMySQLSourceValidateCredentials:
         return source
 
     @pytest.mark.parametrize(
-        "raised",
+        "raised,expected_error",
         [
             # The exact error that fired this triage: an unreachable host surfaces as a
             # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            # A connection failure keeps the generic "check connection details" message.
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+            # An auth failure (error 1045) must name the credentials, not the generic message
+            # that sends the user to inspect the host/port instead. Mirrors Postgres.
+            (
+                pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+                "Invalid user or password",
+            ),
         ],
     )
-    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised, expected_error):
         capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
         mocker.patch.object(source, "get_schemas", side_effect=raised)
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error is not None
+        assert error == expected_error
         capture.assert_not_called()
 
     def test_unexpected_errors_are_still_captured(self, source, mocker):

@@ -160,7 +160,9 @@ export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -172,10 +174,12 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxC
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault = false
@@ -215,6 +219,7 @@ export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
+
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -231,16 +236,39 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 16384
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax = 8
+
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -267,6 +295,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -289,6 +322,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -365,6 +403,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -408,6 +451,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -606,7 +654,17 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
             integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -629,10 +687,50 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -714,7 +812,9 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -726,10 +826,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
@@ -769,6 +871,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -785,16 +888,39 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSeconds
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 16384
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax = 8
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().optional(),
+    bundle_uri: zod
+        .string()
+        .optional()
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -821,6 +947,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -843,6 +974,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -921,6 +1057,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -964,6 +1105,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -1178,7 +1324,17 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
             integrations: zod
                 .array(zod.string())
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -1201,10 +1357,50 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -1329,9 +1525,7 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe(
-        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.'
-    )
+    .describe('Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload.')
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -1362,8 +1556,7 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
  * thing?' is unanswerable until the cron actually fires.
  *
  * Idempotent via `request_id`: repeat clicks with the same id resolve
- * to the same session id rather than firing N times. See
- * `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * to the same session id rather than firing N times.
  */
 export const AgentApplicationsRevisionsCronFireCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -1896,11 +2089,11 @@ export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
  * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller. See
- * docs/agent-platform/plans/draft-preview-auth.md.
+ * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -1916,6 +2109,25 @@ export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.obje
     format: zod.enum(['json', 'sse']).optional(),
     revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
+
+export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .optional()
+            .describe(
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+            ),
+        session_id: zod
+            .string()
+            .optional()
+            .describe(
+                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
+            ),
+    })
+    .describe(
+        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
+    )
 
 /**
  * List sessions for this application, newest first. Strips the

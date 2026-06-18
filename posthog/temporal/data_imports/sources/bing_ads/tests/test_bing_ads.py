@@ -344,6 +344,37 @@ class TestBingAdsSource:
 
     @parameterized.expand(
         [
+            ("missing_client_id", "", "test_client_secret"),
+            ("missing_client_secret", "test_client_id", ""),
+            ("both_missing", "", ""),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_bing_ads_source_missing_oauth_app_credentials(self, _name, client_id, client_secret, mock_integrations):
+        """An empty OAuth app client id/secret raises a deterministic error instead of a doomed token request.
+
+        Without the guard the SDK posts a token request omitting client_id and Microsoft returns the opaque
+        AADSTS900144, which was being mis-surfaced as a customer "reconnect your integration" error.
+        """
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_integrations.BING_ADS_CLIENT_ID = client_id
+        mock_integrations.BING_ADS_CLIENT_SECRET = client_secret
+
+        result = bing_ads_source(
+            account_id=self.account_id,
+            resource_name="campaigns",
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
+        )
+
+        with pytest.raises(ValueError, match="Bing Ads OAuth application credentials not configured"):
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
+    @parameterized.expand(
+        [
             ("account_number", "F118FDGN"),
             ("alphanumeric", "ABC123"),
             ("empty", ""),
