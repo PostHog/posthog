@@ -3,7 +3,7 @@ import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
 
 type SeriesDatum<Meta> = TooltipContext<Meta>['seriesData'][number]
 
-interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta> {
+export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta> {
     /** Formats each row's value. Receives the row's `seriesData` entry as a second argument so
      *  callers can format per-series — e.g. each SQL column with its own currency/duration/percent
      *  settings — rather than with one global formatter. Defaults to `toLocaleString`. Existing

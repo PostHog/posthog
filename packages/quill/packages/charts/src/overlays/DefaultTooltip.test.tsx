@@ -39,15 +39,15 @@ function renderTooltip(props: TooltipProps = {}, seriesData: TooltipContext['ser
 describe('DefaultTooltip', () => {
     afterEach(cleanup)
 
-    it.each([
-        ['default (no formatter)', undefined, (19402).toLocaleString(), null as string | null],
-        ['custom valueFormatter', (v: number) => `${v}ms`, '19402ms', (19402).toLocaleString()],
-    ])('formats values with %s', (_, formatter, expected, absent) => {
-        renderTooltip({ valueFormatter: formatter })
-        screen.getByText(expected)
-        if (absent) {
-            expect(screen.queryByText(absent)).toBeNull()
-        }
+    it('formats values with default (no formatter)', () => {
+        renderTooltip({})
+        screen.getByText((19402).toLocaleString())
+    })
+
+    it('formats values with custom valueFormatter', () => {
+        renderTooltip({ valueFormatter: (v: number) => `${v}ms` })
+        screen.getByText('19402ms')
+        expect(screen.queryByText((19402).toLocaleString())).toBeNull()
     })
 
     it('passes each row entry to valueFormatter so it can format per-series', () => {
@@ -61,8 +61,8 @@ describe('DefaultTooltip', () => {
             },
             seriesData
         )
-        expect(screen.getByText('12$')).toBeTruthy()
-        expect(screen.getByText('34%')).toBeTruthy()
+        screen.getByText('12$')
+        screen.getByText('34%')
     })
 
     describe('total row', () => {
@@ -73,19 +73,31 @@ describe('DefaultTooltip', () => {
 
         it('sums the visible series and labels the row', () => {
             renderTooltip({ showTotal: true }, TWO_SERIES)
-            expect(screen.getByText('Total:')).toBeTruthy()
-            expect(screen.getByText((35).toLocaleString())).toBeTruthy()
+            screen.getByText('Total:')
+            screen.getByText((35).toLocaleString())
         })
 
         it('uses a custom label and total formatter', () => {
             renderTooltip({ showTotal: true, totalLabel: 'Sum', totalFormatter: (v) => `$${v}` }, TWO_SERIES)
-            expect(screen.getByText('Sum:')).toBeTruthy()
-            expect(screen.getByText('$35')).toBeTruthy()
+            screen.getByText('Sum:')
+            screen.getByText('$35')
         })
 
-        it('falls back to the per-series formatter for the total when no totalFormatter is given', () => {
-            renderTooltip({ showTotal: true, valueFormatter: (v) => `${v}ms` }, TWO_SERIES)
-            expect(screen.getByText('35ms')).toBeTruthy()
+        it('falls back to valueFormatter for the total, applied with the first summable entry', () => {
+            const metaSeries: TooltipContext['seriesData'] = [
+                { series: { key: 'usd', label: 'Revenue', data: [], meta: { unit: '$' } }, value: 10, color: '#000' },
+                { series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } }, value: 25, color: '#111' },
+            ]
+            renderTooltip(
+                {
+                    showTotal: true,
+                    valueFormatter: (v, entry) => `${v}${(entry.series.meta as { unit: string }).unit}`,
+                },
+                metaSeries
+            )
+            // total uses summable[0]'s entry (unit '$'), not summable[1]'s ('€')
+            screen.getByText('35$')
+            expect(screen.queryByText('35€')).toBeNull()
         })
 
         it('is suppressed for a single series', () => {
@@ -104,7 +116,7 @@ describe('DefaultTooltip', () => {
                 { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 1000, color: '#222' },
             ]
             renderTooltip({ showTotal: true }, withOverlay)
-            expect(screen.getByText((35).toLocaleString())).toBeTruthy()
+            screen.getByText((35).toLocaleString())
             expect(screen.queryByText((1035).toLocaleString())).toBeNull()
         })
 

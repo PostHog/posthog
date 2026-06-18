@@ -95,8 +95,7 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
     })
 }
 
-/** Formats a tooltip value with a column's display settings, coercing to the string the tooltip
- *  renders. Pure so it's unit-testable without a DOM. */
+/** Formats a tooltip value with a column's display settings. */
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
     return String(formatDataWithSettings(value, settings) ?? value)
 }

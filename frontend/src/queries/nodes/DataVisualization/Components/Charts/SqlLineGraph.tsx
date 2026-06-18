@@ -22,18 +22,18 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
     const { chartSettings } = props
     const totalSettings = model?.totalFormatterSettings
 
-    // config = behavior (pin/hover); render prop = content. Each row formats with its own column's
-    // settings; the total uses the left-axis/first-series settings.
+    const showTotalRow = chartSettings.showTotalRow !== false
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<SqlLineSeriesMeta>): JSX.Element => (
             <DefaultTooltip<SqlLineSeriesMeta>
                 {...ctx}
                 valueFormatter={(value, entry) => formatSqlSeriesValue(value, entry.series.meta?.settings)}
-                showTotal={chartSettings.showTotalRow !== false}
+                showTotal={showTotalRow}
                 totalFormatter={(value) => formatSqlSeriesValue(value, totalSettings)}
             />
         ),
-        [chartSettings, totalSettings]
+        [showTotalRow, totalSettings]
     )
 
     // Keep the styled container even with no data, matching the legacy path's background shell.
