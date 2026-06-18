@@ -103,8 +103,6 @@ def drain_gateway_credential_last_used_task() -> None:
     never hits the Django auth path that would otherwise stamp it. The gateway
     coalesces marks in Valkey, so this writes at most one row per active key per
     run regardless of request volume."""
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
     updated = drain_gateway_credential_last_used()
     if updated:
         logger.info("Drained gateway credential last_used", updated=updated)

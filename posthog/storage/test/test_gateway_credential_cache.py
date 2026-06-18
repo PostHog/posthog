@@ -787,59 +787,58 @@ class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
         self.redis.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
 
     def _seed(self, marks: dict[str, int]) -> None:
-        self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, mapping=marks)
+        # Per-field rather than mapping= so the str keys satisfy hset's str|bytes
+        # arg without tripping Mapping's invariant key type.
+        for field, ts in marks.items():
+            self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, field, ts)
+
+    @staticmethod
+    def _hash(secret_key: ProjectSecretAPIKey) -> str:
+        assert secret_key.secure_value is not None  # set by _make_secret_key
+        return secret_key.secure_value
+
+    @staticmethod
+    def _stored_ts(secret_key: ProjectSecretAPIKey) -> int:
+        secret_key.refresh_from_db()
+        assert secret_key.last_used_at is not None
+        return int(secret_key.last_used_at.timestamp())
 
     def test_drain_stamps_secret_key_last_used(self):
         secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
         self.assertIsNone(secret_key.last_used_at)
         used_ts = int(timezone.now().timestamp())
-        self._seed({secret_key.secure_value: used_ts})
+        self._seed({self._hash(secret_key): used_ts})
 
         updated = drain_gateway_credential_last_used()
 
         self.assertEqual(updated, 1)
-        secret_key.refresh_from_db()
-        self.assertIsNotNone(secret_key.last_used_at)
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
+        self.assertEqual(self._stored_ts(secret_key), used_ts)
         # The hash is consumed so a stalled drain can't double-process it.
         self.assertFalse(self.redis.exists(GATEWAY_CREDENTIAL_LAST_USED_KEY))
 
-    def test_drain_respects_hour_throttle(self):
-        recent = timezone.now() - timedelta(minutes=10)
-        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=recent)
-        self._seed({secret_key.secure_value: int(timezone.now().timestamp())})
-
-        updated = drain_gateway_credential_last_used()
-
-        self.assertEqual(updated, 0)
-        secret_key.refresh_from_db()
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), int(recent.timestamp()))
-
-    def test_drain_never_regresses_last_used(self):
+    @parameterized.expand(
+        [
+            # name, last_used offset from now, gateway-mark offset from now, expect update
+            ("respects_hour_throttle", timedelta(minutes=-10), timedelta(0), False),
+            ("never_regresses", timedelta(0), timedelta(hours=-2), False),
+            ("stamps_when_older_than_throttle", timedelta(hours=-3), timedelta(0), True),
+        ]
+    )
+    def test_drain_throttle_and_regression(self, _name, initial_offset, gateway_offset, expect_update):
         now = timezone.now()
         secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=now)
-        self._seed({secret_key.secure_value: int((now - timedelta(hours=2)).timestamp())})
+        initial = now + initial_offset
+        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=initial)
+        self._seed({self._hash(secret_key): int((now + gateway_offset).timestamp())})
 
         updated = drain_gateway_credential_last_used()
 
-        self.assertEqual(updated, 0)
-        secret_key.refresh_from_db()
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), int(now.timestamp()))
-
-    def test_drain_stamps_when_older_than_throttle(self):
-        stale = timezone.now() - timedelta(hours=3)
-        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=stale)
-        used_ts = int(timezone.now().timestamp())
-        self._seed({secret_key.secure_value: used_ts})
-
-        updated = drain_gateway_credential_last_used()
-
-        self.assertEqual(updated, 1)
-        secret_key.refresh_from_db()
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
+        if expect_update:
+            self.assertEqual(updated, 1)
+            self.assertEqual(self._stored_ts(secret_key), int((now + gateway_offset).timestamp()))
+        else:
+            self.assertEqual(updated, 0)
+            self.assertEqual(self._stored_ts(secret_key), int(initial.timestamp()))
 
     def test_drain_ignores_unknown_hash(self):
         self._seed({f"{SHA256_HASH_PREFIX}deadbeef": int(timezone.now().timestamp())})
@@ -849,18 +848,6 @@ class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
     def test_drain_empty_hash_is_noop(self):
         self.assertEqual(drain_gateway_credential_last_used(), 0)
 
-    def test_drain_coalesces_keeping_latest_per_key(self):
-        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        latest = int(timezone.now().timestamp())
-        # A single field per key reaches the drain (the gateway coalesces), but
-        # assert the decode keeps the max even if an older value were present.
-        self._seed({secret_key.secure_value: latest})
-        self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, secret_key.secure_value, latest)
-
-        self.assertEqual(drain_gateway_credential_last_used(), 1)
-        secret_key.refresh_from_db()
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), latest)
-
     @override_settings(AI_GATEWAY_REDIS_URL=None)
     def test_drain_noop_without_redis_url(self):
         self.assertEqual(drain_gateway_credential_last_used(), 0)
@@ -868,9 +855,8 @@ class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
     def test_task_runs_drain(self):
         secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
         used_ts = int(timezone.now().timestamp())
-        self._seed({secret_key.secure_value: used_ts})
+        self._seed({self._hash(secret_key): used_ts})
 
         drain_gateway_credential_last_used_task()
 
-        secret_key.refresh_from_db()
-        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
+        self.assertEqual(self._stored_ts(secret_key), used_ts)

@@ -405,17 +405,15 @@ _LAST_USED_THROTTLE = timedelta(hours=1)
 
 
 def _decode_last_used_marks(raw: dict[Any, Any]) -> dict[str, int]:
-    """Fold an HGETALL result (bytes field -> bytes ts) into {hash: max_unix_ts}."""
+    """Fold an HGETALL result (bytes field -> bytes ts) into {hash: unix_ts}."""
     marks: dict[str, int] = {}
     for field, value in raw.items():
         hash_key = field.decode() if isinstance(field, bytes | bytearray) else str(field)
         raw_ts = value.decode() if isinstance(value, bytes | bytearray) else value
         try:
-            ts = int(raw_ts)
+            marks[hash_key] = int(raw_ts)
         except (TypeError, ValueError):
             continue
-        if ts > marks.get(hash_key, 0):
-            marks[hash_key] = ts
     return marks
 
 
