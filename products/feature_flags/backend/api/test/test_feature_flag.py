@@ -11290,7 +11290,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         data = response.json()
         assert len(data["deleted"]) == 0
         assert len(data["errors"]) == 1
-        assert "experiment" in data["errors"][0]["reason"].lower()
+        # The error names the blocking experiment, matching the single-delete path's formatting.
+        assert (
+            'Cannot delete a feature flag linked to running experiment(s): "Test Experiment"'
+            in (data["errors"][0]["reason"])
+        )
 
         # Verify flag is NOT deleted
         flag.refresh_from_db()

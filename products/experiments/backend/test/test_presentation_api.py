@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 import unittest
@@ -14,6 +15,7 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -33,12 +35,20 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet, LIST_DEFERRED_FIELDS
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+
+def _make(cls, **attrs):
+    """Build an auth instance without running __init__, setting only the attributes the test needs."""
+    instance = cls.__new__(cls)
+    for key, value in attrs.items():
+        setattr(instance, key, value)
+    return instance
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -4562,6 +4572,61 @@ class TestExperimentCRUD(APILicensedTest):
         flag = FeatureFlag.objects.get(id=flag_allow)
         self.assertFalse(flag.active)
         self.assertTrue(flag.archived)
+
+    @parameterized.expand(
+        [
+            # Personal API key: scopes come off the key.
+            (
+                "pak_denied",
+                _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["experiment:write"])),
+                False,
+            ),
+            (
+                "pak_allowed",
+                _make(
+                    PersonalAPIKeyAuthentication,
+                    personal_api_key=SimpleNamespace(scopes=["experiment:write", "feature_flag:write"]),
+                ),
+                True,
+            ),
+            ("pak_wildcard", _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["*"])), True),
+            # OAuth: scope is a space-separated string that must be split.
+            (
+                "oauth_denied",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="experiment:write")),
+                False,
+            ),
+            (
+                "oauth_allowed",
+                _make(
+                    OAuthAccessTokenAuthentication,
+                    access_token=SimpleNamespace(scope="experiment:write feature_flag:write"),
+                ),
+                True,
+            ),
+            ("oauth_wildcard", _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="*")), True),
+            (
+                "oauth_empty_scope",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope=None)),
+                False,
+            ),
+            # ID-JAG: scopes are already a list.
+            ("id_jag_denied", _make(IDJagAccessTokenAuthentication, scopes=["experiment:write"]), False),
+            (
+                "id_jag_allowed",
+                _make(IDJagAccessTokenAuthentication, scopes=["experiment:write", "feature_flag:write"]),
+                True,
+            ),
+            ("id_jag_wildcard", _make(IDJagAccessTokenAuthentication, scopes=["*"]), True),
+            # Session and other non-token auth aren't scope-limited.
+            ("session_auth", None, True),
+            ("other_auth", object(), True),
+        ]
+    )
+    def test_token_can_write_feature_flag_per_token_type(self, _name, authenticator, expected):
+        request = cast(Any, SimpleNamespace(successful_authenticator=authenticator))
+        viewset = EnterpriseExperimentsViewSet()
+        self.assertEqual(viewset._token_can_write_feature_flag(request), expected)
 
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(

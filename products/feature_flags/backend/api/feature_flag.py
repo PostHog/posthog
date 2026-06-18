@@ -3317,12 +3317,12 @@ class FeatureFlagViewSet(
             # currently running experiment blocks deletion.
             running_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted and exp.is_running]
             if running_experiments:
-                experiment_ids = [exp.id for exp in running_experiments]
+                experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
                 errors.append(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {', '.join(map(str, experiment_ids))}",
+                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {experiment_names}",
                     }
                 )
                 continue
