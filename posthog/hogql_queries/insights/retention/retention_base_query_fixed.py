@@ -92,12 +92,35 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 alias="start_event_timestamps",
                 expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
             ),
-            ast.Alias(
-                alias="return_event_timestamps",
-                expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
-            ),
-            self._date_range_alias(),
         ]
+
+        # Property aggregation ignores minimum_occurrences (matching the legacy path), so the threshold filter only
+        # applies to the events-only / data-warehouse return shapes. When it applies, the per-actor dupes the return
+        # subquery emitted are flattened here, counted per interval, and intervals below the threshold are dropped.
+        apply_minimum_occurrences = self.minimum_occurrences > 1 and not self.has_property_aggregation
+
+        if apply_minimum_occurrences:
+            select_fields.append(self._date_range_alias())
+            select_fields.extend(
+                self._get_minimum_occurrences_aliases(
+                    minimum_occurrences=self.minimum_occurrences,
+                    with_dupes_expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                )
+            )
+            select_fields.append(
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=self._minimum_occurrences_return_timestamps_expr(self.minimum_occurrences),
+                )
+            )
+        else:
+            select_fields.append(
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                )
+            )
+            select_fields.append(self._date_range_alias())
 
         if self.has_property_aggregation:
             select_fields.extend(
@@ -246,7 +269,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 start_event_timestamps_expr = timestamps_expr
                 return_event_timestamps_expr = ast.Array(exprs=[])
             else:
-                timestamps_expr = self._get_return_event_timestamps_expr(
+                timestamps_expr = self._get_dwh_return_timestamps_expr(
                     minimum_occurrences=self.minimum_occurrences,
                     start_of_interval_sql=start_of_interval_sql,
                     return_entity_expr=entity_expr,
@@ -380,8 +403,20 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
             minimum_occurrences=self.minimum_occurrences,
-            start_of_interval_sql=start_of_interval_sql,
-            return_entity_expr=self.return_entity_expr,
+            with_dupes_expr=parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_timestamp},
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_timestamp": start_of_interval_sql,
+                    "returning_entity_expr": self.return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(),
+                },
+            ),
         )
 
         if self.has_property_aggregation:
@@ -543,33 +578,22 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return inner_query
 
-    def _get_minimum_occurrences_aliases(
-        self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
-    ) -> list[ast.Alias]:
+    def _get_minimum_occurrences_aliases(self, minimum_occurrences: int, with_dupes_expr: ast.Expr) -> list[ast.Alias]:
         """
         Only include the following expressions when minimum occurrences value is set and greater than one. The query
         with occurrences uses slightly more RAM, what can make some existing queries go over the max memory setting we
         have and having them stop working.
+
+        ``with_dupes_expr`` is the per-actor multiset of return-event interval starts (duplicates retained). The legacy
+        single-query path builds it directly from the events table; the UNION ALL variant flattens the dupes already
+        emitted by its return subquery. The downstream counts-per-interval logic is identical for both.
         """
         if minimum_occurrences == 1:
             return []
 
         return_event_timestamps_with_dupes = ast.Alias(
             alias="return_event_timestamps_with_dupes",
-            expr=parse_expr(
-                """
-                groupArrayIf(
-                    {start_of_interval_timestamp},
-                    {returning_entity_expr} and
-                    {filter_timestamp}
-                )
-                """,
-                {
-                    "start_of_interval_timestamp": start_of_interval_sql,
-                    "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter(),
-                },
-            ),
+            expr=with_dupes_expr,
         )
         return_event_counts_by_interval = ast.Alias(
             alias="return_event_counts_by_interval",
@@ -589,6 +613,55 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             ),
         )
         return [return_event_timestamps_with_dupes, return_event_counts_by_interval]
+
+    def _minimum_occurrences_return_timestamps_expr(self, minimum_occurrences: int) -> ast.Expr:
+        # Keep only the intervals where the actor had at least `minimum_occurrences` return events. Relies on the
+        # date_range and return_event_counts_by_interval aliases (from _get_minimum_occurrences_aliases) being in
+        # scope in the same SELECT.
+        return parse_expr(
+            """
+            arrayFilter(
+                (date, counts) -> counts >= {minimum_occurrences},
+                date_range,
+                return_event_counts_by_interval
+            )
+            """,
+            {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
+        )
+
+    def _get_dwh_return_timestamps_expr(
+        self,
+        minimum_occurrences: int,
+        start_of_interval_sql: ast.Expr,
+        return_entity_expr: ast.Expr,
+        timestamp_field: ast.Expr | None,
+    ) -> ast.Expr:
+        # The variant's return subquery is already grouped per actor. With a threshold of 1 we emit the deduped set of
+        # return intervals. With a higher threshold we keep duplicates so the outer aggregation can count per-interval
+        # occurrences and drop intervals below the threshold — the per-actor source for the legacy
+        # return_event_timestamps_with_dupes alias.
+        if minimum_occurrences > 1:
+            return parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_sql},
+                    {return_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "return_entity_expr": return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                },
+            )
+
+        return self._get_return_event_timestamps_expr(
+            minimum_occurrences=1,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
+            timestamp_field=timestamp_field,
+        )
 
     def _date_range_alias(self) -> ast.Alias:
         return ast.Alias(
@@ -825,18 +898,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             )
 
         if minimum_occurrences > 1:
-            # return_event_counts_by_interval is only calculated when minimum_occurrences > 1.
-            # See _get_minimum_occurrences_aliases method.
-            return parse_expr(
-                """
-                arrayFilter(
-                (date, counts) -> counts >= {minimum_occurrences},
-                date_range,
-                return_event_counts_by_interval,
-                )
-                """,
-                {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
-            )
+            return self._minimum_occurrences_return_timestamps_expr(minimum_occurrences)
 
         return parse_expr(
             """

@@ -3,7 +3,8 @@ import { type ReactElement, type ReactNode, useMemo } from 'react'
 import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
 import { Badge, Button } from '@posthog/quill'
 
-import { type ActorRow, type InsightActorsData, toActorRows } from './insightActorsTransforms'
+import { type ActorRow, type InsightActorsData, isRetentionActorsData, toActorRows } from './insightActorsTransforms'
+import { RetentionActorsView } from './RetentionActorsView'
 
 export type { InsightActorsData }
 
@@ -13,6 +14,14 @@ interface InsightActorsViewProps {
 }
 
 export function InsightActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
+    // Retention actors have a per-interval grid shape (no event_count) — render the cohort table instead.
+    if (isRetentionActorsData(data)) {
+        return <RetentionActorsView data={data} />
+    }
+    return <EventCountActorsView data={data} openLink={openLink} />
+}
+
+function EventCountActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
     const rows = useMemo(() => toActorRows(data), [data])
     const hasRecordings = data.results.columns.includes('recordings')
 

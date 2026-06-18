@@ -21,7 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name, resolve_table_and_folder_names
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -178,12 +178,12 @@ async def validate_schema_and_update_table(
         _schema_name: str = external_data_schema.name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        # `s3_folder_name` pins the Delta path to the original unqualified name for legacy
-        # warehouse rows that got renamed to qualified form during multi-schema migration.
-        storage_schema_name = external_data_schema.resolved_s3_folder_name or _schema_name
-
-        table_name = build_table_name(job.pipeline, storage_schema_name)
-        normalized_schema_name = NamingConvention.normalize_identifier(storage_schema_name)
+        # The HogQL table name derives from the raw schema name (only lower-cased); the S3 folder is
+        # the snake_cased `s3_folder_name`. They differ on purpose — see `resolve_table_and_folder_names`.
+        table_storage_name, normalized_schema_name = resolve_table_and_folder_names(
+            _schema_name, external_data_schema.resolved_s3_folder_name
+        )
+        table_name = build_table_name(job.pipeline, table_storage_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
         # Check

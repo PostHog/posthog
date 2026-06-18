@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import {
     LemonButton,
@@ -49,6 +49,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         repoOptions,
         hasActiveFilters,
         activeCard,
+        sourceId,
     } = useValues(engineeringAnalyticsLogic)
     const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
         useActions(engineeringAnalyticsLogic)
@@ -226,7 +227,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 rowKey={prKeyOf}
                 loading={pullRequestsLoading}
                 onRow={(row) => {
-                    const detailUrl = urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number)
+                    // Carry the selected source so the PR's detail page reads the same one.
+                    const detailUrl = combineUrl(
+                        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
+                        sourceId ? { source: sourceId } : {}
+                    ).url
                     return {
                         // Inner links (PR title → GitHub) keep their own behavior.
                         onClick: (e: React.MouseEvent) => {

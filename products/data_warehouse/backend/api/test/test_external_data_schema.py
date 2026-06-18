@@ -2217,3 +2217,126 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema = ExternalDataSchema.objects.create(name="Customers", team=other_team, source=source)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 404
+
+
+class TestExternalDataSchemaRowFilters(APIBaseTest):
+    """PATCH-level validation for the row_filters field. A plain row_filters update needs no
+    source DB connection or temporal schedule — it only reads the schema's discovered columns."""
+
+    SCHEMA_METADATA = {
+        "columns": [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "created_at", "data_type": "timestamp", "is_nullable": True},
+            {"name": "name", "data_type": "varchar(255)", "is_nullable": True},
+            {"name": "geom", "data_type": "geometry", "is_nullable": True},
+        ]
+    }
+
+    def _create(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        # schema_metadata is a read-only property backed by sync_type_config.
+        return ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+
+    def _patch(self, schema: ExternalDataSchema, row_filters: Any):
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"row_filters": row_filters},
+        )
+
+    def test_valid_row_filters_persist(self):
+        schema = self._create()
+        filters = [
+            {"column": "id", "operator": ">", "value": 10},
+            {"column": "created_at", "operator": ">=", "value": "2026-01-01"},
+        ]
+        response = self._patch(schema, filters)
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters == filters
+
+    def test_null_clears_row_filters(self):
+        schema = self._create()
+        schema.row_filters = [{"column": "id", "operator": ">", "value": 1}]
+        schema.save(update_fields=["row_filters"])
+        response = self._patch(schema, None)
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters is None
+
+    def test_row_filters_returned_in_serializer(self):
+        schema = self._create()
+        filters = [{"column": "id", "operator": "<=", "value": 5}]
+        schema.row_filters = filters
+        schema.save(update_fields=["row_filters"])
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 200
+        assert response.json()["row_filters"] == filters
+
+    def test_unknown_column_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "does_not_exist", "operator": ">", "value": 1}])
+        assert response.status_code == 400
+        assert "Unknown column" in str(response.json())
+
+    def test_disallowed_operator_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "id", "operator": "LIKE", "value": 1}])
+        assert response.status_code == 400
+
+    def test_type_mismatch_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": "not-an-int"}])
+        assert response.status_code == 400
+
+    def test_bad_date_value_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "created_at", "operator": ">", "value": "nope"}])
+        assert response.status_code == 400
+
+    def test_unsupported_column_type_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
+        assert response.status_code == 400
+
+    def test_row_filters_rejected_for_direct_postgres_source(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for direct Postgres" in str(response.json())
+
+    def test_row_filters_rejected_for_cdc_schema(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for CDC" in str(response.json())

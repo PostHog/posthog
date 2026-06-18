@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
@@ -109,6 +110,64 @@ class TestBuildQuery:
         assert "WHERE [created_at]" in query
         assert "%(incremental_value)s" in query
         assert args == {"incremental_value": "2025-01-01"}
+
+    def test_row_filters_full_refresh(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE [age] > %(row_filter_0)s" in query
+        assert args == {"row_filter_0": 21}
+
+    def test_in_filter_expands_to_named_placeholders(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE [age] IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert args == {"row_filter_0_0": 21, "row_filter_0_1": 30}
+
+    def test_row_filters_compose_with_incremental(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE [created_at] > %(incremental_value)s AND [age] > %(row_filter_0)s" in query
+        assert args == {"incremental_value": "2025-01-01", "row_filter_0": 21}
+
+    def test_row_filter_value_never_interpolated(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in query
+        assert args == {"row_filter_0": "x'; DROP TABLE y; --"}
 
     def test_add_limit_uses_top_100(self):
         query, _ = _build_query(
