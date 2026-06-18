@@ -2,8 +2,9 @@
 
 Working tracker for separating ingestion code from the rest of the Node.js service.
 This file is the durable source of truth for the refactor loop: each iteration reads the
-checklist, does the next unchecked item, runs the gate, commits, checks the item off, and
-appends to the status log. Delete this file before the final merge to master.
+checklist, does **exactly one** unchecked item (one part per iteration — never batch), runs the
+gate (tests must pass), commits, checks the item off, and appends to the status log. Delete this
+file before the final merge to master.
 
 ## Goal
 
@@ -112,7 +113,7 @@ The baseline only ever shrinks. An empty baseline means the intra-ingestion DAG 
 1. `pnpm --filter=@posthog/nodejs check:boundaries` — no new boundary violations.
 2. `pnpm --filter=@posthog/nodejs typecheck` (or `tsc --noEmit`) — compiles.
 3. `pnpm --filter=@posthog/nodejs lint` + `format:check`.
-4. Affected unit tests (the touched lane/shared area).
+4. Affected unit tests (the touched lane/shared area) **pass** — no failures, no tests removed.
 5. Diff is moves-only except for the allowlisted change reasons above.
 
 ### Running the full test suite
@@ -141,6 +142,33 @@ locally / on a devbox.
 
 Guardrails: work on `claude/affectionate-ritchie-6jh88d`; commit locally per step; do not push
 on every iteration.
+
+### Loop discipline — one part per iteration
+
+The loop does **exactly one** checklist item per iteration, then stops; the next iteration picks up
+the next item. One part at a time keeps each step small, independently gated, and easy to review or
+revert. Run it self-paced with `/loop` from `nodejs/`, using this prompt:
+
+```text
+Read nodejs/INGESTION_SEPARATION.md. Pick the FIRST unchecked "[ ]" checklist item (topmost
+phase first). If none remain, stop and report "refactor complete".
+
+Do ONLY that one item — never batch items or start the next one.
+
+Run the loop gate; ALL must pass before committing:
+  - pnpm --filter=@posthog/nodejs check:boundaries   (no new boundary violations)
+  - tsc --noEmit                                      (no new errors)
+  - pnpm --filter=@posthog/nodejs lint + format:check
+  - the affected unit tests                           (no failures, no tests removed)
+If the item is a phase "Exit gate", run `pnpm test:full` instead of just the affected tests
+(or record it as the CI gate when no Docker daemon is available).
+
+If the gate fails, fix forward within this SAME item — do not move on.
+
+Commit locally with a conventional-commit message. Do NOT push unless explicitly told to.
+Check the item off ("[x]"), append a one-paragraph entry to the status log, then STOP.
+The next /loop iteration handles the next item.
+```
 
 ## Phased checklist (progress tracker)
 
