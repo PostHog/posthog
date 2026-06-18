@@ -170,6 +170,16 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
 
+    def test_nonexistent_project_id_returns_404_not_500(self):
+        # A `project_id` that doesn't resolve to a Team must surface a clean 404,
+        # not let Team.DoesNotExist escape as a 500 (see permissions.has_permission).
+        response = self.client.get("/api/projects/9999999/foos/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_nonexistent_environment_id_returns_404_not_500(self):
+        response = self.client.get("/api/environments/9999999/foos/")
+        self.assertEqual(response.status_code, 404)
+
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:
 

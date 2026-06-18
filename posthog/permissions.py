@@ -804,7 +804,7 @@ class AccessControlPermission(ScopeBasePermission):
 
         try:
             team = view.team
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, Team.DoesNotExist):
             # TODO: Change this to a super specific exception...
             # TODO: Does this means its okay because there is no team level thing?
             return True
