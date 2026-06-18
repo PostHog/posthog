@@ -149,7 +149,7 @@ describe('mcpToolRegistry data-tool widgets', () => {
                 <FallbackMcpToolRenderer message={makeMessage({ title: 'Tool call' })} isLastInGroup />
             )
             // No sentinel icon was passed, so the header's icon slot holds the hard-coded wrench svg.
-            const iconSlot = container.querySelector('.text-base.flex.items-center')
+            const iconSlot = container.querySelector('.size-5')
             expect(iconSlot).not.toBeNull()
             expect(iconSlot?.querySelector('svg')).toBeInTheDocument()
         })

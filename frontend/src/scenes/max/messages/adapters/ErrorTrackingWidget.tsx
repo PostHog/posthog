@@ -1,3 +1,4 @@
+import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { ErrorTrackingFiltersWidget } from '../UIPayloadAnswer'
@@ -17,5 +18,9 @@ export function ErrorTrackingWidget(props: McpToolRendererProps): JSX.Element {
         return <FallbackMcpToolRenderer {...props} />
     }
 
-    return <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} />
+    return (
+        <SandboxToolActivity {...props}>
+            <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} embedded />
+        </SandboxToolActivity>
+    )
 }

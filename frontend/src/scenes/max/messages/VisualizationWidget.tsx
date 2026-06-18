@@ -40,6 +40,8 @@ export interface VisualizationWidgetProps {
     onCollapsedChange?: (isCollapsed: boolean) => void
     /** Extra buttons rendered in the actions row before the CTA. */
     extraActions?: React.ReactNode
+    /** Render only the widget body, for use inside an existing activity/message shell. */
+    embedded?: boolean
 }
 
 /** Resolves the "Open as insight" CTA target for a visualization artifact. */
@@ -68,6 +70,7 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     isCollapsed: controlledCollapsed,
     onCollapsedChange,
     extraActions,
+    embedded = false,
 }: VisualizationWidgetProps): JSX.Element {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [internalCollapsed, setInternalCollapsed] = useState(false)
@@ -85,24 +88,13 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     // Get the raw query for height calculation
     const rawQuery = content.query
 
-    if (!query) {
-        return (
-            <MessageTemplate
-                type="ai"
-                className="w-full"
-                wrapperClassName="w-full"
-                boxClassName="flex flex-col w-full border-danger"
-            >
-                <div className="flex items-center gap-1.5">
-                    <IconWarning className="text-xl text-danger" />
-                    <span>Failed to load visualization</span>
-                </div>
-            </MessageTemplate>
-        )
-    }
-
-    return (
-        <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
+    const renderedContent = !query ? (
+        <div className="flex items-center gap-1.5">
+            <IconWarning className="text-xl text-danger" />
+            <span>Failed to load visualization</span>
+        </div>
+    ) : (
+        <div className="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
                     <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
@@ -159,6 +151,29 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
                     )}
                 </>
             )}
+        </div>
+    )
+
+    if (embedded) {
+        return renderedContent
+    }
+
+    if (!query) {
+        return (
+            <MessageTemplate
+                type="ai"
+                className="w-full"
+                wrapperClassName="w-full"
+                boxClassName="flex flex-col w-full border-danger"
+            >
+                {renderedContent}
+            </MessageTemplate>
+        )
+    }
+
+    return (
+        <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
+            {renderedContent}
         </MessageTemplate>
     )
 })
