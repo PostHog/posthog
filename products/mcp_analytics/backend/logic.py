@@ -100,9 +100,9 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    -- coalesce: $session_id is '' (not NULL) for sessionless events, so a bare
-    -- `!= ''` correctly drops them.
-    AND coalesce($session_id, '') != ''
+    -- $session_id is a materialised String column — '' (not NULL) for sessionless
+    -- events — so a bare `!= ''` drops them without a coalesce.
+    AND $session_id != ''
 GROUP BY session_id
 __HAVING__
 ORDER BY __ORDER__
