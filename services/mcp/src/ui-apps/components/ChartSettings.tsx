@@ -4,9 +4,6 @@ import { Button, Label, Switch } from '@posthog/quill'
 
 import { type ChartConfig, Y_UNIT_OPTIONS, type YUnit } from './chartSettingsConfig'
 
-// Hand-rolled popover (no portals): Quill's portalled popover mispositions inside the MCP iframe
-// (same reason as `charts/Select.tsx`). The click-away listener binds to the iframe's own document.
-
 interface ChartSettingsProps {
     family: 'line' | 'bar'
     config: ChartConfig
