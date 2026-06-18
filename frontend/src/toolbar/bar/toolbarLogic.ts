@@ -117,7 +117,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         syncWithHedgehog: true,
-        openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
@@ -607,13 +606,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     '*'
                 )
             }
-        },
-        openHedgehogOptions: () => {
-            values.hedgehogMode?.gameUI?.show({
-                screen: 'configuration',
-                messages: [],
-                actor: values.getHedgehogActor() ?? undefined,
-            })
         },
         togglePiiMasking: () => {
             const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null

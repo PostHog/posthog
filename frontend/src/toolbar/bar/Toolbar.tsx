@@ -36,6 +36,7 @@ import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { urls } from 'scenes/urls'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
@@ -59,6 +60,7 @@ import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { joinWithUiHost } from '~/toolbar/utils'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { ToolbarButton } from './ToolbarButton'
@@ -227,9 +229,8 @@ function MoreMenu(): JSX.Element {
         togglePiiMasking,
         setPiiMaskingColor,
         startGracefulExit,
-        openHedgehogOptions,
     } = useActions(toolbarLogic)
-    const { isAuthenticated } = useValues(toolbarConfigLogic)
+    const { isAuthenticated, uiHost } = useValues(toolbarConfigLogic)
     const { logout } = useActions(toolbarConfigLogic)
     const { isTakingScreenshot } = useValues(screenshotUploadLogic)
     const { takeScreenshot } = useActions(screenshotUploadLogic)
@@ -270,9 +271,19 @@ function MoreMenu(): JSX.Element {
                         hedgehogModeEnabled && hedgehogModeAvailable
                             ? {
                                   icon: <IconFlare />,
-                                  label: 'Hedgehog options',
+                                  label: 'Customize in settings',
+                                  // The toolbar only reads hedgehog config, so customization lives in the
+                                  // main app's settings page rather than an in-toolbar editor.
                                   onClick: () => {
-                                      openHedgehogOptions()
+                                      window
+                                          .open(
+                                              joinWithUiHost(
+                                                  uiHost,
+                                                  urls.settings('user-customization', 'hedgehog-mode')
+                                              ),
+                                              '_blank'
+                                          )
+                                          ?.focus()
                                   },
                               }
                             : undefined,
