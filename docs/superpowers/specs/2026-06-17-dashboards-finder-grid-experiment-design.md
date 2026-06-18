@@ -17,12 +17,9 @@ and lowers the friction of organizing them in the first place.
 
 ## Hypothesis and primary goal
 
-If we present dashboards as a navigable, folder-aware grid instead of a flat list,
-users will **find and open the dashboard they want faster**.
+Today only a single-digit percentage of dashboard users organize their dashboards into folders at all — the project tree is used overwhelmingly for product navigation, not organizing. The bet: if we surface a folder-aware grid/Finder **on the dashboards page itself**, more people will organize, and better-organized dashboards are easier to find and open.
 
-Primary goal: **find & open faster.**
-Organization (folder moves, folder creation) is the _mechanism_, not the primary outcome —
-we measure whether the mechanism actually translates into faster finding, not just whether the new affordance gets used.
+Primary goal: **get more people to organize their dashboards** — the leading behavior the UI directly changes, on the path to the ultimate value of finding and opening faster. So the primary metric is folder-organization adoption; find-and-open speed is a secondary value-check, and guardrails ensure organizing never comes at the cost of finding.
 
 ## Key prior-art finding (reframes scope)
 
@@ -61,7 +58,7 @@ The format is **fixed per arm for the duration of the test** — no user-facing 
 - C → B isolates **drill-in navigation + clipboard** (the expensive part of the Finder).
 
 The most actionable question: _do we need to build the full Finder, or does a card grid with simple drag-to-folder already capture the win?_
-Per the power analysis below, A-vs-B and A-vs-C are the **gating** comparisons; C-vs-B is a **directional** read (unbiased but wide), combined with build-cost and dogfood feedback rather than used as a hard statistical gate.
+All comparisons are clean (group-level → no spillover). With folder-organization adoption as the well-powered primary, A-vs-B, A-vs-C, **and** C-vs-B can all be real reads — C-vs-B answers "is the full Finder worth it over a simple grid?" for organizing, combined with build-cost and dogfood feedback.
 
 ### Randomization unit
 
@@ -71,20 +68,13 @@ those folders exist for everyone on that project. At group level every member of
 so there is **no within-project spillover anywhere** — every comparison stays unbiased. (Person-level would buy more
 units but would bias exactly the C-vs-B comparison via shared folders; unbiased-but-wide beats biased-but-narrow.)
 
-### Power (the real constraint)
+### Power
 
-Empirically (pre-launch sizing on the existing pageview stream): the number of projects using the list is **not** the
-constraint — there are tens of thousands of qualifying projects. The binding constraint is **between-project variance**:
-a session-level time-to-open proxy is heavily right-skewed (idle tabs / distractions), so the coefficient of variation
-of a naive per-project _mean_ is large enough that a naive-mean primary is underpowered at a single month's volume.
+The primary (folder-organization adoption) is a **project-level proportion at a low single-digit baseline** — well-behaved variance, highly sensitive, group-level-native. Pre-launch sizing shows tens of thousands of qualifying projects, so detecting a meaningful lift (a low-single-digit baseline rising by roughly half) needs only ~1–2k projects per arm — comfortably powered even three ways. Choosing adoption as the primary is what sidesteps the power problem described next; the run can be sized to a realistic adoption lift rather than dragged out for a noisy duration.
 
-Consequences, baked into the design:
+The **secondary** time-to-open metric is the variance-cursed one: a session-level proxy is heavily right-skewed (idle tabs / distractions), so a naive per-project mean is underpowered at a single month's volume. We measure it robustly (per-project median, winsorized, idle-capped, optionally CUPED) and read it as a **directional value-check, not a gate** — so it can never block a decision on power grounds.
 
-- **Variance-robust primary metric** — per-project _median_ (or winsorized / log-scaled) time-to-open with an idle-tab cap, not a raw mean. This is the single biggest power lever.
-- **CUPED variance reduction** — use each project's pre-experiment time-to-open as a covariate (~30–50% variance cut).
-- **Longer run** — target ~8–12 weeks so per-project session counts and qualifying-project counts climb well past a single-month snapshot.
-- Power the experiment to detect a **~15% relative** change on the gating comparisons (A-vs-B, A-vs-C); treat C-vs-B as directional.
-- **Equal-weight projects** as the unit of analysis (each project = one data point), the standard choice for group-level randomization; a user-weighted view is a secondary lens only, never the gate.
+- **Equal-weight projects** as the unit of analysis (each project = one data point), the standard for group-level randomization; a user-weighted view is a secondary lens only, never the gate.
 
 ### Population and rollout (staged)
 
@@ -95,28 +85,32 @@ Consequences, baked into the design:
 
 ### Metrics
 
-Primary — **time to open (robust)**:
-per-project median (winsorized, idle-tab-capped, CUPED-adjusted) elapsed time from landing on the dashboards list to opening a dashboard in the same session. Lower is better. Conversion rate alone is a poor primary (it ceilings — almost everyone who lands eventually opens something); the _effort/speed_ is the signal. The metric depends on new instrumentation, so it is **validated during dogfood** before being trusted.
+Primary — **folder-organization adoption**:
+the share of exposed projects that perform at least one organizing action — creating a real folder (not the auto-created `Unfiled`) or moving a dashboard into a non-`Unfiled` folder — within the experiment window. A project-level proportion at a low single-digit baseline (today only a single-digit percentage of dashboard users organize at all; the project tree is used overwhelmingly for product navigation, not organizing). This is the leading behavior the intervention is designed to move; as a low-baseline proportion it is highly sensitive and group-level-native. Ship/no-ship is gated on this metric **plus** the guardrails below. It depends on new instrumentation, so it is **validated during dogfood** before being trusted.
 
-Quality guardrail — **first-open success (anti-pogo-stick)**:
-a find only "succeeds" if the first dashboard opened is the one the user stays on — i.e. they did **not** bounce back to the list and open a _different_ dashboard within the session window. This guards against "found the WRONG dashboard faster" reading as a win. Derivable from existing pageview sequences (no new event) and therefore **backtestable on today's data** — a deliberate anchor against the un-backtestable primary. Pogo-stick rate must not rise in C/B vs A.
+Why adoption and not "find faster" as primary: time-to-open is the value we ultimately want, but (a) it is variance-cursed at the project level and hard to power, and (b) adoption is the behavior the UI directly changes. So time-to-open becomes a secondary value-check, and the guardrails below are what stop a hollow adoption win (the affordance being used without helping) from shipping.
 
-Guardrail — **find conversion (non-bounce)**:
-share of list visits where the user opens at least one dashboard in-session. Must not drop — guards against "faster because they gave up." First-class for the cold-start segment, since B is folder-first by default (below).
+Hard guardrails — a ship requires **no regression vs control** on every one:
 
-Secondary, mechanism — **organization adoption**:
-folder moves and folder creations per user, and the share of users who perform any organizing action. Expected to rise C < B; confirms the mechanism is exercised.
+- **First-open success (anti-pogo-stick)**: a find only "succeeds" if the first dashboard opened is the one the user stays on — they did **not** bounce back and open a _different_ dashboard within the session window. Backtestable from existing pageview sequences (no new event). Catches "organized more but finding got worse" — load-bearing because B is folder-first by default.
+- **Find conversion (non-bounce)**: share of list visits that open at least one dashboard in-session. First-class for the cold-start segment.
+- **Dashboard engagement**: dashboards opened per active user per week + return visits, from existing events. Folder-first B must not depress overall engagement.
 
-Secondary, north-star — **dashboard engagement**:
-dashboards opened per active user per week, and return visits to the list. Reuses existing events.
+Secondary, value check (not a gate) — **time to open**:
+per-project median (winsorized, idle-tab-capped) elapsed time from landing on the list to opening a dashboard. Tells us whether an adoption lift actually translates into faster finding. Read directionally, never as a gate — so the variance problem can't block a decision.
+
+Secondary — **organizing depth**:
+folder moves and folder creations per organizing project (how _much_ they organize, beyond the binary). Expected to rise C ≤ B.
 
 ### Reading the result (ship/no-ship)
 
-- B beats A on the robust primary (group-level significance) without regressing first-open success or find-conversion → ship B.
-- C is statistically indistinguishable from B on the primary (directional) → ship C (same win, far cheaper) — corroborated by build-cost and dogfood feedback.
-- C beats A but B does not improve on C → the cards carry the value; ship C, drop the Finder.
-- **Cold-start contingency**: if B regresses find-speed / find-conversion specifically in the cold-start (un-organized) segment — an expected risk given folder-first-by-default — that is a pre-registered signal to **ship C instead of B**, or to gate B behind an auto-organize onboarding before it is worth shipping.
-- Nothing beats A → keep the list; bank the learning that presentation was not the lever.
+Primary = folder-organization adoption. Every rule also requires **no regression on the guardrails** (first-open success, find-conversion, engagement).
+
+- B lifts adoption over A (group-level significance) and holds the guardrails → ship B.
+- C and B both lift adoption and are statistically indistinguishable → ship C (same win, far cheaper). Because adoption is well-powered, this C-vs-B comparison can now be a real read, not just directional.
+- C lifts adoption but B does not improve on C → the cards/grid carry it; ship C, drop the Finder.
+- **Cold-start contingency**: if B lifts adoption but regresses find-conversion / first-open success in the cold-start (un-organized) segment — an expected risk given folder-first-by-default — that is a pre-registered signal to **ship C instead of B**, or to gate B behind an auto-organize onboarding.
+- Nothing lifts adoption over A → keep the list; bank the learning that surfacing organizing on the page wasn't enough.
 
 ## UX design
 
@@ -195,13 +189,13 @@ Exposure and attribution:
 
 | Risk                                                                                     | Mitigation                                                                                                                                                            |
 | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Between-project variance makes the naive metric underpowered                             | Robust primary (median/winsorized + idle cap) + CUPED + ~8–12 week run; power for ~15%                                                                                |
-| Primary metric is novel and un-backtestable                                              | Validate in dogfood; pair with the backtestable first-open-success guardrail as an anchor                                                                             |
+| Between-project variance cursed the old (time-to-open) primary                           | Primary is now a low-baseline adoption proportion (well-powered); time-to-open is a robust secondary, not a gate                                                      |
+| New events (adoption, opened-from-list) are novel                                        | Validate in dogfood; the first-open-success guardrail is backtestable from existing pageviews as an anchor                                                            |
 | Folder-first B slows finding for un-organized projects                                   | Deliberate, measured: find-conversion guardrail + cold-start segment first-class; pre-registered cold-start contingency (ship C / gate B on auto-organize onboarding) |
 | Fast-but-wrong find reads as a win                                                       | First-open-success (anti-pogo-stick) quality guardrail                                                                                                                |
 | copy=duplicate inflates dashboard count (and is in tension with the anti-clutter thesis) | Segment on pre-exposure dashboard count; track duplication rate                                                                                                       |
 | Post-hoc segment fishing                                                                 | Pre-register all segments before launch                                                                                                                               |
-| Big UI change ships on conviction                                                        | Ship only on a significant gating-comparison win without guardrail regression                                                                                         |
+| Big UI change ships on conviction                                                        | Ship only on a significant adoption lift with no guardrail regression                                                                                                 |
 
 ## Out of scope / future work
 
@@ -212,17 +206,17 @@ Exposure and attribution:
 
 ## Decisions log (incl. inverse-pass resolutions)
 
-1. Primary metric: find & open faster, measured as a **variance-robust** time-to-open (per-project median / winsorized + idle-tab cap, CUPED-adjusted), validated in dogfood. Conversion is a guardrail, not the primary.
+1. Primary metric: **folder-organization adoption** — share of exposed projects that create a real folder or move a dashboard into a non-`Unfiled` folder within the window; a low-baseline project-level proportion, well-powered. Hard guardrails: first-open success, find-conversion, engagement. Time-to-open (robust) and organizing depth are secondaries. (Revised 2026-06-17 after prod data showed only a single-digit percentage of dashboard users organize today.)
 2. Variant B: full Finder + clipboard, **folder-first by default**.
 3. Third arm C: flat visual grid (cards + folder grouping + drag-to-folder), a strict subset of B.
 4. Population: staged — internal dogfood, then enroll all; pre-registered segments (pre-exposure dashboard-count, organization-state, cold-start); equal-weight projects.
-5. Randomization: group-level on `project`. Gating comparisons A-vs-B and A-vs-C powered for ~15%; C-vs-B directional (unbiased, wide).
+5. Randomization: group-level on `project` (every comparison unbiased, no within-project spillover). With adoption as primary, A-vs-B, A-vs-C, and C-vs-B can all be real reads.
 6. Architecture: hybrid — `dashboardsFileSystemLogic` reads + delegate writes to `projectTreeDataLogic`.
 7. Icons: generic type icon for v1.
 8. Format fixed per arm; no user-facing toggle during the test; "not a fan?" feedback affordance instead.
 9. Quality guardrail: first-open success / anti-pogo-stick (backtestable, no new event).
 10. Clipboard copy/paste = **true duplicate** (cut/paste = move).
-11. Power package: robust metric + CUPED + ~8–12 week run; the binding constraint is between-project variance, not unit supply.
+11. Power: the adoption-proportion primary is well-powered at a low baseline (~1–2k projects/arm suffices); robust median + CUPED apply to the time-to-open **secondary**, which is read directionally, not as a gate.
 
 ## Open validation items (carry into the plan)
 
@@ -231,6 +225,6 @@ Exposure and attribution:
 
 ## Success criteria
 
-- A live group-level A/C/B experiment on `dashboards-list-view` with the robust primary, the first-open-success and find-conversion guardrails, and the secondary metrics instrumented.
+- A live group-level A/C/B experiment on `dashboards-list-view` with the folder-organization-adoption primary, the first-open-success / find-conversion / engagement guardrails, and the time-to-open + organizing-depth secondaries instrumented.
 - A clear ship/no-ship decision per the reading rules above, on pre-registered segments, with the cold-start contingency honored.
 - New presentation code isolated behind the variant switch; control path untouched; folders consistent between the new views and the sidebar tree.

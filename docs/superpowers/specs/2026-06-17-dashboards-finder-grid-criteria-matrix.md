@@ -357,8 +357,8 @@ REQUIREMENTS:
       - EC-22f [must] mid-session list reload → defined visit counting, no double-count [test]
 
   - id: REQ-23  priority: must-have
-    description: Robust primary metric — per-project median (winsorized, idle-capped, CUPED) time-to-open
-    happy_path: time-to-open aggregated per-project as winsorized/idle-capped median, CUPED-adjusted on pre-experiment covariate, equal-weighting projects.
+    description: SECONDARY value-check (not a gate) — robust time-to-open: per-project median (winsorized, idle-capped, CUPED)
+    happy_path: time-to-open aggregated per-project as a winsorized/idle-capped median (CUPED optional), equal-weighting projects; read directionally to confirm an adoption lift translates into faster finding — never a ship gate.
     proof_type: [test]
     edge_cases:
       - EC-23a [must] idle-tab outlier capped before aggregation [test]
@@ -419,8 +419,8 @@ REQUIREMENTS:
       - EC-27d [nice] folder-state change mid-run → segmented by pre-exposure org-state (pinned) [test]
 
   - id: REQ-28  priority: must-have
-    description: Secondary mechanism — organization adoption (folder moves+creations per user, share who organize)
-    happy_path: moves/creations per user + share organizing, per arm; expected C < B; from the new events.
+    description: PRIMARY metric — folder-organization adoption: share of exposed projects that create a real (non-Unfiled) folder or move a dashboard into one within the window
+    happy_path: project-level adoption proportion at a low single-digit baseline, per arm; ship/no-ship gated on this PLUS the guardrails; derived from the new move/folder events; expected C ≤ B. Organizing depth (moves/creations per organizing project) is the supporting secondary.
     proof_type: [test]
     edge_cases:
       - EC-28a [must] zero-organizing user counted in denominator [test]
@@ -439,14 +439,14 @@ REQUIREMENTS:
       - EC-29d [nice] duplicate dashboards inflating opens → no double-count of a single view [test]
 
   - id: REQ-30  priority: must-have
-    description: Ship/no-ship decision rules incl. cold-start contingency, gating comparisons
-    happy_path: follow documented rules; A-vs-B & A-vs-C gating (~15%); C-vs-B directional; guardrail veto + cold-start contingency honored.
+    description: Ship/no-ship decision rules — adoption primary + guardrail vetoes + cold-start contingency
+    happy_path: ship on an adoption lift over A with NO guardrail regression (first-open success, find-conversion, engagement); A-vs-B, A-vs-C, and C-vs-B are all real reads; cold-start contingency (ship C / gate B) honored.
     proof_type: [test, manual]
     edge_cases:
       - EC-30a [must] B beats A but pogo-stick regresses → NO-SHIP B (guardrail veto) [test]
       - EC-30b [must] B beats A but cold-start find-conversion drops → contingency (ship C / gate B) [test]
-      - EC-30c [must] C-vs-B NOT used as a hard gate (directional only) [test, manual]
-      - EC-30d [nice] significance below ~15% MDE → require powered threshold before ship [manual]
+      - EC-30c [must] C-vs-B is a real read but not the sole ship gate (adoption lift + guardrails gate) [test, manual]
+      - EC-30d [nice] adoption result below the pre-registered MDE → require the powered threshold before ship [manual]
       - EC-30e [must] both null → keep A, bank learning, no fishing [test, manual]
       - EC-30f [must] guardrail regression with no primary win → no-ship [test]
 
