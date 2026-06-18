@@ -21,6 +21,8 @@ import {
     folderContents,
     FolderContents,
     FolderTreeNode,
+    subtreeDashboards,
+    SubtreeDashboard,
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
@@ -136,6 +138,13 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 currentFolderContents.subfolders.map((subfolder) =>
                     compactFolderChain(subfolder, dashboards, entryByRef)
                 ),
+        ],
+        // Tree arm: every dashboard at or below the selected folder, recursively (root = all). The tree
+        // is a scope selector; the content pane shows everything in scope, so no drilling to leaf folders.
+        currentSubtreeDashboards: [
+            (s) => [s.dashboards, s.entryByRef, s.currentFolder],
+            (dashboards, entryByRef, currentFolder): SubtreeDashboard[] =>
+                subtreeDashboards(dashboards, entryByRef, currentFolder),
         ],
         breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
     }),

@@ -11,6 +11,7 @@ import {
     folderDroppableId,
     folderLabel,
     parseDashboardDragEnd,
+    subtreeDashboards,
 } from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
@@ -100,5 +101,19 @@ describe('dashboardsFileSystemUtils', () => {
             path: 'Marketing',
             label: 'Marketing',
         })
+    })
+
+    it('subtreeDashboards returns every dashboard at or below a folder (root = all), with its folder', () => {
+        const byRef = buildEntryByRef([
+            entry('1', 'Marketing/A'),
+            entry('2', 'Marketing/Q1/B'),
+            entry('3', 'Product/C'),
+        ])
+        const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C')]
+        expect(subtreeDashboards(dashboards, byRef, 'Marketing')).toEqual([
+            { dashboard: dash(1, 'A'), folder: 'Marketing' },
+            { dashboard: dash(2, 'B'), folder: 'Marketing/Q1' },
+        ])
+        expect(subtreeDashboards(dashboards, byRef, '').map((s) => s.dashboard.id)).toEqual([1, 2, 3])
     })
 })

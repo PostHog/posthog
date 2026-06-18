@@ -39,7 +39,7 @@ describe('DashboardsTree', () => {
         ;(useValues as jest.Mock).mockReturnValue({
             folderTree: [],
             currentFolder: '',
-            currentFolderContents: { subfolders: [], dashboards: [] },
+            currentSubtreeDashboards: [],
             clipboard: null,
             renamingDashboardId: null,
             collapsedFolders: {},
@@ -57,7 +57,7 @@ describe('DashboardsTree', () => {
                     children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
                 },
             ],
-            currentFolderContents: { subfolders: [], dashboards: [{ id: 1, name: 'Revenue' }] },
+            currentSubtreeDashboards: [{ dashboard: { id: 1, name: 'Revenue' }, folder: 'Marketing/Q1' }],
         })
         render(<DashboardsTree />)
         expect(screen.getByText('All dashboards')).toBeInTheDocument()

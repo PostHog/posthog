@@ -78,13 +78,13 @@ function TreeNode({ node, depth, currentFolder, collapsedFolders, onNavigate, on
 // folder) beside the selected folder's dashboards on the right. Drag a card onto any tree node to file it.
 // Shares the FileSystem folder structure with the explorer arm and sidebar.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentFolder, currentFolderContents, clipboard, renamingDashboardId, collapsedFolders } =
+    const { folderTree, currentFolder, currentSubtreeDashboards, clipboard, renamingDashboardId, collapsedFolders } =
         useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, moveDashboardToFolder, pasteIntoFolder } =
         useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
-    if (dashboardsLoading && folderTree.length === 0 && currentFolderContents.dashboards.length === 0) {
+    if (dashboardsLoading && folderTree.length === 0 && currentSubtreeDashboards.length === 0) {
         return <Spinner className="text-2xl" />
     }
 
@@ -125,17 +125,18 @@ export function DashboardsTree(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : null}
-                    {currentFolderContents.dashboards.length === 0 ? (
+                    {currentSubtreeDashboards.length === 0 ? (
                         <div className="text-muted py-8" data-attr="dashboards-tree-empty">
                             No dashboards in this folder.
                         </div>
                     ) : (
                         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-                            {currentFolderContents.dashboards.map((dashboard) => (
+                            {currentSubtreeDashboards.map(({ dashboard, folder }) => (
                                 <DashboardCard
                                     key={dashboard.id}
                                     dashboard={dashboard}
                                     isRenaming={renamingDashboardId === dashboard.id}
+                                    folderHint={folder !== currentFolder ? folder : undefined}
                                 />
                             ))}
                         </div>

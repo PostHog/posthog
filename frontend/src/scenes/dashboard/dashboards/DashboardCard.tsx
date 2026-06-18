@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconDashboard } from '@posthog/icons'
+import { IconDashboard, IconFolder } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
@@ -17,9 +17,12 @@ import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 export function DashboardCard({
     dashboard,
     isRenaming,
+    folderHint,
 }: {
     dashboard: DashboardBasicType
     isRenaming: boolean
+    // Optional location hint shown under the name (the tree arm's recursive view spans subfolders).
+    folderHint?: string
 }): JSX.Element {
     const { renameDashboard, stopRenaming } = useActions(dashboardsFileSystemLogic)
 
@@ -55,6 +58,12 @@ export function DashboardCard({
                     <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
                         <IconDashboard className="text-2xl text-muted" />
                         <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
+                        {folderHint ? (
+                            <span className="text-xs text-muted truncate flex items-center gap-1">
+                                <IconFolder />
+                                {folderHint}
+                            </span>
+                        ) : null}
                     </LemonCard>
                 </Link>
                 <div className="absolute top-1 right-1">
