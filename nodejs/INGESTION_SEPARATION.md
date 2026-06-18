@@ -15,8 +15,11 @@ be tested independently.
 
 - All ingestion code lives in one place inside `nodejs/src`.
 - Code shared between CDP and ingestion lives in a common folder.
-- Each ingestion lane has its own directory inside the ingestion folder.
-- All pipeline-framework code lives in a `pipelines` folder.
+- Each ingestion lane has its own directory under `src/ingestion/lanes/` (Phase 4).
+- The pipeline-building framework lives in `src/ingestion/framework/`; shared pipeline steps in
+  `src/ingestion/steps/` (Phase 4).
+- Cross-directory imports use the `~/` alias (the codebase standard); reserve relative paths for
+  same-directory siblings (`./`) (Phase 5).
 - Test selection follows the dependency graph:
   - No ingestion tests run when CDP-only code is modified.
   - No CDP tests run when ingestion-only code is modified.
@@ -54,6 +57,10 @@ move (allowed — it is a move, not a file rename). Deferred to Phase 2.
 
 `pipelines/` (the framework), `common/`, `outputs/`, `event-processing/`,
 `event-preprocessing/`, `cookieless/`, `personhog/`, `tophog/`, `utils/`, `api/`.
+
+Phase 4 regroups these: `pipelines/` (+ `tophog/`) -> `framework/`; `event-processing/` +
+`event-preprocessing/` -> `steps/`; `cookieless/` -> `common/`. A change in any of them still runs
+all lane tests.
 
 Placement rule for each shared module = the narrowest scope covering all its importers:
 
@@ -96,7 +103,7 @@ lane plus `common` / `cdp`, then gate jest runs by area:
 | `ingestion/common` | all ingestion lanes                    |
 | top-level `common` | everything (CDP + all ingestion lanes) |
 
-Wired in Phase 4, after the DAG holds.
+Wired in Phase 6, after the DAG holds and the restructure (Phases 4–5) lands.
 
 ## The boundary guard (Phase 0 — done)
 
@@ -263,15 +270,56 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       Optional future tidy: relocate the shared `cdp/_tests/redis` + `cdp/_tests/fixtures` helpers used by
       a few ingestion tests to a neutral `tests/helpers/` spot (benign test-infra reach, not blocking).
 - [ ] Move integration/e2e tests into their dedicated folders; keep unit tests beside source.
-      NOTE: keep the dedicated folders **per-lane** (e.g. `ingestion/<lane>/integration/`) so Phase 4's
-      path-based test selection can still attribute an integration/e2e test to its lane — moving them to a
-      single top-level folder would break that mapping. Organizational + sizable; best done where the
-      full suite can run (CI/devbox) since it changes many test paths.
+      NOTE: keep the dedicated folders **per-lane** (e.g. `lanes/<lane>/integration/`) so the CI
+      path-based test selection (Phase 6) can still attribute an integration/e2e test to its lane — a
+      single top-level folder would break that mapping. Do this with/after Phase 4 (the restructure) so
+      the folders land in their final `lanes/<lane>/` home. Sizable; best done where the full suite can
+      run (CI/devbox) since it changes many test paths.
 - [ ] **Exit gate:** `pnpm test:full` green.
 
-### Phase 4 — wire CI test selection
+### Phase 4 — restructure ingestion folder (lanes/ + semantic groups)
 
-- [ ] Extend `dorny/paths-filter` to emit per-lane + common + cdp flags.
+Target layout (chosen with the product owner — `lanes/`, not `products/`, to avoid overloading the
+monorepo's top-level `products/` and to match the term used throughout this plan):
+
+```
+src/ingestion/
+  lanes/         <- the 8 lanes (each keeps isolated test selection)
+    analytics/ ai/ heatmaps/ error-tracking/ logs/ metrics/ session-replay/ ingestionwarnings/
+  framework/     <- pipeline-building framework (from pipelines/, + tophog/)
+  steps/         <- shared pipeline steps (from event-processing/ + event-preprocessing/)
+  common/        <- shared ingestion domain (persons, groups, outputs glue, cookieless, ...)
+  api/ doctor/ utils/    <- ingestion infra
+  ingestion-consumer.ts  <- composition root (stays at the ingestion root)
+```
+
+- [ ] Move the 8 lanes -> `src/ingestion/lanes/<lane>/` (git mv + `bin/rewrite-imports.mjs`; the `~/`
+      aliases keep imports valid through the move — this is precisely why we standardize on `~/`).
+- [ ] Group shared code: `pipelines/` (+ `tophog/`) -> `framework/`; `event-processing/` +
+      `event-preprocessing/` -> `steps/`; fold `cookieless/` into `common/`.
+- [ ] Update the guard (`LANES`, `laneOf`) to resolve lanes under `lanes/` (shared dirs stay SHARED);
+      keep the `ingestion-consumer.ts` composition-root exemption. Guard baseline must stay empty.
+- [ ] Update jest/tsconfig path globs, `bin/` scripts, and any hardcoded `src/ingestion/<lane>` paths.
+- [ ] Gate: tsc 0 new errors, guard 0, lint + format, affected unit tests pass, moves-only diff.
+- [ ] **Exit gate:** `pnpm test:full` green.
+
+### Phase 5 — standardize imports on ~/
+
+`~/` is the codebase standard (used ~900x outside ingestion, recommended in `.eslintrc.js`, a
+first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixing `~/` and relative
+`../` paths — make them consistent.
+
+- [ ] Rewrite cross-directory relative imports (`../...`) in `src/ingestion` to `~/` (codemod); keep
+      `./` for same-directory siblings. Run AFTER Phase 4 so files aren't rewritten twice.
+- [ ] Add an eslint rule scoped to `src/ingestion` to enforce it going forward (e.g.
+      `import/no-relative-parent-imports`), so new `../` parent imports fail lint.
+- [ ] Gate: lint + format clean, tsc 0 new errors.
+- [ ] **Exit gate:** `pnpm test:full` green.
+
+### Phase 6 — wire CI test selection
+
+- [ ] Extend `dorny/paths-filter` to emit per-lane + common + cdp flags (lanes now under
+      `src/ingestion/lanes/<lane>/`; shared = `framework/`, `steps/`, `common/`).
 - [ ] Gate jest runs by changed area; verify the rules table.
 - [ ] Update scripts/docs to the new layout.
 - [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
@@ -366,3 +414,16 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   another lane, and no shared code except composition roots imports a lane. All eight lanes (analytics,
   ai, heatmaps, error-tracking, logs, metrics, session-replay, ingestionwarnings) are isolated. tsc 0
   new errors, guard green. Next: Phase 3 (split mixed cdp/ingestion tests) and Phase 4 (CI selection).
+- Plan extended (product-owner decisions). Also merged master twice more, including #63064 "unify
+  ingestion lag metrics across pipelines" — resolved against the ai/hog-transformer inversion by keeping
+  the contract/factory and adopting master's `EmitEventStepOutput` return + `createRecordIngestionLagStep`
+  - `groupId` removal. Added two phases and renumbered CI:
+  * Phase 4 — restructure into `lanes/` + `framework/`/`steps/`/`common/`. Named `lanes/` (not
+    `products/`) to avoid overloading the monorepo's top-level `products/` and to match the plan's term.
+  * Phase 5 — standardize ingestion imports on `~/`. Investigation showed `~/` is the codebase standard
+    (~900 uses outside ingestion, recommended in `.eslintrc.js`, first-class `tsconfig` alias), so the
+    goal is consistency for the ~158 files that currently mix `~/` and `../`, not removing `~/`.
+  * Phase 6 — CI test selection (was Phase 4).
+    Order matters: restructure (4) -> import-standardize (5) -> CI (6). `~/` is kept precisely so the
+    Phase-4 moves stay codemod-friendly (relative paths would break on every move). Nothing executed yet
+    for Phases 4–6 — these are plan entries.
