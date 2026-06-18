@@ -684,3 +684,7 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL"
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
 )
+
+# Internal project that receives warehouse event-backfill telemetry (region-specific on Cloud).
+# Defaults to the Cloud dogfooding project on US. None/0 disables the read (off Cloud / dev).
+WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID = get_from_env("WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID", 2, type_cast=int)
