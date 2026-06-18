@@ -276,19 +276,16 @@ procs:
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
             POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
-            # ai-gateway routing — every model call goes through the
-            # external Go gateway (github.com/PostHog/ai-gateway), brought
-            # up by the `ai-gateway` mprocs entry below via docker compose
-            # in the sibling repo at ~/Development/ai-gateway, port 8080.
-            # The runner resolves the owning team's `phc_` per session so
-            # POSTHOG_AI_GATEWAY_KEY isn't needed as a default bearer. Flip
-            # to 'false' to fall back to the direct-provider path
-            # (ANTHROPIC_API_KEY / OPENAI_API_KEY) — useful if the docker
-            # gateway is down and you don't want it autostarted.
-            # Setup: see products/agent_platform/docs/local-dev.md
-            # ("Local ai-gateway") for the sibling-clone + .env + ledger
-            # topup.
-            AGENT_USE_AI_GATEWAY: 'false'
+            # ai-gateway routing — every model call goes through the external
+            # Go gateway (github.com/PostHog/ai-gateway) at :8080. Off unless
+            # you opt in: run `bin/setup-gateway-e2e`, which provisions a phs_
+            # bearer + credential blob and writes AGENT_USE_AI_GATEWAY=true and
+            # POSTHOG_AI_GATEWAY_KEY into .env.local (the runner authenticates
+            # with that static phs_, not a per-team phc_). Then run the gateway
+            # from the sibling repo: `cd ~/Development/ai-gateway && bin/start
+            # gateway`. With nothing in .env.local the runner uses direct
+            # providers (ANTHROPIC_API_KEY / OPENAI_API_KEY). See
+            # products/agent_platform/docs/local-dev.md ("Local ai-gateway").
             POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
             # bucket `posthog` is pre-created by docker-compose.base.yml. The

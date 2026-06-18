@@ -101,29 +101,41 @@ direct to providers. Useful if you're working on gateway integration,
 billing/quota plumbing, or `$ai_origin` analytics. Off by default —
 the runner uses direct providers when `AGENT_USE_AI_GATEWAY=false`.
 
-To turn it on:
+To turn it on (full credential e2e — `resolver` mode, real phs\_):
 
 1. **Clone the sibling repo** at `~/Development/ai-gateway`
    (override with `AI_GATEWAY_REPO`).
 2. **Create `~/Development/ai-gateway/.env`** with provider keys:
 
    ```bash
-   AI_GATEWAY_AUTH_MODE=open
    AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
    AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
    ```
 
-   Note the `AI_GATEWAY_*` prefix — older docs/scripts referenced
-   `LLM_GATEWAY_*`, which is inert against the current compose file.
+   Note the `AI_GATEWAY_*` prefix. `bin/setup-gateway-e2e` sets
+   `AI_GATEWAY_AUTH_MODE=resolver` for you (so the gateway validates
+   the phs\_ instead of admitting every request as the anonymous team).
 
-3. **Enable the `ai_gateway` capability** in `hogli dev:setup` so the
-   `ai-gateway` mprocs entry runs. It executes
-   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway) which
-   brings up `docker compose --profile full` (gateway + billing +
-   deps) and seeds the anonymous-team ledger with $100 so requests
-   pass admission. Idempotent — runs cleanly on every restart.
-4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
-   in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
+3. **Run [`bin/setup-gateway-e2e`](../../../bin/setup-gateway-e2e).** It
+   enables the gateway on your main local team, mints a deterministic
+   phs\_ project-secret key (`llm_gateway:read`), publishes its
+   credential blob to the **same Valkey the gateway reads**
+   (`localhost:6381` — Django's hypercache and the gateway must share
+   one Redis or the resolver 401s), funds that team's gateway ledger,
+   and writes `AGENT_USE_AI_GATEWAY=true` + `POSTHOG_AI_GATEWAY_KEY` +
+   `AI_GATEWAY_REDIS_URL` into `.env.local`. Idempotent.
+4. **Run the gateway** from the sibling repo (it picks up `resolver`
+   mode from its `.env`):
+
+   ```bash
+   cd ~/Development/ai-gateway && bin/start gateway
+   ```
+
+5. **Restart the agent-runner** so it picks up `.env.local`.
+
+The runner authenticates with the static phs\_ bearer
+(`POSTHOG_AI_GATEWAY_KEY`); all cost bills to the team that owns it.
+With nothing in `.env.local` the runner falls back to direct providers.
 
 How model routing works:
 
