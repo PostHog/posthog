@@ -98,6 +98,24 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["message_content"] == "Hello customer"
         assert call_kwargs["properties"]["author_type"] == "team"
         assert call_kwargs["properties"]["author_id"] == 42
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+
+    @parameterized.expand(
+        [
+            ("capture_ticket_created", capture_ticket_created, []),
+            ("capture_message_received", capture_message_received, ["msg-id", "content"]),
+            ("capture_message_sent", capture_message_sent, ["msg-id", "content", 1]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_customer_email_falls_back_to_email_from(self, _name, capture_fn, extra_args, mock_capture):
+        self.ticket.anonymous_traits = {}
+        self.ticket.email_from = "customer@example.com"
+
+        capture_fn(self.ticket, *extra_args)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_received_uses_team_token(self, mock_capture):

@@ -19,6 +19,12 @@ logger = structlog.get_logger(__name__)
 EVENT_SOURCE = "conversations_events"
 
 
+def _get_customer_email(ticket: Ticket) -> str:
+    """Resolve the customer's email across channels: widget traits, then email-channel From."""
+    traits = ticket.anonymous_traits or {}
+    return traits.get("email") or ticket.email_from or ""
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -34,7 +40,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     traits = ticket.anonymous_traits or {}
     properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties["customer_email"] = _get_customer_email(ticket)
 
     team = ticket.team
     team_id = team.id
@@ -111,6 +117,7 @@ def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, 
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties["author_id"] = author_id
+    properties["customer_email"] = _get_customer_email(ticket)
 
     capture_internal(
         token=ticket.team.api_token,
@@ -130,7 +137,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["author_type"] = "customer"
     traits = ticket.anonymous_traits or {}
     properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties["customer_email"] = _get_customer_email(ticket)
 
     capture_internal(
         token=ticket.team.api_token,
