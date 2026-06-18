@@ -215,6 +215,28 @@ class TestPollSharedChannel(BaseTest):
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
 
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_unknown_future_value_passes_verification(self, mock_get: MagicMock, *_: Any) -> None:
+        # Graph reports shared channels as "unknownFutureValue" in some tenants — must still poll.
+        mock_get.side_effect = [
+            _resp(json_data={"id": CHANNEL_ID, "membershipType": "unknownFutureValue"}),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+        self.assertTrue(self._sync().primed)
+
+    @parameterized.expand([("standard", "standard"), ("private", "private")])
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_non_shared_channel_is_rejected_and_sync_deleted(
+        self, _name: str, membership_type: str, mock_get: MagicMock, *_: Any
+    ) -> None:
+        mock_get.return_value = _resp(json_data={"id": CHANNEL_ID, "membershipType": membership_type})
+        poll_team_shared_channels(self.team.id)
+
+        self.assertFalse(
+            TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).filter(channel_id=CHANNEL_ID).exists()
+        )
+
 
 class TestStoreTeamsServiceUrl(BaseTest):
     def setUp(self) -> None:
@@ -244,11 +266,24 @@ class TestStoreTeamsServiceUrl(BaseTest):
 
 @patch("products.conversations.backend.tasks.poll_team_shared_channels.delay")
 class TestPollFanout(BaseTest):
-    def test_fans_out_only_teams_with_shared_channels(self, mock_delay: MagicMock) -> None:
-        # Team with a shared channel -> fanned out.
+    # Graph returns "unknownFutureValue" for shared channels in some tenants, so both
+    # it and the literal "shared" must fan out; standard/private must not.
+    @parameterized.expand(
+        [
+            ("shared", "shared", True),
+            ("unknown_future_value", "unknownFutureValue", True),
+            ("standard", "standard", False),
+            ("private", "private", False),
+        ]
+    )
+    def test_fanout_by_membership_type(
+        self, _name: str, membership_type: str, should_fan_out: bool, mock_delay: MagicMock
+    ) -> None:
         self.team.conversations_settings = {
             "teams_enabled": True,
-            "teams_channels": [{"channel_id": CHANNEL_ID, "team_id": TEAMS_TEAM_ID, "membership_type": "shared"}],
+            "teams_channels": [
+                {"channel_id": CHANNEL_ID, "team_id": TEAMS_TEAM_ID, "membership_type": membership_type}
+            ],
         }
         self.team.save()
         TeamConversationsTeamsConfig.objects.update_or_create(
@@ -258,19 +293,7 @@ class TestPollFanout(BaseTest):
 
         poll_teams_shared_channels()
 
-        mock_delay.assert_called_once_with(self.team.id)
-
-    def test_skips_team_with_only_standard_channels(self, mock_delay: MagicMock) -> None:
-        self.team.conversations_settings = {
-            "teams_enabled": True,
-            "teams_channels": [{"channel_id": CHANNEL_ID, "team_id": TEAMS_TEAM_ID, "membership_type": "standard"}],
-        }
-        self.team.save()
-        TeamConversationsTeamsConfig.objects.update_or_create(
-            team=self.team,
-            defaults={"teams_tenant_id": "tenant-abc", "teams_graph_access_token": "graph-tok"},
-        )
-
-        poll_teams_shared_channels()
-
-        mock_delay.assert_not_called()
+        if should_fan_out:
+            mock_delay.assert_called_once_with(self.team.id)
+        else:
+            mock_delay.assert_not_called()
