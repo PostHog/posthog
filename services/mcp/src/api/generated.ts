@@ -20494,15 +20494,23 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentMetricsRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
@@ -20569,10 +20577,14 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -20773,6 +20785,7 @@ export namespace Schemas {
      * * `append` - append
      * * `webhook` - webhook
      * * `cdc` - cdc
+     * * `xmin` - xmin
      */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
@@ -20783,6 +20796,7 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+      Xmin: 'xmin',
     } as const;
 
     /**
@@ -20792,6 +20806,7 @@ export namespace Schemas {
      * * `date` - date
      * * `timestamp` - timestamp
      * * `objectid` - objectid
+     * * `xid` - xid
      */
     export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
 
@@ -20803,6 +20818,7 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
+      Xid: 'xid',
     } as const;
 
     /**
@@ -20859,7 +20875,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -20873,7 +20890,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -20945,7 +20963,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Incremental cursor field for incremental or append syncs.
@@ -35174,7 +35193,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -35188,7 +35208,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -44077,32 +44098,20 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update
-     */
-    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
-
-
-    export const RecalculateMetricsRequestTriggerEnum = {
-      Manual: 'manual',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-    } as const;
-
-    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
-       * * `manual` - manual
-       * * `experiment_launch` - experiment_launch
-       * * `experiment_stop` - experiment_stop
-       * * `experiment_update` - experiment_update */
-      trigger?: RecalculateMetricsRequestTriggerEnum;
+       * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      trigger?: TriggerEnum;
     }
 
     export interface RecomputeResult {
