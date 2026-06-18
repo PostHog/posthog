@@ -847,8 +847,10 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 cache.delete(pending_key)
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
+            # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
+            # older pod mid-deploy) must still require consent, never silently auto-approve.
             is_trusted_partner = partner_app.provisioning_skip_existing_user_consent and not pending.get(
-                "consent_required", False
+                "consent_required", True
             )
         except OAuthApplication.DoesNotExist:
             pass

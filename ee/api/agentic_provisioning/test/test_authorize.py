@@ -116,9 +116,9 @@ class TestAgenticAuthorize(APIBaseTest):
         assert "code=" not in res["Location"]
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consent_required") is not None
 
-    def test_skip_consent_partner_without_flag_still_auto_approves(self):
-        # Backwards-compat: a pending state without consent_required (e.g. cached before this
-        # change deployed) keeps the prior auto-approve behavior for a skip-consent partner.
+    def test_skip_consent_partner_without_flag_fails_closed_to_consent(self):
+        # Fail closed: a partner-identified pending state missing consent_required (e.g. cached
+        # by an older pod mid-deploy) must not auto-approve — it falls through to the consent UI.
         partner = self._make_skip_consent_partner()
         self._set_pending_auth(
             "state_no_flag",
@@ -128,8 +128,10 @@ class TestAgenticAuthorize(APIBaseTest):
         )
         res = self.client.get("/api/agentic/authorize?state=state_no_flag")
         assert res.status_code == 302
-        assert res["Location"].startswith("https://partner.example.com/callback")
-        assert "code=" in res["Location"]
+        assert "/agentic/authorize?" in res["Location"]
+        assert not res["Location"].startswith("https://partner.example.com/callback")
+        assert "code=" not in res["Location"]
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_no_flag") is not None
 
     @override_settings(
         STRIPE_SIGNING_SECRET=HMAC_SECRET,
