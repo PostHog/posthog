@@ -239,3 +239,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   composing the ai sub-pipeline, and the consumer composition root) are lane-structure decisions
   deferred to Phase 2. Phase 1 is effectively done: cdp<->ingestion decoupled and the shared/lane
   output+constant tangles removed.
+- Phase 1 validation (run in the agent sandbox): guard green (2 baselined); `tsc --noEmit` = 15
+  errors, all the pre-existing `@posthog/hogvm`/`@posthog/cyclotron` workspace-build issues in
+  `src/cdp/` (zero in moved/`common` paths) — the moves compile clean. Infra-free unit tests across
+  the refactored areas all pass: `src/ingestion/pipelines` 31 suites / 321 tests; moved
+  `common/outputs` + `ingestion/ai` step 113 tests; moved `common/personhog` 112 tests (546 total).
+  The full `pnpm test:full` could NOT run here: Docker Hub's anonymous pull rate limit blocked the
+  Postgres/Redis/Kafka/ClickHouse images, and the pinned Python 3.13.13 download was unreachable, so
+  `setup:test` can't run — as documented, that gate runs in CI / on a devbox.
