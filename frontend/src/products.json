@@ -140,6 +140,13 @@
             "type": "feature_flag",
             "intents": ["feature_flags", "experiments", "early_access_features"]
         },
+        {
+            "path": "Identity matching",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
