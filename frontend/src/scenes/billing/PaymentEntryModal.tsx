@@ -1,9 +1,10 @@
+import { DotLottiePlayer } from '@dotlottie/react-player'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -110,7 +111,13 @@ export const PaymentEntryModal = (): JSX.Element => {
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <Spinner className="text-5xl" />
+                        <DotLottiePlayer
+                            src="/static/payment-loading.lottie"
+                            loop
+                            autoplay
+                            aria-label="Loading animation"
+                            className="h-20 w-20"
+                        />
                         <p className="text-secondary text-md mt-4">We're contacting the hedgehogs for approval.</p>
                     </div>
                 )}
