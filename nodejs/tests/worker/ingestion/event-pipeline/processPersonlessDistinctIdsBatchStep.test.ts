@@ -1,22 +1,20 @@
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
-import { PersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { createTestPluginEvent } from '../../../helpers/plugin-event'
 import { createTestTeam } from '../../../helpers/team'
 
 describe('processPersonlessDistinctIdsBatchStep', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
-    let processPersonlessDistinctIdsBatchStep: typeof import('../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
+    let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
 
     beforeEach(async () => {
         // Reset modules to get a fresh LRU cache for each test
         jest.resetModules()
-        const module = await import(
-            '../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep.js'
-        )
+        const module = await import('~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep.js')
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
 
         team = createTestTeam()

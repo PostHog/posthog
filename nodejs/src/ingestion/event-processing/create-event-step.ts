@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { createEvent } from '~/ingestion/common/create-event'
+
 import { EventHeaders, Person, PreIngestionEvent } from '../../types'
-import { createEvent } from '../../worker/ingestion/create-event'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'

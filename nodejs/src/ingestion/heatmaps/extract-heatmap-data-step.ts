@@ -1,11 +1,11 @@
 import { URL } from 'url'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { isDistinctIdIllegal } from '~/ingestion/common/persons/person-merge-service'
 
 import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
-import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

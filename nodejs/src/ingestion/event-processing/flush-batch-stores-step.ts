@@ -1,9 +1,7 @@
-import { MessageSizeTooLarge } from '../../utils/db/error'
-import { logger } from '../../utils/logger'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
-import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { BatchWritingStore } from '../../worker/ingestion/stores/batch-writing-store'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import {
     batchStoreFlushCacheEntriesHistogram,
     batchStoreFlushDirtyEntriesHistogram,
@@ -13,7 +11,10 @@ import {
     batchStoreFlushReferencedBatchesHistogram,
     batchStoreFlushResultRecordsHistogram,
     batchStoreFlushTriggerBatchSizeHistogram,
-} from '../../worker/ingestion/stores/metrics'
+} from '~/ingestion/common/stores/metrics'
+
+import { MessageSizeTooLarge } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { AfterBatchStep } from '../pipelines/batching-pipeline'
 import { ok } from '../pipelines/results'

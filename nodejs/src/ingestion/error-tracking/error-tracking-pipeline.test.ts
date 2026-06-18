@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -13,7 +14,6 @@ import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 import { UUIDT } from '~/utils/utils'
-import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '../cookieless/cookieless-manager'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'

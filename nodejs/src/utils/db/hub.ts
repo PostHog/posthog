@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
@@ -13,7 +14,6 @@ import {
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { Hub, PluginsServerConfig } from '../../types'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'

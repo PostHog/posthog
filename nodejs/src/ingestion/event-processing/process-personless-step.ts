@@ -1,17 +1,17 @@
 import { DateTime } from 'luxon'
 
+import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import {
+    hasInsertedPersonlessDistinctId,
+    markPersonlessDistinctIdInserted,
+    personlessDistinctIdCacheOperationsCounter,
+} from '~/ingestion/common/persons/personless-distinct-id-cache'
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { buildIntegerMatcher } from '../../config/config'
 import { Person, Team } from '../../types'
 import { normalizeProcessPerson } from '../../utils/event'
-import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
-import {
-    hasInsertedPersonlessDistinctId,
-    markPersonlessDistinctIdInserted,
-    personlessDistinctIdCacheOperationsCounter,
-} from '../../worker/ingestion/persons/personless-distinct-id-cache'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '../config'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

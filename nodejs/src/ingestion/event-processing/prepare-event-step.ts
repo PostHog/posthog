@@ -1,9 +1,9 @@
+import { invalidTimestampCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '../../types'
 import { sanitizeEventName } from '../../utils/db/utils'
-import { invalidTimestampCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

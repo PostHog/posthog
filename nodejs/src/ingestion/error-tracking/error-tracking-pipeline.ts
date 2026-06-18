@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -16,7 +17,6 @@ import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/err
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
-import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {

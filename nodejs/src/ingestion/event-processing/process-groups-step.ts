@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { Properties } from '~/plugin-scaffold'
 
 import { PreIngestionEvent, ProjectId, Team, TeamId } from '../../types'
@@ -7,8 +9,6 @@ import { sanitizeString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'

@@ -1,7 +1,8 @@
-import { droppedBloatPropertyCounter } from '../../worker/ingestion/event-pipeline/metrics'
+import { droppedBloatPropertyCounter } from '~/ingestion/common/event-pipeline/metrics'
+
 import { BLOAT_PROPERTIES, stripBloatProperties } from './strip-bloat-properties'
 
-jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
+jest.mock('~/ingestion/common/event-pipeline/metrics', () => ({
     droppedBloatPropertyCounter: {
         labels: jest.fn().mockReturnValue({ inc: jest.fn() }),
     },

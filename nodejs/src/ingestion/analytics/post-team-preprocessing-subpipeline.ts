@@ -1,14 +1,14 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { prefetchPersonsStep } from '~/ingestion/common/event-pipeline/prefetchPersonsStep'
+import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep'
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PluginEvent } from '~/plugin-scaffold'
-import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
-import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { EventFilterManager } from '../common/event-filters'
 import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
 import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
@@ -9,12 +10,11 @@ import { createTestPerson } from '../../../tests/helpers/person'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
 import { EventHeaders, Person, Team } from '../../types'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineResultType } from '../pipelines/results'
 import { createPrepareEventStep } from './prepare-event-step'
 import { BLOAT_PROPERTIES } from './strip-bloat-properties'
 
-jest.mock('../../worker/ingestion/timestamps')
+jest.mock('~/ingestion/common/timestamps')
 
 type TestInput = {
     normalizedEvent: PluginEvent

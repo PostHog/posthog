@@ -1,7 +1,7 @@
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { Properties } from '~/plugin-scaffold'
 
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '../../types'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 
 export function enrichPropertiesWithGroupTypes(
     properties: Properties,

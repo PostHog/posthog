@@ -8,10 +8,12 @@ import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
+import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
-import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
-import { BatchBoundPersonsStore } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import {
     createOrganization,
@@ -25,8 +27,6 @@ import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { UUIDT } from '../../utils/utils'
-import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 

@@ -214,7 +214,9 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 
 ### Phase 2 — consolidate into lanes
 
-- [ ] Fold `worker/ingestion` into the ingestion folder.
+- [x] Fold `worker/ingestion` into the ingestion folder. `group-type-manager` (+ `readonly-`, + test) -> top-level `common/groups` (forced: `types.ts`/`hub.ts` import `GroupTypeManager`
+      and are imported by cdp); `persons/`, `groups/`, `stores/`, `event-pipeline/` + the loose util
+      files -> `ingestion/common/`. 203 imports rewritten across 84 files; `worker/ingestion` removed.
 - [ ] Move `logs-ingestion` -> `logs` lane, `metrics-ingestion` -> `metrics` lane.
 - [ ] Merge `session-recording` + `session-replay` + `ingestion/session_replay` -> `session-replay`.
 - [ ] Move `clientwarnings` -> `ingestionwarnings` lane dir.
@@ -275,3 +277,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   The full `pnpm test:full` could NOT run here: Docker Hub's anonymous pull rate limit blocked the
   Postgres/Redis/Kafka/ClickHouse images, and the pinned Python 3.13.13 download was unreachable, so
   `setup:test` can't run — as documented, that gate runs in CI / on a devbox.
+- Phase 2 "fold worker/ingestion" complete: 40 files moved out of `worker/ingestion`. The two
+  group-type managers went to top-level `common/groups` (forced — `types.ts`/`hub.ts` use
+  `GroupTypeManager` and are imported by cdp); the rest (persons/groups/stores/event-pipeline
+  processing + create-event/person-uuid/timestamps/pipeline-helpers/utils) went to
+  `ingestion/common`. 203 imports rewritten across 84 files via the codemod; no lane deps in the
+  folded code (DAG safe); `worker/ingestion` dir removed. Gate: guard green (2 baselined), tsc 0 new
+  errors (only the pre-existing hogvm/cyclotron noise), eslint + prettier clean, 238 moved-code unit
+  tests pass. Full suite is the CI gate.

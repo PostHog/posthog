@@ -3,6 +3,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -14,7 +15,6 @@ import { PostgresUse } from '~/utils/db/postgres'
 import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
-import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 

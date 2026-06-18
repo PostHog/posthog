@@ -1,5 +1,6 @@
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+
 import { PreIngestionEvent, Team } from '../../types'
-import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { enrichPropertiesWithGroupTypes } from './groups'
