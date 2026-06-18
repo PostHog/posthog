@@ -97,4 +97,27 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         distinct_ids_to_split: &[String],
     ) -> StorageResult<Vec<SplitResult>>;
+
+    // Undelete repair
+
+    /// Bump a person_distinct_id row's version to `min_version`, but only when the stored
+    /// version is lower (the update never lowers a version). Returns the person the
+    /// distinct_id maps to whenever it exists — even if the guard left the version
+    /// unchanged — and None when the distinct_id does not exist (it has not been re-used
+    /// yet). Used by the undelete repair flow to revive a soft-deleted distinct_id.
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        team_id: i64,
+        distinct_id: &str,
+        min_version: i64,
+    ) -> StorageResult<Option<Person>>;
+
+    /// Bump a person's version to `min_version`, but only when the stored version is
+    /// lower (the update never lowers a version). Returns whether a row was updated.
+    async fn set_person_version_floor(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        min_version: i64,
+    ) -> StorageResult<bool>;
 }
