@@ -77,12 +77,15 @@ export type {
     BarChartConfig,
     BarsConfig,
     ChartConfig,
+    ChartLegendConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartMargins,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
+    DragRect,
     LineChartConfig,
     PointClickData,
     ResolvedSeries,
@@ -148,3 +151,5 @@ export type { LegendItem, LegendProps } from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
+export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState } from './components/Legend/useChartLegend'

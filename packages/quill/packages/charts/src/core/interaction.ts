@@ -4,6 +4,7 @@ import { barColorAt } from './color-utils'
 import type {
     BandSlot,
     ChartDimensions,
+    DragRect,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -11,6 +12,8 @@ import type {
     YAxisScale,
 } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
+
+export type { DragRect } from './types'
 
 export interface LabelPosition {
     x: number
@@ -59,6 +62,25 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
         mouseY >= dimensions.plotTop &&
         mouseY <= dimensions.plotTop + dimensions.plotHeight
     )
+}
+
+// Returns null when fewer than 2 distinct labels are spanned.
+export function dragRectToLabelRange(
+    rect: DragRect,
+    labelPositions: LabelPosition[]
+): { startIndex: number; endIndex: number } | null {
+    if (labelPositions.length < 2) {
+        return null
+    }
+    const lo = Math.min(rect.x0, rect.x1)
+    const hi = Math.max(rect.x0, rect.x1)
+    const startIndex = findNearestIndexFromPositions(lo, labelPositions)
+    const endIndex = findNearestIndexFromPositions(hi, labelPositions)
+    if (startIndex < 0 || endIndex < 0 || startIndex === endIndex) {
+        return null
+    }
+    const [s, e] = startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
+    return { startIndex: s, endIndex: e }
 }
 
 export function buildTooltipContext<Meta = unknown>(

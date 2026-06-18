@@ -309,6 +309,7 @@ class Person(models.Model):
         If ``main_distinct_id`` is also None, the first distinct_id is kept. The
         original person always retains its properties.
         """
+        from posthog.personhog_client.caller_tag import personhog_caller_tag
         from posthog.personhog_client.client import get_personhog_client
         from posthog.personhog_client.proto import GetPersonRequest
 
@@ -318,25 +319,28 @@ class Person(models.Model):
                 "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
             )
 
-        person_resp = client.get_person(GetPersonRequest(team_id=self.team_id, person_id=self.pk))
-        if not person_resp.person or not person_resp.person.id:
-            raise ValueError(f"Person not found: person_id={self.pk}, team_id={self.team_id}")
+        # Tag every personhog call made during the split (get_person, the paged
+        # get_distinct_ids_for_person, and the split_person RPCs) so the traffic is attributable.
+        with personhog_caller_tag("persons/split"):
+            person_resp = client.get_person(GetPersonRequest(team_id=self.team_id, person_id=self.pk))
+            if not person_resp.person or not person_resp.person.id:
+                raise ValueError(f"Person not found: person_id={self.pk}, team_id={self.team_id}")
 
-        logger.info(
-            "split_person queried person",
-            person_id=self.pk,
-            person_uuid=person_resp.person.uuid,
-            team_id=self.team_id,
-            version=person_resp.person.version,
-            main_distinct_id=main_distinct_id,
-            max_splits=max_splits,
-            explicit_distinct_ids_count=len(distinct_ids_to_split) if distinct_ids_to_split is not None else None,
-        )
+            logger.info(
+                "split_person queried person",
+                person_id=self.pk,
+                person_uuid=person_resp.person.uuid,
+                team_id=self.team_id,
+                version=person_resp.person.version,
+                main_distinct_id=main_distinct_id,
+                max_splits=max_splits,
+                explicit_distinct_ids_count=len(distinct_ids_to_split) if distinct_ids_to_split is not None else None,
+            )
 
-        if distinct_ids_to_split is not None:
-            self._split_explicit_ids(distinct_ids_to_split)
-        else:
-            self._split_all_ids(client, main_distinct_id, max_splits)
+            if distinct_ids_to_split is not None:
+                self._split_explicit_ids(distinct_ids_to_split)
+            else:
+                self._split_all_ids(client, main_distinct_id, max_splits)
 
     def _split_explicit_ids(self, distinct_ids_to_split: list[str]) -> None:
         """Partial split: caller specifies exactly which IDs to move.
