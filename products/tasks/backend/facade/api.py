@@ -15,11 +15,11 @@ config-only importer never drags docker/temporalio onto the ``django.setup()`` p
 Functions that bridge to those heavy surfaces import them lazily inside the function body.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import timedelta
 from uuid import UUID
 
-from django.db.models import CharField, Count, Exists, Subquery
+from django.db.models import CharField, Count, Exists, Min, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -45,6 +45,7 @@ __all__ = [
     "TaskRunStatus",
     "create_and_run_task",
     "create_completed_sandbox_snapshot",
+    "collect_task_run_state_metrics",
     "create_run",
     "create_sandbox_connection_token",
     "fail_task_run",
@@ -53,7 +54,6 @@ __all__ = [
     "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
     "get_task_run",
-    "get_task_run_state_counts",
     "is_task_visible_to_user",
     "latest_task_run_pr_url_subquery",
     "send_cancel",
@@ -113,6 +113,7 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         workflow_id=run.workflow_id,
         mode=run.mode,
         task_origin_product=parent.origin_product if parent is not None else None,
+        created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
     )
@@ -245,20 +246,68 @@ def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUI
     )
 
 
-def get_task_run_state_counts() -> list[contracts.TaskRunStateCountDTO]:
-    """Counts of runs grouped by (status, environment, parent origin_product)."""
-    rows = (
-        TaskRun.objects.values("status", "environment", "task__origin_product").annotate(count=Count("id")).order_by()
-    )
-    return [
-        contracts.TaskRunStateCountDTO(
-            status=row["status"],
-            environment=row["environment"],
-            origin_product=row["task__origin_product"],
-            count=row["count"],
+def _gauge_rows(values_qs, value_key: str, *, with_status: bool, now=None) -> list[contracts.TaskRunGaugeRow]:
+    rows = []
+    for row in values_qs:
+        raw = row[value_key]
+        value = (now - raw).total_seconds() if now is not None else raw
+        rows.append(
+            contracts.TaskRunGaugeRow(
+                environment=row["environment"],
+                origin_product=row["task__origin_product"] or "unknown",
+                value=value,
+                status=row["status"] if with_status else None,
+            )
         )
-        for row in rows
-    ]
+    return rows
+
+
+def collect_task_run_state_metrics(
+    *,
+    open_statuses: Sequence[str],
+    age_statuses: Sequence[str],
+    terminal_statuses: Sequence[str],
+    window_seconds: int,
+) -> contracts.TaskRunStateMetricsDTO:
+    """Aggregate TaskRun state for monitoring gauges.
+
+    The caller (a core celery task) owns which statuses count as open/age/terminal and the
+    recency window; this returns the raw numbers grouped by (status, environment,
+    parent origin_product) so no ORM leaks across the boundary.
+    """
+    now = django_timezone.now()
+    window_start = now - timedelta(seconds=window_seconds)
+    return contracts.TaskRunStateMetricsDTO(
+        runs_in_status=_gauge_rows(
+            TaskRun.objects.filter(status__in=open_statuses)
+            .values("status", "environment", "task__origin_product")
+            .annotate(count=Count("id")),
+            "count",
+            with_status=True,
+        ),
+        oldest_open_age_seconds=_gauge_rows(
+            TaskRun.objects.filter(status__in=age_statuses)
+            .values("status", "environment", "task__origin_product")
+            .annotate(oldest_created_at=Min("created_at")),
+            "oldest_created_at",
+            with_status=True,
+            now=now,
+        ),
+        created_recently=_gauge_rows(
+            TaskRun.objects.filter(created_at__gte=window_start)
+            .values("environment", "task__origin_product")
+            .annotate(count=Count("id")),
+            "count",
+            with_status=False,
+        ),
+        terminal_recently=_gauge_rows(
+            TaskRun.objects.filter(status__in=terminal_statuses, updated_at__gte=window_start)
+            .values("status", "environment", "task__origin_product")
+            .annotate(count=Count("id")),
+            "count",
+            with_status=True,
+        ),
+    )
 
 
 # --- Writes ---
@@ -416,6 +465,7 @@ def send_user_message(
     *,
     artifacts: list[dict] | None = None,
     auth_token: str | None = None,
+    timeout: int | None = None,
 ):
     """Push a follow-up user message (and/or artifacts) into a run's live sandbox."""
     from products.tasks.backend.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
@@ -423,7 +473,13 @@ def send_user_message(
     )
 
     run = TaskRun.objects.select_related("task").get(id=run_id)
-    return _send(run, message, artifacts=artifacts, auth_token=auth_token)
+    # Forward only explicitly-provided optionals so the underlying call shape is unchanged.
+    extra: dict = {}
+    if artifacts is not None:
+        extra["artifacts"] = artifacts
+    if timeout is not None:
+        extra["timeout"] = timeout
+    return _send(run, message, auth_token=auth_token, **extra)
 
 
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):

@@ -158,15 +158,26 @@ class TestFacadeReadsAndMappers(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state.get("foo"), "bar")
 
-    def test_get_task_run_state_counts(self):
+    def test_collect_task_run_state_metrics(self):
         task = self._make_task()
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        counts = {(c.status, c.origin_product): c.count for c in facade.get_task_run_state_counts()}
-        self.assertEqual(counts[(TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)], 2)
-        self.assertEqual(counts[(TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)], 1)
+        metrics = facade.collect_task_run_state_metrics(
+            open_statuses=["queued", "in_progress"],
+            age_statuses=["queued", "in_progress"],
+            terminal_statuses=["completed", "failed", "cancelled"],
+            window_seconds=3600,
+        )
+        open_counts = {(r.status, r.origin_product): r.value for r in metrics.runs_in_status}
+        self.assertEqual(open_counts[(TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)], 2)
+        # COMPLETED is terminal, not open
+        self.assertNotIn((TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value), open_counts)
+        terminal_counts = {(r.status, r.origin_product): r.value for r in metrics.terminal_recently}
+        self.assertEqual(terminal_counts[(TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)], 1)
+        self.assertEqual(sum(r.value for r in metrics.created_recently), 3)
+        self.assertTrue(all(r.value >= 0 for r in metrics.oldest_open_age_seconds))
 
     def test_upsert_internal_sandbox_env(self):
         env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)

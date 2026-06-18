@@ -165,7 +165,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         bot_id_patcher.start()
         self.addCleanup(bot_id_patcher.stop)
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_starts_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -210,7 +210,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_explicit_event_id_in_workflow_id(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -240,7 +240,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_repo_research_ids_when_provided(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -269,7 +269,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert state["repo_research_task_id"] == "11111111-1111-1111-1111-111111111111"
         assert state["repo_research_run_id"] == "22222222-2222-2222-2222-222222222222"
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_research_ids_when_not_provided(self, mock_slack_cls, mock_execute_workflow):
         # The unambiguous path (explicit mention / cascade auto) never runs the
@@ -297,7 +297,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert "repo_research_task_id" not in task.latest_run.state
         assert "repo_research_run_id" not in task.latest_run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_falls_back_to_team_github_integration(self, mock_slack_cls, mock_execute_workflow):
         Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
@@ -327,7 +327,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_falls_back_to_team_github_integration_when_user_token_unusable(
         self, mock_slack_cls, mock_execute_workflow
@@ -366,7 +366,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_prefers_user_github_integration(self, mock_slack_cls, mock_execute_workflow):
         UserIntegration.objects.create(
@@ -401,7 +401,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "user"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_description_uses_initiator_as_prompt_with_thread_as_context(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -448,7 +448,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         last_context_pos = task.description.index("we just need to inject those better")
         assert placeholder_pos < last_context_pos
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_description_with_no_thread_context_is_just_the_prompt(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -473,7 +473,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.description == "do something"
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_description_encloses_thread_context_in_a_tag(self, mock_slack_cls, mock_execute_workflow):
         # A Slack participant shouldn't be able to forge the context delimiter to
@@ -515,7 +515,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         assert task.description.endswith("do something")
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
     def test_quota_exceeded_blocks_task_creation_with_thread_message(
@@ -618,7 +618,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_resumes_same_task(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -662,7 +662,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_no_repo_run_resumes_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
         self.task.repository = None
@@ -681,7 +681,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_execute_workflow.assert_called_once()
         assert mock_execute_workflow.call_args.kwargs["create_pr"] is True
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -739,7 +739,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "original task creator" in call_kwargs["text"]
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow", side_effect=Exception("boom"))
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow", side_effect=Exception("boom"))
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_workflow_start_failure_returns_true_with_error(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -848,7 +848,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_terminal_run_resume_prefixes_actor_name(

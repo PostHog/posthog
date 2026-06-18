@@ -68,6 +68,7 @@ class TaskRunDTO:
     workflow_id: str = ""
     mode: str = "background"
     task_origin_product: str | None = None
+    created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
 
@@ -122,10 +123,20 @@ class SignalReportPrUrlDTO:
 
 
 @dataclass(frozen=True)
-class TaskRunStateCountDTO:
-    """An aggregated count of task runs grouped by state, used for metrics."""
+class TaskRunGaugeRow:
+    """One metric value keyed by (status, environment, origin_product)."""
 
-    status: str
     environment: str
-    origin_product: str | None
-    count: int
+    origin_product: str
+    value: float
+    status: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunStateMetricsDTO:
+    """Aggregations describing the current state of the TaskRun table, for monitoring gauges."""
+
+    runs_in_status: list[TaskRunGaugeRow] = Field(default_factory=list)
+    oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
+    created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+    terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
