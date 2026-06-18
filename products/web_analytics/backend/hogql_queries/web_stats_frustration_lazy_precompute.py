@@ -256,7 +256,7 @@ def ensure_web_stats_frustration_precomputed(
         "events_session_id": _events_session_id_expr(runner),
         "breakdown_value_expr": _breakdown_value_expr(runner),
         "event_scan_filter": _event_scan_filter_expr(),
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),

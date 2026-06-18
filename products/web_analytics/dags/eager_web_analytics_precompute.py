@@ -33,13 +33,14 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
-setting (defaults to the Cloud dogfooding team on Cloud, empty elsewhere).
-The runtime read-path gate (`is_precompute_enabled_for_team`) consults the
-*same* setting to bypass the org rollout flag, so warmer and reader read
-one source of truth and cannot drift. Enrolling or removing a team is a
-deploy-time change to the env var (Django + Dagster pods), not
-runtime-overridable.
+The audience is the union of `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` and
+`WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` (each defaults to the
+Cloud dogfooding team on Cloud, empty elsewhere). The runtime read-path gate
+(`is_precompute_enabled_for_team`) treats membership in *either* list as
+enrollment, so warmer and reader read the same sources and cannot drift —
+a team enrolled solely as unrestricted still gets its baseline warmed.
+Enrolling or removing a team is a deploy-time change to the env vars
+(Django + Dagster pods), not runtime-overridable.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
@@ -186,7 +187,19 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not is_cloud():
         return [], "not_cloud", {}
 
-    team_ids = list(settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS)
+    # Union both enrollment lists: unrestricted teams are implicitly enrolled
+    # (see `is_precompute_enabled_for_team`), so a team enrolled solely via
+    # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
+    # baseline warmed — otherwise its reads land on cold on-demand inserts.
+    # dict.fromkeys preserves order and dedupes teams in both lists.
+    team_ids = list(
+        dict.fromkeys(
+            [
+                *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
+                *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+            ]
+        )
+    )
     diag = {"teams_configured": len(team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag

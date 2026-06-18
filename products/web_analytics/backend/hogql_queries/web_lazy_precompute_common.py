@@ -104,6 +104,12 @@ class PerQueryOptInNotSet(LazyPrecomputeIneligible):
     pass
 
 
+class PerQueryOptedOut(LazyPrecomputeIneligible):
+    """Unrestricted team where the user explicitly turned precompute off."""
+
+    pass
+
+
 class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
@@ -174,6 +180,17 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
+def is_precompute_unrestricted_for_team(team: Team) -> bool:
+    """Whether a team may precompute *any* web analytics query.
+
+    Unrestricted teams bypass the single-`$host`-exact filter-shape gate (any
+    property filter becomes a distinct cache key) and treat the per-query toggle
+    as opt-out rather than opt-in. Driven by the dedicated
+    `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
+    """
+    return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
+
+
 def is_precompute_enabled_for_team(team: Team) -> bool:
     """Whether a team should take the lazy precompute path.
 
@@ -183,8 +200,13 @@ def is_precompute_enabled_for_team(team: Team) -> bool:
     on local flag-definition evaluation, which isn't reliably available outside
     the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
     returned falsy and silently dropped the warmer onto the raw path).
+
+    Unrestricted teams are implicitly enrolled — membership in the unrestricted
+    list is enough, so a team need not appear in both settings.
     """
     if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    if is_precompute_unrestricted_for_team(team):
         return True
     return is_org_feature_flag_enabled(team)
 
@@ -212,7 +234,14 @@ def check_common_eligibility(
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
-    if use_web_analytics_precompute is not True:
+    unrestricted = is_precompute_unrestricted_for_team(team)
+
+    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
+    # Restricted teams keep the opt-in default (`None`/`False` both reject).
+    if unrestricted:
+        if use_web_analytics_precompute is False:
+            raise PerQueryOptedOut()
+    elif use_web_analytics_precompute is not True:
         raise PerQueryOptInNotSet()
 
     if not is_integer_timezone(team.timezone):
@@ -227,17 +256,22 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+    # Unrestricted teams accept any filter shape — `host_filter_expr` translates
+    # arbitrary filters via `property_to_expr`, and each distinct filter set
+    # becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    if not unrestricted:
+        if len(properties) > 1:
+            raise TooManyFilters()
+        for prop in properties:
+            if not isinstance(prop, EventPropertyFilter):
+                raise NonEventPropertyFilter()
+            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
+                raise UnsupportedFilterKey(prop.key)
+            if prop.operator != PropertyOperator.EXACT:
+                raise UnsupportedFilterOperator(prop.operator)
+            if not isinstance(prop.value, str) or not prop.value:
+                raise NonStringOrEmptyFilterValue()
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
@@ -285,14 +319,20 @@ def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def host_filter_expr(properties: list) -> ast.Expr:
-    """Translate the (gated-down-to-≤1) user filter list to an AST expression.
+def host_filter_expr(properties: list, *, team: Team) -> ast.Expr:
+    """Translate the user filter list to an AST expression.
 
     The returned AST is what `ensure_precomputed` hashes into the cache key —
     different filter values therefore become different precomputed jobs.
+
+    Unrestricted teams may pass arbitrary filters, so their list is translated
+    via the general `property_to_expr`. Restricted teams keep the hand-built
+    single-`$host` `equals` so their existing cache keys don't churn.
     """
     if not properties:
         return ast.Constant(value=True)
+    if is_precompute_unrestricted_for_team(team):
+        return property_to_expr(properties, team=team)
     host_filter = properties[0]
     assert isinstance(host_filter, EventPropertyFilter)
     return ast.Call(
