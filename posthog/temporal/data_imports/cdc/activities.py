@@ -631,12 +631,8 @@ class CDCExtractActivity:
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.
 
-        Change-stream events are always schema-qualified (`public.orders`), but a schema's
-        `name` may be stored bare (`orders`) or qualified (`public.orders`) depending on how
-        it was discovered. Comparing the two with exact equality silently drops every change
-        for a table whose `name` doesn't include the schema prefix. Keying off the qualified
-        source name (derived from `schema_metadata`, not from `name`'s format) matches both
-        styles uniformly.
+        WAL events are always qualified (`public.orders`) but `name` may be stored bare
+        (`orders`), so an exact-equality match silently drops every change for a bare row.
         """
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
         mapping: dict[str, str] = {}
@@ -651,9 +647,7 @@ class CDCExtractActivity:
             else:
                 qualified = f"{default_schema or 'public'}.{schema.name}"
             mapping[qualified] = schema.name
-            # Also match the stored name verbatim, so a source that ever emits a bare table
-            # name (or a row whose `name` is already qualified) still resolves.
-            mapping.setdefault(schema.name, schema.name)
+            mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
         return mapping
 
     # ------------------------------------------------------------------
@@ -673,13 +667,8 @@ class CDCExtractActivity:
         for event in self.reader.read_changes():
             activity.heartbeat()
 
-            # Match the change-stream's table name (always schema-qualified, e.g.
-            # `public.orders`) to the schema's stored `name`, which may be bare (`orders`)
-            # or qualified (`public.orders`). Rewrite to the canonical `name` so all
-            # downstream keying (batcher, schema_by_name, pk_columns_by_table) lines up.
-            # An unmatched event means the publication captured a table we don't sync
-            # (e.g. self-managed mode) — drop it, but log it: a silent drop here is how a
-            # name mismatch starves a table of changes unnoticed.
+            # Resolve to the schema's stored `name` so downstream keying lines up. Log
+            # unmatched drops: a silent drop here is how a name mismatch starves a table.
             canonical_name = event_name_to_schema_name.get(event.table_name)
             if canonical_name is None:
                 self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)

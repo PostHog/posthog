@@ -489,8 +489,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
 
     if not cdc_schemas:
-        # No active CDC schemas left — drop the extraction schedule so it stops firing.
-        # Logged because this silently stops all CDC sync for the source.
+        # No active CDC schemas left — dropping the schedule silently stops all CDC sync.
         logger.info(
             "Deleting CDC extraction schedule — no active CDC schemas",
             source_id=str(source.id),
