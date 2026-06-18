@@ -390,8 +390,8 @@ describe('dashboardsLogic', () => {
         let lastRequestUrl: URL | null = null
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': (req) => {
-                    lastRequestUrl = req.url
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    lastRequestUrl = new URL(request.url)
                     return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },
