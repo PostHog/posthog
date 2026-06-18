@@ -221,6 +221,68 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             return actual_data
 
+    def _create_hidden_template(self) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden-dest",
+            sha="1.0.0",
+            name="Hidden destination",
+            description="Internal building block",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+    @parameterized.expand([("non_staff", False), ("staff", True)])
+    def test_create_from_hidden_template_is_blocked(self, _name, is_staff):
+        # Hidden templates are internal building blocks, not standalone destinations — nobody can create
+        # a function from one via the API/MCP, staff included.
+        self._create_hidden_template()
+        if is_staff:
+            self.user.is_staff = True
+            self.user.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": "X", "template_id": "template-hidden-dest", "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
+
+    @parameterized.expand(
+        [
+            # An existing hidden-template function (created before the create-path block) can be disabled
+            # or deleted to clean it up, but must never be left enabled: enabling it or editing its config
+            # while it stays enabled is blocked; only disabling, deleting, or editing it while already
+            # disabled is allowed.
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_enabling_function_from_hidden_template_is_blocked(self, _name, initial_enabled, patch, expected):
+        self._create_hidden_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Existing email destination",
+            type="destination",
+            template_id="template-hidden-dest",
+            enabled=initial_enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data=patch,
+        )
+        assert response.status_code == expected, response.json()
+
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

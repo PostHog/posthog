@@ -167,12 +167,28 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
+            # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
+            # ran out of memory running our extraction query. We already stream
+            # in bounded Arrow blocks, so there's nothing to change our side:
+            # the customer's database can't satisfy the query as configured.
+            # Retrying just re-loads an already memory-pressured server, so stop
+            # and tell them to act.
+            "Code: 241": "Your ClickHouse server ran out of memory while we were reading a table. This usually means the database is too small for the table being synced. Try scaling up your ClickHouse service (or raising its memory limit), or sync a smaller table or use an incremental sync, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `_get_table` when `system.columns` returns no columns for the
+            # configured table — the table no longer exists in the source database at sync
+            # time. It was dropped or renamed, or (commonly) the schema points at a
+            # materialized view's auto-generated `.inner_id.<uuid>` inner table whose UUID
+            # changed when the view was recreated. Either way the table is gone and retrying
+            # replays the identical failure, so stop and tell the customer to fix the schema.
+            # We match the stable suffix, not the volatile `<database>.<table>` prefix.
+            "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
         }
 
     def get_schemas(

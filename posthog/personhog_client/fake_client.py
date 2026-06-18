@@ -19,12 +19,14 @@ boundaries are exercised end-to-end.  The gate is forced ON by default
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
 from unittest.mock import patch
 
+from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, group_pb2, person_pb2
 
 
@@ -67,6 +69,9 @@ class FakePersonHogClient:
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
 
+        # synthetic ids for persons created by split_person
+        self._next_split_person_id = 1_000_000_000
+
     # ── Builder methods ──────────────────────────────────────────────
 
     def add_person(
@@ -81,6 +86,7 @@ class FakePersonHogClient:
         is_identified: bool = False,
         is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
+        distinct_id_versions: dict[str, int] | None = None,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
             id=person_id,
@@ -99,7 +105,7 @@ class FakePersonHogClient:
         for did in distinct_ids or []:
             self._persons_by_distinct_id[(team_id, did)] = person
             self._distinct_ids.setdefault((team_id, person_id), []).append(
-                person_pb2.DistinctIdWithVersion(distinct_id=did, version=0)
+                person_pb2.DistinctIdWithVersion(distinct_id=did, version=(distinct_id_versions or {}).get(did, 0))
             )
         return person
 
@@ -580,8 +586,63 @@ class FakePersonHogClient:
     def split_person(
         self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
     ) -> person_pb2.SplitPersonResponse:
+        """Stateful mirror of the real RPC: validates ownership, creates new
+        persons with deterministic UUIDv5s (preserving created_at for
+        pre-existing ones), moves the distinct_ids, and bumps versions by 101.
+        Results are returned in request order, like the real service.
+        """
         self.calls.append(_Call("split_person", request))
-        return person_pb2.SplitPersonResponse(splits=[])
+
+        key = (request.team_id, request.person_id)
+        source = self._persons_by_id.get(key)
+        if source is None:
+            raise KeyError(f"person_id={request.person_id} not found (team_id={request.team_id})")
+
+        mappings = self._distinct_ids.get(key, [])
+        mapping_by_did = {m.distinct_id: m for m in mappings}
+        unknown = [did for did in request.distinct_ids_to_split if did not in mapping_by_did]
+        if unknown:
+            raise KeyError(
+                f"distinct_ids {unknown} do not belong to person_id={request.person_id} (team_id={request.team_id})"
+            )
+
+        new_person_version = source.version + 101
+        splits: list[person_pb2.SplitResult] = []
+        for did in request.distinct_ids_to_split:
+            new_uuid = str(uuidFromDistinctId(request.team_id, did))
+
+            existing = self._persons_by_uuid.get((request.team_id, new_uuid))
+            if existing is not None:
+                existing.version = new_person_version
+                new_person = existing
+            else:
+                self._next_split_person_id += 1
+                new_person = self.add_person(
+                    team_id=request.team_id,
+                    person_id=self._next_split_person_id,
+                    uuid=new_uuid,
+                    version=new_person_version,
+                    created_at=int(time.time() * 1000),
+                )
+
+            pdi_version = (mapping_by_did[did].version or 0) + 101
+            mappings.remove(mapping_by_did[did])
+            target_mappings = self._distinct_ids.setdefault((request.team_id, new_person.id), [])
+            target_mappings[:] = [m for m in target_mappings if m.distinct_id != did]
+            target_mappings.append(person_pb2.DistinctIdWithVersion(distinct_id=did, version=pdi_version))
+            self._persons_by_distinct_id[(request.team_id, did)] = new_person
+
+            splits.append(
+                person_pb2.SplitResult(
+                    distinct_id=did,
+                    new_person_uuid=new_uuid,
+                    new_person_version=new_person_version,
+                    pdi_version=pdi_version,
+                    new_person_created_at_ms=new_person.created_at,
+                )
+            )
+
+        return person_pb2.SplitPersonResponse(splits=splits)
 
     # ── Assertion helpers ────────────────────────────────────────────
 

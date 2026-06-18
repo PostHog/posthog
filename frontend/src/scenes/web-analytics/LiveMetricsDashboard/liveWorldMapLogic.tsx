@@ -1,7 +1,7 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { getSeriesColor } from 'lib/colors'
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import type { liveWorldMapLogicType } from './liveWorldMapLogicType'

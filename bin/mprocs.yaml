@@ -200,7 +200,7 @@ procs:
             layer: Product services
             tech: Other
         env:
-            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -235,6 +235,116 @@ procs:
         groups:
             layer: Processing
             tech: Rust
+
+    agent-ingress:
+        # Re-source `.env.local` on every restart so an in-mprocs restart
+        # picks up vars added after the parent `bin/start` launched —
+        # specifically `AGENT_INGRESS_PUBLIC_URL`, which `bin/agent-tunnel`
+        # writes after the stack is already up. `set -a` exports every var
+        # read between it and `set +a`; we skip if the file is absent or
+        # contains 1Password `op://` refs that need `op run` to resolve.
+        shell: |-
+            bin/wait-for-docker && \
+            if [ -f .env.local ] && ! grep -q 'op://' .env.local; then \
+                set -a; . ./.env.local; set +a; \
+            fi && \
+            PORT=${AGENT_INGRESS_PORT:-3030} \
+            pnpm --filter @posthog/agent-ingress start:dev
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Product services
+            tech: Node
+
+    agent-runner:
+        # AGENT_DEV_MCP_BEARER_TOKEN can be set in `.env.local` so the concierge
+        # can reach the local MCP server at :8787/mcp with the operator's PAT.
+        # bin/start sources .env.local and exports vars; phrocs inherits.
+        # Refused at boot when NODE_ENV=production (services/agent-runner/src/index.ts).
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
+        capability: agent_runtime
+        ready_pattern: 'starting worker loop'
+        groups:
+            layer: Processing
+            tech: Node
+        env:
+            # /healthz liveness server port. Lines up after ingress (3030) and
+            # janitor (3031) so the local agent services increment cleanly.
+            AGENT_RUNNER_HEALTH_PORT: '3032'
+            # Local LLM analytics — same target the ai-gateway uses. Project
+            # token writes to the dev team's project; without this the runner
+            # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
+            POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
+            POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
+            # ai-gateway routing — every model call goes through the
+            # external Go gateway (github.com/PostHog/ai-gateway), brought
+            # up by the `ai-gateway` mprocs entry below via docker compose
+            # in the sibling repo at ~/Development/ai-gateway, port 8080.
+            # The runner resolves the owning team's `phc_` per session so
+            # POSTHOG_AI_GATEWAY_KEY isn't needed as a default bearer. Flip
+            # to 'false' to fall back to the direct-provider path
+            # (ANTHROPIC_API_KEY / OPENAI_API_KEY) — useful if the docker
+            # gateway is down and you don't want it autostarted.
+            # Setup: see products/agent_platform/docs/local-dev.md
+            # ("Local ai-gateway") for the sibling-clone + .env + ledger
+            # topup.
+            AGENT_USE_AI_GATEWAY: 'false'
+            POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
+            # S3-backed memory store. MinIO from the PostHog dev stack —
+            # bucket `posthog` is pre-created by docker-compose.base.yml. The
+            # runner writes via `@posthog/memory-*` tools; the janitor reads
+            # the same bucket via /memory/* HTTP endpoints. Both ENDPOINT
+            # and BUCKET must be set or the memory tools surface
+            # `memory_store_unavailable` to the agent.
+            AGENT_MEMORY_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_MEMORY_S3_BUCKET: 'posthog'
+            AGENT_MEMORY_S3_PREFIX: 'agent_memory'
+            AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # S3-backed bundle store. Same MinIO `posthog` bucket as memory,
+            # different prefix. Required at boot — the runner refuses to
+            # start sessions without bundle storage.
+            AGENT_BUNDLE_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_BUNDLE_S3_BUCKET: 'posthog'
+            AGENT_BUNDLE_S3_PREFIX: 'agent_bundles'
+            AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # Dev-only escape on the external-MCP SSRF guard so loopback /
+            # private-host URLs (e.g. http://localhost:8787/mcp) are reachable
+            # from the runner. index.ts refuses to set this when
+            # NODE_ENV=production.
+            AGENT_MCP_ALLOW_PRIVATE_HOSTS: 'true'
+
+    agent-janitor:
+        shell: |-
+            bin/wait-for-docker && \
+            PORT=${AGENT_JANITOR_PORT:-3031} \
+            pnpm --filter @posthog/agent-janitor start:dev
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Processing
+            tech: Node
+        env:
+            # Lights up GET /applications/:id/wallet — proxies the agent
+            # owner team's gateway balance for the agent console UI.
+            POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
+            # S3-backed memory store — same bucket the runner writes. Lights
+            # up the /memory/team/:team_id/agent/:application_id/* routes the
+            # Django AgentMemoryViewSet proxies through to.
+            AGENT_MEMORY_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_MEMORY_S3_BUCKET: 'posthog'
+            AGENT_MEMORY_S3_PREFIX: 'agent_memory'
+            AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # S3-backed bundle store. Same MinIO `posthog` bucket as memory,
+            # different prefix. Required at boot — the janitor refuses to
+            # serve bundle endpoints without storage.
+            AGENT_BUNDLE_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_BUNDLE_S3_BUCKET: 'posthog'
+            AGENT_BUNDLE_S3_PREFIX: 'agent_bundles'
+            AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
     cymbal:
         shell: |-
@@ -432,12 +542,7 @@ procs:
         ready_pattern: 'Application startup complete'
         groups:
             layer: Product services
-            tech: Python
-        env:
-            LLM_GATEWAY_DEBUG: 'true'
-            LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
-            LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
-            LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
+            tech: Go
 
     mcp:
         sandbox: true
@@ -503,6 +608,10 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    # agent_platform schema is now Django-owned in its product DB, migrated by
+    # the main `migrate` process (migrate_product_databases). The old node-side
+    # migrate-agent-runtime process was removed.
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'

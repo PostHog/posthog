@@ -392,7 +392,12 @@ export class HogExecutorService {
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
-                        result = await this.emailService.executeSendEmail(nextInvocation)
+                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
+                        // "this is a test send" signal — propagated into the email's tracking code.
+                        result = await this.emailService.executeSendEmail(
+                            nextInvocation,
+                            options?.sendEmailsInline ?? false
+                        )
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)

@@ -182,8 +182,11 @@ export function computeBarAtIndex({
         return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
     }
 
-    const topPixel = scales.value(stackedBand!.top[dataIndex])
-    const bottomPixel = scales.value(stackedBand!.bottom[dataIndex])
+    // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
+    // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
+    // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
+    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
     if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
         return null
     }
@@ -196,7 +199,7 @@ export function computeBarAtIndex({
     // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
     // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
     // rounding and the stack's outer edge stay put.
-    const sitsOnBaseline = Math.abs(bottomPixel - scales.value(0)) < 0.001
+    const sitsOnBaseline = Math.abs(bottomPixel - valueScale(0)) < 0.001
     const overlappedBottom = sitsOnBaseline
         ? bottomPixel
         : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)

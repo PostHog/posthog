@@ -3622,7 +3622,8 @@
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },

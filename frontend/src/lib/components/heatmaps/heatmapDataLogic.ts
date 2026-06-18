@@ -21,7 +21,7 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -29,6 +29,9 @@ import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
+
+// The endpoint defaults to a bounded page for API callers; the overlay renders every point.
+const UNBOUNDED_HEATMAP_LIMIT = 0
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -223,6 +226,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             aggregation,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
                     )}`

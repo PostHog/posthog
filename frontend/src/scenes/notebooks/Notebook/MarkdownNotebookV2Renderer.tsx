@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { MarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { InlineNotebookAIRunner } from './MarkdownNotebookAIChat'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'

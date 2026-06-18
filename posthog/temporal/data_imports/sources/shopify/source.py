@@ -20,6 +20,8 @@ from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONF
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     shopify_source,
@@ -47,6 +49,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                 "Your Shopify access token is missing the permissions required to read some of your data. "
                 "Please reconnect your Shopify integration and grant the requested access scopes."
             ),
+            # 402 Payment Required from the Admin API — the store is frozen for an unpaid
+            # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
         }
 
     @property

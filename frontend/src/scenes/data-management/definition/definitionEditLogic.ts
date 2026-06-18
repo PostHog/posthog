@@ -6,7 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { propertyAccessControlLogic } from 'scenes/data-management/definition/propertyAccessControlLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'

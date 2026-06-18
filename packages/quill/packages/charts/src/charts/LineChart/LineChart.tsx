@@ -1,7 +1,10 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { drawArea, drawAxes, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
+import { drawArea, drawAxes, drawGrid, drawLine, drawLineHoverPoints, drawPoints } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
+import { withVerticalClip } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
@@ -11,6 +14,7 @@ import {
     computeStackData,
     createScales as createLineScales,
     resolveYScaleForSeries,
+    toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
 import type { ScaleSet, StackedBand } from '../../core/scales'
@@ -21,12 +25,12 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     ResolvedSeries,
     Series,
     TooltipContext,
-    YAxisScale,
 } from '../../core/types'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
@@ -42,6 +46,7 @@ export interface LineChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -64,6 +69,7 @@ function LineChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -76,23 +82,25 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
     } = config ?? {}
 
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
+
     const hasMultipleFilledSeries = useMemo(() => {
-        const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
+        const filledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData)
         return filledSeries.length >= 2
-    }, [series])
+    }, [visibleSeries])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
-            return computePercentStackData(series, labels)
+            return computePercentStackData(visibleSeries, labels)
         }
         // Only stack when there are 2+ fillable series — a single area series has nothing to stack
         // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
         // renderer, which disables the gradient fill path.
         if (hasMultipleFilledSeries) {
-            return computeStackData(series, labels)
+            return computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [percentStackView, hasMultipleFilledSeries, series, labels])
+    }, [percentStackView, hasMultipleFilledSeries, visibleSeries, labels])
 
     const chartConfig = useMemo(() => {
         const base = { ...config, isPercent: percentStackView }
@@ -124,23 +132,15 @@ function LineChartInner<Meta = unknown>({
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
 
-            let yAxes: Record<string, YAxisScale> | undefined
-            if (d3Scales.yAxes) {
-                yAxes = {}
-                for (const [axisId, { scale, position }] of Object.entries(d3Scales.yAxes)) {
-                    yAxes[axisId] = {
-                        scale: (value: number) => scale(value),
-                        ticks: () => scale.ticks?.(yTickCount) ?? [],
-                        position,
-                    }
-                }
-            }
+            const yAxes = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
 
             // Stash raw d3 scales in the private slot so drawStatic can read them without
             // a side-channel ref — every render gets a self-contained ChartScales object,
             // which avoids strict-mode / concurrent-rendering races between the createScales
             // pass and the static-draw effect.
-            const lineChartPrivate: LineChartPrivate = { __lineChart: d3Scales }
+            const lineChartPrivate: LineChartPrivate = {
+                __lineChart: d3Scales,
+            }
 
             return {
                 x: (label: string) => d3Scales.x(label),
@@ -181,31 +181,28 @@ function LineChartInner<Meta = unknown>({
 
             // Clip vertically only: keep out-of-domain values (e.g. a trendline below 0) out of the
             // axis-label gutters, but span the full width so edge point markers/line caps render whole.
-            const CLIP_PAD = 8
-            ctx.save()
-            ctx.beginPath()
-            ctx.rect(0, dimensions.plotTop - CLIP_PAD, dimensions.width, dimensions.plotHeight + CLIP_PAD * 2)
-            ctx.clip()
+            withVerticalClip(ctx, dimensions, () => {
+                for (const s of coloredSeries) {
+                    if (s.visibility?.excluded) {
+                        continue
+                    }
 
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
+                    const drawCtx: DrawContext = {
+                        ...baseDrawCtx,
+                        yScale: resolveYScale(s),
+                    }
+                    const band = stackedData?.get(s.key)
+                    const yValues = band?.top
+
+                    if (s.fill) {
+                        drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
+                    }
+                    if (!s.fill?.lowerData) {
+                        drawLine(drawCtx, s, yValues)
+                        drawPoints(drawCtx, s, yValues)
+                    }
                 }
-
-                const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScale(s) }
-                const band = stackedData?.get(s.key)
-                const yValues = band?.top
-
-                if (s.fill) {
-                    drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
-                }
-                if (!s.fill?.lowerData) {
-                    drawLine(drawCtx, s, yValues)
-                    drawPoints(drawCtx, s, yValues)
-                }
-            }
-
-            ctx.restore()
+            })
         },
         [showGrid, showAxisLines, stackedData]
     )
@@ -215,26 +212,20 @@ function LineChartInner<Meta = unknown>({
             if (hoverIndex < 0) {
                 return false
             }
-            let drewAny = false
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded || s.fill?.lowerData) {
-                    continue
-                }
-                // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
-                // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
-                // values produces a highlight ring far outside the plot — skip them entirely.
-                if (s.overlay) {
-                    continue
-                }
+            // Overlays (moving averages, trend lines) and fill-between lower bounds opt out — in
+            // percent-stack mode the y-domain is [0, 1], so their raw values would ring far off-plot.
+            // `drawLineHoverPoints` handles those skips; we supply the stacked-top y per series.
+            return drawLineHoverPoints(ctx, coloredSeries, theme.backgroundColor ?? '#ffffff', (s) => {
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
-                const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
-                if (x != null && isFinite(y)) {
-                    drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
-                    drewAny = true
+                if (x == null) {
+                    return null
                 }
-            }
-            return drewAny
+                return {
+                    x,
+                    y: resolveYScaleForSeries(scales, s)(data[hoverIndex]),
+                }
+            })
         },
         [stackedData]
     )
@@ -245,22 +236,25 @@ function LineChartInner<Meta = unknown>({
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
-        <Chart
-            series={series}
-            labels={labels}
-            config={chartConfig}
-            theme={theme}
-            createScales={createScales}
-            drawStatic={drawStatic}
-            drawHover={drawHover}
-            tooltip={tooltip}
-            onPointClick={onPointClick}
-            className={className}
-            dataAttr={dataAttr}
-            resolveValue={resolveValue}
-            resolvePositionValue={resolvePositionValue}
-        >
-            {children}
-        </Chart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-line-legend">
+            <Chart
+                series={visibleSeries}
+                labels={labels}
+                config={chartConfig}
+                theme={theme}
+                createScales={createScales}
+                drawStatic={drawStatic}
+                drawHover={drawHover}
+                tooltip={tooltip}
+                onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
+                className={className}
+                dataAttr={dataAttr}
+                resolveValue={resolveValue}
+                resolvePositionValue={resolvePositionValue}
+            >
+                {children}
+            </Chart>
+        </ChartLegend>
     )
 }

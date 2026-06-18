@@ -8,6 +8,7 @@ import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
@@ -60,6 +61,7 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL
         )
@@ -913,6 +915,83 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
+        })
+    })
+
+    describe('postHogGetAccount', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+        }
+
+        const createAccountInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetAccount queues internal fetch with the external_id query param', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-secret-token' },
+            })
+        })
+
+        it('postHogGetAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{}])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
+
+        it('postHogGetAccount errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+
+        it('postHogGetAccount errors when the team has no secret API token', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('has no secret API token configured')
         })
     })
 
@@ -1861,6 +1940,7 @@ describe('Hog Executor', () => {
                     sesEndpoint: hub.SES_ENDPOINT,
                 },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL
             )

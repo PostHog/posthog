@@ -12,7 +12,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

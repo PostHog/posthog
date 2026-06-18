@@ -10,7 +10,7 @@ import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { InsightColor } from '~/types'
 

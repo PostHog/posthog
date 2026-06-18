@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { JSONContent, TTEditor } from 'lib/components/RichContentEditor/types'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'

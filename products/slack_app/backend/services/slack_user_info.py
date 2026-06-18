@@ -76,7 +76,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
             integration_id=integration.id, slack_user_id=slack_user_id
         ).first()
     except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
         return None
     if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
         return None
@@ -109,7 +109,7 @@ def persist_slack_user_info(integration: Integration, slack_user_id: str, user_i
             },
         )
     except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
 def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
@@ -138,7 +138,7 @@ def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_ema
             email__iexact=normalized_email,
         ).first()
     except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
         return None
     if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
         return None
@@ -202,7 +202,7 @@ def _purge_stale_email_rows(integration: Integration, normalized_email: str, kee
             email__iexact=normalized_email,
         ).exclude(slack_user_id=keep_slack_user_id).delete()
     except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
 def bot_user_id_cache_key(integration_id: int) -> str:

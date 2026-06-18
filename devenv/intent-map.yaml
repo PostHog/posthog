@@ -119,6 +119,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    agent_runtime:
+        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
+        requires: [core_infra]
+        docker_profiles: []
+
     # Node.js capability groups - control which consumers run to reduce event loop contention
     nodejs_cdp:
         description: 'Node.js CDP - destinations, webhooks, and realtime alerts'
@@ -391,6 +396,10 @@ intents:
         description: 'Endpoints (the product)'
         capabilities:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
+
+    agents:
+        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, plus the MCP server for authoring agents through Claude'
+        capabilities: [agent_runtime, mcp_server]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'

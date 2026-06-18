@@ -31,7 +31,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.features import fea
 logger = structlog.get_logger(__name__)
 
 
-_MODEL_S3_URI_ENV_VAR = "SESSION_INTERESTINGNESS_MODEL_S3_URI"
+_MODEL_S3_URI_ENV_VAR = "SESSION_SURFACING_MODEL_S3_URI"
 
 _BOOSTER: xgb.Booster | None = None
 # Cached tuple of `_BOOSTER.feature_names` to avoid the C++ → Python attribute
@@ -43,7 +43,7 @@ _BOOSTER_LOCK = threading.Lock()
 
 
 class ModelNotConfiguredError(RuntimeError):
-    """`SESSION_INTERESTINGNESS_MODEL_S3_URI` is not set."""
+    """`SESSION_SURFACING_MODEL_S3_URI` is not set."""
 
 
 def _fetch_from_s3(uri: str) -> str:
@@ -117,8 +117,29 @@ def warmup() -> None:
     fetch latency. Also surfaces `ModelNotConfiguredError` /
     `FeatureSchemaDriftError` / `MissingFeatureRangeError` at boot rather
     than on the first chunk.
+
+    Raises on any model problem — callers that must not crash (e.g. the shared
+    session-replay worker, where surfacing is one of several workflows) should
+    use `warmup_best_effort()` instead.
     """
     _load_booster()
+
+
+def warmup_best_effort() -> bool:
+    """`warmup()` that never raises — for the shared session-replay worker.
+
+    Surfacing scoring runs alongside other replay workflows on that worker, so a
+    model problem (env var unset, model missing from S3, schema drift) must not
+    take the whole pod down. Logs and returns False instead; the scoring
+    activities will then fail (and retry per their policy) until the model is
+    fixed, while the rest of the worker keeps running. Returns True on success.
+    """
+    try:
+        warmup()
+        return True
+    except Exception:
+        logger.exception("surfacing_scoring_sweep.warmup_failed_worker_continuing")
+        return False
 
 
 def get_feature_names() -> tuple[str, ...]:

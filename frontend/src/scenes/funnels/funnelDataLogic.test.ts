@@ -12,6 +12,7 @@ import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, Insig
 import {
     funnelResult,
     funnelResultTimeToConvert,
+    funnelResultTimeToConvertCompare,
     funnelResultTimeToConvertWithoutConversions,
     funnelResultTrends,
     funnelResultTrendsCompare,
@@ -939,6 +940,64 @@ describe('funnelDataLogic', () => {
                         { bin0: 367939, bin1: 441526, count: 1, id: 367939, label: '0.7%' },
                         { bin0: 441526, bin1: 515113, count: 0, id: 441526, label: '' },
                     ],
+                })
+            })
+
+            it('splits the current and previous periods when comparing', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.TimeToConvert,
+                    },
+                    compareFilter: { compare: true },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvertCompare.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    // Current period: the 'current'-tagged bins, on the shared boundaries.
+                    histogramGraphData: [
+                        expect.objectContaining({ bin0: 4, count: 74 }),
+                        expect.objectContaining({ bin0: 73591, count: 24 }),
+                        expect.objectContaining({ bin0: 147178, count: 10 }),
+                    ],
+                    // Previous period: the 'previous'-tagged bins, on the same boundaries.
+                    histogramGraphDataPrevious: [
+                        expect.objectContaining({ bin0: 4, count: 52 }),
+                        expect.objectContaining({ bin0: 73591, count: 31 }),
+                        expect.objectContaining({ bin0: 147178, count: 17 }),
+                    ],
+                })
+            })
+
+            it('has no previous-period data when not comparing', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvert.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    histogramGraphDataPrevious: null,
                 })
             })
         })

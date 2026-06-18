@@ -2,7 +2,7 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
+import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 export interface APIKeyTableRow {
     id: string

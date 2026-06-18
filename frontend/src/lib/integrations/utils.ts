@@ -1,4 +1,4 @@
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { IntegrationKind } from '~/types'
 
