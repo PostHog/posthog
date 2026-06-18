@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
 
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+logger = structlog.get_logger(__name__)
 
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
@@ -486,16 +489,32 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
 
     if not cdc_schemas:
+        # No active CDC schemas left — drop the extraction schedule so it stops firing.
+        # Logged because this silently stops all CDC sync for the source.
+        logger.info(
+            "Deleting CDC extraction schedule — no active CDC schemas",
+            source_id=str(source.id),
+            schedule_id=schedule_id,
+        )
         try:
             delete_external_data_schedule(schedule_id)
         except Exception:
-            pass
+            logger.exception("Failed to delete CDC extraction schedule", schedule_id=schedule_id)
         return
 
     min_interval = cdc_min_interval(schema.sync_frequency_interval for schema in cdc_schemas)
 
     temporal = sync_connect()
     schedule = get_cdc_extraction_schedule(source, min_interval)
+
+    logger.info(
+        "Syncing CDC extraction schedule",
+        source_id=str(source.id),
+        schedule_id=schedule_id,
+        create=create,
+        cdc_schema_count=len(cdc_schemas),
+        min_interval_seconds=min_interval.total_seconds(),
+    )
 
     if create:
         create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)

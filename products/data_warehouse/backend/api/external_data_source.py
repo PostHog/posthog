@@ -1824,9 +1824,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         on failure, or None on success. Callers decide whether to delete the source
         on failure (create flow does; enable_cdc does not).
         """
+        management_mode = payload.get("cdc_management_mode", "posthog")
+        logger.info(
+            "Setting up CDC resources for source",
+            source_id=str(source_model.pk),
+            source_type=source_model.source_type,
+            management_mode=management_mode,
+        )
+
         resource_fields, error = adapter.setup_resources(source_model, payload)
         if error is not None:
+            logger.warning(
+                "CDC resource setup failed",
+                source_id=str(source_model.pk),
+                source_type=source_model.source_type,
+                management_mode=management_mode,
+                error=error,
+            )
             return error
+
+        logger.info(
+            "CDC resources provisioned",
+            source_id=str(source_model.pk),
+            management_mode=management_mode,
+            slot_name=resource_fields.get("cdc_slot_name"),
+            publication_name=resource_fields.get("cdc_publication_name"),
+            resource_keys=sorted(resource_fields.keys()),
+        )
 
         job_inputs = dict(source_model.job_inputs or {})
         job_inputs.update(
