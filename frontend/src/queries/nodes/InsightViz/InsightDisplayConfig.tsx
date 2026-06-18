@@ -124,7 +124,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
 
     const isMetric = display === ChartDisplayType.Metric
-    const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric
+    const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric || isSlopeGraph
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
@@ -145,9 +145,9 @@ export function InsightDisplayConfig(): JSX.Element {
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isSlopeGraph
-    const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions && !isSlopeGraph
-    const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions && !isSlopeGraph) || isTrendsFunnel
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
+    const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
+    const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
     const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
@@ -266,13 +266,6 @@ export function InsightDisplayConfig(): JSX.Element {
                                       ? [{ label: () => <HideWeekendsFilter /> }]
                                       : []),
                                   ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
-                                  ...(isBoldNumber
-                                      ? [
-                                            { label: () => <BoldNumberShowTitleFilter /> },
-                                            { label: () => <BoldNumberShowSparklineFilter /> },
-                                            { label: () => <BoldNumberShowComparisonPillFilter /> },
-                                        ]
-                                      : []),
                               ],
                   },
               ]
@@ -302,7 +295,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!hideContinuousChartOptions && isTrends && display !== ChartDisplayType.CalendarHeatmap && !isSlopeGraph
+        ...(!hideContinuousChartOptions && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Y-axis scale',
