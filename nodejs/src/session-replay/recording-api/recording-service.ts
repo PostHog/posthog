@@ -136,7 +136,11 @@ export class RecordingService {
             )
             return { ok: true, data: result }
         } catch (error) {
-            if (error instanceof NoSuchKey || (error as Error)?.name === 'NoSuchKey') {
+            // `.message` is matched alongside `.name` because duplicate @smithy/core copies can split
+            // the schema TypeRegistry across module realms, making the SDK throw a bare `Error` with the
+            // code in `.message` (name `Error`) rather than the typed NoSuchKey exception.
+            const s3Error = error as Error
+            if (error instanceof NoSuchKey || s3Error?.name === 'NoSuchKey' || s3Error?.message === 'NoSuchKey') {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
                     key,
                     teamId,

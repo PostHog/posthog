@@ -43,7 +43,14 @@ const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingExcepti
 type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
 
 function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
-    return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
+    if (!(error instanceof Error)) {
+        return false
+    }
+    // Duplicate @smithy/core copies can split the schema TypeRegistry across module realms, in
+    // which case the SDK throws a bare `Error` carrying the code in `.message` (name `Error`)
+    // instead of the typed exception — so match on both `.name` and `.message`.
+    const names = SES_THROTTLE_ERROR_NAMES as readonly string[]
+    return names.includes(error.name) || names.includes(error.message)
 }
 
 /**

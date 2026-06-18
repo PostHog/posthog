@@ -272,6 +272,9 @@ describe('EmailService', () => {
                     () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
                 ],
                 ['ThrottlingException', () => new ThrottlingException('Rate exceeded')],
+                // Realm-split fallback: duplicate @smithy/core copies make the SDK throw a bare
+                // `Error` with the code in `.message` (name `Error`) instead of the typed exception.
+                ['bare Error with code in message', () => new Error('ThrottlingException')],
             ]
             it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
                 sendEmailSpy.mockRejectedValueOnce(makeError())

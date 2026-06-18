@@ -186,6 +186,16 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'not_found' })
         })
 
+        it('returns not_found when S3 surfaces NoSuchKey as a bare Error (split @smithy/core realm)', async () => {
+            // Duplicate @smithy/core copies make the SDK throw `new Error('NoSuchKey')` (code in
+            // .message, name 'Error') instead of the typed exception — must still map to not_found.
+            mockS3Send.mockRejectedValue(new Error('NoSuchKey'))
+
+            const result = await service.getBlock(validParams)
+
+            expect(result).toEqual({ ok: false, error: 'not_found' })
+        })
+
         it('propagates unexpected S3 errors', async () => {
             mockS3Send.mockRejectedValue(new Error('S3 network error'))
 
