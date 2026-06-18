@@ -1,75 +1,90 @@
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
-
 import { Meta, StoryObj } from '@storybook/react'
+import { ReactNode } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { LineGraphProps } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { SqlBarGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBarGraph'
+import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { ChartDisplayType } from '~/types'
 
-import { mswDecorator } from '~/mocks/browser'
+// Renders the quill-charts bar adapter (SqlBarGraph -> TimeSeriesBarChart) in isolation — just the
+// chart, not the whole insight scene. The `product-analytics-quill-sql-charts` flag only gates
+// routing in LineGraph, so it isn't needed when mounting SqlBarGraph directly.
 
-type Story = StoryObj<{}>
+const LABELS = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07']
 
-// Renders SQL bar charts through @posthog/quill-charts (TimeSeriesBarChart), gated behind the
-// `product-analytics-quill-sql-charts` flag — these stories pin it on. The legacy chart.js path is
-// covered when the flag is off.
+const dateColumn: AxisSeries<string>['column'] = {
+    name: 'day',
+    type: { name: 'DATE', isNumerical: false },
+    label: 'day',
+    dataIndex: 0,
+}
+
+const ySeries = (name: string, data: number[], dataIndex: number): AxisSeries<number | null> => ({
+    column: { name, type: { name: 'INTEGER', isNumerical: true }, label: name, dataIndex },
+    data,
+    settings: {},
+})
+
+const X_DATA: AxisSeries<string> = { column: dateColumn, data: LABELS }
+const Y_DATA: AxisSeries<number | null>[] = [
+    ySeries('Chrome', [40, 52, 48, 61, 55, 67, 70], 1),
+    ySeries('Firefox', [22, 19, 27, 24, 31, 28, 26], 2),
+    ySeries('Safari', [13, 17, 12, 19, 15, 21, 18], 3),
+]
+
+const baseProps: Omit<LineGraphProps, 'visualizationType' | 'chartSettings'> = {
+    xData: X_DATA,
+    yData: Y_DATA,
+}
+
+function ChartStage({ children }: { children: ReactNode }): JSX.Element {
+    return <div className="h-96 w-[720px] p-4">{children}</div>
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Insights/SQLBarChart',
     parameters: {
-        layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS],
-        testOptions: {
-            snapshotBrowsers: ['chromium'],
-            viewport: {
-                // needs a slightly larger width to push the rendered scene away from breakpoint boundary
-                width: 1300,
-                height: 720,
-            },
-        },
-        viewMode: 'story',
-        mockDate: '2022-03-11',
+        layout: 'centered',
+        testOptions: { snapshotBrowsers: ['chromium'], waitForSelector: 'canvas' },
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/persons/retention': sampleRetentionPeopleResponse,
-                '/api/environments/:team_id/persons/properties': samplePersonProperties,
-                '/api/projects/:team_id/groups_types': [],
-            },
-            post: {
-                '/api/projects/:team_id/cohorts/': { id: 1 },
-            },
-        }),
-    ],
 }
 
 export default meta
 
-const waitForCanvas = {
-    waitForSelector: '.DataVisualization canvas',
+type Story = StoryObj<{}>
+
+export const Bar: Story = {
+    render: () => (
+        <ChartStage>
+            <SqlBarGraph
+                {...baseProps}
+                visualizationType={ChartDisplayType.ActionsBar}
+                chartSettings={{ showLegend: true }}
+            />
+        </ChartStage>
+    ),
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-export const SQLBarChartQuill: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlBarChart.json')
-)
-SQLBarChartQuill.parameters = {
-    ...meta.parameters,
-    testOptions: { ...meta.parameters?.testOptions, ...waitForCanvas },
+export const StackedBar: Story = {
+    render: () => (
+        <ChartStage>
+            <SqlBarGraph
+                {...baseProps}
+                visualizationType={ChartDisplayType.ActionsStackedBar}
+                chartSettings={{ showLegend: true }}
+            />
+        </ChartStage>
+    ),
 }
 
-export const SQLStackedBarChartQuill: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlStackedBarChart.json')
-)
-SQLStackedBarChartQuill.parameters = {
-    ...meta.parameters,
-    testOptions: { ...meta.parameters?.testOptions, ...waitForCanvas },
+export const PercentStackedBar: Story = {
+    render: () => (
+        <ChartStage>
+            <SqlBarGraph
+                {...baseProps}
+                visualizationType={ChartDisplayType.ActionsStackedBar}
+                chartSettings={{ showLegend: true, stackBars100: true }}
+            />
+        </ChartStage>
+    ),
 }
-
-export const SQLPercentStackedBarChartQuill: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlPercentStackedBarChart.json')
-)
-SQLPercentStackedBarChartQuill.parameters = {
-    ...meta.parameters,
-    testOptions: { ...meta.parameters?.testOptions, ...waitForCanvas },
-}
-/* eslint-enable @typescript-eslint/no-var-requires */
