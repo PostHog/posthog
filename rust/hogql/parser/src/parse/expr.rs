@@ -4287,8 +4287,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // `a() b` (juxtaposition), `Int NULL` — is swallowed as raw text and
         // accepted, where cpp rejects. Both callers (param-mode loop and the
         // `parse_type_param_item` fall-back) route through here.
+        //
+        // `getText()` matches the item but never VISITS it, so the visitor-level
+        // "not supported" rejections (a `date '' ` / `timestamp ''` literal —
+        // `a(date '')` — and friends) must not fire during this grammar-only
+        // validation: cpp accepts them as raw param text. Suppress those checks
+        // for the validation parse only. (A genuine `ColumnTypeExprEnum` is
+        // already caught by `paren_body_is_enum_value_list` before we get here.)
         let validate_cp = self.checkpoint();
-        self.parse_expr_bp(0)?;
+        let prev_suppress = self.suppress_unvisited_clause_checks;
+        self.suppress_unvisited_clause_checks = true;
+        let validated = self.parse_expr_bp(0);
+        self.suppress_unvisited_clause_checks = prev_suppress;
+        validated?;
         if !matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) {
             return Err(self.err("type parameter is not a valid expression"));
         }

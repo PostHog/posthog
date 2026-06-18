@@ -266,7 +266,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     match self.peek() {
                         TokenKind::LParen => depth += 1,
                         TokenKind::RParen => depth -= 1,
-                        TokenKind::Eof => break,
+                        // EOF with the `(` still open is an unterminated clause —
+                        // cpp rejects ("mismatched input '<EOF>'"). This fires when
+                        // a `#`-comment inside the parens (`interpolate ( # 6 )`)
+                        // swallows the closing `)` to end-of-line; break-ing here
+                        // would silently accept it.
+                        TokenKind::Eof => {
+                            return Err(self.err("unterminated INTERPOLATE clause"))
+                        }
                         _ => {}
                     }
                     self.bump()?;
