@@ -4013,17 +4013,17 @@ snapshots:
     mcp-apps-surveys--stats--light:
         hash: v1.k794b7964.da67b48f277665016d143ea09d4471ca6f01f3b8a6d22e7fe0f3dc51b075e92a.l81wzNlVna0bTrWF2HHg1RkJaB7vXRpAIdMbNylhzCw
     mcp-apps-trends--area-chart--light:
-        hash: v1.k794b7964.a999deccedf5244f57f6566d676aacadc4ef4c94722473c68df6c554bd87ad3e.ZHF5IaBqQ0FqN3hgvVZVeLUVvbFI4-7lpT-kWfJFcow
+        hash: v1.k794b7964.fea141e4555bf7c84c7df7d28f440f1967cf46eed78c9df63daa191b42156569.osoYKiT_8UiEIKvjzLfRzJxA6gY3cT4eD1g66S-kD5Q
     mcp-apps-trends--bar-value-few-series--light:
         hash: v1.k794b7964.17235de255bc7d04240957e537b7bc76027c19471525218a28582af1298cd0b3.aA5Dz0x9KR6knEKP4CvKEtRoVS7z6TeKEtTY4_qoML0
     mcp-apps-trends--bar-value-many-breakdowns--light:
         hash: v1.k794b7964.407f0a6b71b45525e4d45d20e1e6af8f0b7a4345748af552b53df223fbcf576a.GnlWLZvvw78tfb9YT0og22-n8GDKTQs3487BrZiQi_8
     mcp-apps-trends--multi-series--light:
-        hash: v1.k794b7964.b3592fc2ce95288f8ca5aeccf3333734383d51c13e4bd495cac91285b6d894d1.26ymJ354sVR0hF1sQR3_Py4lPCNLBQI-d5qUWoBinvc
+        hash: v1.k794b7964.de9682bc3d1cacf6198fa053c98657bc296202e4e1e800c98208b0922724cc5d.17c9wz8bYgE3_74LEk8BY5z_gkAp4NZ95x1pkMvip-s
     mcp-apps-trends--single-series--light:
-        hash: v1.k794b7964.0237d655cb884729a1b01cd8d4bcbc2300e3bb42a6c6bc3f89c70cd206cc91ba.1vqtb4aI3CDKE_XTPD4SOrHfS57ty28sbg1OwXiLcX8
+        hash: v1.k794b7964.6be4744f9c45242fa0945d4cb820c40248b1cb4ec74634d41c11f24f387e87f4.bFA-jAc2ZyaPqEbXMc3jKI6YB2BXTVkJwNpR2jHeMv4
     mcp-apps-trends--time-series-bar--light:
-        hash: v1.k794b7964.36adcc571f4e889579cad4209857a6f63b5cb350adf7d0ccfeba9510360a689c.Ftkx3aKLXu_zFVXyG3nXcz5Syk9oU3OkOXrDSy2QujE
+        hash: v1.k794b7964.a62cfb1eb173fb526193bf9793266dfcedfec505418b6d168991c01ee3c4fd92.3oRewiRVOH-3Rf4IMK0gYKfvHyLCWoPOt0p6I0CkJ2s
     mcp-apps-workflows--active--light:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:
