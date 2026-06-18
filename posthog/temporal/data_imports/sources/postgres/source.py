@@ -54,6 +54,17 @@ PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
     "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
+    # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
+    # "FATAL: (ENOTFOUND) tenant/user <user> not found" — the project is paused/deleted or the
+    # pooler username/host is wrong. `get_non_retryable_errors` already handles this on the
+    # streaming path; map it here too so validation returns an actionable message instead of
+    # surfacing the expected user/upstream condition as captured error noise. Match the stable
+    # fragment and exclude the volatile username/host.
+    "(ENOTFOUND) tenant/user": (
+        "Your database connection pooler couldn't find the tenant or user. This usually means the "
+        "database project is paused or deleted, or the pooler username/host is wrong. Check that "
+        "your database is active and the connection details are correct."
+    ),
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
@@ -224,6 +235,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
+            ),
+            # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
+            # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
+            # "password authentication failed for user", so the password key above doesn't
+            # substring-match it and Temporal keeps retrying a credential mismatch only the customer
+            # can fix. PAM delegates to an external module (system password db, LDAP, etc.); a
+            # rejection here is a deterministic auth failure, not a transient blip. Match the stable
+            # fragment and exclude the volatile user/host.
+            "PAM authentication failed": (
+                "Your database rejected the credentials during PAM authentication "
+                '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
+                "through PAM (for example against the system password database or LDAP), and it "
+                "rejected the username or password. Check your credentials, then re-enable the sync."
             ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,

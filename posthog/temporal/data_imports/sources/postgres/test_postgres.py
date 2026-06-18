@@ -378,6 +378,33 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "SASL authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Postgres configured with `pam` auth in pg_hba.conf rejects bad credentials with this
+            # wording instead of "password authentication failed for user". Host/port are volatile.
+            'connection failed: connection to server at "98.87.250.60", port 5432 failed: FATAL:  PAM authentication failed for user "postgres"',
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  PAM authentication failed for user "myuser"',
+        ],
+    )
+    def test_pam_authentication_failed_is_non_retryable(self, source, error_msg):
+        # The PostgreSQL "password authentication failed for user" key doesn't substring-match the
+        # PAM wording, so confirm the dedicated key recognises it independent of host/port.
+        non_retryable = source.get_non_retryable_errors()
+        assert "PAM authentication failed" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
+
+    def test_pam_authentication_failed_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "98.87.250.60", port 5432 failed: '
+            'FATAL:  PAM authentication failed for user "postgres"'
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "PAM authentication failure should surface an actionable message"
+        assert "credentials" in friendly[0]
+
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
         # so confirm it's specifically the new key that recognises this message.
@@ -1404,6 +1431,14 @@ class TestValidateCredentialsErrorMapping:
                 "pool_size, or switch it to transaction mode) or reduce the number of concurrent "
                 "connections to your database, then try again.",
             ),
+            # Supabase/Supavisor pooler reports a missing tenant/user with a volatile username/host.
+            (
+                'connection failed: connection to server at "44.216.29.125", port 5432 failed: '
+                "FATAL:  (ENOTFOUND) tenant/user postgres.icjrfprdtrgjpxfpbrvx not found",
+                "Your database connection pooler couldn't find the tenant or user. This usually means the "
+                "database project is paused or deleted, or the pooler username/host is wrong. Check that "
+                "your database is active and the connection details are correct.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
@@ -1436,6 +1471,75 @@ class TestPostgresSchemaDiscovery:
         connection = mock.MagicMock()
         connection.cursor.return_value = cursor_context
         return connection
+
+    @pytest.mark.parametrize("n_drops", [1, 2, 3])
+    def test_get_schemas_retries_repeated_pooler_drops_during_discovery_query(self, n_drops: int):
+        # `n_drops` successive Supavisor pooler drops on the first discovery query
+        # ("(EDBHANDLEREXITED) DbHandler exited", XX000 InternalError_), then a healthy connection.
+        # Each drop must reconnect and rerun the whole connect-and-discover cycle on a fresh
+        # connection, recovering once the pooler stops dropping the upstream backend — so connect is
+        # called once per dropped attempt plus once for the successful one.
+        dropping_connections = [
+            self._drop_on_execute_connection(
+                psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information")
+            )
+            for _ in range(n_drops)
+        ]
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[*dropping_connections, good_connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == n_drops + 1
+        assert set(schemas.keys()) == {"public.users"}
+        for dropped in dropping_connections:
+            dropped.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_reraises_after_exhausting_retries_on_sustained_discovery_drop(self):
+        # When every attempt hits the pooler drop on the discovery query, discovery exhausts its
+        # bounded in-process retries and re-raises the original error for Temporal to retry the whole
+        # activity — it does not loop forever. With _MAX_SETUP_CONNECTION_DROPPED_RETRIES attempts,
+        # connect is called once per attempt and each connection is closed before the next reconnect.
+        dropping_connections = [
+            self._drop_on_execute_connection(
+                psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information")
+            )
+            for _ in range(_MAX_SETUP_CONNECTION_DROPPED_RETRIES)
+        ]
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=dropping_connections,
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.InternalError_):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == _MAX_SETUP_CONNECTION_DROPPED_RETRIES
+        for dropped in dropping_connections:
+            dropped.close.assert_called_once()
 
     def test_get_schemas_retries_transient_connection_drop_on_connect(self):
         # A transient drop on the discovery connect ("server closed the connection unexpectedly")

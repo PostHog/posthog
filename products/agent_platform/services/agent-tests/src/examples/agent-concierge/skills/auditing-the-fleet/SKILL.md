@@ -158,27 +158,11 @@ Report shape:
 Lead with the delta. A reviewer skimming the report wants "what's new
 or worse" in the first five lines, not a re-read of the last sweep.
 
-### 6. Post the Slack digest
+### 6. Done — the memory report is the deliverable
 
-The condensed projection of the TL;DR + the agents that need
-action. `slack-post-message` to the team's fleet-audit channel.
-
-**Resolving the channel.** The channel id is operator config, not
-something you invent:
-
-1. Look for it in memory: `memory-read` `config/fleet-audit.md`
-   (a `slack_channel: C0XXXXXXX` line). That's the source of truth.
-2. If it's not set, **skip the Slack post silently** — do not guess a
-   channel, do not fail the run. The memory report is complete on its
-   own; note `slack: not configured` in the report so the operator
-   knows to set `config/fleet-audit.md` if they want the digest.
-
-Slack mrkdwn, not markdown: bold is `*text*`, links are
-`<url|text>`, headers don't render. Keep it phone-readable — ~10–15
-lines, worst-first, link nothing the reader can't act on. If
-`slack-post-message` errors (`SLACK_BOT_TOKEN` missing / bad
-channel), log it in the report (`slack: failed — <reason>`) and
-finish — the report already landed, the run is not a failure.
+The structured report in memory (`reports/fleet-audit/{date}.md` plus
+`latest.md`) is the complete output of the sweep. Point the operator at
+it. There is no Slack post step — the concierge doesn't post to Slack.
 
 ## Scope guard — what this run must NOT do
 

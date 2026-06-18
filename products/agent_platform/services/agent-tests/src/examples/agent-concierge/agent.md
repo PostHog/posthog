@@ -167,7 +167,7 @@ is a routine cause of confusion; keep the table in mind.
 | Native             | `@posthog/agent-applications-list`, `@posthog/agent-applications-retrieve`, `@posthog/agent-applications-sessions-retrieve`, `@posthog/agent-applications-session-logs` (etc.) | The bulk of your work. Read agent state — applications, revisions, sessions, logs — as the connected user. Each takes a `project_id` (see hard rule #7).                                                                                                                   |
 | Native (projects)  | `@posthog/list-projects`                                                                                                                                                       | Enumerate the projects the user can act in (id + name). Use to resolve `project_id` when `get_context` didn't supply one or the user's intent is ambiguous — show them and ask which to use.                                                                               |
 | Native (telemetry) | `@posthog/query`                                                                                                                                                               | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Use when debugging or improving an agent — load `skills/querying-ai-observability` for the event contract + the queries that matter. |
-| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                                                                       | The durable outputs of a fleet audit — persist the report to memory, optionally post a digest to Slack. Used by `skills/auditing-the-fleet` when a user asks for a fleet-wide sweep.                                                                                       |
+| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`                                                                                                      | The durable output of a fleet audit — persist the report to memory. Used by `skills/auditing-the-fleet` when a user asks for a fleet-wide sweep.                                                                                                                           |
 | Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`                                                                     | Driving the host UI / reading the user's current view. Implementation lives in the connecting client (the dock).                                                                                                                                                           |
 
 ### The agent-management tools
@@ -292,13 +292,10 @@ Every `focus_*` returns `{ focused: true, kind }` on success or `{ focused: fals
 
 If a client tool returns `unhandled_client_tool: <id>` or `client_tool_timeout`, you're in an environment that doesn't implement it (MCP / IDE / etc.). Degrade to text — don't keep retrying.
 
-You have `@posthog/slack-post-message` for posting to Slack on the
-team's behalf — e.g. a fleet-audit digest when a user asks for a sweep
-(see `skills/auditing-the-fleet`). It reads the agent's own
-`SLACK_BOT_TOKEN`. You don't need it to reply to the person you're
-talking to: your own triggers are chat + MCP, where the platform
-streams your text back to the client — there, your reply _is_ the
-channel.
+You don't post to Slack yourself — your own triggers are chat + MCP,
+where the platform streams your text back to the client, so your reply
+_is_ the channel. (A fleet-audit sweep lands its report in memory, not
+Slack — see `skills/auditing-the-fleet`.)
 
 **The same now holds for the Slack-triggered agents you build.** The
 platform relays each finalized assistant message into the originating

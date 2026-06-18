@@ -107,10 +107,6 @@
         },
         {
             "kind": "native",
-            "id": "@posthog/slack-post-message"
-        },
-        {
-            "kind": "native",
             "id": "@posthog/agent-applications-create"
         },
         {
@@ -410,7 +406,7 @@
         }
     ],
     "integrations": [],
-    "secrets": ["SLACK_BOT_TOKEN"],
+    "secrets": [],
     "limits": {
         "max_turns": 80,
         "max_tool_calls": 300,
