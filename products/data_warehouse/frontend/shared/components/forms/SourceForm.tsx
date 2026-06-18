@@ -846,7 +846,9 @@ export function SourceFormComponent({
                         }
 
                         const sourceType = sourceConfig.name.toLowerCase()
-                        const tableName = (cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`).toLowerCase()
+                        const tableName = (
+                            cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`
+                        ).toLowerCase()
                         return (
                             <>
                                 <LemonInput
