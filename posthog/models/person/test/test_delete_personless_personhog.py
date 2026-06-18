@@ -16,6 +16,7 @@ from parameterized import parameterized
 from posthog.models.person import PersonlessDistinctId
 from posthog.models.team.util import _delete_personless_distinct_ids_for_teams
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamResponse
 
 
 class TestDeletePersonlessDistinctIdsForTeamsRouting(SimpleTestCase):
@@ -38,6 +39,28 @@ class TestDeletePersonlessDistinctIdsForTeamsRouting(SimpleTestCase):
             mock_raw_delete.assert_not_called()
         else:
             mock_raw_delete.assert_called_once_with(1)
+
+    @patch("posthog.models.team.util._raw_delete_personless_distinct_ids_for_team")
+    def test_personhog_loops_until_zero_deleted(self, mock_raw_delete):
+        # The real RPC returns the number of rows deleted per batch; the caller loops
+        # until it returns 0. The fake hardcodes 0, so override it with a sequence that
+        # forces the while loop to run multiple times before breaking.
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.delete_personless_distinct_ids_batch_for_team = MagicMock(
+                side_effect=[
+                    DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=10000),
+                    DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=42),
+                    DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0),
+                ]
+            )
+
+            _delete_personless_distinct_ids_for_teams([1])
+
+            # Looped until a batch returned 0: three calls, last returning 0.
+            assert fake.delete_personless_distinct_ids_batch_for_team.call_count == 3
+
+        # Personhog handled it — no ORM fallback.
+        mock_raw_delete.assert_not_called()
 
 
 class TestDeletePersonlessDistinctIdsForTeamsIntegration(BaseTest):
