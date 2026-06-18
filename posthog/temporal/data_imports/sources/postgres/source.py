@@ -54,6 +54,17 @@ PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
     "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
+    # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
+    # "FATAL: (ENOTFOUND) tenant/user <user> not found" — the project is paused/deleted or the
+    # pooler username/host is wrong. `get_non_retryable_errors` already handles this on the
+    # streaming path; map it here too so validation returns an actionable message instead of
+    # surfacing the expected user/upstream condition as captured error noise. Match the stable
+    # fragment and exclude the volatile username/host.
+    "(ENOTFOUND) tenant/user": (
+        "Your database connection pooler couldn't find the tenant or user. This usually means the "
+        "database project is paused or deleted, or the pooler username/host is wrong. Check that "
+        "your database is active and the connection details are correct."
+    ),
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
