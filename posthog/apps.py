@@ -43,6 +43,11 @@ class PostHogConfig(AppConfig):
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
+        if settings.COMMAND_EXEC_AUDIT_ENABLED:
+            from posthog.security.command_exec_audit import install as install_command_exec_audit  # noqa: PLC0415
+
+            install_command_exec_audit()
+
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]

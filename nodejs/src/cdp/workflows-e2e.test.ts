@@ -21,7 +21,7 @@ import { register } from 'prom-client'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -96,7 +96,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             return ActualKafkaProducerWrapper.create(...args)
         })
 
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
@@ -1362,7 +1362,7 @@ describe('Workflows E2E (email queue)', () => {
             return ActualKafkaProducerWrapper.create(...args)
         })
 
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 

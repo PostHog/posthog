@@ -667,11 +667,13 @@ class HogQLQueryExecutor:
             dialect=dialect,
         )
 
-        self.direct_sql = print_prepared_ast(
-            node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
-            context=direct_context,
-            dialect=dialect,
-            pretty=self.pretty if self.pretty is not None else True,
+        self.direct_sql = ensure_single_direct_statement(
+            print_prepared_ast(
+                node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
+                context=direct_context,
+                dialect=dialect,
+                pretty=self.pretty if self.pretty is not None else True,
+            )
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
