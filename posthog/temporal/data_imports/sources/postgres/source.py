@@ -241,6 +241,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
             ),
+            # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
+            # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
+            # "password authentication failed for user", so the password key above doesn't
+            # substring-match it and Temporal keeps retrying a credential mismatch only the customer
+            # can fix. PAM delegates to an external module (system password db, LDAP, etc.); a
+            # rejection here is a deterministic auth failure, not a transient blip. Match the stable
+            # fragment and exclude the volatile user/host.
+            "PAM authentication failed": (
+                "Your database rejected the credentials during PAM authentication "
+                '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
+                "through PAM (for example against the system password database or LDAP), and it "
+                "rejected the username or password. Check your credentials, then re-enable the sync."
+            ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
