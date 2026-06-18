@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
-from django.db.models import Count, Model, Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 from posthog.models.integration import (
     GitHubIntegration,
@@ -456,7 +456,15 @@ def match_all_bytecode() -> list[Any]:
     return create_bytecode(ast.ReturnStatement(expr=ast.Constant(value=True))).bytecode
 
 
-def _reorder_rules(model: type[Model], team_id: int, orders: dict[str, int]) -> None:
+_ReorderableRule = TypeVar(
+    "_ReorderableRule",
+    ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
+)
+
+
+def _reorder_rules(model: type[_ReorderableRule], team_id: int, orders: dict[str, int]) -> None:
     rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
     for rule in rules:
         rule.order_key = orders[str(rule.id)]
