@@ -408,7 +408,7 @@ export function stepsWithConversionMetrics(
             const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
             const conversionRates = {
                 fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
-                total: breakdown.count / firstBreakdownCount,
+                total: firstBreakdownCount === 0 ? 0 : breakdown.count / firstBreakdownCount,
             }
             return {
                 ...breakdown,

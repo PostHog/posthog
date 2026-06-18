@@ -100,7 +100,14 @@ import {
     supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FunnelVizType,
+    InsightLogicProps,
+    LabelGroupType,
+    SlowQueryPossibilities,
+} from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -223,9 +230,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, for the TRENDS and TIME_TO_CONVERT viz modes.
+                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
+                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
                 if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
-                    return true
+                    return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false
             },

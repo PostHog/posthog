@@ -622,6 +622,27 @@ describe('stepsWithConversionMetrics', () => {
         expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(1)
     })
 
+    it('compare mode — empty previous period → nested total is 0, not NaN', () => {
+        // The previous period is zeroed (backend skeleton), so its first-step count is 0.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 0), makeCompareStep(1, 100, 0)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // The empty previous series divides 0/0 — guarded to 0 so the tooltip shows 0%, not NaN%.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(Number.isNaN(result[0].nested_breakdown![1].conversionRates.total)).toBe(false)
+        expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [
