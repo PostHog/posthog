@@ -39,9 +39,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
+    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
@@ -452,6 +454,22 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<SplitPersonRequest>,
     ) -> Result<Response<SplitPersonResponse>, Status> {
         Ok(Response::new(SplitPersonResponse { splits: vec![] }))
+    }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        _request: Request<ResetPersonDistinctIdVersionRequest>,
+    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        Ok(Response::new(ResetPersonDistinctIdVersionResponse {
+            person: None,
+        }))
+    }
+
+    async fn reset_person_version(
+        &self,
+        _request: Request<ResetPersonVersionRequest>,
+    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        Ok(Response::new(ResetPersonVersionResponse { updated: false }))
     }
 }
 

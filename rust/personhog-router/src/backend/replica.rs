@@ -25,9 +25,10 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
+    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
 use tonic::codec::CompressionEncoding;
@@ -284,6 +285,20 @@ impl PersonHogBackend for ReplicaBackend {
         request: SplitPersonRequest,
     ) -> Result<SplitPersonResponse, Status> {
         retry_call!(self, split_person, request)
+    }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        request: ResetPersonDistinctIdVersionRequest,
+    ) -> Result<ResetPersonDistinctIdVersionResponse, Status> {
+        retry_call!(self, reset_person_distinct_id_version, request)
+    }
+
+    async fn reset_person_version(
+        &self,
+        request: ResetPersonVersionRequest,
+    ) -> Result<ResetPersonVersionResponse, Status> {
+        retry_call!(self, reset_person_version, request)
     }
 
     async fn check_cohort_membership(

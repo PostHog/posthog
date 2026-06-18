@@ -37,9 +37,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SplitPersonRequest, SplitPersonResponse, SplitResult as ProtoSplitResult,
-    TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    PersonsResponse, ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
+    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -1271,5 +1273,37 @@ impl PersonHogReplica for PersonHogReplicaService {
                 })
                 .collect(),
         }))
+    }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        request: Request<ResetPersonDistinctIdVersionRequest>,
+    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        let req = request.into_inner();
+
+        let person = self
+            .storage
+            .reset_person_distinct_id_version(req.team_id, &req.distinct_id, req.version)
+            .await
+            .map_err(|e| log_and_convert_error(e, "reset_person_distinct_id_version"))?;
+
+        Ok(Response::new(ResetPersonDistinctIdVersionResponse {
+            person: person.map(Into::into),
+        }))
+    }
+
+    async fn reset_person_version(
+        &self,
+        request: Request<ResetPersonVersionRequest>,
+    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        let req = request.into_inner();
+
+        let updated = self
+            .storage
+            .reset_person_version(req.team_id, req.person_id, req.min_version)
+            .await
+            .map_err(|e| log_and_convert_error(e, "reset_person_version"))?;
+
+        Ok(Response::new(ResetPersonVersionResponse { updated }))
     }
 }

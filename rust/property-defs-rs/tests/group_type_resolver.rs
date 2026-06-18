@@ -329,6 +329,18 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<SplitPersonResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn reset_person_distinct_id_version(
+        &self,
+        _: Request<ResetPersonDistinctIdVersionRequest>,
+    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn reset_person_version(
+        &self,
+        _: Request<ResetPersonVersionRequest>,
+    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

@@ -67,4 +67,8 @@ service PersonHogReplica {
 
   // Person split (temporary: same routing caveat as deletes above)
   rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);
+
+  // Undelete repair version resets (temporary: same routing caveat as deletes above)
+  rpc ResetPersonDistinctIdVersion(personhog.types.v1.ResetPersonDistinctIdVersionRequest) returns (personhog.types.v1.ResetPersonDistinctIdVersionResponse);
+  rpc ResetPersonVersion(personhog.types.v1.ResetPersonVersionRequest) returns (personhog.types.v1.ResetPersonVersionResponse);
 }

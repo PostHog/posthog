@@ -2578,3 +2578,100 @@ async fn test_split_person_each_did_gets_unique_person() {
 
     ctx.cleanup().await.ok();
 }
+
+// ============================================================
+// Undelete repair: reset version tests
+// ============================================================
+
+#[tokio::test]
+async fn test_reset_person_distinct_id_version_updates_and_returns_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("repair_did", None).await.unwrap();
+
+    let returned = ctx
+        .storage
+        .reset_person_distinct_id_version(ctx.team_id, "repair_did", 150)
+        .await
+        .expect("reset should succeed")
+        .expect("person should be returned");
+    assert_eq!(returned.id, person.id);
+    assert_eq!(returned.uuid, person.uuid);
+
+    let version: i64 = sqlx::query_scalar(
+        "SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_did")
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 150);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_reset_person_distinct_id_version_missing_returns_none() {
+    let ctx = TestContext::new().await;
+
+    let returned = ctx
+        .storage
+        .reset_person_distinct_id_version(ctx.team_id, "nonexistent_did", 10)
+        .await
+        .expect("reset should succeed");
+    assert!(returned.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_reset_person_version_guarded_bump() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("rv_did", None).await.unwrap();
+
+    // Bump above the current version (0).
+    let updated = ctx
+        .storage
+        .reset_person_version(ctx.team_id, person.id, 50)
+        .await
+        .unwrap();
+    assert!(updated);
+    let p = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.version, Some(50));
+
+    // A lower min_version is a no-op — the guard never lowers a version.
+    let updated = ctx
+        .storage
+        .reset_person_version(ctx.team_id, person.id, 10)
+        .await
+        .unwrap();
+    assert!(!updated);
+    let p = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.version, Some(50));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_reset_person_version_missing_person() {
+    let ctx = TestContext::new().await;
+
+    let updated = ctx
+        .storage
+        .reset_person_version(ctx.team_id, 999_999_999, 5)
+        .await
+        .unwrap();
+    assert!(!updated);
+
+    ctx.cleanup().await.ok();
+}

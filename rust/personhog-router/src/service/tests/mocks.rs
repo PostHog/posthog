@@ -22,9 +22,10 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
+    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -372,5 +373,21 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<SplitPersonResponse, Status> {
         self.check_error()?;
         Ok(SplitPersonResponse { splits: vec![] })
+    }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        _request: ResetPersonDistinctIdVersionRequest,
+    ) -> Result<ResetPersonDistinctIdVersionResponse, Status> {
+        self.check_error()?;
+        Ok(ResetPersonDistinctIdVersionResponse { person: None })
+    }
+
+    async fn reset_person_version(
+        &self,
+        _request: ResetPersonVersionRequest,
+    ) -> Result<ResetPersonVersionResponse, Status> {
+        self.check_error()?;
+        Ok(ResetPersonVersionResponse { updated: false })
     }
 }

@@ -27,9 +27,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    ResetPersonDistinctIdVersionRequest, ResetPersonDistinctIdVersionResponse,
+    ResetPersonVersionRequest, ResetPersonVersionResponse, SplitPersonRequest, SplitPersonResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 
@@ -345,6 +347,20 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<SplitPersonRequest>,
     ) -> Result<Response<SplitPersonResponse>, Status> {
         route_request!(self, split_person, request)
+    }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        request: Request<ResetPersonDistinctIdVersionRequest>,
+    ) -> Result<Response<ResetPersonDistinctIdVersionResponse>, Status> {
+        route_request!(self, reset_person_distinct_id_version, request)
+    }
+
+    async fn reset_person_version(
+        &self,
+        request: Request<ResetPersonVersionRequest>,
+    ) -> Result<Response<ResetPersonVersionResponse>, Status> {
+        route_request!(self, reset_person_version, request)
     }
 
     // Person property updates (routed to leader)

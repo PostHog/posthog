@@ -816,6 +816,92 @@ impl PersonLookup for PostgresStorage {
 
         Ok(results)
     }
+
+    async fn reset_person_distinct_id_version(
+        &self,
+        team_id: i64,
+        distinct_id: &str,
+        version: i64,
+    ) -> StorageResult<Option<Person>> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "reset_person_distinct_id_version".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
+        // Set the distinct_id's version and return its person in one round-trip.
+        // No row updated (distinct_id not re-used yet) yields no person.
+        let row = sqlx::query_as!(
+            Person,
+            r#"
+            WITH updated AS (
+                UPDATE posthog_persondistinctid
+                SET version = $3
+                WHERE team_id = $1 AND distinct_id = $2
+                RETURNING person_id
+            )
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
+                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                   p.properties_last_operation::text as "properties_last_operation?",
+                   p.created_at, p.version, p.is_identified,
+                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                   p.last_seen_at
+            FROM posthog_person p
+            INNER JOIN updated u ON p.id = u.person_id AND p.team_id = $1
+            "#,
+            team_id as i32,
+            distinct_id,
+            version
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+
+        Ok(row)
+    }
+
+    async fn reset_person_version(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        min_version: i64,
+    ) -> StorageResult<bool> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            ("operation".to_string(), "reset_person_version".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
+        // Guarded bump: never lowers an existing version.
+        let result = sqlx::query!(
+            r#"
+            UPDATE posthog_person
+            SET version = $3
+            WHERE team_id = $1 AND id = $2 AND version < $3
+            "#,
+            team_id as i32,
+            person_id,
+            min_version
+        )
+        .execute(&mut *conn)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 /// Delete a chunk of persons by integer ID in a single transaction:

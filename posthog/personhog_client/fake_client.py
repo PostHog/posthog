@@ -644,6 +644,34 @@ class FakePersonHogClient:
 
         return person_pb2.SplitPersonResponse(splits=splits)
 
+    # ── Undelete repair ───────────────────────────────────────────────
+
+    def reset_person_distinct_id_version(
+        self, request: person_pb2.ResetPersonDistinctIdVersionRequest, timeout: float | None = None
+    ) -> person_pb2.ResetPersonDistinctIdVersionResponse:
+        self.calls.append(_Call("reset_person_distinct_id_version", request))
+
+        person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
+        if person is None:
+            return person_pb2.ResetPersonDistinctIdVersionResponse()
+
+        for mapping in self._distinct_ids.get((request.team_id, person.id), []):
+            if mapping.distinct_id == request.distinct_id:
+                mapping.version = request.version
+        return person_pb2.ResetPersonDistinctIdVersionResponse(person=person)
+
+    def reset_person_version(
+        self, request: person_pb2.ResetPersonVersionRequest, timeout: float | None = None
+    ) -> person_pb2.ResetPersonVersionResponse:
+        self.calls.append(_Call("reset_person_version", request))
+
+        person = self._persons_by_id.get((request.team_id, request.person_id))
+        if person is None or person.version >= request.min_version:
+            return person_pb2.ResetPersonVersionResponse(updated=False)
+
+        person.version = request.min_version
+        return person_pb2.ResetPersonVersionResponse(updated=True)
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:

@@ -60,6 +60,8 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ResetPersonDistinctIdVersion",
+    "ResetPersonVersion",
     "SplitPerson",
     "UpdateGroup",
     "UpdateGroupTypeMapping",
