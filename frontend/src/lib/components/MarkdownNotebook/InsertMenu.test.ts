@@ -17,6 +17,7 @@ describe('buildInsertCommands', () => {
             noop,
             noop,
             undefined,
+            undefined,
             openSavedInsightPicker
         )
         return { commands, replaceNodeWithInsertedComponent }
