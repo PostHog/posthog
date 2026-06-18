@@ -365,8 +365,15 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
 
 ### Phase 6 — wire CI test selection
 
+> **DEFERRED to a follow-up PR** (product-owner decision). PR #64506 ships Phases 0–5 plus the Phase 3
+> e2e relocation; the CI per-lane test selection lands separately so this PR stays a pure
+> restructure/standardization and the workflow change can be reviewed on its own (it touches
+> `.github/workflows/` and must stay backwards-compatible with unrebased PRs). The items below are the
+> plan for that next PR.
+
 - [ ] Extend `dorny/paths-filter` to emit per-lane + common + cdp flags (lanes now under
-      `src/ingestion/lanes/<lane>/`; shared = `framework/`, `steps/`, `common/`).
+      `src/ingestion/lanes/<lane>/`; shared = `framework/`, `steps/`, `common/`; e2e tests under
+      `tests/ingestion/lanes/<lane>/`).
 - [ ] Gate jest runs by changed area; verify the rules table.
 - [ ] Update scripts/docs to the new layout.
 - [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
@@ -568,3 +575,14 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   already runs `tests/**` and only ignores `service-e2e|postgres-parity`, so the suites run unchanged, just
   relocated. Integration tests left co-located (only e2e was requested). Pushing for CI to confirm the
   relocated suites still run + pass.
+- Heuristic fired again: after the e2e-relocation push, the PR showed only scanner checks (9, no Node.js/
+  Backend) and GitHub reported `mergeable_state: dirty` — master had advanced 17 commits
+  (`5e175bbd..37a8942d`) into a conflict, so the `pull_request` workflows were skipped. Per the documented
+  rule, merged `origin/master`; git auto-resolved it cleanly (rename detection handled what GitHub flagged
+  as dirty — no manual conflict resolution needed this time). Re-validated the merged tree: static
+  import-resolution 0 broken (catches any master file referencing a moved path), guard 0, eslint 0 (incl.
+  the new `../` ban), prettier clean, tsc 15 errors all the pre-existing `src/cdp` hogvm/cyclotron baseline
+  (0 in ingestion/tests). Pushing the merge to clear `dirty` and re-trigger the full CI.
+- Phase 6 (CI per-lane test selection) DEFERRED to a follow-up PR (product-owner decision). This PR's scope
+  is now final: Phases 0–5 + the Phase 3 e2e relocation. Phase 6 (a `.github/workflows/` change) ships
+  separately so it can be reviewed on its own and kept backwards-compatible with unrebased PRs.
