@@ -743,6 +743,10 @@ class SignalReportViewSet(
         return self._apply_signal_report_ordering(queryset)
 
     def _parse_ordering_string(self, raw: str) -> list[str]:
+        # Skip an unrecognized clause rather than discarding the whole ordering. A stale
+        # sort field persisted by an older client should at worst lose that one tiebreak,
+        # not silently revert every sort back to the default (which reads as random order).
+        # An entirely-unrecognized string yields an empty list; callers fall back to the default.
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         clauses: list[str] = []
         for part in parts:
@@ -750,7 +754,7 @@ class SignalReportViewSet(
             name = part[1:] if descending else part
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
-                return self._default_signal_report_ordering_clauses
+                continue
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
