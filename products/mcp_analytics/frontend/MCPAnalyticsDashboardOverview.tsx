@@ -43,7 +43,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
-        <div className="flex flex-col gap-10" data-quill>
+        <div className="flex flex-col gap-4" data-quill>
             <div className="flex flex-wrap items-center gap-3">
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
