@@ -1597,15 +1597,27 @@ class TestPostgresSchemaDiscovery:
         connection.cursor.return_value = cursor_context
         return connection
 
-    def test_get_schemas_retries_pooler_drop_during_discovery_query(self):
-        # The connect can succeed and the pooler then drop the upstream backend on the first
-        # discovery query — Supavisor surfaces this as "(EDBHANDLEREXITED) connection to database
-        # closed" (XX000 InternalError_). The retry must span the discovery queries, not just the
-        # connect, so a fresh connection reruns discovery instead of escaping as captured error noise.
-        drop = psycopg.errors.InternalError_(
-            "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
-        )
-        dropped_connection = self._drop_on_execute_connection(drop)
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # The connect can succeed and the pooler then drop the upstream backend on the first
+            # discovery query — Supavisor surfaces this as "(EDBHANDLEREXITED) connection to database
+            # closed" (XX000 InternalError_).
+            psycopg.errors.InternalError_(
+                "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
+            ),
+            # Supavisor's transaction-mode pooler can't check out a backend for the discovery query
+            # and times out — "(ECHECKOUTTIMEOUT) ... in Transaction mode" (XX000 InternalError_).
+            # Transient pool saturation that recovers on reconnect, the same recovery as the drop above.
+            psycopg.errors.InternalError_(
+                "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 15000ms in Transaction mode"
+            ),
+        ],
+    )
+    def test_get_schemas_retries_pooler_transient_error_during_discovery_query(self, error):
+        # The retry must span the discovery queries, not just the connect, so a fresh connection
+        # reruns discovery instead of the transient pooler error escaping as captured error noise.
+        dropped_connection = self._drop_on_execute_connection(error)
         good_connection = self._mock_connection(
             [("public", "users")],
             [("public", "users", "id", "integer", "NO", 1)],
@@ -1625,44 +1637,11 @@ class TestPostgresSchemaDiscovery:
                     schema="",
                 )
 
-        # Drop on the first query reconnected and reran discovery — before the fix the retry only
-        # wrapped the connect, so the query-time drop escaped on the first attempt (call_count == 1).
+        # Error on the first query reconnected and reran discovery — before the fix the retry only
+        # wrapped the connect, so the query-time error escaped on the first attempt (call_count == 1).
         assert connect_mock.call_count == 2
         assert set(schemas.keys()) == {"public.users"}
         dropped_connection.close.assert_called_once()
-        good_connection.close.assert_called_once()
-
-    def test_get_schemas_retries_pooler_checkout_timeout_during_discovery_query(self):
-        # Supavisor's transaction-mode pooler can't check out a backend for the discovery query and
-        # times out — "(ECHECKOUTTIMEOUT) ... in Transaction mode" (XX000 InternalError_). It's
-        # transient pool saturation, so a reconnect after backoff must rerun discovery rather than
-        # escaping as captured error noise — the same recovery as the (EDBHANDLEREXITED) drop above.
-        checkout_timeout = psycopg.errors.InternalError_(
-            "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 15000ms in Transaction mode"
-        )
-        timed_out_connection = self._drop_on_execute_connection(checkout_timeout)
-        good_connection = self._mock_connection(
-            [("public", "users")],
-            [("public", "users", "id", "integer", "NO", 1)],
-        )
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
-            side_effect=[timed_out_connection, good_connection],
-        ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
-                schemas = get_schemas(
-                    host="localhost",
-                    port=5432,
-                    database="postgres",
-                    user="postgres",
-                    password="postgres",
-                    schema="",
-                )
-
-        assert connect_mock.call_count == 2
-        assert set(schemas.keys()) == {"public.users"}
-        timed_out_connection.close.assert_called_once()
         good_connection.close.assert_called_once()
 
     def test_get_schemas_does_not_retry_non_drop_error_during_discovery_query(self):
