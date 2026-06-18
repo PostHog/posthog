@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -288,6 +289,9 @@ export function InsightMeta({
     const refreshDisabledReason = nextRefreshFromNow
         ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
         : undefined
+    // The hover icon is desktop-only, so the always-visible "⋯" menu keeps refresh reachable on
+    // touch. Unlike the hover icon (which hides while refreshing) the menu item stays but disables.
+    const refreshMenuDisabledReason = refreshDisabledReason ?? (refreshInProgress ? 'Refreshing…' : undefined)
 
     const refreshControl =
         refresh && !refreshInProgress ? (
@@ -585,6 +589,13 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
+                        {refresh && (
+                            <DashboardTileRefreshDataButton
+                                onRefresh={refresh}
+                                disabledReason={refreshMenuDisabledReason}
+                                lastRefresh={insight.last_refresh}
+                            />
+                        )}
                         {/* More */}
                         {moreButtons && (
                             <>
@@ -594,7 +605,11 @@ export function InsightMeta({
                         )}
                     </>
                 }
-                moreTooltip={canEditInsight ? 'Rename, duplicate, export and more…' : 'Duplicate, export and more…'}
+                moreTooltip={
+                    canEditInsight
+                        ? 'Rename, duplicate, export, refresh and more…'
+                        : 'Duplicate, export, refresh and more…'
+                }
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
                 refreshControl={refreshControl}
             />
