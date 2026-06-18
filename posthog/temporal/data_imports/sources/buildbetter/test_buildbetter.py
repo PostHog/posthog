@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -131,6 +132,55 @@ class TestMakePaginatedRequest:
 
         saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
         assert saved_offsets == [page_size, page_size * 2]
+
+    def test_drops_optional_field_when_schema_rejects_it(self) -> None:
+        manager = _make_manager(can_resume=False)
+        logger = MagicMock()
+        schema_error = {"errors": [{"message": "field 'monologues' not found in type: 'interview'"}]}
+
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
+            session = session_cls.return_value
+            session.post.side_effect = [
+                _make_response(schema_error),
+                _make_response(_interview_payload(["i1"])),
+            ]
+
+            batches = list(
+                _make_paginated_request(
+                    api_key="key",
+                    endpoint_name="interviews",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert batches == [[{"id": "i1"}]]
+        assert session.post.call_count == 2
+        first_query = session.post.call_args_list[0].kwargs["json"]["query"]
+        retried_query = session.post.call_args_list[1].kwargs["json"]["query"]
+        assert "monologues" in first_query
+        assert "monologues" not in retried_query
+        # Same page is retried after dropping the field, not skipped
+        assert session.post.call_args_list[1].kwargs["json"]["variables"]["offset"] == 0
+
+    def test_non_droppable_schema_error_still_raises(self) -> None:
+        manager = _make_manager(can_resume=False)
+        logger = MagicMock()
+        schema_error = {"errors": [{"message": "field 'id' not found in type: 'interview'"}]}
+
+        with patch("posthog.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session") as session_cls:
+            session = session_cls.return_value
+            session.post.return_value = _make_response(schema_error)
+
+            with pytest.raises(Exception, match="BuildBetter GraphQL error"):
+                list(
+                    _make_paginated_request(
+                        api_key="key",
+                        endpoint_name="interviews",
+                        logger=logger,
+                        resumable_source_manager=manager,
+                    )
+                )
 
     def test_incremental_filter_passes_where_clause(self) -> None:
         manager = _make_manager(can_resume=False)

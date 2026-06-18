@@ -5,12 +5,12 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
-from posthog.temporal.ai.posthog_code_slack_interactivity import (
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
+from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
+from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
     PostHogCodeSlackTerminateTaskWorkflow,
     process_posthog_code_terminate_task_activity,
 )
-from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
-from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_conversation import (

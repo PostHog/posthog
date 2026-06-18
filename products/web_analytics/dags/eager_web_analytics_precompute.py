@@ -63,7 +63,7 @@ import dagster
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebStatsBreakdown
+from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
 from posthog.hogql.constants import LimitContext
 
@@ -278,13 +278,13 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
             # Self-check the warm actually did its job: the tile must resolve to a
-            # precompute read, not fall through to raw. `usedLazyPrecompute` is only
+            # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
             # (`created_at + TTL >= now`, TTL = 15min today … 7d old), so True is a
             # guarantee the precomputed value is well within the 2h threshold. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
-            if getattr(response, "usedLazyPrecompute", None) is not True:
+            if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
                 EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
                 with _OP_LOG_LOCK:
                     context.log.warning(

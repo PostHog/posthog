@@ -15,7 +15,10 @@ describe('supportSettingsLogic', () => {
                 'api/conversations/v1/email/status': { configs: [] },
             },
             post: {
-                'api/environments/:team_id/': (req: any) => [200, req.body],
+                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
+                'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                'api/conversations/v1/teams/channels': { channels: [] },
             },
         })
         initKeaTests()
@@ -72,6 +75,81 @@ describe('supportSettingsLogic', () => {
 
             logic.actions.updateCurrentTeamFailure('update failed')
             expect(logic.values.aiSuggestionsLoading).toBe(false)
+        })
+    })
+
+    describe('teamsChannelPairs selector', () => {
+        it('reads the teams_channels list when present', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    teams_channels: [
+                        { team_id: 't1', team_name: 'Team 1', channel_id: 'ch-1', channel_name: 'Ch 1' },
+                        { team_id: 't2', team_name: 'Team 2', channel_id: 'ch-2', channel_name: 'Ch 2' },
+                    ],
+                },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                teamsChannelPairs: [
+                    { team_id: 't1', team_name: 'Team 1', channel_id: 'ch-1', channel_name: 'Ch 1' },
+                    { team_id: 't2', team_name: 'Team 2', channel_id: 'ch-2', channel_name: 'Ch 2' },
+                ],
+            })
+        })
+
+        it('falls back to legacy scalar fields when teams_channels is absent', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    teams_team_id: 'legacy-team',
+                    teams_team_name: 'Legacy Team',
+                    teams_channel_id: 'legacy-ch',
+                    teams_channel_name: 'Legacy Channel',
+                },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                teamsChannelPairs: [
+                    {
+                        team_id: 'legacy-team',
+                        team_name: 'Legacy Team',
+                        channel_id: 'legacy-ch',
+                        channel_name: 'Legacy Channel',
+                    },
+                ],
+            })
+        })
+
+        it('returns an empty list when nothing is configured', async () => {
+            initKeaTests(true, { conversations_settings: { teams_enabled: true } } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ teamsChannelPairs: [] })
+        })
+    })
+
+    describe('teams channel pair actions', () => {
+        it('addTeamsChannelPair posts an add action and refreshes the team', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.addTeamsChannelPair('t1', 'ch-1')
+            })
+                .toDispatchActions(['addTeamsChannelPair', 'loadCurrentTeam', 'installTeamsApp'])
+                .toMatchValues({ teamsChannelPairLoading: null })
+        })
+
+        it('removeTeamsChannelPair posts a remove action and refreshes the team', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTeamsChannelPair('ch-1')
+            })
+                .toDispatchActions(['removeTeamsChannelPair', 'loadCurrentTeam', 'setTeamsChannelPairLoading'])
+                .toMatchValues({ teamsChannelPairLoading: null })
         })
     })
 })

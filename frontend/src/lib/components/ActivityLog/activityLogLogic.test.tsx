@@ -90,8 +90,8 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: (req) => {
-                        const isOnPageFour = req.url.searchParams.get('page') === '4'
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`]: ({ request }) => {
+                        const isOnPageFour = new URL(request.url).searchParams.get('page') === '4'
 
                         return [
                             200,

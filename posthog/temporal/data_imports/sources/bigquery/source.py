@@ -68,6 +68,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
+            # permission the Read API requires. The google.api_core PermissionDenied stringifies as
+            # "403 request failed: the user does not have 'bigquery.readsessions.create' permission
+            # for 'projects/<id>'", so neither the "Access Denied:"/403 keys nor "PermissionDenied:
+            # 403 request failed" cover this wording, and it retries forever. This is an IAM config
+            # problem on the customer's service account — retrying can't resolve it; the user must
+            # grant the missing permission (e.g. the BigQuery Read Session User role). Matched on the
+            # stable permission name rather than the volatile project id.
+            "bigquery.readsessions.create": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.create permission. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
             # Raised from schema discovery (`get_columns`) and query jobs when the configured
             # dataset/table doesn't exist in the location we query — the dataset was deleted or
             # renamed, or it lives in a different region than the one we run against. The google
@@ -75,6 +85,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
+            # more than the three `project.dataset.table` components. This happens when the
+            # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
+            # build `project.project.dataset.table` and the client rejects it. It's a deterministic
+            # config error, so retrying never succeeds.
+            "table_id must be a fully-qualified ID in standard SQL format": "Your BigQuery Dataset ID looks misconfigured — it should be just the dataset name (for example `analytics`), not `project.dataset`. Please update the Dataset ID in your source configuration.",
+            # Forbidden 403 with `reason: billingNotEnabled` — the customer's Google Cloud project
+            # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
+            # runs. There's nothing we can do but stop retrying until they enable billing.
+            "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
@@ -86,6 +106,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # proxy). Authentication can't succeed until the key file is fixed, so retrying just
             # hammers the endpoint and spams error tracking.
             BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
+            # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
+            # project hits an administrator-configured custom cost control, e.g. "Custom quota
+            # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
+            # your administrator.". This is a deliberate spend cap on the customer's GCP project,
+            # not a transient limit — retrying within the sync's retry window can't recover it (the
+            # cap resets on Google's daily schedule), so it just hammers the endpoint and spams
+            # error tracking. We match the stable "Custom quota exceeded" wording, which is distinct
+            # from transient rate-limit quota errors ("Quota exceeded: ..." / reason
+            # `rateLimitExceeded`) that must stay retryable.
+            "Custom quota exceeded": "Your BigQuery project hit a custom usage quota set by your administrator (for example QueryUsagePerDay). Raise the custom cost-control quota in Google Cloud, or reduce how much data you're syncing, then re-enable the source.",
         }
 
     def validate_credentials(
