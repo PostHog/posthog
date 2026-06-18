@@ -1711,6 +1711,7 @@ class TestFinalQueryMembershipStatuses:
         # The inner subquery is embedded correctly
         assert "SELECT id FROM nowhere" in sql
 
+
     def test_if_expression_matches_full_outer_join_semantics(self):
         """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
 
