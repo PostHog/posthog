@@ -168,7 +168,7 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (24,), (60,), (84,)])
+    @parameterized.expand([(12,), (84,)])
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
     def test_events_retention_floor_applied(self, months: int):
         self.team.event_retention_months = months

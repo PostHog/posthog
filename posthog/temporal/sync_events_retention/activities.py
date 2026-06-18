@@ -24,7 +24,9 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
         query_counter = 0
 
         logger.info("Syncing events retention for all teams...")
-        async for team in Team.objects.select_related("organization").only("id", "name", "event_retention_months"):
+        async for team in Team.objects.select_related("organization").only(
+            "id", "name", "organization", "event_retention_months"
+        ):
             organization = team.organization
             retention_feature = await database_sync_to_async(organization.get_available_feature)(
                 AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION

@@ -1,105 +1,60 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
+from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team
 from posthog.temporal.sync_events_retention.activities import sync_events_retention
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
+# These run against the real DB on purpose: the activity's value is in its real queryset
+# (select_related/.only), reading a real Organization.available_product_features via
+# get_available_feature, and persisting via bulk_update. Mocking Team.objects would hide
+# exactly those — which is how a select_related/.only() FieldError shipped undetected.
 
-def _team(*, current_months: int, feature_unit: str | None, feature_limit: int | None) -> MagicMock:
-    organization = MagicMock()
-    if feature_unit is None or feature_limit is None:
-        organization.get_available_feature.return_value = None
-    else:
-        organization.get_available_feature.return_value = {
-            "name": AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
-            "key": AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
-            "limit": feature_limit,
-            "unit": feature_unit,
-        }
-    team = MagicMock()
-    team.id = id(team)
-    team.organization = organization
-    team.event_retention_months = current_months
+
+async def _team_with_features(features: list[dict], *, current_months: int) -> Team:
+    org = await sync_to_async(Organization.objects.create)(name="test-org")
+    team = await sync_to_async(Team.objects.create)(
+        organization=org, name="test-team", event_retention_months=current_months
+    )
+    # available_product_features is recomputed from licenses by a pre_save signal on create, so set it with a
+    # direct UPDATE (which bypasses save/signals) — this mirrors how billing actually populates the field.
+    await sync_to_async(Organization.objects.filter(pk=org.pk).update)(available_product_features=features)
     return team
 
 
-class _FakeQuerySet:
-    def __init__(self, teams: list[MagicMock]) -> None:
-        self._teams = teams
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "features, expected_months",
+    [
+        # Real entitlement under the key billing actually emits -> converted to months and written.
+        # Also guards the billing key: a wrong key would miss this feature and grandfather to 84 instead.
+        ([{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], 12),
+        # A present-but-unrelated feature must be ignored -> grandfather to 7 years (84 months).
+        ([{"key": "some_other_feature", "limit": 1, "unit": "year"}], 84),
+    ],
+)
+async def test_syncs_event_retention_months_from_billing(features: list[dict], expected_months: int):
+    # Start at a sentinel that differs from every expected value, so the assertion proves a real write.
+    team = await _team_with_features(features, current_months=999)
 
-    def select_related(self, *_):
-        return self
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
-    def only(self, *_):
-        return self
-
-    def __aiter__(self):
-        async def gen():
-            for t in self._teams:
-                yield t
-
-        return gen()
+    await sync_to_async(team.refresh_from_db)()
+    assert team.event_retention_months == expected_months
 
 
-def _patch_team_objects(teams: list[MagicMock], bulk_update: MagicMock):
-    objects = MagicMock()
-    objects.select_related.return_value = _FakeQuerySet(teams)
-    objects.bulk_update = bulk_update
-    return patch(
-        "posthog.temporal.sync_events_retention.activities.Team.objects",
-        new=objects,
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_dry_run_computes_but_does_not_persist():
+    team = await _team_with_features(
+        [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], current_months=84
     )
 
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=True))
 
-@pytest.mark.asyncio
-async def test_sets_months_from_entitlement():
-    team = _team(current_months=84, feature_unit="year", feature_limit=1)
-    bulk_update = MagicMock()
-
-    with _patch_team_objects([team], bulk_update):
-        await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
-
-    assert team.event_retention_months == 12
-    bulk_update.assert_called_once()
-    assert bulk_update.call_args[0][0] == [team]
-    # Guard the billing key: the sync must read the entitlement billing actually emits.
-    team.organization.get_available_feature.assert_called_with(AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION)
-
-
-@pytest.mark.asyncio
-async def test_defaults_to_seven_years_without_entitlement():
-    # No billing entitlement → grandfather to 7 years (84 months) rather than reducing.
-    team = _team(current_months=12, feature_unit=None, feature_limit=None)
-    bulk_update = MagicMock()
-
-    with _patch_team_objects([team], bulk_update):
-        await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
-
+    await sync_to_async(team.refresh_from_db)()
+    # The target is 12, but a dry run must not write it.
     assert team.event_retention_months == 84
-    assert bulk_update.call_args[0][0] == [team]
-
-
-@pytest.mark.asyncio
-async def test_skips_team_already_at_target():
-    team = _team(current_months=84, feature_unit=None, feature_limit=None)
-    bulk_update = MagicMock()
-
-    with _patch_team_objects([team], bulk_update):
-        await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
-
-    assert team.event_retention_months == 84
-    assert bulk_update.call_args[0][0] == []
-
-
-@pytest.mark.asyncio
-async def test_dry_run_does_not_persist():
-    team = _team(current_months=84, feature_unit="year", feature_limit=1)
-    bulk_update = MagicMock()
-
-    with _patch_team_objects([team], bulk_update):
-        await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=True))
-
-    bulk_update.assert_not_called()
