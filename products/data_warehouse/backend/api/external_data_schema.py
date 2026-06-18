@@ -946,10 +946,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.exclude(deleted=True).prefetch_related("created_by")
+        # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
+        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        queryset = (
+            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+        )
         if self.action == "retrieve":
-            # retrieve serializes the source summary + table; pull them in one round-trip.
-            queryset = queryset.select_related("source", "table__credential", "table__external_data_source")
+            # retrieve additionally embeds the source summary + table credential.
+            queryset = queryset.select_related("source", "table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
