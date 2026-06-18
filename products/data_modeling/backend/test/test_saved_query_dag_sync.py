@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME

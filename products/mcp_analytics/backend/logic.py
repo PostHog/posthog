@@ -5,9 +5,9 @@ from django.core.cache import cache
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person import Person

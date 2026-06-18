@@ -1,9 +1,9 @@
 from datetime import timedelta
 from typing import Optional
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from common.hogql.property import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,

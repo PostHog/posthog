@@ -11,9 +11,9 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import apply_path_cleaning
+from common.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.models.team.team import Team

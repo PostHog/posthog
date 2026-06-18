@@ -6,9 +6,9 @@ from posthog.schema import (
     WebPageURLSearchQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 

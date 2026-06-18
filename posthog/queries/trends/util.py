@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.hogql import translate_hogql
+from common.hogql.hogql import translate_hogql
 
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity

@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.utils import BytecodeModelMixin, UUIDModel
 from posthog.rbac.decorators import field_access_control

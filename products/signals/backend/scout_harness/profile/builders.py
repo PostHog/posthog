@@ -31,10 +31,10 @@ from typing import Any
 from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration

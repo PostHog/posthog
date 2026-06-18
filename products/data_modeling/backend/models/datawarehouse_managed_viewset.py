@@ -6,7 +6,7 @@ from django.db import connection, models, transaction
 
 import structlog
 
-from posthog.hogql.database.models import (
+from common.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -82,7 +82,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # it builds a HogQL Database context, parses, and resolves each query. Doing
         # this inside the transaction held row locks for seconds across all 6 views.
         # Build the database once and reuse it for all views.
-        from posthog.hogql.database.database import Database
+        from common.hogql.database.database import Database
 
         database = Database.create_for(self.team.pk)
         external_tables_by_view: dict[str, list] = {}

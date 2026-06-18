@@ -6,8 +6,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.schema import SurveyQuestionType
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator

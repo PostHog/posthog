@@ -5305,7 +5305,7 @@ class HogQLQueryModifiers(BaseModel):
             " primary, cpp runs as a sampled shadow). `*_shadow` modes return the"
             " primary result and sample-compare against the other parser, reporting"
             " divergences without failing the request. The `rust_py_*` modes drive the"
-            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            " same hand-rolled Rust parser as `rust_*` but build `common.hogql.ast`"
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )

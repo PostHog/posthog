@@ -10,7 +10,7 @@ import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client

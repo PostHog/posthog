@@ -29,8 +29,8 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import EmbeddingModelName
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.api.mixins import ValidatedRequest, validated_request

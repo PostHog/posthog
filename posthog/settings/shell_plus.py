@@ -17,7 +17,7 @@ SHELL_PLUS_POST_IMPORTS = [
     ("posthog.models.filters", ("Filter",)),
     ("posthog.models.property", ("Property",)),
     ("posthog.clickhouse.client", ("sync_execute",)),
-    ("posthog.hogql", ("ast")),
-    ("posthog.hogql.parser", ("parse_select", "parse_expr")),
-    ("posthog.hogql.query", ("execute_hogql_query")),
+    ("common.hogql", ("ast")),
+    ("common.hogql.parser", ("parse_select", "parse_expr")),
+    ("common.hogql.query", ("execute_hogql_query")),
 ]

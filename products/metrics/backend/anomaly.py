@@ -15,9 +15,9 @@ import statistics
 from collections.abc import Callable
 from typing import Any
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team

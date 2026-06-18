@@ -5,8 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 
 from parameterized import parameterized
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
@@ -2606,7 +2606,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         ]
     )
     def test_extract_aggregate_name_canonicalizes_count_distinct(self, src, expected):
-        from posthog.hogql.parser import parse_expr as _parse_expr
+        from common.hogql.parser import parse_expr as _parse_expr
 
         from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
 
@@ -2622,7 +2622,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         ]
     )
     def test_extract_aggregate_name_canonicalizes_base_aggregates(self, src, expected):
-        from posthog.hogql.parser import parse_expr as _parse_expr
+        from common.hogql.parser import parse_expr as _parse_expr
 
         from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
 

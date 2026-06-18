@@ -30,7 +30,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models.group.util import create_group

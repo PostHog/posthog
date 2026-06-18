@@ -31,9 +31,9 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.property import property_to_expr
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.constants import CSV_EXPORT_LIMIT
+from common.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin

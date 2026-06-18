@@ -39,8 +39,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import (
+from common.hogql.constants import LimitContext
+from common.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )

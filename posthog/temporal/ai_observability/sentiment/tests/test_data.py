@@ -12,7 +12,7 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.ai_observability.sentiment.data import fetch_generations, fetch_generations_by_uuid
 

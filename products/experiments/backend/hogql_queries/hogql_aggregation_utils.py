@@ -1,8 +1,8 @@
 from typing import Optional, Union
 
-from posthog.hogql import ast
-from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
+from common.hogql.parser import parse_expr
 
 
 def is_aggregation_function(function_name: str) -> bool:

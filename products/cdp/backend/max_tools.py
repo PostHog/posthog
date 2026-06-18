@@ -6,8 +6,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from posthog.hogql import errors as hogql_errors
-from posthog.hogql.ai import (
+from common.hogql import errors as hogql_errors
+from common.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
     EVENT_TAXONOMY_MESSAGE,
@@ -22,7 +22,7 @@ from posthog.hogql.ai import (
     TRANSFORMATION_LIMITATIONS_MESSAGE,
     TRANSFORMATION_STRUCTURE_MESSAGE,
 )
-from posthog.hogql.parser import parse_program
+from common.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 

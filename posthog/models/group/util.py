@@ -381,8 +381,8 @@ def list_groups(
     key exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
     """
-    from posthog.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
-    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+    from common.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
+    from common.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     from posthog.models.team import Team  # noqa: PLC0415
 

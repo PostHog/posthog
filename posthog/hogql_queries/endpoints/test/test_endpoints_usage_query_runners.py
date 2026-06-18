@@ -13,7 +13,7 @@ from posthog.schema import (
     MaterializationType,
 )
 
-from posthog.hogql.printer import to_printed_hogql
+from common.hogql.printer import to_printed_hogql
 
 from posthog.hogql_queries.endpoints.endpoints_usage_overview import EndpointsUsageOverviewQueryRunner
 from posthog.hogql_queries.endpoints.endpoints_usage_query_runner import safe_float

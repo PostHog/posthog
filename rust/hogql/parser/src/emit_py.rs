@@ -1,9 +1,9 @@
-//! `PyEmitter` — `Emitter` impl that constructs `posthog.hogql.ast` dataclasses directly during parsing, bypassing the `serde_json::Value` intermediate tree.
+//! `PyEmitter` — `Emitter` impl that constructs `common.hogql.ast` dataclasses directly during parsing, bypassing the `serde_json::Value` intermediate tree.
 //!
 //! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay on `JsonEmitter` for the future WASM build (no CPython link) and for tests that compare on JSON shape.
 //!
 //! Construction strategy:
-//!  - All `posthog.hogql.ast` classes are looked up *once* at [`PyEmitter::new`] and stored as `Bound<'py, PyAny>` references — a `getattr(ast_module, "Constant")` per node would dominate runtime over the json round-trip we're trying to beat.
+//!  - All `common.hogql.ast` classes are looked up *once* at [`PyEmitter::new`] and stored as `Bound<'py, PyAny>` references — a `getattr(ast_module, "Constant")` per node would dominate runtime over the json round-trip we're trying to beat.
 //!  - Each emitter method builds a `PyDict` of kwargs and calls `class.call((), Some(&kwargs))`. The constructed object is wrapped in [`PyAst`] (which also tracks `positions_locked` for idempotent `with_pos` / `no_pos` semantics).
 //!
 //! Position handling:
@@ -24,7 +24,7 @@ use crate::emit::Emitter;
 // PyAst — AST value wrapper.
 // ============================================================================
 
-/// Wrapper around a Python AST object plus the out-of-band `positions_locked` flag. The underlying `posthog.hogql.ast.*` dataclasses use `slots=True` so they can't carry an arbitrary "positions locked" attribute; the wrapper carries it instead.
+/// Wrapper around a Python AST object plus the out-of-band `positions_locked` flag. The underlying `common.hogql.ast.*` dataclasses use `slots=True` so they can't carry an arbitrary "positions locked" attribute; the wrapper carries it instead.
 ///
 /// `obj` is unbound (`Py<PyAny>`, no GIL lifetime) so the wrapper can live alongside `Parser` without dragging a 'py through the parser's type signatures. Re-attach via `obj.bind(py)` inside emitter methods where `py: Python<'_>` is available.
 pub struct PyAst {
@@ -66,7 +66,7 @@ impl Clone for PyAst {
 // PyEmitter — caches AST class references and constructs nodes via class.call.
 // ============================================================================
 
-/// Constructs `posthog.hogql.ast` instances directly. Holds the GIL token + cached class references for the full duration of one parse.
+/// Constructs `common.hogql.ast` instances directly. Holds the GIL token + cached class references for the full duration of one parse.
 ///
 /// `Clone` is required by the Emitter trait bound — the parser clones the emitter into a sub-`Parser` for `f'{…}'` template blocks. Each `Bound<'py, _>` clone is just a refcount bump, so cloning the whole struct is ~60 refcount bumps — cheap compared to a parse round.
 #[derive(Clone)]
@@ -170,7 +170,7 @@ pub struct PyEmitter<'py> {
 
 impl<'py> PyEmitter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        let ast_module = py.import_bound("posthog.hogql.ast")?;
+        let ast_module = py.import_bound("common.hogql.ast")?;
         // Bind the StrEnum classes once for readability — not stored on the struct since the enum classes themselves are never read again after member extraction.
         let arith_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_enum = ast_module.getattr("CompareOperationOp")?;

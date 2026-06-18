@@ -21,7 +21,7 @@ from parameterized import parameterized
 
 from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
 
-from posthog.hogql.context import HogQLContext
+from common.hogql.context import HogQLContext
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 

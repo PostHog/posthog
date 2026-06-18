@@ -20,7 +20,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 

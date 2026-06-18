@@ -621,9 +621,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
 
-        from posthog.hogql import ast
-        from posthog.hogql.property import property_to_expr
-        from posthog.hogql.query import execute_hogql_query
+        from common.hogql import ast
+        from common.hogql.property import property_to_expr
+        from common.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries

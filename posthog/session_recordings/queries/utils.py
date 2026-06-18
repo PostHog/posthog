@@ -17,8 +17,8 @@ from posthog.schema import (
     QueryTiming,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr
+from common.hogql import ast
+from common.hogql.property import action_to_expr
 
 from posthog.models import Team
 from posthog.types import AnyPropertyFilter

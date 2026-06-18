@@ -19,9 +19,9 @@ from posthog.schema import (
     AssistantTrendsQuery,
 )
 
-from posthog.hogql.ai import SCHEMA_MESSAGE
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from common.hogql.ai import SCHEMA_MESSAGE
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin

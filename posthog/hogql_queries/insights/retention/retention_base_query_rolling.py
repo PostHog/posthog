@@ -1,5 +1,5 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 

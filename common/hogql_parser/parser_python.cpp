@@ -207,7 +207,7 @@ static PyMethodDef parser_methods[] = {
 
 static int parser_modexec(PyObject* module) {
   parser_state* state = get_module_state(module);
-  state->errors_module = PyImport_ImportModule("posthog.hogql.errors");
+  state->errors_module = PyImport_ImportModule("common.hogql.errors");
   if (!state->errors_module) {
     return -1;
   }

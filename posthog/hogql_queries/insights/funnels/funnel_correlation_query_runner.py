@@ -21,13 +21,13 @@ from posthog.schema import (
     HogQLQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.printer import to_printed_hogql
+from common.hogql.property import property_to_expr
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql_queries.insights.funnels import FunnelUDF

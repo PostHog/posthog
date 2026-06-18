@@ -9,8 +9,8 @@ import temporalio
 
 from posthog.schema import EmbeddingModelName
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries

@@ -124,8 +124,8 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     # Deferred: hogql.query pulls the whole query-runner layer, and this module loads
     # at django.setup() via the conversations signal wiring.
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+    from common.hogql import ast  # noqa: PLC0415
+    from common.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(

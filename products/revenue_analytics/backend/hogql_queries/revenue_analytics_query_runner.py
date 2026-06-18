@@ -16,10 +16,10 @@ from posthog.schema import (
     RevenueAnalyticsTopCustomersQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery, Table
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.database.database import Database
+from common.hogql.database.models import SavedQuery, Table
+from common.hogql.property import property_to_expr
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext

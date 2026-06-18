@@ -43,8 +43,8 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext

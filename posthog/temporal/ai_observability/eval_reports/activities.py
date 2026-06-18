@@ -7,7 +7,7 @@ import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.types import (
@@ -69,8 +69,8 @@ async def fetch_count_triggered_eval_reports_activity(
 
     @database_sync_to_async(thread_sensitive=False)
     def check_reports() -> tuple[list[str], int, int, int]:
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.query import execute_hogql_query
+        from common.hogql.parser import parse_select
+        from common.hogql.query import execute_hogql_query
 
         from posthog.clickhouse.query_tagging import Feature, Product, tags_context
         from posthog.models import Team
@@ -177,8 +177,8 @@ def _find_nth_eval_timestamp(
     Returns the timestamp so the report window covers exactly the last N evals.
     Falls back to 24h ago if there are fewer than N results.
     """
-    from posthog.hogql.parser import parse_select
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.parser import parse_select
+    from common.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models import Team

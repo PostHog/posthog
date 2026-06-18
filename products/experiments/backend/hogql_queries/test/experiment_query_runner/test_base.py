@@ -21,7 +21,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for

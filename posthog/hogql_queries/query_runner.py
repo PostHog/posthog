@@ -71,16 +71,16 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
-from posthog.hogql.warehouse_warnings import accumulator_scope
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.modifiers import create_default_modifiers_for_user
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.query import create_default_modifiers_for_team
+from common.hogql.timings import HogQLTimings
+from common.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
+from common.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result

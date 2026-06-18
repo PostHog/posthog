@@ -440,8 +440,8 @@ WHERE or(equals(event, '$pageview'), equals(event, '$screen'))
 To print the HogQL syntax in tests instead of ClickHouse SQL:
 
 ```python
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.context import HogQLContext
 
 # In your test
 runner = WebOverviewQueryRunner(team=team, query=query)

@@ -12,7 +12,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.data_imports.signals.fetchers.data_warehouse import data_warehouse_record_fetcher
 from posthog.temporal.data_imports.signals.pipeline import (

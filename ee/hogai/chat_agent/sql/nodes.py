@@ -2,7 +2,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import DataVisualizationNode
 
-from posthog.hogql.context import HogQLContext
+from common.hogql.context import HogQLContext
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 

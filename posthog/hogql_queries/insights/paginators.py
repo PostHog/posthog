@@ -5,14 +5,14 @@ from typing import Any, Union, cast
 
 from posthog.schema import HogQLQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.constants import (
+from common.hogql import ast
+from common.hogql.constants import (
     DEFAULT_RETURNED_ROWS,
     LimitContext,
     get_default_limit_for_context,
     get_max_limit_for_context,
 )
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 
 class HogQLHasMorePaginator:

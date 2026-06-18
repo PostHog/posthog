@@ -19,7 +19,7 @@ from posthog.schema import (
     WebGoalsQuery,
 )
 
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Person

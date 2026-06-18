@@ -2,14 +2,14 @@ from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import (
+from common.hogql import ast
+from common.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     create_channel_type_expr,
     wrap_with_null_if_empty,
 )
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.property import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (

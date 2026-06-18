@@ -3,7 +3,7 @@ from types import TracebackType
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,

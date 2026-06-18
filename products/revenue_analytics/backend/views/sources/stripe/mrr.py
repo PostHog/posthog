@@ -1,4 +1,4 @@
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 

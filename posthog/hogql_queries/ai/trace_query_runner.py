@@ -14,9 +14,9 @@ from posthog.schema import (
     TraceQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.property import property_to_expr
 
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.hogql_queries.ai.utils import merge_heavy_properties

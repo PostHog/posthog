@@ -23,9 +23,9 @@ from posthog.schema import (
     WebVitalsPathBreakdownQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
+from common.hogql import ast
+from common.hogql.property import property_to_expr
+from common.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models.team import Team
 

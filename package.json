@@ -23,8 +23,8 @@
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
         "grammar:build": "pnpm grammar:build:python && pnpm grammar:build:cpp",
-        "grammar:build:python": "cd posthog/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
-        "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
+        "grammar:build:python": "cd common/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
+        "grammar:build:cpp": "cd common/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "build:products": "pnpm --filter=@posthog/frontend run build:products",
         "generate:source-configs": "DEBUG=1 python manage.py generate_source_configs",
         "// DEPRECATED - use hogli migrations:run instead": "",
@@ -102,7 +102,7 @@
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
-        "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
+        "!(common/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
             "uv run ty check"

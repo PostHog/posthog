@@ -14,10 +14,10 @@ from posthog.schema import (
     PropertyGroupFilterValue,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries

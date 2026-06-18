@@ -1,8 +1,8 @@
 from posthog.schema import FilterLogicalOperator, PropertyGroupFilterValue, RecordingsQuery
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.property import property_to_expr
 
 from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery

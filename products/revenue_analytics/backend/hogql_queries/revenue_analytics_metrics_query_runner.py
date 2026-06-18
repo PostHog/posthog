@@ -9,9 +9,9 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.database.models import UnknownDatabaseField
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION

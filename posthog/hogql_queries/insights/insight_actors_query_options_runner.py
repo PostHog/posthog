@@ -6,7 +6,7 @@ from posthog.schema import (
     InsightActorsQueryOptionsResponse,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner

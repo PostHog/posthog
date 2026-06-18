@@ -80,7 +80,7 @@ def get_user_blast_radius_persons(
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
     """Calculate blast radius for person-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -108,8 +108,8 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
+    from common.hogql import ast
+    from common.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
     if return_count:
@@ -161,7 +161,7 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
 
 def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> tuple[int, int]:
     """Calculate blast radius for group-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -206,8 +206,8 @@ def _build_group_query(
     cursor: Optional[str] = None,
 ):
     """Build HogQL AST query to count or select distinct groups matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
+    from common.hogql import ast
+    from common.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
     if return_count:
@@ -415,7 +415,7 @@ def _build_group_query(
 
 def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     # Build the SELECT query to get person IDs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
@@ -435,7 +435,7 @@ def _get_group_blast_radius_persons(
     team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 

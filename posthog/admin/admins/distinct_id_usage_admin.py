@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from common.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.distinct_id_usage.sql import TABLE_BASE_NAME

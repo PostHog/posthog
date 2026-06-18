@@ -22,8 +22,8 @@ from rest_framework_csv.renderers import CSVRenderer
 
 from posthog.schema import QuerySchemaRoot
 
-from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
-from posthog.hogql.query import LimitContext
+from common.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
+from common.hogql.query import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource

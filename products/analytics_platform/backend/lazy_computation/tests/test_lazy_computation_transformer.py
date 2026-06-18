@@ -7,10 +7,10 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
@@ -33,7 +33,7 @@ class TestPatternDetection(BaseTest):
     """Tests for individual pattern detection functions."""
 
     def test_is_person_id_field(self):
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         # Positive cases
         assert _is_person_id_field(ast.Field(chain=["person_id"]))
@@ -49,7 +49,7 @@ class TestPatternDetection(BaseTest):
         assert not _is_person_id_field(ast.Field(chain=["event"]))
 
     def test_is_timestamp_field(self):
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         context = HogQLContext(team_id=self.team.pk, team=self.team)
 
@@ -64,8 +64,8 @@ class TestPatternDetection(BaseTest):
         assert not _is_timestamp_field(ast.Constant(value="timestamp"), context)
 
     def test_is_pageview_filter(self):
-        from posthog.hogql import ast
-        from posthog.hogql.ast import CompareOperationOp
+        from common.hogql import ast
+        from common.hogql.ast import CompareOperationOp
 
         # Positive cases: event = '$pageview'
         expr1 = ast.CompareOperation(
@@ -92,7 +92,7 @@ class TestPatternDetection(BaseTest):
         assert not _is_pageview_filter(expr4)
 
     def test_is_uniq_exact_persons_call(self):
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         # Positive cases: uniqExact(person_id)
         expr1 = ast.Call(name="uniqExact", args=[ast.Field(chain=["person_id"])])
@@ -123,7 +123,7 @@ class TestPatternDetection(BaseTest):
         assert not _is_uniq_exact_persons_call(expr7)
 
     def test_is_to_start_of_day_timestamp(self):
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         context = HogQLContext(team_id=self.team.pk, team=self.team)
 
@@ -151,8 +151,8 @@ class TestPatternDetection(BaseTest):
         assert not _is_to_start_of_day_timestamp(expr5, context)
 
     def test_extract_timestamp_range(self):
-        from posthog.hogql import ast
-        from posthog.hogql.ast import CompareOperationOp
+        from common.hogql import ast
+        from common.hogql.ast import CompareOperationOp
 
         context = HogQLContext(team_id=self.team.pk, team=self.team)
 
@@ -177,7 +177,7 @@ class TestPatternDetection(BaseTest):
         assert end_dt == datetime(2024, 2, 1, 0, 0, 0)
 
     def test_flatten_and(self):
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         # Simple case: already flat
         expr1 = ast.Constant(value=1)

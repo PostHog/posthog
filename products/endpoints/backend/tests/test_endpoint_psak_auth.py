@@ -6,7 +6,7 @@ from django.core.cache import cache
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.hogql.database.database import _compute_system_table_access_decision
+from common.hogql.database.database import _compute_system_table_access_decision
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -187,7 +187,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             captured.setdefault("results", []).append(result)
             return result
 
-        with patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy):
+        with patch("common.hogql.database.database._compute_system_table_access_decision", side_effect=spy):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
                 data={},

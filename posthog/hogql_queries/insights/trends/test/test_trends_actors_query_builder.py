@@ -24,15 +24,15 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.lazy_tables import find_field_chains
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql import ast
+from common.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from common.hogql.context import HogQLContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.timings import HogQLTimings
+from common.hogql.transforms.lazy_tables import find_field_chains
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder

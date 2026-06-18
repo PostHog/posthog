@@ -23,8 +23,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner

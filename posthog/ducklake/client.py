@@ -72,9 +72,9 @@ def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str,
     ``postgres_sql``; callers must pass it to ``cursor.execute(sql, values)`` or
     the query will fail with an unbound-placeholder error.
     """
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.parser import parse_select
-    from posthog.hogql.printer.utils import prepare_and_print_ast
+    from common.hogql.context import HogQLContext
+    from common.hogql.parser import parse_select
+    from common.hogql.printer.utils import prepare_and_print_ast
 
     parsed = parse_select(query.query)
     # Separate context for the Postgres print — the HogQL round-trip below shouldn't

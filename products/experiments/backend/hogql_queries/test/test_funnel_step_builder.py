@@ -11,8 +11,8 @@ from parameterized import parameterized
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 

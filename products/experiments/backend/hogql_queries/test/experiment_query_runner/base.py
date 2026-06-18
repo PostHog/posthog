@@ -25,7 +25,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
+TEST_BUCKET = "test_storage_bucket-common.hogql.experiments.queryrunner"
 
 
 @override_settings(IN_UNIT_TESTING=True)

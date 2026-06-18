@@ -6,10 +6,10 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-from posthog.hogql import ast
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
+from common.hogql import ast
+from common.hogql.hogql import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_ast_for_printing
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, Team

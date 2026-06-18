@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, QueryErrorCategory
 

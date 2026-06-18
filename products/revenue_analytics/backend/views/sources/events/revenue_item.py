@@ -1,5 +1,5 @@
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import (
+from common.hogql import ast
+from common.hogql.database.schema.exchange_rate import (
     currency_expression_for_events,
     revenue_comparison_and_value_exprs_for_events,
 )

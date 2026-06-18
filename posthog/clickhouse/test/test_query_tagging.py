@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (

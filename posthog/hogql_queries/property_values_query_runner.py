@@ -16,8 +16,8 @@ from posthog.schema import (
     PropertyValuesQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.caching.utils import (
     ThresholdMode,

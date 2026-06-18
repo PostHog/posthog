@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from posthog.schema import CacheMissResponse, DashboardFilter
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries

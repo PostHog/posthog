@@ -9,8 +9,8 @@ if TYPE_CHECKING:
 
 from posthog.schema import NativeMarketingSource, SourceMap
 
-from posthog.hogql import ast
-from posthog.hogql.database.database import Database
+from common.hogql import ast
+from common.hogql.database.database import Database
 
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter

@@ -1,6 +1,6 @@
 from posthog.schema import SubscriptionDropoffMode
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA

@@ -6,8 +6,8 @@ import structlog
 
 from posthog.schema import DateRange, NativeMarketingSource
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

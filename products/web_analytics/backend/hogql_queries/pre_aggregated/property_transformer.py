@@ -1,5 +1,5 @@
-from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.visitor import CloningVisitor
 
 
 class PreAggregatedPropertyTransformer(CloningVisitor):

@@ -2,9 +2,9 @@ from collections.abc import Callable
 
 from posthog.schema import ExperimentEventExposureConfig, MultipleVariantHandling
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.property import property_to_expr
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter

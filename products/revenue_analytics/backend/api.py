@@ -10,9 +10,9 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind, ProductKey
 
-from posthog.hogql import ast
-from posthog.hogql.database.database import Database
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.database.database import Database
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin

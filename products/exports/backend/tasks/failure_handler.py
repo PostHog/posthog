@@ -7,7 +7,7 @@ from clickhouse_driver.errors import SocketTimeoutError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
-from posthog.hogql.errors import (
+from common.hogql.errors import (
     QueryError,
     ResolutionError,
     SyntaxError as HogQLSyntaxError,

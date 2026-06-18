@@ -26,7 +26,7 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context

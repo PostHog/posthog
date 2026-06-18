@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 

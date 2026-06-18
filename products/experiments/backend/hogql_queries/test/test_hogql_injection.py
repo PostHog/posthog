@@ -2,8 +2,8 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 

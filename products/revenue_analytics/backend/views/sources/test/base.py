@@ -8,7 +8,7 @@ and API testing.
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery
 from products.revenue_analytics.backend.views.schemas import Schema

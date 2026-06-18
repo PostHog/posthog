@@ -1,0 +1,78 @@
+from typing import Optional
+
+from django.conf import settings
+
+from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
+from common.hogql.base import Expr
+from common.hogql.context import HogQLContext
+from common.hogql.database.models import FunctionCallTable
+from common.hogql.escape_sql import escape_hogql_identifier
+
+PERSONS_DB_MODELS = _resolve_backend_symbol("posthog.person_db_router", "PERSONS_DB_MODELS")
+APIScopeObject = _resolve_backend_symbol("posthog.scopes", "APIScopeObject")
+
+
+def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
+    raw_params: dict[str, str] = {}
+
+    def add_param(value: str, is_sensitive: bool = True) -> str:
+        if context is not None:
+            if is_sensitive:
+                return context.add_sensitive_value(value)
+            return context.add_value(value)
+
+        param_name = f"value_{len(raw_params.items())}"
+        raw_params[param_name] = value
+        return f"%({param_name})s"
+
+    table = add_param(postgres_table_name)
+
+    if settings.DEBUG or settings.TEST:
+        databases = settings.DATABASES
+        # Determine which database to use based on table name
+        # Extract model name from postgres table name (e.g., "posthog_group" -> "group")
+        model_name = postgres_table_name.replace("posthog_", "")
+        db_name = "persons_db_writer" if model_name in PERSONS_DB_MODELS else "default"
+        database = databases[db_name]
+
+        address = add_param("db:5432")  # docker container for postgres from clickhouse
+        from django.db import connections
+
+        actual_db_name = connections[db_name].settings_dict[
+            "NAME"
+        ]  # during tests, django uses test-prefixed db name rather than the configured NAME
+        db = add_param(actual_db_name)
+        user = add_param(database["USER"])
+        password = add_param(database["PASSWORD"])
+    else:
+        host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+        port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
+        database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
+        user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
+        password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
+
+        if not host_var or not port_var or not database_var or not user_var or not password_var:
+            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
+
+        address = add_param(f"{host_var}:{port_var}")
+        db = add_param(database_var)
+        user = add_param(user_var)
+        password = add_param(password_var)
+
+    return f"postgresql({address}, {db}, {table}, {user}, {password})"
+
+
+class PostgresTable(FunctionCallTable):
+    requires_args: bool = False
+    postgres_table_name: str
+    access_scope: Optional[APIScopeObject] = None
+    predicates: list[Expr] = []
+
+    def get_predicates(self) -> list[Expr]:
+        return self.predicates
+
+    def to_printed_hogql(self):
+        return escape_hogql_identifier(self.name)
+
+    def to_printed_clickhouse(self, context):
+        return build_function_call(self.postgres_table_name, context)

@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import ClassVar, Optional
 
-from posthog.hogql.database.models import SavedQuery
+from common.hogql.database.models import SavedQuery
 
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 

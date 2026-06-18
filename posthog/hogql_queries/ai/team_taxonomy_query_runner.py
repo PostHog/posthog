@@ -5,10 +5,10 @@ from posthog.schema import (
     TeamTaxonomyQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.parser import parse_select
+from common.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin

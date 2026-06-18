@@ -1,4 +1,4 @@
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA

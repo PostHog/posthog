@@ -38,13 +38,13 @@ from structlog.types import FilteringBoundLogger
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception

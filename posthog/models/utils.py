@@ -28,7 +28,7 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 if TYPE_CHECKING:
     from random import Random
 
-    from posthog.hogql import ast
+    from common.hogql import ast
 
 T = TypeVar("T")
 
@@ -227,8 +227,8 @@ class BytecodeModelMixin(models.Model):
         super().save(*args, **kwargs)
 
     def _refresh_bytecode(self):
-        from posthog.hogql.compiler.bytecode import create_bytecode
-        from posthog.hogql.errors import BaseHogQLError
+        from common.hogql.compiler.bytecode import create_bytecode
+        from common.hogql.errors import BaseHogQLError
 
         try:
             expr = self.get_expr()

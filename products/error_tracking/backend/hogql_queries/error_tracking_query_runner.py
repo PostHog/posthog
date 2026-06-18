@@ -3,12 +3,12 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner

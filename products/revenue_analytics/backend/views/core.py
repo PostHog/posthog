@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.team.team import Team
 

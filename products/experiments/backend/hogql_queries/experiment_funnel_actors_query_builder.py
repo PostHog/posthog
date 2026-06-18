@@ -2,8 +2,8 @@ from typing import cast
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, MultipleVariantHandling
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team

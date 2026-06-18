@@ -10,7 +10,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
 )
 
-from posthog.hogql.ai import hit_openai
+from common.hogql.ai import hit_openai
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner

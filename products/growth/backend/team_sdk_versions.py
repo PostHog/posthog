@@ -8,8 +8,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import HogQLQueryResponse
 
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception

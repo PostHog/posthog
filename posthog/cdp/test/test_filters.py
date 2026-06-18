@@ -3,7 +3,7 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
-from posthog.hogql.compiler.bytecode import create_bytecode
+from common.hogql.compiler.bytecode import create_bytecode
 
 from posthog.cdp.filters import (
     build_behavioral_event_expr,

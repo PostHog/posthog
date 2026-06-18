@@ -6,9 +6,9 @@ from posthog.schema import (
     RevenueAnalyticsTopCustomersQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.database.models import UnknownDatabaseField
+from common.hogql.query import execute_hogql_query
 
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,

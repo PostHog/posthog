@@ -13,9 +13,9 @@ from posthog.schema import (
     SessionsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_order_expr
+from common.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql

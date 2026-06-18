@@ -17,8 +17,8 @@ from posthog.schema import (
     SourceMap,
 )
 
-from posthog.hogql.errors import QueryError
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql.errors import QueryError
+from common.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.team.team import Team
 

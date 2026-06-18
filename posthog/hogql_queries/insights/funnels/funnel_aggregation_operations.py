@@ -1,6 +1,6 @@
 from typing import cast
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.aggregations import (

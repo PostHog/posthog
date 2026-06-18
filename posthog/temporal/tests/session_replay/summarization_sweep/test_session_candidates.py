@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from posthog.test.base import ClickhouseTestMixin
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.temporal.session_replay.summarization_sweep.constants import DEFAULT_SAMPLE_RATE, SAMPLE_RATE_PRECISION

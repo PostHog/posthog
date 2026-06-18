@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -36,7 +36,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         return bool(self.query.person_id)
 
     def _calculate(self):
-        from posthog.hogql.query import execute_hogql_query
+        from common.hogql.query import execute_hogql_query
 
         source_groups = self._group_metrics_by_source_and_interval(self._usage_metrics)
 
@@ -82,7 +82,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         source_groups = self._group_metrics_by_source_and_interval(self._usage_metrics)
 
         if not source_groups:
-            from posthog.hogql.database.models import UnknownDatabaseField
+            from common.hogql.database.models import UnknownDatabaseField
 
             return ast.SelectQuery.empty(columns={"day": UnknownDatabaseField(name="day")})
 

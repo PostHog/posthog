@@ -5,9 +5,9 @@ from contextlib import asynccontextmanager
 import pytest
 from unittest.mock import patch
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.placeholders import replace_placeholders
-from posthog.hogql.printer.utils import prepare_and_print_ast
+from common.hogql.context import HogQLContext
+from common.hogql.placeholders import replace_placeholders
+from common.hogql.printer.utils import prepare_and_print_ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
@@ -148,8 +148,8 @@ class TestSampleItemsInWindowActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_generation_filter_is_applied_inside_argmaxif(self, mock_team):
-        from posthog.hogql import ast
-        from posthog.hogql.visitor import TraversingVisitor
+        from common.hogql import ast
+        from common.hogql.visitor import TraversingVisitor
 
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,

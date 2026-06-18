@@ -4,7 +4,7 @@ from collections import (
 )
 from typing import Literal, Optional
 
-from posthog.hogql.hogql import HogQLContext
+from common.hogql.hogql import HogQLContext
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Filter

@@ -11,16 +11,16 @@ from posthog.schema import (
     HogQLQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import CacheOrigin, parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.user_query_validator import validate_user_query
-from posthog.hogql.variables import replace_variables
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from common.hogql.errors import ExposedHogQLError
+from common.hogql.filters import replace_filters
+from common.hogql.parser import CacheOrigin, parse_select
+from common.hogql.placeholders import find_placeholders, replace_placeholders
+from common.hogql.query import execute_hogql_query
+from common.hogql.user_query_validator import validate_user_query
+from common.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map

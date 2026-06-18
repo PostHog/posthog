@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 from posthog.schema import BaseMathType, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
 
-from posthog.hogql.parser import parse_select
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql.parser import parse_select
+from common.hogql.test.utils import pretty_print_in_tests
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
     MarketingAnalyticsAggregatedQueryRunner,

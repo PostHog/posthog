@@ -33,7 +33,7 @@ _PATCH_CLASSIFY = "posthog.temporal.ai_observability.sentiment.model.classify"
 _PATCH_CAP = "posthog.temporal.ai_observability.sentiment.constants.MAX_CLASSIFICATIONS_PER_TRACE"
 # `fetch_generations_by_uuid` does a uuid → trace_id preflight via the
 # resolver helper before the heavy fetch. Patch the source-module symbol
-# (the resolver does `from posthog.hogql.query import execute_hogql_query`
+# (the resolver does `from common.hogql.query import execute_hogql_query`
 # inside its body, so patching at the source propagates).
 _PATCH_RESOLVE = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_ids_for_generation_uuids"
 

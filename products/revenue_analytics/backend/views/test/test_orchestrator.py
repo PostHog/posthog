@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import CurrencyCode
 
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.timings import HogQLTimings
 
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 

@@ -1,0 +1,471 @@
+from typing import Literal, Optional, cast
+
+from common.hogql import ast
+from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
+from common.hogql.base import _T_AST
+from common.hogql.constants import HogQLDialect
+from common.hogql.context import HogQLContext
+from common.hogql.errors import QueryError
+from common.hogql.escape_sql import escape_clickhouse_string
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.resolver import ResolverFactory, resolve_types
+from common.hogql.visitor import TraversingVisitor, clone_expr
+
+
+def resolve_in_cohorts(
+    node: _T_AST,
+    dialect: HogQLDialect,
+    stack: Optional[list[ast.SelectQuery]] = None,
+    context: HogQLContext | None = None,
+    resolver_factory: ResolverFactory | None = None,
+):
+    if context is None:
+        raise QueryError("context is required to resolve IN COHORT")
+    InCohortResolver(stack=stack, dialect=dialect, context=context, resolver_factory=resolver_factory).visit(node)
+
+
+def resolve_in_cohorts_conjoined(
+    node: ast.AST,
+    dialect: HogQLDialect,
+    context: HogQLContext,
+    stack: Optional[list[ast.SelectQuery]] = None,
+    resolver_factory: ResolverFactory | None = None,
+):
+    MultipleInCohortResolver(stack=stack, dialect=dialect, context=context, resolver_factory=resolver_factory).visit(
+        node
+    )
+
+
+class CohortCompareOperationTraverser(TraversingVisitor):
+    ops: list[ast.CompareOperation] = []
+
+    def __init__(self, expr: ast.Expr):
+        self.ops = []
+        super().visit(expr)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort or node.op == ast.CompareOperationOp.NotInCohort:
+            self.ops.append(node)
+
+
+StaticOrDynamic = Literal["dynamic"] | Literal["static"]
+
+
+class MultipleInCohortResolver(TraversingVisitor):
+    dialect: HogQLDialect
+
+    def __init__(
+        self,
+        dialect: HogQLDialect,
+        context: HogQLContext,
+        stack: Optional[list[ast.SelectQuery]] = None,
+        resolver_factory: ResolverFactory | None = None,
+    ):
+        super().__init__()
+        self.stack: list[ast.SelectQuery] = stack or []
+        self.context = context
+        self.dialect = dialect
+        # accepted for signature parity with InCohortResolver; this resolver does not
+        # currently invoke resolve_types itself, so the factory is held but unused
+        self.resolver_factory = resolver_factory
+
+    def visit_cte(self, node: ast.CTE):
+        self.visit(node.expr)
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.stack.append(node)
+
+        super().visit_select_query(node)
+
+        if node.where is not None:
+            compare_operations = CohortCompareOperationTraverser(node.where).ops
+            self._execute(node, compare_operations)
+
+        self.stack.pop()
+
+    def _execute(self, node: ast.SelectQuery, compare_operations: list[ast.CompareOperation]):
+        if len(compare_operations) == 0:
+            return
+
+        cohorts = self._resolve_cohorts(compare_operations)
+        self._add_join(cohorts=cohorts, select=node, compare_operations=compare_operations)
+
+        for compare_node in compare_operations:
+            compare_node.op = ast.CompareOperationOp.Eq
+            compare_node.left = ast.Constant(value=1)
+            compare_node.right = ast.Constant(value=1)
+
+    def _resolve_cohorts(
+        self, compare_operations: list[ast.CompareOperation]
+    ) -> list[tuple[int, StaticOrDynamic, int]]:
+        Cohort = _resolve_backend_symbol("products.cohorts.backend.models.cohort", "Cohort")
+
+        cohorts: list[tuple[int, StaticOrDynamic, int]] = []
+
+        for node in compare_operations:
+            arg = node.right
+            if not isinstance(arg, ast.Constant):
+                raise QueryError("IN COHORT only works with constant arguments", node=arg)
+
+            if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+                int_cohorts = Cohort.objects.filter(
+                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
+                ).values_list("id", "is_static", "version")
+                if len(int_cohorts) == 1:
+                    if node.op == ast.CompareOperationOp.NotInCohort:
+                        raise QueryError("NOT IN COHORT is not supported by this cohort mode")
+
+                    id = int_cohorts[0][0]
+                    is_static = int_cohorts[0][1]
+                    version = int_cohorts[0][2] or 0
+
+                    cohorts.append((id, "static" if is_static else "dynamic", version))
+                    continue
+                raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+
+            if isinstance(arg.value, str):
+                str_cohorts = Cohort.objects.filter(
+                    name=arg.value, team__project_id=self.context.project_id, deleted=False
+                ).values_list("id", "is_static", "version")
+                if len(str_cohorts) == 1:
+                    if node.op == ast.CompareOperationOp.NotInCohort:
+                        raise QueryError("NOT IN COHORT is not supported by this cohort mode")
+
+                    id = str_cohorts[0][0]
+                    is_static = str_cohorts[0][1]
+                    version = str_cohorts[0][2] or 0
+
+                    cohorts.append((id, "static" if is_static else "dynamic", version))
+                    continue
+                elif len(str_cohorts) > 1:
+                    raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
+                raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
+
+            raise QueryError("cohort() takes exactly one string or integer argument", node=arg)
+
+        return cohorts
+
+    def _add_join(
+        self,
+        cohorts: list[tuple[int, StaticOrDynamic, int]],
+        select: ast.SelectQuery,
+        compare_operations: list[ast.CompareOperation],
+    ):
+        must_add_join = True
+        last_join = select.select_from
+
+        while last_join:
+            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == "__in_cohort":
+                must_add_join = False
+                break
+            if last_join.next_join:
+                last_join = last_join.next_join
+            else:
+                break
+
+        if must_add_join:
+            from common.hogql.functions.cohort import inline_cohort_query
+
+            static_cohorts = list(filter(lambda cohort: cohort[1] == "static", cohorts))
+            dynamic_cohorts = list(filter(lambda cohort: cohort[1] == "dynamic", cohorts))
+
+            # Split dynamic cohorts into inlineable and non-inlineable
+            inlineable_dynamic: list[tuple[int, ast.SelectQuery | ast.SelectSetQuery]] = []
+            non_inlineable_dynamic: list[tuple[int, StaticOrDynamic, int]] = []
+            for cohort_id, cohort_type, version in dynamic_cohorts:
+                inline_ast = inline_cohort_query(cohort_id, False, version, self.context)
+                if inline_ast is not None:
+                    inlineable_dynamic.append((cohort_id, inline_ast))
+                else:
+                    non_inlineable_dynamic.append((cohort_id, cohort_type, version))
+
+            def get_static_cohort_clause():
+                return ast.CompareOperation(
+                    left=ast.Field(chain=["cohort_id"]),
+                    op=ast.CompareOperationOp.In,
+                    right=ast.Array(exprs=[ast.Constant(value=id) for id, is_static, version in static_cohorts]),
+                )
+
+            def get_dynamic_cohort_clause():
+                cohort_or = ast.Or(
+                    exprs=[
+                        ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["cohort_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=id),
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["version"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=version),
+                                ),
+                            ]
+                        )
+                        for id, is_static, version in non_inlineable_dynamic
+                    ]
+                )
+
+                if len(cohort_or.exprs) == 1:
+                    return cohort_or.exprs[0]
+
+                return cohort_or
+
+            parts: list[ast.SelectQuery | ast.SelectSetQuery] = []
+
+            if static_cohorts:
+                parts.append(
+                    parse_select(
+                        """
+                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            FROM static_cohort_people
+                            WHERE {clause}
+                        """,
+                        placeholders={"clause": get_static_cohort_clause()},
+                    )
+                )
+
+            if non_inlineable_dynamic:
+                parts.append(
+                    parse_select(
+                        """
+                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            FROM raw_cohort_people
+                            WHERE {clause}
+                        """,
+                        placeholders={"clause": get_dynamic_cohort_clause()},
+                    )
+                )
+
+            for cohort_id, inline_ast in inlineable_dynamic:
+                parts.append(
+                    parse_select(
+                        "SELECT id AS cohort_person_id, 1 AS matched, {cohort_id_val} AS cohort_id FROM {inline_query}",
+                        placeholders={
+                            "cohort_id_val": ast.Constant(value=cohort_id),
+                            "inline_query": inline_ast,
+                        },
+                    )
+                )
+
+            table_query = ast.SelectSetQuery.create_from_queries(parts, "UNION ALL")
+
+            new_join = ast.JoinExpr(
+                alias=f"__in_cohort",
+                table=table_query,
+                join_type="LEFT JOIN",
+                next_join=None,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+
+            new_join.constraint.expr.left = ast.Field(chain=[f"__in_cohort", "cohort_person_id"])  # type: ignore
+            new_join.constraint.expr.right = clone_expr(compare_operations[0].left)  # type: ignore
+            if last_join:
+                last_join.next_join = new_join
+            else:
+                select.select_from = new_join
+
+        cohort_match_compare_op = ast.CompareOperation(
+            left=ast.Field(chain=["__in_cohort", "matched"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=1),
+        )
+
+        if select.where is not None:
+            select.where = ast.And(exprs=[select.where, cohort_match_compare_op])
+        else:
+            select.where = cohort_match_compare_op
+
+
+class InCohortResolver(TraversingVisitor):
+    def __init__(
+        self,
+        dialect: HogQLDialect,
+        context: HogQLContext,
+        stack: Optional[list[ast.SelectQuery]] = None,
+        resolver_factory: ResolverFactory | None = None,
+    ):
+        super().__init__()
+        self.stack: list[ast.SelectQuery] = stack or []
+        self.context = context
+        self.dialect = dialect
+        # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
+        # factory (e.g. BoundedResolver) applies to cohort-join subqueries built mid-transform
+        self.resolver_factory = resolver_factory
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.stack.append(node)
+        super().visit_select_query(node)
+        self.stack.pop()
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort or node.op == ast.CompareOperationOp.NotInCohort:
+            arg = node.right
+            if not isinstance(arg, ast.Constant):
+                raise QueryError("IN COHORT only works with constant arguments", node=arg)
+            Cohort = _resolve_backend_symbol("products.cohorts.backend.models.cohort", "Cohort")
+
+            if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+                cohorts = Cohort.objects.filter(
+                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
+                ).values_list("id", "is_static", "version", "name")
+                if len(cohorts) == 1:
+                    self.context.add_notice(
+                        start=arg.start,
+                        end=arg.end,
+                        message=f"Cohort #{cohorts[0][0]} can also be specified as {escape_clickhouse_string(cohorts[0][3])}",
+                        fix=escape_clickhouse_string(cohorts[0][3]),
+                    )
+                    self._add_join_for_cohort(
+                        cohort_id=cohorts[0][0],
+                        is_static=cohorts[0][1],
+                        version=cohorts[0][2],
+                        compare=node,
+                        select=self.stack[-1],
+                        negative=node.op == ast.CompareOperationOp.NotInCohort,
+                    )
+                    return
+                raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+
+            if isinstance(arg.value, str):
+                cohorts2 = Cohort.objects.filter(
+                    name=arg.value, team__project_id=self.context.project_id, deleted=False
+                ).values_list("id", "is_static", "version")
+                if len(cohorts2) == 1:
+                    self.context.add_notice(
+                        start=arg.start,
+                        end=arg.end,
+                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
+                        fix=str(cohorts2[0][0]),
+                    )
+                    self._add_join_for_cohort(
+                        cohort_id=cohorts2[0][0],
+                        is_static=cohorts2[0][1],
+                        version=cohorts2[0][2],
+                        compare=node,
+                        select=self.stack[-1],
+                        negative=node.op == ast.CompareOperationOp.NotInCohort,
+                    )
+                    return
+                elif len(cohorts2) > 1:
+                    raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
+                raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
+        else:
+            self.visit(node.left)
+            self.visit(node.right)
+
+    def _add_join_for_cohort(
+        self,
+        cohort_id: int,
+        is_static: bool,
+        version: Optional[int],
+        select: ast.SelectQuery,
+        compare: ast.CompareOperation,
+        negative: bool,
+    ):
+        from common.hogql.functions.cohort import inline_cohort_query
+        from common.hogql.transforms.lazy_tables import resolve_lazy_tables
+
+        assert self.context is not None
+
+        must_add_join = True
+        last_join = select.select_from
+        while last_join:
+            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == f"in_cohort__{cohort_id}":
+                must_add_join = False
+                break
+            if last_join.next_join:
+                last_join = last_join.next_join
+            else:
+                break
+
+        if must_add_join:
+            inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
+            subquery: ast.Expr
+            if inline_ast is not None:
+                subquery = parse_select(
+                    "SELECT id as person_id, 1 as matched FROM {inline_query}",
+                    {"inline_query": inline_ast},
+                )
+            else:
+                if is_static:
+                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                elif version is not None:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
+                else:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+                subquery = parse_expr(
+                    sql,
+                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                    start=None,
+                )
+
+            new_join = ast.JoinExpr(
+                alias=f"in_cohort__{cohort_id}",
+                table=cast(ast.SelectQuery, subquery),
+                join_type="LEFT JOIN",
+                next_join=None,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+            current_scope = self.stack[-1].type
+            if current_scope is None:
+                raise QueryError("Could not resolve current select scope")
+            new_join = cast(
+                ast.JoinExpr,
+                resolve_types(
+                    new_join, self.context, self.dialect, [current_scope], resolver_factory=self.resolver_factory
+                ),
+            )
+            if inline_ast is not None:
+                resolve_lazy_tables(
+                    new_join, self.dialect, [self.stack[-1]], self.context, resolver_factory=self.resolver_factory
+                )
+                if self.context.property_swapper:
+                    new_join = cast(
+                        ast.JoinExpr,
+                        self.context.property_swapper.visit(new_join),
+                    )
+            if new_join.constraint is None or not isinstance(new_join.constraint.expr, ast.CompareOperation):
+                raise QueryError("Expected cohort join constraint to be a compare operation")
+            new_join.constraint.expr.left = resolve_types(
+                ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
+                self.context,
+                self.dialect,
+                [current_scope],
+                resolver_factory=self.resolver_factory,
+            )
+            new_join.constraint.expr.right = clone_expr(compare.left)
+            if last_join:
+                last_join.next_join = new_join
+            else:
+                select.select_from = new_join
+
+        if current_scope is None:
+            raise ValueError("Expected current scope when resolving cohort comparison")
+
+        compare.op = ast.CompareOperationOp.NotEq if negative else ast.CompareOperationOp.Eq
+        compare.left = resolve_types(
+            ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]),
+            self.context,
+            self.dialect,
+            [current_scope],
+            resolver_factory=self.resolver_factory,
+        )
+        compare.right = resolve_types(
+            ast.Constant(value=1), self.context, self.dialect, [current_scope], resolver_factory=self.resolver_factory
+        )

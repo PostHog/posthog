@@ -7,11 +7,11 @@ from posthog.schema import (
     EventTaxonomyQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.printer import to_printed_hogql
+from common.hogql.property import action_to_expr
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin

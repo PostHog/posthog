@@ -16,9 +16,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

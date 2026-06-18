@@ -105,7 +105,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "common.hogql.database.database.posthoganalytics.feature_enabled",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -155,7 +155,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert len(results[0]["person"]["distinct_ids"]) == expected_distinct_ids_count
 
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "common.hogql.database.database.posthoganalytics.feature_enabled",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -222,7 +222,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        "common.hogql.database.database.posthoganalytics.feature_enabled",
         new=MagicMock(return_value=False),
     )
     @snapshot_postgres_queries
@@ -352,7 +352,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with (
             freeze_time("2022-06-03T12:00:00.000Z"),
             patch(
-                "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+                "common.hogql.database.database.posthoganalytics.feature_enabled",
                 return_value=False,
             ),
             snapshot_postgres_queries_context(self),

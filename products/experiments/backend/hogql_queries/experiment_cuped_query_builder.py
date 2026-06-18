@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder

@@ -15,7 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client import sync_execute

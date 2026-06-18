@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from common.hogql.constants import DEFAULT_RETURNED_ROWS
 
 from posthog.models.person.person import Person
 from posthog.models.team import Team

@@ -9,9 +9,9 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -282,7 +282,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         hogql_string = query.get("query", "")
         if not hogql_string:
             return []
-        from posthog.hogql.query import HogQLQueryExecutor
+        from common.hogql.query import HogQLQueryExecutor
 
         from posthog.clickhouse.client import sync_execute
 

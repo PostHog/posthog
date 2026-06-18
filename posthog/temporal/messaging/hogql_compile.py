@@ -1,9 +1,9 @@
 from typing import Any
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.sync import database_sync_to_async_pool
 

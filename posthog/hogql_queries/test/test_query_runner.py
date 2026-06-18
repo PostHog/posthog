@@ -39,9 +39,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.database import Database
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.database.database import Database
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature

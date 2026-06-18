@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING, cast
 
 from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierHandling, ExperimentRatioMetric
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 

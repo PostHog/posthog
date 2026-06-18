@@ -2,10 +2,10 @@ from functools import cached_property
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner

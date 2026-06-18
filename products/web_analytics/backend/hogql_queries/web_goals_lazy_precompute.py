@@ -26,10 +26,10 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.property import action_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 

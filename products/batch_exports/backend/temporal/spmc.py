@@ -12,14 +12,14 @@ import pyarrow as pa
 
 from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
-from posthog.hogql.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.errors import ExposedHogQLError, InternalHogQLError
+from common.hogql.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.property import property_to_expr
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async

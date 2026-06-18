@@ -8,8 +8,8 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.constants import LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries

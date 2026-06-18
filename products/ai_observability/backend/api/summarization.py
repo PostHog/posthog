@@ -24,9 +24,9 @@ from rest_framework.response import Response
 
 from posthog.schema import DateRange, IntervalType, TraceQuery
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin

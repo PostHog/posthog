@@ -13,8 +13,8 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 

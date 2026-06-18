@@ -13,7 +13,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import _KafkaProducer

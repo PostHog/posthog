@@ -12,8 +12,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.property import property_to_expr
 
 from posthog.models.team.team import Team
 

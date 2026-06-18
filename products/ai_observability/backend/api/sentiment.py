@@ -25,11 +25,11 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import HogQLFilters
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.filters import replace_filters
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin

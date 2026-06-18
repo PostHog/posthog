@@ -6,7 +6,7 @@ from posthog.test.base import ClickhouseTestMixin
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary

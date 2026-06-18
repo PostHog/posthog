@@ -23,12 +23,12 @@ from posthog.schema import (
     IntervalType,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.parser import parse_select
+from common.hogql.property import action_to_expr, property_to_expr
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,

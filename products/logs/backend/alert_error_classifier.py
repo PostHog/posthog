@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 

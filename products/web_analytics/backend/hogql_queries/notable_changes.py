@@ -12,10 +12,10 @@ from posthog.schema import (
     WebNotableChangesQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.database.schema.channel_type import wrap_with_null_if_empty
+from common.hogql.property import property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (

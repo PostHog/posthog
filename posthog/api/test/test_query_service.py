@@ -23,11 +23,11 @@ from posthog.schema import (
     HogQLQuery,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
-from posthog.hogql.errors import ResolutionError
+from common.hogql.database.database import Database
+from common.hogql.database.models import TableNode
+from common.hogql.database.postgres_table import PostgresTable
+from common.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from common.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
 

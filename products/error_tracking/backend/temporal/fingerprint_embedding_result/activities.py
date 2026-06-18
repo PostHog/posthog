@@ -7,9 +7,9 @@ from django.utils.dateparse import parse_datetime
 
 from temporalio import activity
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception

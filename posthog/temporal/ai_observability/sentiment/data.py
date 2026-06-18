@@ -35,9 +35,9 @@ def fetch_generations(
     MAX_GENERATIONS_PER_TRACE per trace) and total raw input bytes
     transferred from ClickHouse.
     """
-    from posthog.hogql import ast
-    from posthog.hogql.constants import LimitContext
-    from posthog.hogql.parser import parse_select
+    from common.hogql import ast
+    from common.hogql.constants import LimitContext
+    from common.hogql.parser import parse_select
 
     from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
     from posthog.models.team import Team
@@ -96,9 +96,9 @@ def fetch_generations_by_uuid(
     """
     from datetime import UTC, datetime
 
-    from posthog.hogql import ast
-    from posthog.hogql.constants import LimitContext
-    from posthog.hogql.parser import parse_select
+    from common.hogql import ast
+    from common.hogql.constants import LimitContext
+    from common.hogql.parser import parse_select
 
     from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
     from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids

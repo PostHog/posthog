@@ -16,7 +16,7 @@ from posthog.schema import (
     StickinessQuery,
 )
 
-from posthog.hogql.ai import hit_openai
+from common.hogql.ai import hit_openai
 
 from posthog.event_usage import groups
 from posthog.models import Team

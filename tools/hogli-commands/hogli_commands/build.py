@@ -24,7 +24,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "products/*/mcp/tools.yaml",
         "services/mcp/definitions/*",
     ),
-    "build:grammar": ("posthog/hogql/grammar/*",),
+    "build:grammar": ("common/hogql/grammar/*",),
     "build:taxonomy-json": ("posthog/taxonomy/*",),
     "build:products": ("products/*/frontend/*",),
     "build:skills": ("products/*/skills/*",),

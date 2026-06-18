@@ -17,7 +17,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
 )
 
-from posthog.hogql.constants import HogQLGlobalSettings
+from common.hogql.constants import HogQLGlobalSettings
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dags.common import JobOwners

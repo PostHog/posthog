@@ -28,9 +28,9 @@ from rest_framework import exceptions, permissions, serializers, status, viewset
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context

@@ -26,9 +26,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
-from posthog.hogql.ast import SelectQuery
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.ast import SelectQuery
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL

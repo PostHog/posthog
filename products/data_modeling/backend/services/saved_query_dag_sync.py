@@ -2,10 +2,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
+from common.hogql.database.database import Database
+from common.hogql.database.models import SavedQuery as HogQLSavedQuery
+from common.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from common.hogql.errors import QueryError
 
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge

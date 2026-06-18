@@ -1,9 +1,9 @@
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.errors import BaseHogQLError, ExposedHogQLError
+from common.hogql.parser import parse_expr, parse_order_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator

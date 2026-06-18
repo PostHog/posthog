@@ -36,7 +36,7 @@ FORBIDDEN_AT_SETUP = [
     "pyarrow",  # arrow tables — reached via pandas.compat and batch-export internals, both deferred
     "numpy",  # alert detectors / weighted sampling / warehouse coercion — all call-time now
     "posthog.schema",  # the generated pydantic data model (~2s) — enums live in posthog.schema_enums
-    "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
+    "common.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
 ]

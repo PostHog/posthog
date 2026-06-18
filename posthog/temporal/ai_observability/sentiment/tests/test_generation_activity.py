@@ -32,7 +32,7 @@ _PATCH_TEAM = "posthog.models.team.Team.objects"
 _PATCH_CLASSIFY = "posthog.temporal.ai_observability.sentiment.model.classify"
 # `fetch_generations_by_uuid` does a uuid → trace_id preflight via the
 # resolver helper before the heavy fetch. Patch the source-module symbol so
-# the inline `from posthog.hogql.query import execute_hogql_query` inside
+# the inline `from common.hogql.query import execute_hogql_query` inside
 # the resolver picks up the mock.
 _PATCH_RESOLVE = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_ids_for_generation_uuids"
 

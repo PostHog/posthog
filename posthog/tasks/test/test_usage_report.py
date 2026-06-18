@@ -32,7 +32,7 @@ from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser

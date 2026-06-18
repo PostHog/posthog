@@ -16,11 +16,11 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.placeholders import find_placeholders, replace_placeholders
+from common.hogql.printer import prepare_and_print_ast, to_printed_hogql
+from common.hogql.test.utils import pretty_print_in_tests
 
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig

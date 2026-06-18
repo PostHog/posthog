@@ -16,8 +16,8 @@ The rewriter is scope-aware: it only rewrites fields within SELECT queries that 
 `FROM ai_events`. Fields in outer queries (referencing subquery aliases) are left unchanged.
 """
 
-from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.visitor import CloningVisitor
 
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
 

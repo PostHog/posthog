@@ -18,13 +18,13 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
-from posthog.hogql.autocomplete import get_hogql_autocomplete
-from posthog.hogql.compiler.bytecode import execute_hog
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.direct_connection import resolve_database_for_connection
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.autocomplete import get_hogql_autocomplete
+from common.hogql.compiler.bytecode import execute_hog
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.direct_connection import resolve_database_for_connection
+from common.hogql.metadata import get_hogql_metadata
+from common.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud

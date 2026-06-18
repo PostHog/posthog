@@ -43,14 +43,14 @@ from rest_framework.test import (
 )
 from syrupy.extensions.amber import AmberSnapshotExtension
 
-from posthog.hogql import (
+from common.hogql import (
     ast,
     query as hogql_query_module,
 )
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.visitor import clone_expr
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.adhoc_events_deletion import (

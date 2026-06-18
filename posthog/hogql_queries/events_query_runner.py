@@ -10,17 +10,17 @@ import structlog
 
 from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import (
+from common.hogql import ast
+from common.hogql.ast import Alias
+from common.hogql.parser import parse_expr, parse_order_expr, parse_select
+from common.hogql.property import (
     action_to_expr,
     has_aggregation,
     map_virtual_properties,
     property_to_expr,
     steps_to_expr,
 )
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -164,8 +164,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # User-authored ``select`` entries that explicitly reference a restricted event or person
         # property must fail loudly — the printer's silent JSONDropKeys strip would otherwise turn
         # the request into an empty string, which is surprising when the field name was typed by hand.
-        from posthog.hogql.errors import ResolutionError
-        from posthog.hogql.visitor import TraversingVisitor
+        from common.hogql.errors import ResolutionError
+        from common.hogql.visitor import TraversingVisitor
 
         from products.access_control.backend.property_access_control import get_restricted_property_names
 

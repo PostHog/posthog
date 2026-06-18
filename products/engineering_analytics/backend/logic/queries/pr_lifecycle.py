@@ -8,7 +8,7 @@ shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rule
 live here.
 """
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,

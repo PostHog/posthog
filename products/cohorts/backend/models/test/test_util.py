@@ -9,7 +9,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.hogql.hogql import HogQLContext
+from common.hogql.hogql import HogQLContext
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
@@ -420,7 +420,7 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_raises_error_on_mixed_id_types_in_union(self):
         """Test that mixed ID types in UNION queries are rejected"""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -475,7 +475,7 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_with_table_without_id_columns(self):
         """Test that queries without person_id, actor_id, id, or distinct_id columns raise an error"""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -520,7 +520,7 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_with_distinct_id_column(self):
         """Test that queries with explicit distinct_id column are wrapped with person_distinct_id2 lookup"""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -568,7 +568,7 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_with_select_star_raises_error(self):
         """Test that SELECT * queries without explicit ID columns raise an error"""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         cohort = Cohort.objects.create(
             team=self.team,

@@ -24,12 +24,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DashboardFilter, EndpointRunRequest, HogQLVariable, PropertyOperator
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.errors import QueryError
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.printer.hogql import HogQLPrinter
+from common.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception

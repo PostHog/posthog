@@ -13,7 +13,7 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.models.utils import uuid7
 

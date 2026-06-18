@@ -514,7 +514,7 @@ class TrendsBreakdown:
 
     def _get_breakdown_value(self, breakdown: str) -> str:
         if self.filter.breakdown_type == "hogql":
-            from posthog.hogql.hogql import translate_hogql
+            from common.hogql.hogql import translate_hogql
 
             breakdown_value = translate_hogql(breakdown, self.filter.hogql_context)
         elif self.filter.breakdown_type == "session":

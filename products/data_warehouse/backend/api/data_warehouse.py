@@ -15,8 +15,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION

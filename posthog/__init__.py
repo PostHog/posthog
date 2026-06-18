@@ -1,5 +1,9 @@
 # This will make sure the app is always imported when
 # Django starts so that shared_task will use this app.
+from posthog.hogql_backend import install_hogql_backend_hooks as _install_hogql_backend_hooks
+
+_install_hogql_backend_hooks()
+
 from posthog.celery import app as celery_app  # noqa: E402
 
 __all__ = ("celery_app",)

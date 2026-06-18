@@ -19,7 +19,7 @@ from posthog.schema import (
     FunnelsQueryResponse,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys

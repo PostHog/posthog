@@ -1,6 +1,6 @@
 import dataclasses
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 
 @dataclasses.dataclass(frozen=True)

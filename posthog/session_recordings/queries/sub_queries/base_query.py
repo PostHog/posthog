@@ -2,7 +2,7 @@ from datetime import datetime
 
 from posthog.schema import DateRange, RecordingsQuery
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

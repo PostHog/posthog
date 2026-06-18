@@ -15,13 +15,13 @@ from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.resolver_utils import extract_select_queries
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.hogql import HogQLContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.resolver_utils import extract_select_queries
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -566,7 +566,7 @@ def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple
     # argMax(person_id, version)/is_deleted dedup and the team scoping, so this path no longer
     # hand-rolls them. Members come from the cohortpeople tables for static/precalculated cohorts
     # and from evaluating the criteria (HogQLCohortQuery) otherwise.
-    from posthog.hogql.query import HogQLQueryExecutor
+    from common.hogql.query import HogQLQueryExecutor
 
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 

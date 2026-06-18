@@ -10,7 +10,7 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
+from common.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import uuid7

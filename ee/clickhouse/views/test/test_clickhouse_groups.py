@@ -16,9 +16,9 @@ from django.utils.timezone import now
 import orjson
 from rest_framework import status
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupTypeMapping, GroupUsageMetric, Person, PropertyDefinition

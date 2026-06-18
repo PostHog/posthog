@@ -11,7 +11,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.schema import EmbeddingModelName
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models import Team

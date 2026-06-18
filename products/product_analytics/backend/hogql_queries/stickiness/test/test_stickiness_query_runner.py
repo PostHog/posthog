@@ -44,8 +44,8 @@ from posthog.schema import (
     StickinessQueryResponse,
 )
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.constants import LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -58,7 +58,7 @@ from products.data_warehouse.backend.test.utils import create_data_warehouse_tab
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery"
+TEST_BUCKET = "test_storage_bucket-common.hogql.datawarehouse.stickinessquery"
 
 
 @dataclass
@@ -881,7 +881,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             0,
         ]
 
-    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    @patch("common.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
         self._run_query(limit_context=LimitContext.QUERY_ASYNC)
 

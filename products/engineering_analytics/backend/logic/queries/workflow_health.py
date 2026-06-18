@@ -9,7 +9,7 @@ no completed runs.
 import math
 from datetime import date, datetime, timedelta
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthDay, WorkflowHealthItem
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource

@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
-from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from common.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 
 from posthog.clickhouse.client import (
     execute_async as client,

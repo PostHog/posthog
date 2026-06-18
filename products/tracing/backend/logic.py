@@ -34,11 +34,11 @@ from posthog.schema import (
     TraceSpansTreeQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.parser import parse_expr, parse_order_expr, parse_select
+from common.hogql.property import property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator

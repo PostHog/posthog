@@ -34,14 +34,14 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import get_property_type
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql import ast
+from common.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
+from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.property import get_property_type
+from common.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner

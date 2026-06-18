@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import cast
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 
 @dataclass

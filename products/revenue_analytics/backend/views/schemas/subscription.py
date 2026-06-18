@@ -1,4 +1,4 @@
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
+from common.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
 
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 

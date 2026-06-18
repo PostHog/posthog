@@ -13,7 +13,7 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
     FRUSTRATION_METRICS_INNER_QUERY,

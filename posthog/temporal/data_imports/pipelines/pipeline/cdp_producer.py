@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
-from posthog.hogql.database.database import get_data_warehouse_table_name
+from common.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope

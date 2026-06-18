@@ -3,13 +3,13 @@ from typing import Any
 from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
-from posthog.hogql.metadata import get_table_names
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.errors import ExposedHogQLError, ResolutionError
+from common.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
+from common.hogql.metadata import get_table_names
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_and_print_ast
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput

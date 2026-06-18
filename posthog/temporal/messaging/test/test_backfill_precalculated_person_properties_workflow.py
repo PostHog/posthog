@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import temporalio.exceptions
 from parameterized import parameterized
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
@@ -268,7 +268,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         captured_ast: dict[str, object] = {}
 
         original_prepare_and_print_ast = __import__(
-            "posthog.hogql.printer", fromlist=["prepare_and_print_ast"]
+            "common.hogql.printer", fromlist=["prepare_and_print_ast"]
         ).prepare_and_print_ast
 
         def capturing_prepare_and_print_ast(node, context, dialect):
@@ -361,7 +361,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         captured_ast: dict[str, object] = {}
 
         original_prepare_and_print_ast = __import__(
-            "posthog.hogql.printer", fromlist=["prepare_and_print_ast"]
+            "common.hogql.printer", fromlist=["prepare_and_print_ast"]
         ).prepare_and_print_ast
 
         def capturing_prepare_and_print_ast(node, context, dialect):

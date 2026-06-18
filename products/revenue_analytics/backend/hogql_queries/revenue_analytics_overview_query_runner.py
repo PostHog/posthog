@@ -8,9 +8,9 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
+from common.hogql.query import execute_hogql_query
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS

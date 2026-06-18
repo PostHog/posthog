@@ -5,7 +5,7 @@ from typing import Union, cast
 
 from posthog.schema import EndpointsUsageOverviewQuery, EndpointsUsageTableQuery, EndpointsUsageTrendsQuery
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

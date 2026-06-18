@@ -8,8 +8,8 @@ from parameterized import parameterized
 
 from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (

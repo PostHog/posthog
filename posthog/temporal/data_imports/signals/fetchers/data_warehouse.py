@@ -3,9 +3,9 @@ from typing import Any
 
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.temporal.data_imports.signals.registry import SignalSourceTableConfig

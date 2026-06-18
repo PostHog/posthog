@@ -17,7 +17,7 @@ from parameterized import parameterized
 
 from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsQuery
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner

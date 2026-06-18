@@ -30,8 +30,8 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models.team import Team

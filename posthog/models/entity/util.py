@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from posthog.hogql.hogql import HogQLContext
+from common.hogql.hogql import HogQLContext
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity

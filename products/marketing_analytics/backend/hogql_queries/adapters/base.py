@@ -14,8 +14,8 @@ from posthog.schema import (
     SourceMap,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team

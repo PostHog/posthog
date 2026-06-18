@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     build_aggregation_call,

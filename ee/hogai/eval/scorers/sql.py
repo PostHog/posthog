@@ -5,7 +5,7 @@ from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from posthog.hogql.errors import BaseHogQLError
+from common.hogql.errors import BaseHogQLError
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner

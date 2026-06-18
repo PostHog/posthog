@@ -7,8 +7,8 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder

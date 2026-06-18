@@ -5,8 +5,8 @@ import glob
 import json
 from typing import Any
 
-from posthog.hogql import ast
-from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
+from common.hogql import ast
+from common.hogql.compiler.bytecode import create_bytecode, parse_program
 
 source = "common/hogvm/stl/src/*.hog"
 target_ts = "common/hogvm/typescript/src/stl/bytecode.ts"

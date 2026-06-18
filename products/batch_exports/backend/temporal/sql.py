@@ -1,8 +1,8 @@
 from string import Template
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.constants import HogQLQuerySettings
+from common.hogql.parser import parse_expr
 
 
 def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | None, num_partitions: int) -> str:

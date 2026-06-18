@@ -1,5 +1,5 @@
-from posthog.hogql import ast
-from posthog.hogql.database.models import (
+from common.hogql import ast
+from common.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,

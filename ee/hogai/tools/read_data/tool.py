@@ -20,9 +20,9 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FieldOrTable
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.database.models import FieldOrTable
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async

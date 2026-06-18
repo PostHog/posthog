@@ -5,7 +5,7 @@ from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (

@@ -7,9 +7,9 @@ def hogql_functions() -> list[str]:
     Excludes underscore-prefixed internals, UDFs, and *If combinator variants
     (e.g. countIf, sumIf) where the base function also exists.
     """
-    from posthog.hogql.functions.aggregations import HOGQL_AGGREGATIONS
-    from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
-    from posthog.hogql.functions.udfs import UDFS
+    from common.hogql.functions.aggregations import HOGQL_AGGREGATIONS
+    from common.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+    from common.hogql.functions.udfs import UDFS
 
     all_names: set[str] = set()
     for name in HOGQL_CLICKHOUSE_FUNCTIONS:

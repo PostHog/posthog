@@ -22,8 +22,8 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, User
 from posthog.models.person import Person

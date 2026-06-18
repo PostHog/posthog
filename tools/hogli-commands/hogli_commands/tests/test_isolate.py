@@ -34,7 +34,7 @@ from hogli_commands.product.isolate import (
         ("products.logs.backend.logs_query_runner", "posthog/hogql_queries/query_runner.py", "query-runner"),
         ("products.logs.backend.tasks", "posthog/tasks/scheduled.py", "celery-task"),
         ("products.logs.backend.temporal.metrics", "posthog/temporal/common/worker.py", "temporal-wiring"),
-        ("products.logs.backend.models", "posthog/hogql/database/schema/test/test_system_tables.py", "test-fixture"),
+        ("products.logs.backend.models", "common/hogql/database/schema/test/test_system_tables.py", "test-fixture"),
         ("products.logs.backend.models", "posthog/api/test_team.py", "test-fixture"),
         ("products.logs.backend.alert_utils", "posthog/api/team.py", "other-internal"),
     ],

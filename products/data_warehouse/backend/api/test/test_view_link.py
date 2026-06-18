@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryResponse
 
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql.query import HogQLQueryExecutor
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType

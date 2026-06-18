@@ -13,8 +13,8 @@ from posthog.schema import (
     TraceSpansAttributeBreakdownQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

@@ -23,10 +23,10 @@ from posthog.schema import (
     PrecomputationMode,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception

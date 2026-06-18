@@ -24,7 +24,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
 
-from posthog.hogql.property import parse_semver
+from common.hogql.property import parse_semver
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema

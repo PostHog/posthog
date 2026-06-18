@@ -37,9 +37,9 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ProductKey, QueryStatus
 
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.constants import BREAKDOWN_VALUES_LIMIT
+from common.hogql.errors import ExposedHogQLError
+from common.hogql.timings import HogQLTimings
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer

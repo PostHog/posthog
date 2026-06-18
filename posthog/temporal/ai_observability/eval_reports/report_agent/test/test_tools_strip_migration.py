@@ -13,7 +13,7 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
@@ -104,7 +104,7 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
 
 class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("common.hogql.query.execute_hogql_query")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_main_query_uses_resolver_eval_query_uses_events(self, _mock_lookup, mock_events, mock_resolver):
         """Within `get_generation_detail`, the main generation lookup reads heavy

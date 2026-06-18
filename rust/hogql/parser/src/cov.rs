@@ -5,7 +5,7 @@
 //! `-sanitizer-coverage-trace-pc-guard` instrumentation pass emits, maintains a
 //! fixed-size atomic bitmap of hit edges, and exposes snapshot / reset to
 //! Python via PyO3. The Python-side PBT
-//! (`posthog/hogql/test/test_parser_pbt.py`) calls `cov_reset()` before each
+//! (`common/hogql/test/test_parser_pbt.py`) calls `cov_reset()` before each
 //! parse, takes a `cov_snapshot()` afterwards, and feeds
 //! `popcount(snapshot & ~seen)` to Hypothesis `target("rust_edges", ...)` for
 //! coverage-guided steering of the example generator. See the corresponding

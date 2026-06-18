@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties

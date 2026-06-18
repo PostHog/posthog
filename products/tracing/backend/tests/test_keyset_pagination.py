@@ -8,8 +8,8 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, TraceSpansQuery
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql.constants import LimitContext
+from common.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload

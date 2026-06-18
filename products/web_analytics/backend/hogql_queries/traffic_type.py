@@ -9,8 +9,8 @@ These wrap the HogQL classification functions, usable anywhere HogQL runs:
 The legacy __preview_* names still resolve as deprecated aliases.
 """
 
-from posthog.hogql import ast
-from posthog.hogql.functions.traffic_type import (
+from common.hogql import ast
+from common.hogql.functions.traffic_type import (
     get_bot_name as _get_bot_name,
     get_bot_type as _get_bot_type,
     get_traffic_category as _get_traffic_category,

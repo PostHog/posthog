@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
 from posthog.models.team import WeekStartDay

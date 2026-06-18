@@ -8,10 +8,10 @@ from posthog.schema import (
     WebVitalsPathBreakdownResultItem,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import get_property_type, property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.property import get_property_type, property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 

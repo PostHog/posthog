@@ -2,10 +2,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import SessionTableVersion
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.context import HogQLContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 
 class TestSessionProfileQuery(ClickhouseTestMixin, APIBaseTest):

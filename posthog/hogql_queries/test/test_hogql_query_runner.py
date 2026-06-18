@@ -15,10 +15,10 @@ from posthog.schema import (
     HogQLVariable,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
-from posthog.hogql.visitor import clear_locations
+from common.hogql import ast
+from common.hogql.errors import ExposedHogQLError, QueryError
+from common.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
+from common.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner

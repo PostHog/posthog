@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -81,8 +81,8 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     only buy uniform `ai_query_source` tagging — a deliberate scope choice,
     not load-bearing for the strip-heavy migration.
     """
-    from posthog.hogql.parser import parse_select
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.parser import parse_select
+    from common.hogql.query import execute_hogql_query
 
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models import Team
@@ -110,7 +110,7 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     dedicated `ai_events` table. Other queries should keep using
     `_execute_hogql` against `events`.
     """
-    from posthog.hogql.parser import parse_select
+    from common.hogql.parser import parse_select
 
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback

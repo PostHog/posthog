@@ -4,10 +4,10 @@ from typing import Optional, Protocol
 
 from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.timings import HogQLTimings
 
 from posthog.models.team.team import Team
 from posthog.models.user import User

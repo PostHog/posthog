@@ -12,8 +12,8 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.schema import DateRange, SourceMap
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request

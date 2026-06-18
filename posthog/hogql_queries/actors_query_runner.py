@@ -16,13 +16,13 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import has_aggregation
-from posthog.hogql.resolver_utils import extract_select_queries
+from common.hogql import ast
+from common.hogql.constants import HogQLQuerySettings
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_expr, parse_order_expr
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.property import has_aggregation
+from common.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql

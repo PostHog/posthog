@@ -17,10 +17,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner

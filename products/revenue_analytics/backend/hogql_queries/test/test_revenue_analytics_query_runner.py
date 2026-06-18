@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind, IntervalType, RevenueAnalyticsGrossRevenueQuery
 
-from posthog.hogql.database.models import SavedQuery, StringDatabaseField
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from common.hogql.database.models import SavedQuery, StringDatabaseField
+from common.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError

@@ -1,0 +1,102 @@
+from common.hogql.ast import SelectQuery
+from common.hogql.context import HogQLContext
+from common.hogql.database.argmax import argmax_select
+from common.hogql.database.lazy_join_tags import GROUPS_REVENUE_ANALYTICS
+from common.hogql.database.models import (
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+)
+from common.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
+from common.hogql.errors import ResolutionError
+
+GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
+    "index": IntegerDatabaseField(name="group_type_index", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "key": StringDatabaseField(name="group_key", nullable=False),
+    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
+    "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
+    "revenue_analytics": LazyJoin(
+        from_field=["key"],
+        join_table=GroupsRevenueAnalyticsTable(),
+        resolver=GROUPS_REVENUE_ANALYTICS,
+    ),
+}
+
+
+def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
+    return argmax_select(
+        table_name="raw_groups",
+        select_fields=requested_fields,
+        group_fields=["index", "key"],
+        argmax_field="updated_at",
+    )
+
+
+def join_with_group_n_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from common.hogql import ast
+
+    # Which $group_N events column to join on; carried as plain data instead of being
+    # captured in a closure so the LazyJoin (and the Database holding it) stays serializable.
+    group_index = join_to_add.lazy_join.resolver_params.get("group_index")
+    if group_index is None:
+        raise ResolutionError("group_n lazy join requires resolver_params['group_index']")
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from person_distinct_ids")
+
+    select_query = select_from_groups_table(join_to_add.fields_accessed)
+    select_query.where = ast.CompareOperation(
+        left=ast.Field(chain=["index"]),
+        op=ast.CompareOperationOp.Eq,
+        right=ast.Constant(value=group_index),
+    )
+
+    join_expr = ast.JoinExpr(table=select_query)
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[join_to_add.from_table, f"$group_{group_index}"]),
+            right=ast.Field(chain=[join_to_add.to_table, "key"]),
+        ),
+        constraint_type="ON",
+    )
+
+    return join_expr
+
+
+class RawGroupsTable(Table):
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+
+    def to_printed_clickhouse(self, context):
+        return "groups"
+
+    def to_printed_hogql(self):
+        return "raw_groups"
+
+
+class GroupsTable(LazyTable):
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return select_from_groups_table(table_to_add.fields_accessed)
+
+    def to_printed_clickhouse(self, context):
+        return "groups"
+
+    def to_printed_hogql(self):
+        return "groups"

@@ -23,7 +23,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 

@@ -6,7 +6,7 @@ class Command(BaseCommand):
     help = "Print a Hog/HogQL STL compatibility table"
 
     def handle(self, *args, **options):
-        from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_COMPARISON_MAPPING
+        from common.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_COMPARISON_MAPPING
 
         hogql_functions = set(HOGQL_COMPARISON_MAPPING.keys()).union(set(HOGQL_CLICKHOUSE_FUNCTIONS.keys()))
 

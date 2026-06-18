@@ -4,8 +4,8 @@ from django.utils import timezone
 
 from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric, MultipleVariantHandling, StepOrderValue
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import (

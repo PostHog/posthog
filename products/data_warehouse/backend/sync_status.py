@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 STALE_RUNNING_MULTIPLIER = 2
 
 # Mirrors database._get_active_external_data_schemas / NOT_DELETED_Q. Kept local to avoid a
-# circular import between sync_status.py and posthog.hogql.database.database.
+# circular import between sync_status.py and common.hogql.database.database.
 _NOT_DELETED = Q(deleted=False) | Q(deleted__isnull=True)
 
 

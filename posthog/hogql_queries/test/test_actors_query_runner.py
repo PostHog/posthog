@@ -36,10 +36,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import clear_locations
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
+from common.hogql.test.utils import pretty_print_in_tests
+from common.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner

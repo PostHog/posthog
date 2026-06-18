@@ -203,13 +203,13 @@ The ~1.8s the schema cost at import was real but structural — it was eventuall
 
 **Vanished re-exports.**
 When a module stops importing a name at module scope (moved under `TYPE_CHECKING`, deferred to call time, or dropped by regeneration), every `from that_module import name` elsewhere breaks — and the consumers are invisible until import time, because they were importing the name _incidentally_ through a module that merely happened to hold it.
-The eviction hit this with `from posthog.hogql.modifiers import HogQLQueryModifiers` in test files: fine for years, ImportError the day modifiers stopped binding the name.
+The eviction hit this with `from common.hogql.modifiers import HogQLQueryModifiers` in test files: fine for years, ImportError the day modifiers stopped binding the name.
 Before unbinding a name, grep for every import form — including `from package import module` and relative `from ...schema import` spellings, which a `^from posthog\.schema import` regex misses — and repoint consumers to the defining module.
 
 **Tests that patch a module attribute break when the import moves to call time.**
 `@patch("some.module.helper")` works by replacing the _attribute on the module object_; a function that does `from elsewhere import helper` at call time never reads that attribute, so the patch silently stops intercepting and the real code runs in the test.
 This caused three rounds of follow-up fixes in one week (conversations person lookup and groups lookup, the LLM-gateway policy task, the subscription free-tier constant).
-Fix the test, not the deferral: patch the name where it is _read_ — the defining module (`@patch("posthog.hogql.query.execute_hogql_query")`), which the call-time import resolves at call time, after the patch is in place.
+Fix the test, not the deferral: patch the name where it is _read_ — the defining module (`@patch("common.hogql.query.execute_hogql_query")`), which the call-time import resolves at call time, after the patch is in place.
 For a lazy module constant resolved via PEP 562 `__getattr__`, read it through `getattr(sys.modules[__name__], ...)` rather than as a bare global so a patched attribute still takes effect.
 
 **Regenerating a shared snapshot on top of a bad merge.**

@@ -26,8 +26,8 @@ from temporalio.client import (
     WorkflowHandle,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.hogql import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.hogql import HogQLContext
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (

@@ -4,8 +4,8 @@ Follows the `ExprTransformer` / `CloningVisitor` pattern from
 `posthog/hogql/transforms/preaggregated_table_transformation.py`.
 """
 
-from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.visitor import CloningVisitor
 
 # Mapping from AI property names to their dedicated ai_events column names.
 # Properties not in this mapping remain as JSONExtract on the `properties` column.

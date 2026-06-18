@@ -44,7 +44,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute

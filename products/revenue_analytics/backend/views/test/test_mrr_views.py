@@ -14,8 +14,8 @@ from unittest.mock import ANY
 
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, HogQLQueryResponse
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (

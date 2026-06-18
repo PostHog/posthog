@@ -15,9 +15,9 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team

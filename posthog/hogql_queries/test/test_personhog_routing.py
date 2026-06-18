@@ -9,7 +9,7 @@ from parameterized import parameterized_class
 
 from posthog.schema import EventsQuery, SessionsQuery
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.sessions_query_runner import SessionsQueryRunner

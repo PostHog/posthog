@@ -8,10 +8,10 @@ from posthog.schema import (
     RevenueExampleEventsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.models import UnknownDatabaseField
+from common.hogql import ast
+from common.hogql.ast import CompareOperationOp
+from common.hogql.constants import LimitContext
+from common.hogql.database.models import UnknownDatabaseField
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext

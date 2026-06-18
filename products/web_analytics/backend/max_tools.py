@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import WebAnalyticsAssistantFilters
 
-from posthog.hogql import ast
-from posthog.hogql.ast import Constant
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.ast import Constant
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.dags.common.owners import JobOwners

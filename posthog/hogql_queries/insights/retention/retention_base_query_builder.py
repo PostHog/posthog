@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import EntityType
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import entity_to_expr, property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
 

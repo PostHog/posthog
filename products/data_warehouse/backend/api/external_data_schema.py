@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.database.database import Database
+from common.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action

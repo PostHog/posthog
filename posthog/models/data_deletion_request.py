@@ -45,10 +45,10 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # to load for every model import (admin registration, migrations, etc.).
     from posthog.schema import PersonsOnEventsMode
 
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.hogql import translate_hogql
-    from posthog.hogql.modifiers import create_default_modifiers_for_team
-    from posthog.hogql.parser import parse_expr
+    from common.hogql.context import HogQLContext
+    from common.hogql.hogql import translate_hogql
+    from common.hogql.modifiers import create_default_modifiers_for_team
+    from common.hogql.parser import parse_expr
 
     from posthog.models.team import Team
 

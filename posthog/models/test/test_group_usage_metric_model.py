@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models import GroupUsageMetric
 

@@ -3,7 +3,7 @@ from typing import Any, Optional, Union, cast
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.database.database import Database
+from common.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Filter, Property

@@ -19,9 +19,9 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import HogQLQueryModifiers, WebAnalyticsOrderByFields, WebStatsBreakdown
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 

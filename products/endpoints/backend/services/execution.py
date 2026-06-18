@@ -37,7 +37,7 @@ from posthog.schema import (
     RefreshType,
 )
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from common.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request

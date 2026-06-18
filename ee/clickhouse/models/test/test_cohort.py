@@ -22,7 +22,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
+from common.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.filters import Filter

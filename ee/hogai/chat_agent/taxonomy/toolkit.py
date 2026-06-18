@@ -21,7 +21,7 @@ from posthog.schema import (
     TaskExecutionStatus,
 )
 
-from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
+from common.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource

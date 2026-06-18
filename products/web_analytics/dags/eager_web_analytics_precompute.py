@@ -65,7 +65,7 @@ from prometheus_client import Counter
 
 from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud

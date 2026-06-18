@@ -4,9 +4,9 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.cloud_utils import is_cloud
 from posthog.scoping_audit import skip_team_scope_audit

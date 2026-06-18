@@ -7,14 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
-from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
-from posthog.hogql.constants import (
+from common.hogql.ast import And, CompareOperation, Constant, SelectQuery
+from common.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     LimitContext,
     get_default_limit_for_context,
     get_max_limit_for_context,
 )
-from posthog.hogql.parser import parse_select
+from common.hogql.parser import parse_select
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator

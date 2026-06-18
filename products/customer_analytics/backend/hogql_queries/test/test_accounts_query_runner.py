@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature

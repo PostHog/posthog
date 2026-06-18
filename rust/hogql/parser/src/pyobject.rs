@@ -1,4 +1,4 @@
-//! Convert a parser-built `serde_json::Value` AST into `posthog.hogql.ast` dataclass instances directly, skipping the JSON-string serialise step on the Rust side AND the orjson + `_deserialize_node` walk on the Python side. Mirrors [`posthog/hogql/json_ast.py`].
+//! Convert a parser-built `serde_json::Value` AST into `common.hogql.ast` dataclass instances directly, skipping the JSON-string serialise step on the Rust side AND the orjson + `_deserialize_node` walk on the Python side. Mirrors [`common/hogql/json_ast.py`].
 //!
 //! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay alongside for callers that need the string form (tests, future WASM build that can't link to CPython).
 //!
@@ -23,8 +23,8 @@ pub struct Converter<'py> {
 
 impl<'py> Converter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        let ast_module = py.import_bound("posthog.hogql.ast")?;
-        let errors_module = py.import_bound("posthog.hogql.errors")?;
+        let ast_module = py.import_bound("common.hogql.ast")?;
+        let errors_module = py.import_bound("common.hogql.errors")?;
         let exposed_error = errors_module.getattr("ExposedHogQLError")?;
         let syntax_error = errors_module.getattr("SyntaxError")?;
         let arith_op_enum = ast_module.getattr("ArithmeticOperationOp")?;

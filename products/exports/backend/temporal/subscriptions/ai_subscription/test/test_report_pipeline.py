@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from common.hogql.errors import ExposedHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     QUERY_FAILED_PREFIX,

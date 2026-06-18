@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.models import DatabaseField, StringDatabaseField
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.database.models import DatabaseField, StringDatabaseField
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryResponse
 
-    from posthog.hogql.database.models import Table
+    from common.hogql.database.models import Table
 
 
 class _EventsFieldCollector(TraversingVisitor):
@@ -194,7 +194,7 @@ class EventsPrefilterTransformer(TraversingVisitor):
         """
         from typing import cast
 
-        from posthog.hogql.database.models import StringDatabaseField
+        from common.hogql.database.models import StringDatabaseField
 
         from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
         from posthog.models.property import TableColumn
@@ -239,7 +239,7 @@ class EventsPrefilterTransformer(TraversingVisitor):
 
     @staticmethod
     def _get_events_table(table_type: ast.Type) -> Table | None:
-        from posthog.hogql.database.models import Table as TableModel
+        from common.hogql.database.models import Table as TableModel
 
         if isinstance(table_type, ast.TableType):
             return table_type.table if isinstance(table_type.table, TableModel) else None
@@ -274,7 +274,7 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
         limit: int | None = None,
         offset: int | None = None,
     ) -> PrefilterHogQLHasMorePaginator:
-        from posthog.hogql.constants import get_default_limit_for_context, get_max_limit_for_context
+        from common.hogql.constants import get_default_limit_for_context, get_max_limit_for_context
 
         max_rows = get_max_limit_for_context(limit_context)
         default_rows = get_default_limit_for_context(limit_context)
@@ -297,9 +297,9 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
     ) -> HogQLQueryResponse:
         from posthog.schema import HogQLQueryResponse
 
-        from posthog.hogql.constants import get_default_hogql_global_settings
-        from posthog.hogql.printer.utils import print_prepared_ast
-        from posthog.hogql.query import HogQLQueryExecutor
+        from common.hogql.constants import get_default_hogql_global_settings
+        from common.hogql.printer.utils import print_prepared_ast
+        from common.hogql.query import HogQLQueryExecutor
 
         executor = HogQLQueryExecutor(
             query=self.paginate(query),

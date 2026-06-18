@@ -31,7 +31,7 @@ from posthog.schema import (
     RetentionQuery,
 )
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
@@ -657,8 +657,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
 
-    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    @patch("common.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
@@ -682,8 +682,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedHogQLQueryResponse)
         self.assertEqual(len(response.results), 10)
 
-    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    @patch("common.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
@@ -744,8 +744,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(api_response.status_code, 400)
 
-    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    @patch("common.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
@@ -771,8 +771,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 10)
 
-    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    @patch("common.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
@@ -1245,7 +1245,7 @@ class TestQueryRetrieve(APIBaseTest):
 
 
 class TestQueryDraftSql(APIBaseTest):
-    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    @patch("common.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
     def test_draft_sql(self, hit_openai_mock):
         response = self.client.get(
             f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}

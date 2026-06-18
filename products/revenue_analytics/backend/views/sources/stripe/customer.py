@@ -2,9 +2,9 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.ast import SelectQuery
+from common.hogql.parser import parse_expr, parse_select
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,

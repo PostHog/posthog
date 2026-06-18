@@ -1,6 +1,6 @@
 //! Error type + JSON envelope serialisation matching the existing C++
 //! parser's error shape in [`common/hogql_parser/parser_json.cpp`]. The
-//! Python side ([`posthog/hogql/json_ast.py`]) special-cases this envelope
+//! Python side ([`common/hogql/json_ast.py`]) special-cases this envelope
 //! and raises `ExposedHogQLError` / `SyntaxError` from it.
 
 use serde_json::json;

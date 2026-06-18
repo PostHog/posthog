@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.schema import DateRange, WebAnalyticsExternalSummaryQuery
 
-from posthog.hogql.database.schema.web_analytics_s3 import (
+from common.hogql.database.schema.web_analytics_s3 import (
     _get_s3_credentials,
     create_s3_web_bounces_table,
     create_s3_web_stats_table,
@@ -154,7 +154,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert results["bounce_rate"] == 0.0
 
     def test_build_correct_paths_and_structures_for_s3_chdb_queries_in_production_mode(self):
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", False):
             runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
 
             stats_func = runner._build_s3_stats_table_func()
@@ -180,7 +180,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
             assert "web_bounces_daily_export" in bounces_table.url
 
     def test_build_correct_paths_and_structures_for_s3_chdb_queries_in_debug_mode(self):
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", True):
             runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
 
             # Test that the S3 table creation functions work correctly in debug mode
@@ -194,7 +194,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
             assert "'Native'" in bounces_func
 
             # Most importantly, verify that the create functions return tables WITH credentials in debug
-            from posthog.hogql.database.schema.web_analytics_s3 import (
+            from common.hogql.database.schema.web_analytics_s3 import (
                 create_s3_web_bounces_table,
                 create_s3_web_stats_table,
             )
@@ -212,22 +212,22 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
             assert "web_bounces_daily_export" in bounces_table.url
 
     def test_credential_helper_function_behavior(self):
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", False):
             access_key, access_secret = _get_s3_credentials()
             assert access_key is None
             assert access_secret is None
 
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
-            with patch("posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_ACCESS_KEY_ID", "debug_key"):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", True):
+            with patch("common.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_ACCESS_KEY_ID", "debug_key"):
                 with patch(
-                    "posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_SECRET_ACCESS_KEY", "debug_secret"
+                    "common.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_SECRET_ACCESS_KEY", "debug_secret"
                 ):
                     access_key, access_secret = _get_s3_credentials()
                     assert access_key == "debug_key"
                     assert access_secret == "debug_secret"
 
     def test_s3_table_creation_integration(self):
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", False):
             stats_table = create_s3_web_stats_table(self.team.pk)
             assert stats_table.access_key is None
             assert stats_table.access_secret is None
@@ -243,7 +243,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
             assert bounces_table.name == "web_bounces_daily_s3"
             assert "web_bounces_daily_export" in bounces_table.url
 
-        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
+        with patch("common.hogql.database.schema.web_analytics_s3.DEBUG", True):
             stats_table = create_s3_web_stats_table(self.team.pk)
             assert stats_table.access_key is not None
             assert stats_table.access_secret is not None

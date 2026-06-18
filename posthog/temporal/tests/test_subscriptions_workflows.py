@@ -20,7 +20,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership

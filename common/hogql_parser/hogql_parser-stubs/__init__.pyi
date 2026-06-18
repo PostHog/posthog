@@ -1,5 +1,5 @@
-from posthog.hogql.ast import Program, SelectQuery, SelectSetQuery
-from posthog.hogql.base import AST
+from common.hogql.ast import Program, SelectQuery, SelectSetQuery
+from common.hogql.base import AST
 
 def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:
     """Parse the HogQL expression string into an AST.

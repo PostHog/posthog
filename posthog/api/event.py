@@ -25,10 +25,10 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ProductKey
 
-from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
-from posthog.hogql.property_utils import create_property_conditions
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import DEFAULT_RETURNED_ROWS
+from common.hogql.property_utils import create_property_conditions
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION

@@ -20,11 +20,11 @@ from posthog.schema import (
     StatusItem,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.printer import to_printed_hogql
+from common.hogql.property import action_to_expr, property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql

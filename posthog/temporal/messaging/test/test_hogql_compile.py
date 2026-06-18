@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -24,7 +24,7 @@ class TestCompileHogqlForStreaming:
         )
 
         with patch(
-            "posthog.hogql.printer.utils.get_restricted_properties_for_team",
+            "common.hogql.printer.utils.get_restricted_properties_for_team",
             side_effect=AssertionError("get_restricted_properties_for_team must not be called"),
         ):
             sql, params = await compile_hogql_for_streaming(node, team_id=team.id)

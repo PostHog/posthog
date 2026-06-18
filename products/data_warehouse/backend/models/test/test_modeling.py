@@ -4,10 +4,10 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_select
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.errors import QueryError
+from common.hogql.parser import parse_select
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
@@ -673,7 +673,7 @@ class TestResolverFactoryInjection(BaseTest):
     swap in BoundedResolver instead of the unbounded base Resolver."""
 
     def test_prepare_ast_for_printing_uses_injected_bounded_resolver(self):
-        from posthog.hogql.printer import prepare_ast_for_printing
+        from common.hogql.printer import prepare_ast_for_printing
 
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -704,7 +704,7 @@ class TestResolverFactoryInjection(BaseTest):
 
     def test_prepare_ast_for_printing_default_resolver_is_unbounded(self):
         """Sanity check: without the factory, no depth bound is applied — proves the kwarg is the opt-in."""
-        from posthog.hogql.printer import prepare_ast_for_printing
+        from common.hogql.printer import prepare_ast_for_printing
 
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -750,7 +750,7 @@ class TestResolverFactoryInjection(BaseTest):
         materializes as subqueries and re-resolves. Threading the factory means those
         re-resolutions go through BoundedResolver too.
         """
-        from posthog.hogql.printer import prepare_ast_for_printing
+        from common.hogql.printer import prepare_ast_for_printing
 
         from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 

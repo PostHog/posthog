@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 

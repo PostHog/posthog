@@ -9,8 +9,8 @@ from posthog.schema import (
     ProductKey,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.endpoints.endpoints_usage_query_runner import EndpointsUsageQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

@@ -23,8 +23,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
+from common.hogql import ast
+from common.hogql.ast import CompareOperationOp
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, Person, PropertyDefinition, Team
@@ -1176,7 +1176,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-11T12:00:05Z")
     def test_restricted_event_property_in_select_raises_error(self):
-        from posthog.hogql.errors import ResolutionError
+        from common.hogql.errors import ResolutionError
 
         from posthog.models import PropertyDefinition
 

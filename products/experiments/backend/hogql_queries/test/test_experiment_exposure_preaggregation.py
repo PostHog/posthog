@@ -18,7 +18,7 @@ from posthog.schema import (
     IntervalType,
 )
 
-from posthog.hogql.constants import get_default_hogql_global_settings
+from common.hogql.constants import get_default_hogql_global_settings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 

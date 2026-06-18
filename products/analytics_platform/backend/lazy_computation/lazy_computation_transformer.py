@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.ast import CompareOperationOp
+from common.hogql.context import HogQLContext
+from common.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression
+from common.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team

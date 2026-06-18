@@ -546,7 +546,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_ast = hogql_query.get_dynamic_cohort_condition(prop)
 
         # Print the AST to string
-        from posthog.hogql.printer import prepare_and_print_ast
+        from common.hogql.printer import prepare_and_print_ast
 
         query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
 
@@ -565,7 +565,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         """
         Test that negated cohort membership uses EXCEPT to exclude cohort members.
         """
-        from posthog.hogql.printer import prepare_and_print_ast
+        from common.hogql.printer import prepare_and_print_ast
 
         from posthog.models.property import Property
 

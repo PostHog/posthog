@@ -16,10 +16,10 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import (
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.parser import parse_expr
+from common.hogql.property import (
     get_property_key,
     get_property_operator,
     get_property_type,

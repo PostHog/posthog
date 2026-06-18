@@ -1594,8 +1594,8 @@ def _semantic_chunk_candidates(
     distance cutoff, ordered by cosineDistance ASC. The caller re-joins to
     Postgres for safety filters and trims to ``limit``.
     """
-    from posthog.hogql import ast  # noqa: PLC0415 — keeps HogQL compiler off the import path
-    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+    from common.hogql import ast  # noqa: PLC0415 — keeps HogQL compiler off the import path
+    from common.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     from posthog.clickhouse.query_tagging import Feature, Product, tag_queries  # noqa: PLC0415
     from posthog.models.team.team import Team  # noqa: PLC0415

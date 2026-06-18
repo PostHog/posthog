@@ -4,11 +4,11 @@ Hand-rolled Rust HogQL parser. Pratt + recursive descent. Same JSON AST
 shape as the [C++ ANTLR parser](../../../common/hogql_parser/) so the
 two can be cross-validated query-by-query. Ships as a Python extension
 via `maturin` and is selected as the `rust-json` backend in
-[`posthog/hogql/parser.py`](../../../posthog/hogql/parser.py).
+[`common/hogql/parser.py`](../../../common/hogql/parser.py).
 
 About **15× faster than the C++ parser on `parse_expr`** and **50–55×
 on `parse_select`**, against the same input, on the same machine. The
-numbers come from `posthog/hogql/scripts/parser_bench.py`; re-run
+numbers come from `common/hogql/scripts/parser_bench.py`; re-run
 locally before and after any non-trivial change.
 
 ## The C++ parser is the source of truth
@@ -16,7 +16,7 @@ locally before and after any non-trivial change.
 When grammar, AST shape, or any visible behaviour disagrees between
 the two, the C++ ANTLR parser is right and this one is wrong. The C++
 parser is generated from
-[`posthog/hogql/grammar/HogQLLexer.*.g4`](../../../posthog/hogql/grammar/HogQLParser.g4)
+[`common/hogql/grammar/HogQLLexer.*.g4`](../../../common/hogql/grammar/HogQLParser.g4)
 
 + `HogQLParser.g4` via ANTLR4. The Rust parser does not consume those
 grammar files; it hand-implements the same recognition behaviour.
@@ -40,7 +40,7 @@ the oracle right first, then the candidate.
 
 | Path                                            | What it does                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`src/lib.rs`](src/lib.rs)                      | PyO3 entry points (`parse_expr_json`, `parse_select_json`, `parse_program_json`, `parse_order_expr_json`, `parse_full_template_string_json`). Each returns a JSON string; on error the JSON is an `{"error": true, ...}` envelope `posthog/hogql/json_ast.py` decodes into `HogQLSyntaxError` / `ExposedHogQLError`.                           |
+| [`src/lib.rs`](src/lib.rs)                      | PyO3 entry points (`parse_expr_json`, `parse_select_json`, `parse_program_json`, `parse_order_expr_json`, `parse_full_template_string_json`). Each returns a JSON string; on error the JSON is an `{"error": true, ...}` envelope `common/hogql/json_ast.py` decodes into `HogQLSyntaxError` / `ExposedHogQLError`.                           |
 | [`src/lex.rs`](src/lex.rs)                      | Lexer. Hand-rolled state machine matching the ANTLR-generated C++ lexer's tokens + mode stack (default / template-string / HogQLX-tag / HogQLX-text). When you add a new keyword to the grammar, add it here too.                                                                                                                             |
 | [`src/parse.rs`](src/parse.rs)                  | Parser core: `Parser` struct, public entry points, the Pratt expression parser (`parse_expr_bp`), positions (`pos_obj`, `wrap_pos`, `wrap_pos_to`), char-offset / line-col tables, `checkpoint` / `restore` for speculative branches.                                                                                                         |
 | `src/parse/{expr,select,program,join,cte,hogqlx,template}.rs` | Per-rule parsing. Most grammar changes land in one of these.                                                                                                                                                                                                                                                                                  |
@@ -76,7 +76,7 @@ A second build path exists for fuzz-driven parser-parity work: build the crate
 with `--features coverage` and SanitizerCoverage's `trace-pc-guard` pass, and
 the resulting wheel exposes two PyO3 functions (`cov_snapshot()`, `cov_reset()`)
 that the pytest PBT
-([`posthog/hogql/test/test_parser_pbt.py`](../../../posthog/hogql/test/test_parser_pbt.py))
+([`common/hogql/test/test_parser_pbt.py`](../../../common/hogql/test/test_parser_pbt.py))
 uses to feed a per-example `rust_edges` novelty count into Hypothesis `target()`
 on top of the existing `ast_depth` / `novel_kpaths` signals. See
 [`src/cov.rs`](src/cov.rs) for the callback + bitmap implementation. The
@@ -114,7 +114,7 @@ VIRTUAL_ENV=$PWD/.flox/cache/venv uv pip install --reinstall --no-deps \
 python -c "import hogql_parser_rs; print(hasattr(hogql_parser_rs, 'cov_snapshot'))"
 
 # Run the parity PBT; the rust_edges target appears in --hypothesis-show-statistics.
-RUN_PBT=1 hogli test posthog/hogql/test/test_parser_pbt.py::TestParserBackendEquivalence \
+RUN_PBT=1 hogli test common/hogql/test/test_parser_pbt.py::TestParserBackendEquivalence \
     --hypothesis-show-statistics
 ```
 
@@ -153,8 +153,8 @@ Steps 1–4 are the one-time grammar-update process — done once,
 human-driven. Step 5 (running the parity loop below) is the
 long-running, agent-friendly part.
 
-1. **Update [`HogQLLexer.*.g4`](../../../posthog/hogql/grammar/) and
-    [`HogQLParser.g4`](../../../posthog/hogql/grammar/HogQLParser.g4).**
+1. **Update [`HogQLLexer.*.g4`](../../../common/hogql/grammar/) and
+    [`HogQLParser.g4`](../../../common/hogql/grammar/HogQLParser.g4).**
     Run `pnpm grammar:build` to regenerate the Python and C++ ANTLR
     artefacts:
 
@@ -164,16 +164,16 @@ long-running, agent-friendly part.
 
     That step requires the `antlr` 4.13.2 binary on `PATH`;
     instructions in
-    [`posthog/hogql/grammar/README.md`](../../../posthog/hogql/grammar/README.md).
+    [`common/hogql/grammar/README.md`](../../../common/hogql/grammar/README.md).
     The script rewrites `common/hogql_parser/HogQL{Lexer,Parser}.{cpp,h,interp,tokens}`
     and the matching Python files. Both backends now recognise the
     new shape.
 
 2. **Pick the AST emission.** Decide what JSON the cpp visitor should
     return for the new shape. Either reuse an existing AST node or add
-    a new one in `posthog/hogql/ast.py`. The Python AST is shared
+    a new one in `common/hogql/ast.py`. The Python AST is shared
     between backends, so any new node has to land there first, otherwise
-    `posthog/hogql/json_ast.py::deserialize_ast` will crash on it.
+    `common/hogql/json_ast.py::deserialize_ast` will crash on it.
 
 3. **Update the cpp visitor.** Add the `VISIT(YourNewRule)` arm in
     [`common/hogql_parser/parser_json.cpp`](../../../common/hogql_parser/parser_json.cpp).
@@ -185,7 +185,7 @@ long-running, agent-friendly part.
 4. **Pin the new behaviour with a regression test.** Add a test (and a
     rust-rejects-it negative test if the grammar tightens) into the
     `parser_test_factory` suite in
-    [`posthog/hogql/test/_test_parser.py`](../../../posthog/hogql/test/_test_parser.py).
+    [`common/hogql/test/_test_parser.py`](../../../common/hogql/test/_test_parser.py).
     The factory runs every test against `cpp-json`, `rust-json`, and
     `python`; on a fresh grammar change the test passes on cpp and
     fails on rust. That fail is the starting state for the parity
@@ -267,25 +267,25 @@ per-node `start` / `end` positions in the comparison by default; set
 `CLEAR_LOCATIONS=1` to strip positions when you want a structural-only
 read.
 
-### Regression tests in `posthog/hogql/test/`
+### Regression tests in `common/hogql/test/`
 
 ```bash
-hogli test posthog/hogql/test/test_parser_cpp_json.py
-hogli test posthog/hogql/test/test_parser_python.py
-hogli test posthog/hogql/test/test_parser_rust_json.py
+hogli test common/hogql/test/test_parser_cpp_json.py
+hogli test common/hogql/test/test_parser_python.py
+hogli test common/hogql/test/test_parser_rust_json.py
 ```
 
 The behaviour suite + regression pins live in
-[`_test_parser.py`](../../../posthog/hogql/test/_test_parser.py)'s
+[`_test_parser.py`](../../../common/hogql/test/_test_parser.py)'s
 `parser_test_factory`. The three files above are thin subclasses that
 spawn one runnable test entry per (backend, case) combination. When
 you find a new divergence, add a reduced regression to the factory —
 it picks up all three backends automatically.
 
-### Property-based testing via `posthog/hogql/scripts/pbt_diagnostic.py`
+### Property-based testing via `common/hogql/scripts/pbt_diagnostic.py`
 
 ```bash
-PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
+PYTHONPATH=. python common/hogql/scripts/pbt_diagnostic.py \
     --n 5000 --rule program
 
 # Per rule:
@@ -305,14 +305,14 @@ group — `uv sync --group hogql-parser-parity`).
 ```bash
 # SELECT queries from the last 7 days of production traffic
 # (redacted, AI-data-processing-approved teams only):
-PYTHONPATH=. python posthog/hogql/scripts/log_corpus_diagnostic.py
+PYTHONPATH=. python common/hogql/scripts/log_corpus_diagnostic.py
 
 # Hog programs from production (transformations, destinations, …):
-PYTHONPATH=. python posthog/hogql/scripts/hog_corpus_diagnostic.py
+PYTHONPATH=. python common/hogql/scripts/hog_corpus_diagnostic.py
 ```
 
 Both auto-download via `hogli metabase:query` and cache locally under
-`posthog/hogql/scripts/.local/`. Pass `--skip-download` to reuse the
+`common/hogql/scripts/.local/`. Pass `--skip-download` to reuse the
 existing dump while iterating. Failures are written one block per
 divergence to a `.sql` / `.hog` file the agent can chew through. Add
 `--shrink-failures` to reduce each failing query to a minimal repro via
@@ -323,7 +323,7 @@ shrinkray before it's written.
 ```bash
 # Pipe in a query that diverges (or that you think might); get the
 # minimal repro back on stdout:
-echo '<query>' | PYTHONPATH=. python posthog/hogql/scripts/shrink_query.py --rule select
+echo '<query>' | PYTHONPATH=. python common/hogql/scripts/shrink_query.py --rule select
 ```
 
 The "think hard about edge cases" arm of the loop, and the reducer for
@@ -339,7 +339,7 @@ it and keeps the ones that come back shrunk.
 Shrinking is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
 which lives in the `hogql-parser-parity` group rather than the default dev
 install (its transitive deps — textual, libcst, black — are heavy). The
-parity scripts in `posthog/hogql/scripts/` import it at module level, so
+parity scripts in `common/hogql/scripts/` import it at module level, so
 they require that group:
 
 ```bash
@@ -350,11 +350,11 @@ Without it they fail fast at startup with a `ModuleNotFoundError` — these
 are parity-work-only tools, so they just require the parity dependency
 rather than degrading to a no-shrink mode.
 
-### Perf bench via `posthog/hogql/scripts/parser_bench.py`
+### Perf bench via `common/hogql/scripts/parser_bench.py`
 
 ```bash
 CANDIDATE_BACKEND=rust-json PYTHONPATH=. \
-    python posthog/hogql/scripts/parser_bench.py
+    python common/hogql/scripts/parser_bench.py
 ```
 
 Runs both parsers against a fixed corpus of representative queries
@@ -376,7 +376,7 @@ divergences are triaged apart from structural ones. Useful when a
 regression slips past the PBT but shows up in the suite.
 
 ```python
-from posthog.hogql.constants import HogQLParserBackend
+from common.hogql.constants import HogQLParserBackend
 parse_expr(src, backend=HogQLParserBackend.CPP_WITH_RUST_SHADOW)
 ```
 
@@ -457,12 +457,12 @@ user-visible.
 ## Selecting from Python
 
 ```python
-from posthog.hogql.parser import parse_expr, parse_select, parse_program
+from common.hogql.parser import parse_expr, parse_select, parse_program
 
 ast = parse_expr("1 + event.properties.$browser", backend="rust-json")
 ```
 
-Backends live in `posthog/hogql/constants.HogQLParserBackend`:
+Backends live in `common/hogql/constants.HogQLParserBackend`:
 
 | Backend                   | Use case                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------ |

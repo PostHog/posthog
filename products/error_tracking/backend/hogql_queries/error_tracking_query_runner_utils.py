@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import ErrorTrackingQuery
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 
 @overload

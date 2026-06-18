@@ -7,9 +7,9 @@ from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
-from posthog.hogql import ast
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.property import property_to_expr
 
 from posthog.api.utils import action
 from posthog.models.team.team import Team

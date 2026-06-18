@@ -1,7 +1,7 @@
 from posthog.schema import BreakdownFilter
 
-from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from common.hogql import ast
+from common.hogql.visitor import CloningVisitor
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"

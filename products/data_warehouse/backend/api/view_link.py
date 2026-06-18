@@ -3,16 +3,16 @@ from typing import Optional, cast
 from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
-from posthog.hogql.database.models import LazyJoin
-from posthog.hogql.database.utils import get_join_field_chain
-from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.database.lazy_join_tags import DATA_WAREHOUSE
+from common.hogql.database.models import LazyJoin
+from common.hogql.database.utils import get_join_field_chain
+from common.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from common.hogql.errors import QueryError, SyntaxError
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

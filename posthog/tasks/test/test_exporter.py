@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.tasks import exporter

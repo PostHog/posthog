@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from posthog.hogql.database.models import BooleanDatabaseField, DecimalDatabaseField, FieldOrTable, StringDatabaseField
+from common.hogql.database.models import BooleanDatabaseField, DecimalDatabaseField, FieldOrTable, StringDatabaseField
 
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 

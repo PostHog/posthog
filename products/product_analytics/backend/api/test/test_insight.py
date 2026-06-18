@@ -43,7 +43,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
@@ -4843,7 +4843,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
-            ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+            ("ExposedHogQLError", "common.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
             ("HogVMException", "common.hogvm.python.utils.HogVMException", "Global variable not found: variables"),
         ]
     )
@@ -4851,7 +4851,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
     def test_retrieve_returns_400_for_exposed_errors(
         self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
     ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
+        from common.hogql.errors import ExposedHogQLError
 
         from posthog.errors import ExposedCHQueryError
 
@@ -4888,7 +4888,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
     def test_trend_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
+        from common.hogql.errors import ExposedHogQLError
 
         from posthog.errors import ExposedCHQueryError
 
@@ -4920,7 +4920,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
+        from common.hogql.errors import ExposedHogQLError
 
         from posthog.errors import ExposedCHQueryError
 

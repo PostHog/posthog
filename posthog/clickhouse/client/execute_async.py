@@ -11,8 +11,8 @@ from rest_framework.exceptions import APIException, NotFound
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.constants import LimitContext
+from common.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit

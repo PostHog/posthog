@@ -1,7 +1,7 @@
 //! HogQL lexer (default mode).
 //!
 //! Produces tokens matching the ANTLR grammar at
-//! [`posthog/hogql/grammar/HogQLLexer.common.g4`] for everything outside the
+//! [`common/hogql/grammar/HogQLLexer.common.g4`] for everything outside the
 //! template-string and HogQLX modes. Those modes maintain a stack and switch
 //! lexer state mid-stream; they're deferred until the relevant tests are
 //! reached.

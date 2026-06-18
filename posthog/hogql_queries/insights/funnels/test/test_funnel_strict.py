@@ -13,9 +13,9 @@ from posthog.schema import (
     FunnelsQuery,
 )
 
-from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
+from common.hogql.parser import parse_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner

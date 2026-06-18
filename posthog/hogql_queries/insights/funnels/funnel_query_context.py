@@ -12,8 +12,8 @@ from posthog.schema import (
     IntervalType,
 )
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.constants import LimitContext
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.models.property.util import box_value

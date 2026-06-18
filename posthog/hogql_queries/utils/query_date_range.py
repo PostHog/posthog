@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.schema import DateRange, IntervalType
 
-from posthog.hogql.parser import ast
+from common.hogql.parser import ast
 
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch

@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
 
-from posthog.hogql.metadata import get_table_names
-from posthog.hogql.parser import parse_select
-from posthog.hogql.taxonomy_validation import validate_taxonomy_references
+from common.hogql.metadata import get_table_names
+from common.hogql.parser import parse_select
+from common.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
 

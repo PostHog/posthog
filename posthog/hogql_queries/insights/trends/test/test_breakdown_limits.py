@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 
-from posthog.hogql import ast
-from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH
+from common.hogql import ast
+from common.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH
 
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 

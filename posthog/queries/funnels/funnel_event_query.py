@@ -2,7 +2,7 @@ from typing import Any, Union
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.hogql import translate_hogql
+from common.hogql.hogql import translate_hogql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter

@@ -20,9 +20,9 @@ HogQL queries are built up from AST (Abstract Syntax Tree) nodes.
 You can build the nodes yourself, or use the helpers `parse_expr` and `parse_select` to convert HogQL strings into AST nodes:
 
 ```py
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
+from common.hogql.parser import parse_expr, parse_select
 
 num_last_days = 2
 
@@ -52,9 +52,9 @@ Few things to note:
 If you want more control, you can build the AST nodes directly. The same query above can be written as:
 
 ```py
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
+from common.hogql.parser import parse_expr
 
 num_last_days = 2
 

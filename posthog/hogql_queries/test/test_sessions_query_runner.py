@@ -22,7 +22,7 @@ from posthog.schema import (
     SessionsQuery,
 )
 
-from posthog.hogql.printer import to_printed_hogql
+from common.hogql.printer import to_printed_hogql
 
 from posthog.hogql_queries.sessions_query_runner import SUPPORTED_PERSON_PROPERTY_OPERATORS, SessionsQueryRunner
 from posthog.models.utils import uuid7
@@ -1262,7 +1262,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = SessionsQueryRunner(query=query, team=self.team)
             hogql = runner.to_query()
 
-            from posthog.hogql.printer import to_printed_hogql
+            from common.hogql.printer import to_printed_hogql
 
             printed = to_printed_hogql(hogql, team=self.team)
             # $session_id should be filtered directly on sessions

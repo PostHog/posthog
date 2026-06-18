@@ -1075,7 +1075,7 @@ class TestGetExperimentQueryDebug:
     @pytest.mark.django_db
     def test_generates_hogql_and_clickhouse_sql(self, team):
         """Test that function generates both HogQL and ClickHouse SQL."""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         # Create a simple query with a table that would use sensitive params
         select_query = ast.SelectQuery(
@@ -1103,8 +1103,8 @@ class TestGetExperimentQueryDebug:
         """Test that parameters marked _sensitive are masked as [HIDDEN] in output."""
         from unittest.mock import MagicMock, patch
 
-        from posthog.hogql import ast
-        from posthog.hogql.context import HogQLContext
+        from common.hogql import ast
+        from common.hogql.context import HogQLContext
 
         select_query = ast.SelectQuery(
             select=[ast.Constant(value=1)],

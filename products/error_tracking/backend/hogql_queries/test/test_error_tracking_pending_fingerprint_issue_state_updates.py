@@ -4,8 +4,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+from common.hogql import ast
+from common.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     _ISSUE_STATE_COLUMNS,
     RAW_TABLE_NAME,
     _build_union_with_pending_updates,

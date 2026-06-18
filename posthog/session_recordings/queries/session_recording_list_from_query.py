@@ -15,10 +15,10 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.constants import HogQLGlobalSettings
+from common.hogql.parser import parse_select
+from common.hogql.property import property_to_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator

@@ -10,9 +10,9 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer.utils import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.printer.utils import prepare_ast_for_printing, print_prepared_ast
 
 from products.web_analytics.backend.hogql_queries.events_prefilter import EventsPrefilterTransformer
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner

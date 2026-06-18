@@ -10,11 +10,11 @@ from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
-from posthog.hogql import ast
-from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql import ast
+from common.hogql.database.s3_table import S3Table
+from common.hogql.hogql import HogQLContext
+from common.hogql.parser import parse_expr
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
@@ -348,7 +348,7 @@ def parse_prop_clauses(
         elif prop.type == "hogql":
             if hogql_context is None:
                 raise ValueError("HogQL is not supported here")
-            from posthog.hogql.hogql import translate_hogql
+            from common.hogql.hogql import translate_hogql
 
             filter_query = translate_hogql(prop.key, hogql_context)
             final.append(f"{property_operator} {filter_query}")

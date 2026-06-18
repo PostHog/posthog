@@ -8,13 +8,13 @@ from dagster import AssetCheckExecutionContext, AssetCheckResult, AssetCheckSeve
 
 from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewItem, WebOverviewQuery
 
-from posthog.hogql.database.schema.web_analytics_s3 import (
+from common.hogql.database.schema.web_analytics_s3 import (
     get_s3_function_args,
     get_s3_url,
     get_s3_web_bounces_structure,
     get_s3_web_stats_structure,
 )
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params

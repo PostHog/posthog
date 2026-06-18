@@ -17,7 +17,7 @@ from parameterized import parameterized
 from prometheus_client import CollectorRegistry, Counter
 from rest_framework import status
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1348,7 +1348,7 @@ class TestExports(APIBaseTest):
         test_export_workflow.py). This test verifies the underlying exporter
         still records structured failure metadata on the ExportedAsset model.
         """
-        from posthog.hogql.errors import QueryError
+        from common.hogql.errors import QueryError
 
         mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
 

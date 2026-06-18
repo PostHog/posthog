@@ -10,8 +10,8 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 
 from posthog.schema import DatabaseSerializedFieldType
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

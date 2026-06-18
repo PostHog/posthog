@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsDrillDownLevel
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST

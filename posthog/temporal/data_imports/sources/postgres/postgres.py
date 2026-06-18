@@ -29,7 +29,7 @@ from psycopg.adapt import Loader
 from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
 
-from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
+from common.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention

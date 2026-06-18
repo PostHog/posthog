@@ -17,7 +17,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import REGISTRY
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode

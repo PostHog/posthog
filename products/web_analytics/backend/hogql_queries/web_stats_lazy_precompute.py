@@ -15,8 +15,8 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 

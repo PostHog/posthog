@@ -1,7 +1,7 @@
 import pytest
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.hogql_queries.ai.ai_column_rewriter import (
     _BOOLEAN_COLUMNS,

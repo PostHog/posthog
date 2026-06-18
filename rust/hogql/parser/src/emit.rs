@@ -1,6 +1,6 @@
-//! The `Emitter` trait abstracts AST node construction so the parser can emit either `serde_json::Value` (via `JsonEmitter`, used by `parse_*_json` entry points + the future WASM build) or Python `posthog.hogql.ast` dataclass instances directly during parse (via `PyEmitter` in `emit_py.rs`, used by `parse_*_py`).
+//! The `Emitter` trait abstracts AST node construction so the parser can emit either `serde_json::Value` (via `JsonEmitter`, used by `parse_*_json` entry points + the future WASM build) or Python `common.hogql.ast` dataclass instances directly during parse (via `PyEmitter` in `emit_py.rs`, used by `parse_*_py`).
 //!
-//! Field names and shapes mirror the dataclasses at [`posthog/hogql/ast.py`]. The Python deserialiser at [`posthog/hogql/json_ast.py`] also builds these dataclasses from the JSON shape, so the two backends produce `__eq__`-equivalent objects.
+//! Field names and shapes mirror the dataclasses at [`common/hogql/ast.py`]. The Python deserialiser at [`common/hogql/json_ast.py`] also builds these dataclasses from the JSON shape, so the two backends produce `__eq__`-equivalent objects.
 
 use serde_json::{json, Value};
 use std::borrow::Cow;

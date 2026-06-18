@@ -27,7 +27,7 @@ class TestTriggerMatching:
             ("products/surveys/backend/presentation/views.py", "build:openapi"),
             ("products/surveys/mcp/tools.yaml", "build:openapi"),
             ("services/mcp/definitions/core.yaml", "build:openapi"),
-            ("posthog/hogql/grammar/HogQLParser.g4", "build:grammar"),
+            ("common/hogql/grammar/HogQLParser.g4", "build:grammar"),
             ("posthog/taxonomy/taxonomy.py", "build:taxonomy-json"),
             ("products/surveys/frontend/src/Survey.tsx", "build:products"),
             ("products/posthog_ai/skills/foo/SKILL.md", "build:skills"),
@@ -54,7 +54,7 @@ class TestTriggerMatching:
         changed = {
             "frontend/src/queries/schema/index.ts",
             "posthog/api/serializers.py",
-            "posthog/hogql/grammar/HogQLParser.g4",
+            "common/hogql/grammar/HogQLParser.g4",
         }
         assert set(_match_commands(changed)) == {"build:schema", "build:openapi", "build:grammar"}
 

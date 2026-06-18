@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_generation
 

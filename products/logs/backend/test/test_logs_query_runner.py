@@ -19,7 +19,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload

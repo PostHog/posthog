@@ -312,7 +312,7 @@ exclude = [
     "./nodejs/node_modules/",
     "./plugins/node_modules/",
     "./env",
-    "./posthog/hogql/grammar",
+    "./common/hogql/grammar",
     "products/*/skills/*/scripts",
 ]
 
@@ -400,7 +400,7 @@ section-order = [
     "django",
     "third-party",
     "posthog.schema",
-    "posthog.hogql",
+    "common.hogql",
     "posthog",
     "products",
     "first-party",
@@ -417,7 +417,7 @@ section-order = [
 ]
 # Separate groups for our own stuff
 "posthog.schema" = ["posthog.schema"]
-"posthog.hogql" = ["posthog.hogql"]
+"common.hogql" = ["common.hogql"]
 "posthog" = ["posthog"]
 "products" = ["products"]
 
@@ -448,7 +448,7 @@ module = "bin.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = "posthog.hogql.grammar.*"
+module = "common.hogql.grammar.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
@@ -471,7 +471,7 @@ python-version = "3.13"
 exclude = [
     "bin/**",
     "manage.py",
-    "posthog/hogql/grammar/**",
+    "common/hogql/grammar/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",

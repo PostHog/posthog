@@ -7,11 +7,11 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql import ast
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.compiler.javascript import JavaScriptCompiler
-from posthog.hogql.parser import parse_program, parse_string_template
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql import ast
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.compiler.javascript import JavaScriptCompiler
+from common.hogql.parser import parse_program, parse_string_template
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 

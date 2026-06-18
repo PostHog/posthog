@@ -11,7 +11,7 @@ from typing import Optional
 import dagster
 import pydantic
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
@@ -53,8 +53,8 @@ def get_mismatched_distinct_ids(
 
     Returns list of distinct_ids that need to be checked.
     """
-    from posthog.hogql import ast
-    from posthog.hogql.parser import parse_select
+    from common.hogql import ast
+    from common.hogql.parser import parse_select
 
     # Select distinct_id (not person_id) so we can look up the correct person_id from pdi2
     query = parse_select("SELECT DISTINCT distinct_id FROM events WHERE person_id != pdi.person_id")

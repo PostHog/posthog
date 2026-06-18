@@ -2,10 +2,10 @@
 //!
 //! Public API is a set of `parse_*` functions that return `Result<Value,
 //! ParseError>`. The PyO3 wrappers in [`crate::lib`] catch errors and emit
-//! the JSON error envelope expected by [`posthog/hogql/json_ast.py`].
+//! the JSON error envelope expected by [`common/hogql/json_ast.py`].
 //!
 //! Implementation strategy: Pratt parser with explicit binding powers, full
-//! precedence ladder from [`posthog/hogql/grammar/HogQLParser.g4`]'s
+//! precedence ladder from [`common/hogql/grammar/HogQLParser.g4`]'s
 //! `columnExpr` rule. The spike validated that the grammar's tricky spots
 //! (function-call dispatch, tuple-vs-parens-vs-subquery, `NOT (e)` being a
 //! function call by grammar accident, BETWEEN low-binding) need only
@@ -141,7 +141,7 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
 ) -> Result<E::Value, ParseError> {
     // The Python wrapper `parse_string_template` prepends `F'` to the
     // template body before handing the source off to either backend
-    // (see `posthog/hogql/parser.py::parse_string_template`). Strip
+    // (see `common/hogql/parser.py::parse_string_template`). Strip
     // that prefix here so the body splitter operates on the real
     // template contents; if it's absent we fall back to treating the
     // whole input as the body.
@@ -999,7 +999,7 @@ pub(crate) fn kw_valid_type_cast_ident(kw: Kw) -> bool {
 }
 
 /// Reserved keywords that can't be used as bare (unquoted) aliases. Mirrors
-/// `posthog.hogql.constants.RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]`
+/// `common.hogql.constants.RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]`
 /// where `KEYWORDS = ["true", "false", "null"]`.
 pub(crate) fn is_reserved_alias_name(name: &str) -> bool {
     let n = name.to_ascii_lowercase();

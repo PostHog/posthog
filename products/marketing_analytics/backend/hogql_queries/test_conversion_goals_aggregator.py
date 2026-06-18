@@ -15,9 +15,9 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
+from common.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (

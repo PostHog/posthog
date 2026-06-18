@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.web_analytics.backend.hogql_queries.traffic_type import (
     get_bot_name_expr,

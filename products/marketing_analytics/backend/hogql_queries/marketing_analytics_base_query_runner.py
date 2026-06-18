@@ -16,9 +16,9 @@ from posthog.schema import (
     MarketingAnalyticsDrillDownLevel,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql import ast
+from common.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from common.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.event_usage import groups
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner

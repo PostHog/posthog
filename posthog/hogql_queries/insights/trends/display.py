@@ -1,7 +1,7 @@
 from posthog.schema import ChartDisplayType
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 
 class TrendsDisplay:

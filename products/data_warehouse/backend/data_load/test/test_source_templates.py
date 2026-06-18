@@ -6,9 +6,9 @@ from parameterized import parameterized
 
 from posthog.schema import CurrencyCode
 
-from posthog.hogql.database.schema.test.base import RevenueAnalyticsTestBase
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.database.schema.test.base import RevenueAnalyticsTestBase
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.data_load.source_templates import database_operations

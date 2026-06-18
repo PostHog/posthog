@@ -16,7 +16,7 @@ from prometheus_client import Counter, Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries

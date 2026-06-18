@@ -2,7 +2,7 @@
 
 from posthog.schema import NativeMarketingSource
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, RedditAdsConfig, ValidationResult

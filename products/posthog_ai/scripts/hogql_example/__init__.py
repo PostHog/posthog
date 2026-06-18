@@ -71,10 +71,10 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from posthog.schema import HogQLFilters
 
-    from posthog.hogql import ast
-    from posthog.hogql.filters import replace_filters
-    from posthog.hogql.placeholders import replace_placeholders
-    from posthog.hogql.printer.utils import to_printed_hogql
+    from common.hogql import ast
+    from common.hogql.filters import replace_filters
+    from common.hogql.placeholders import replace_placeholders
+    from common.hogql.printer.utils import to_printed_hogql
 
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -109,7 +109,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 def _render_recordings_query(query_dict: dict[str, Any], team: Any) -> str:
     from posthog.schema import RecordingsQuery
 
-    from posthog.hogql.printer.utils import to_printed_hogql
+    from common.hogql.printer.utils import to_printed_hogql
 
     from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 

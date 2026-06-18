@@ -53,7 +53,7 @@ from posthog.schema import (
     WebAnalyticsItemKind,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 # Magic values
 DEFAULT_LIMIT = 100

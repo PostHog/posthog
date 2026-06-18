@@ -32,7 +32,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner

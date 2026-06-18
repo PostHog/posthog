@@ -19,7 +19,7 @@ from typing import Any
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 

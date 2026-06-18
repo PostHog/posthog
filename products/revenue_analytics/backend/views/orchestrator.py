@@ -7,7 +7,7 @@ from django.db.models import Prefetch
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team

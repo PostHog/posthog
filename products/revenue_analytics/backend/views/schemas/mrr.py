@@ -1,4 +1,4 @@
-from posthog.hogql.database.models import DecimalDatabaseField, StringDatabaseField
+from common.hogql.database.models import DecimalDatabaseField, StringDatabaseField
 
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 

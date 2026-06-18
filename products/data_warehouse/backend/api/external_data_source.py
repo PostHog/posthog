@@ -34,7 +34,7 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.hogql.database.database import Database
+from common.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action

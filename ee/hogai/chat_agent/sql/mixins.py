@@ -16,19 +16,19 @@ from posthog.schema import (
     Style,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.errors import (
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
     QueryError,
     ResolutionError,
 )
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.filters import replace_filters
+from common.hogql.parser import parse_select
+from common.hogql.placeholders import find_placeholders, replace_placeholders
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.models import Team
 from posthog.models.user import User

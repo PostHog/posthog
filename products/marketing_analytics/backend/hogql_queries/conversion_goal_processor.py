@@ -17,10 +17,10 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.property import action_to_expr, property_to_expr
+from common.hogql import ast
+from common.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import PropertyDefinition, Team, User
 

@@ -20,7 +20,7 @@ from testcontainers.mysql import MySqlContainer
 
 from posthog.schema import HogQLQueryResponse
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper

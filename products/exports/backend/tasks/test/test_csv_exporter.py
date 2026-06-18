@@ -19,7 +19,7 @@ from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
 from requests.exceptions import HTTPError
 
-from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+from common.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
 from posthog.models.utils import UUIDT
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -392,8 +392,8 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_tabular(self._create_asset())
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
-    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_hogql_query(
         self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS: int = 5, CSV_EXPORT_LIMIT: int = 10
@@ -439,7 +439,7 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content is None
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -483,7 +483,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[2], "$pageview")
             self.assertEqual(first_row[5], str(self.team.pk))
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_events_query_with_columns(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -527,7 +527,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[1], "$pageview")
             self.assertEqual(first_row[4], str(self.team.pk))
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_funnels_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10) -> None:
         _create_person(
@@ -727,7 +727,7 @@ class TestCSVExporter(APIBaseTest):
                 self.assertEqual(lines[0], "error")
                 self.assertEqual(lines[1], "No data available or unable to format for export.")
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("common.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_none_action(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
@@ -1352,7 +1352,7 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any) -> None:
         """Test that Excel streaming export saves to object storage and handles complex types."""
@@ -1403,7 +1403,7 @@ class TestCSVExporter(APIBaseTest):
             # Complex types (arrays, objects) are converted to strings without crashing
             assert all(row[2] is not None and "tag1" in str(row[2]) for row in rows[1:])
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_streaming_saves_to_object_storage(self, mocked_uuidt: Any, csv_export_limit: int = 10) -> None:
         """Test that CSV streaming export saves to object storage and handles complex types."""
@@ -1445,7 +1445,7 @@ class TestCSVExporter(APIBaseTest):
             # Complex types (arrays, objects) are handled without crashing
             assert "tag1" in lines[1]
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     def test_csv_streaming_uses_temp_file(self) -> None:
         """Test that CSV streaming export writes to temp files and cleans them up."""
         import tempfile
@@ -1489,7 +1489,7 @@ class TestCSVExporter(APIBaseTest):
         for path in temp_file_paths:
             assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
 
-    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("common.hogql.constants.CSV_EXPORT_LIMIT", 10)
     def test_excel_streaming_uses_temp_file(self) -> None:
         """Test that Excel streaming export writes to temp files and cleans them up."""
         import tempfile

@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.experiments.backend.hogql_queries.base_query_utils import get_metric_value
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import extract_aggregation_and_inner_expr

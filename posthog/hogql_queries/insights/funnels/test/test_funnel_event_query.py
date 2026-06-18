@@ -21,7 +21,7 @@ from posthog.schema import (
     GroupNode,
 )
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext

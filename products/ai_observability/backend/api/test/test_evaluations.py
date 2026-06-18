@@ -513,7 +513,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 class TestTestHogEndpoint(APIBaseTest):
     def _mock_hogql_response(self, count=1):
-        from posthog.hogql.query import HogQLQueryResponse
+        from common.hogql.query import HogQLQueryResponse
 
         rows = [
             (
@@ -526,7 +526,7 @@ class TestTestHogEndpoint(APIBaseTest):
         ]
         return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("common.hogql.query.execute_hogql_query")
     def test_test_hog_compiles_and_executes(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(2)
 
@@ -560,7 +560,7 @@ class TestTestHogEndpoint(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("common.hogql.query.execute_hogql_query")
     def test_test_hog_no_events(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(0)
 
@@ -572,7 +572,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.json()["results"], [])
         self.assertIn("message", response.json())
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("common.hogql.query.execute_hogql_query")
     def test_test_hog_handles_runtime_error(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(1)
 

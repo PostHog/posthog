@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import cast
 
-from posthog.hogql.escape_sql import escape_hogql_string
+from common.hogql.escape_sql import escape_hogql_string
 
 MAX_NORMALIZED_TEXT_CHARS = 1000
 

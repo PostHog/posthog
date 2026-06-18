@@ -4,9 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ActionsNode, EventsNode, FunnelsDataWarehouseNode
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import clone_expr
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.visitor import clone_expr
 
 from posthog.hogql_queries.insights.funnels.utils import alias_columns_in_select, entity_config_mismatch
 

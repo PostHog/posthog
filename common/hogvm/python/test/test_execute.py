@@ -6,8 +6,8 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr, parse_program, parse_string_template
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.parser import parse_expr, parse_program, parse_string_template
 
 from common.hogvm.python.execute import execute_bytecode, get_nested_value
 from common.hogvm.python.operation import (

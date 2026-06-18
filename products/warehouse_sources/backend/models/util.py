@@ -4,7 +4,7 @@ from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
-from posthog.hogql.database.models import (
+from common.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,

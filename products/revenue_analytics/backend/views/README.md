@@ -90,7 +90,7 @@ Each builder must implement the `Builder` function signature:
 ```python
 # sources/chargebee/charge.py
 from typing import Iterable
-from posthog.hogql import ast
+from common.hogql import ast
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:

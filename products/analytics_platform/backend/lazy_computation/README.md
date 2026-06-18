@@ -53,7 +53,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     LazyComputationTable,
 )
-from posthog.hogql import ast
+from common.hogql import ast
 
 # Ensure that the given query is lazy-computed with variable TTLs
 result = ensure_precomputed(

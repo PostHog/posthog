@@ -9,10 +9,10 @@ from posthog.schema import (
     WebGoalsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr, get_property_type, property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.property import action_to_expr, get_property_type, property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner

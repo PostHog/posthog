@@ -1,7 +1,7 @@
 import pytest
 
-from posthog.hogql.hogql import ast
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.hogql import ast
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.sync import database_sync_to_async
 

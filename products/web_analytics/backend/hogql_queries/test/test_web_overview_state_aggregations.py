@@ -6,9 +6,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from posthog.schema import CompareFilter, DateRange, WebOverviewQuery
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.transforms.state_aggregations import (
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
 )

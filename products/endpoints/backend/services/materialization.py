@@ -14,11 +14,11 @@ from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.printer.utils import print_prepared_ast
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.printer import to_printed_hogql
+from common.hogql.printer.utils import print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception

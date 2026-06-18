@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback, is_ai_events_enabled
 

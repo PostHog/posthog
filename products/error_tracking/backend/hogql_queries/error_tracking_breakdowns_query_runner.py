@@ -9,9 +9,9 @@ from posthog.schema import (
     ErrorTrackingBreakdownsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.property import property_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner

@@ -11,7 +11,7 @@ from celery import shared_task
 from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams

@@ -120,8 +120,8 @@ class TestRenderHogQLExample(BaseTest):
 class TestRenderHogQLExampleMocked:
     """Cheap mock-based tests for control-flow branches that don't need a DB."""
 
-    @patch("posthog.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
-    @patch("posthog.hogql.filters.replace_filters")
+    @patch("common.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
+    @patch("common.hogql.filters.replace_filters")
     @patch("posthog.hogql_queries.query_runner.get_query_runner")
     @patch("posthog.models.team.Team.objects.first")
     @patch("django.conf.settings.DEBUG", True)

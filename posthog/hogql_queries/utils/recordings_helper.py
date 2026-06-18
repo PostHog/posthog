@@ -2,8 +2,8 @@ from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team

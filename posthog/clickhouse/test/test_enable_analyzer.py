@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from posthog.hogql.constants import HogQLGlobalSettings, get_default_hogql_global_settings
+from common.hogql.constants import HogQLGlobalSettings, get_default_hogql_global_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

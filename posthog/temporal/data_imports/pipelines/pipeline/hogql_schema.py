@@ -1,6 +1,6 @@
 import pyarrow as pa
 
-from posthog.hogql.database.models import (
+from common.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,

@@ -15,9 +15,9 @@ from posthog.schema import (
     WebAnalyticsExternalSummaryQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.s3_table import build_function_call
-from posthog.hogql.database.schema.web_analytics_s3 import create_s3_web_bounces_table, create_s3_web_stats_table
+from common.hogql import ast
+from common.hogql.database.s3_table import build_function_call
+from common.hogql.database.schema.web_analytics_s3 import create_s3_web_bounces_table, create_s3_web_stats_table
 
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

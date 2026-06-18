@@ -13,9 +13,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.printer import to_printed_hogql
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay

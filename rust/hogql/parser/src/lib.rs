@@ -10,7 +10,7 @@
 //! the cpp output as the spec.
 //!
 //! Each PyO3 entry point catches `ParseError`s and emits the JSON error
-//! envelope expected by [`posthog/hogql/json_ast.py`] so the Python side
+//! envelope expected by [`common/hogql/json_ast.py`] so the Python side
 //! can raise `ExposedHogQLError` / `SyntaxError` from it.
 
 // `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<PyObject>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
@@ -66,7 +66,7 @@ where
     }
 }
 
-/// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter used by the `*_json` entry points — no `serde_json::Value` intermediate on the success path.
+/// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `common.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter used by the `*_json` entry points — no `serde_json::Value` intermediate on the success path.
 ///
 /// Error path still routes through the JSON-envelope `Converter` so Python exception construction stays in one place.
 fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<PyObject>

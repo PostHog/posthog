@@ -28,7 +28,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from common.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import PersonPropertiesSerializer

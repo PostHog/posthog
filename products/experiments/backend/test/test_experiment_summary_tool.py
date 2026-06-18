@@ -17,7 +17,7 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
-from posthog.hogql.constants import LimitContext
+from common.hogql.constants import LimitContext
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 

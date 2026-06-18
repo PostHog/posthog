@@ -38,7 +38,7 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 # The gateway-credential task functions are imported lazily inside the handlers
 # below: this module is wired at django.setup(), and importing posthog.tasks.*
 # eagerly loads every task module (celery autoimport), dragging posthog.schema /
-# posthog.hogql onto the startup path of every process. See django-startup-time.
+# common.hogql onto the startup path of every process. See django-startup-time.
 
 logger = structlog.get_logger(__name__)
 

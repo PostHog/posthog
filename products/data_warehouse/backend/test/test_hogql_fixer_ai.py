@@ -1,7 +1,7 @@
 import pytest
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team

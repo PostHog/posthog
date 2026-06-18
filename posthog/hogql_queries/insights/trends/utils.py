@@ -12,8 +12,8 @@ from posthog.schema import (
     MultipleBreakdownType,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
+from common.hogql import ast
+from common.hogql.property import action_to_expr, property_to_expr
 
 from posthog.constants import UNIQUE_GROUPS
 

@@ -7,8 +7,8 @@ from django.conf import settings
 
 from dateutil.parser import isoparse
 
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
-from posthog.hogql.context import HogQLContext
+from common.hogql.constants import DEFAULT_RETURNED_ROWS
+from common.hogql.context import HogQLContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Filter, Team

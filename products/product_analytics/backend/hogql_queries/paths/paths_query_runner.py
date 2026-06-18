@@ -20,13 +20,13 @@ from posthog.schema import (
     PathType,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.printer import to_printed_hogql
+from common.hogql.property import property_to_expr
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql

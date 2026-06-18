@@ -6,7 +6,7 @@ from typing import Any
 import structlog
 from asgiref.sync import sync_to_async
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseAtCapacity

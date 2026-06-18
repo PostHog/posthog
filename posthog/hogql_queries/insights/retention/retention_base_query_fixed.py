@@ -4,9 +4,9 @@ import posthoganalytics
 
 from posthog.schema import EntityType, RetentionEntity
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID

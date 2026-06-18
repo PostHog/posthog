@@ -56,10 +56,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -1498,7 +1498,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # A=0 (filler), B=1, so A+2*B = 0+2*1 = 2
         assert firefox_result["count"] == 2
 
-    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    @patch("common.hogql.query.sync_execute", wraps=sync_execute)
     def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
         self._create_test_events()
 
@@ -3561,7 +3561,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label="false", value="false"),
         ]
 
-    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    @patch("common.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
         self._run_trends_query(
             "2020-01-09",

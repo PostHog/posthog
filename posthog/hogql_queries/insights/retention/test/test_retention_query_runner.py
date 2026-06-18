@@ -24,9 +24,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
@@ -5618,9 +5618,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_person_property_no_self_join(self):
         """Using person property aggregation must not generate a self-join (events__events)."""
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.modifiers import create_default_modifiers_for_team
-        from posthog.hogql.printer import prepare_and_print_ast
+        from common.hogql.context import HogQLContext
+        from common.hogql.modifiers import create_default_modifiers_for_team
+        from common.hogql.printer import prepare_and_print_ast
 
         runner = RetentionQueryRunner(
             team=self.team,
@@ -5650,9 +5650,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_event_property_default(self):
         """Omitting aggregationPropertyType defaults to event property behaviour."""
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.modifiers import create_default_modifiers_for_team
-        from posthog.hogql.printer import prepare_and_print_ast
+        from common.hogql.context import HogQLContext
+        from common.hogql.modifiers import create_default_modifiers_for_team
+        from common.hogql.printer import prepare_and_print_ast
 
         runner = RetentionQueryRunner(
             team=self.team,
@@ -5945,7 +5945,7 @@ class TestClickhouseRetentionGroupAggregation(
             ),
         )
 
-    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    @patch("common.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
         self.run_query(query={}, limit_context=LimitContext.RETENTION)
 

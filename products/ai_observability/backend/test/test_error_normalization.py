@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from products.ai_observability.backend.queries import get_errors_query
 

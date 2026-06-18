@@ -20,9 +20,9 @@ import structlog
 
 from posthog.schema import DateRange
 
-from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.property import action_to_expr
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team

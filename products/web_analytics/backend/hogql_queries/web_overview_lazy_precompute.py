@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (

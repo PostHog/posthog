@@ -43,8 +43,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from common.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError

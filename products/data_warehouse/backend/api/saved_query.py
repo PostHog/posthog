@@ -20,12 +20,12 @@ from temporalio.client import ScheduleActionExecutionStartWorkflow
 
 from posthog.schema import DataWarehouseManagedViewsetKind
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, serialize_fields
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import FindPlaceholders
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database, SerializedField, serialize_fields
+from common.hogql.errors import ExposedHogQLError
+from common.hogql.parser import parse_select
+from common.hogql.placeholders import FindPlaceholders
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField

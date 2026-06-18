@@ -5,16 +5,16 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import (
+from common.hogql.database.direct_mysql_table import DirectMySQLTable
+from common.hogql.database.direct_postgres_table import DirectPostgresTable
+from common.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StructDatabaseField,
 )
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
+from common.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from common.hogql.errors import QueryError
 
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (

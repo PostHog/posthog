@@ -10,7 +10,7 @@ from typing import Union
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.models.team.team import Team
 

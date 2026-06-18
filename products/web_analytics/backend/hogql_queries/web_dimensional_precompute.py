@@ -24,8 +24,8 @@ Parity with v2 is intentional, with two deliberate deviations:
 
 from datetime import datetime
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.parser import parse_expr
 
 from posthog.models.team import Team
 from posthog.models.web_preaggregated.sql import is_eu_cluster

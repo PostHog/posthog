@@ -9,7 +9,7 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+from common.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 
 from posthog.constants import (
     ACTIONS,

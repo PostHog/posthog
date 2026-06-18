@@ -11,17 +11,17 @@ from django.db.models import Q
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
-from posthog.hogql.database.s3_table import (
+from common.hogql import ast
+from common.hogql.constants import HogQLQuerySettings
+from common.hogql.context import HogQLContext
+from common.hogql.database.direct_mysql_table import DirectMySQLTable
+from common.hogql.database.direct_postgres_table import DirectPostgresTable
+from common.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
+from common.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
+from common.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -199,7 +199,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return self.name[len(prefix) :]
 
     def validate_column_type(self, column_key) -> bool:
-        from posthog.hogql.query import execute_hogql_query
+        from common.hogql.query import execute_hogql_query
 
         columns = self.columns or {}
         if column_key not in columns:

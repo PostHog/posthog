@@ -15,11 +15,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import apply_path_cleaning
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
+from common.hogql.parser import parse_expr
+from common.hogql.property import apply_path_cleaning
+from common.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay

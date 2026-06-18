@@ -4,9 +4,9 @@ from rest_framework.response import Response
 
 from posthog.schema import HogCompileResponse
 
-from posthog.hogql.compiler.bytecode import Local, create_bytecode
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_program
+from common.hogql.compiler.bytecode import Local, create_bytecode
+from common.hogql.errors import ExposedHogQLError
+from common.hogql.parser import parse_program
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin

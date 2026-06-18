@@ -16,9 +16,9 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_expr
+from common.hogql import ast
+from common.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from common.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team

@@ -3,12 +3,12 @@ import uuid
 import typing
 import datetime as dt
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import clone_expr
+from common.hogql.context import HogQLContext
+from common.hogql.database.database import Database
+from common.hogql.hogql import ast
+from common.hogql.parser import parse_expr
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.visitor import clone_expr
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product

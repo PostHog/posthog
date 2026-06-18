@@ -6,8 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.test import override_settings
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7

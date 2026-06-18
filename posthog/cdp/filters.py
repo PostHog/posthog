@@ -2,11 +2,11 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.context import HogQLContext
+from common.hogql.parser import parse_expr
+from common.hogql.property import action_to_expr, ast, property_to_expr
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.models.team.team import Team
 

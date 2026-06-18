@@ -9,7 +9,7 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+from common.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User

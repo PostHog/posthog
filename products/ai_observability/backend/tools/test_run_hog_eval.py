@@ -205,7 +205,7 @@ class TestRunHogEvalTestTool(BaseTest):
     def test_query_targets_ai_events(self, mock_query):
         """The constructed SelectQuery must target `posthog.ai_events` — otherwise
         the heavy column slots in the projection are NULL on the events table."""
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         mock_query.return_value = MagicMock(results=[])
         tool = self._make_tool()

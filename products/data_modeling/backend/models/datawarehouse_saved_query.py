@@ -13,12 +13,12 @@ import structlog
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
-from posthog.hogql import ast
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import FieldOrTable, SavedQuery
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from common.hogql import ast
+from common.hogql.database.database import Database
+from common.hogql.database.direct_mysql_table import DirectMySQLTable
+from common.hogql.database.direct_postgres_table import DirectPostgresTable
+from common.hogql.database.models import FieldOrTable, SavedQuery
+from common.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -280,11 +280,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return self.get_s3_tables()
 
     def get_s3_tables(self, database=None):
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.database.database import Database
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.query import create_default_modifiers_for_team
-        from posthog.hogql.resolver import resolve_types
+        from common.hogql.context import HogQLContext
+        from common.hogql.database.database import Database
+        from common.hogql.parser import parse_select
+        from common.hogql.query import create_default_modifiers_for_team
+        from common.hogql.resolver import resolve_types
 
         from posthog.models.property.util import S3TableVisitor
 

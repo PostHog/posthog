@@ -2,9 +2,9 @@ import dataclasses
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.property import action_to_expr
+from common.hogql.compiler.bytecode import create_bytecode
+from common.hogql.hogql import HogQLContext
+from common.hogql.property import action_to_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.test.test_event_model import filter_by_actions_factory

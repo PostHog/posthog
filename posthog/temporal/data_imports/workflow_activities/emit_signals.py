@@ -8,7 +8,7 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql.database.database import get_data_warehouse_table_name
+from common.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async

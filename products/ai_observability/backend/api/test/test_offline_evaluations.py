@@ -203,7 +203,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
     def test_preflight_targets_events_and_heavy_targets_ai_events(
         self, mock_preflight: MagicMock, mock_heavy: MagicMock
     ) -> None:
-        from posthog.hogql import ast
+        from common.hogql import ast
 
         mock_preflight.return_value = self._make_response(
             [
@@ -282,8 +282,8 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_omitted_dates_inline_as_null_guards(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
-        from posthog.hogql import ast
-        from posthog.hogql.visitor import TraversingVisitor
+        from common.hogql import ast
+        from common.hogql.visitor import TraversingVisitor
 
         mock_preflight.return_value = self._make_response([])
 
@@ -310,8 +310,8 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_provided_dates_are_inlined_into_query(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
-        from posthog.hogql import ast
-        from posthog.hogql.visitor import TraversingVisitor
+        from common.hogql import ast
+        from common.hogql.visitor import TraversingVisitor
 
         mock_preflight.return_value = self._make_response([])
 

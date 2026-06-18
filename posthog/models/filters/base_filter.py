@@ -12,7 +12,7 @@ from posthog.utils import encode_get_request_params
 from .mixins.common import BaseParamMixin
 
 if TYPE_CHECKING:
-    from posthog.hogql.context import HogQLContext
+    from common.hogql.context import HogQLContext
 
     from posthog.models.team.team import Team
 
@@ -56,7 +56,7 @@ class BaseFilter(BaseParamMixin):
 
         # Deferred: hogql.context pulls the HogQL/schema layer, and the legacy filter
         # classes load at django.setup() in every process via the models package.
-        from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+        from common.hogql.context import HogQLContext  # noqa: PLC0415
 
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(

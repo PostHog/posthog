@@ -18,17 +18,17 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
-from posthog.hogql import ast
-from posthog.hogql.constants import (
+from common.hogql import ast
+from common.hogql.constants import (
     MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
     HogQLQuerySettings,
     get_default_hogql_global_settings,
 )
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.context import HogQLContext
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.placeholders import replace_placeholders
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE

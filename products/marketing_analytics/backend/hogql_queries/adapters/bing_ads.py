@@ -2,7 +2,7 @@
 
 from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,

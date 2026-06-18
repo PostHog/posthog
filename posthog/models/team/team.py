@@ -16,6 +16,8 @@ import pytz
 import pydantic
 import posthoganalytics
 
+from common.hogql.modifiers import set_default_modifier_values
+
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -39,7 +41,6 @@ from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
-from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache

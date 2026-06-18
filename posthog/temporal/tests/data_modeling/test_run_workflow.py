@@ -24,8 +24,8 @@ from temporalio import (
 )
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.database.database import Database
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
@@ -1880,7 +1880,7 @@ async def test_create_default_modifiers_for_team_in_async_context(ateam):
     """
     from django.core.exceptions import SynchronousOnlyOperation
 
-    from posthog.hogql.modifiers import create_default_modifiers_for_team
+    from common.hogql.modifiers import create_default_modifiers_for_team
 
     # fetch team without select_related to ensure organization needs lazy loading
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)

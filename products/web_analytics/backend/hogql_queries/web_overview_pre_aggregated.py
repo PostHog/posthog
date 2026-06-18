@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.property import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (

@@ -4,8 +4,8 @@ import asyncio
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 

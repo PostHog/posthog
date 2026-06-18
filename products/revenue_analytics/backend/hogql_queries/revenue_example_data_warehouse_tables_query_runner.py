@@ -5,9 +5,9 @@ from posthog.schema import (
     RevenueExampleDataWarehouseTablesQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.models import UnknownDatabaseField
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.database.models import UnknownDatabaseField
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext

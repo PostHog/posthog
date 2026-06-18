@@ -1,0 +1,172 @@
+from dataclasses import dataclass, field
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+from common.hogql.backend import (
+    create_default_query_modifiers,
+    create_notice,
+    get_project_id_for_team,
+    resolve_backend_symbol as _resolve_backend_symbol,
+)
+from common.hogql.constants import LimitContext
+from common.hogql.timings import HogQLTimings
+
+Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
+
+
+if TYPE_CHECKING:
+    DataWarehouseSyncWarning = _resolve_backend_symbol("posthog.schema", "DataWarehouseSyncWarning")
+    HogQLNotice = _resolve_backend_symbol("posthog.schema", "HogQLNotice")
+    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
+
+    from common.hogql.database.database import Database
+    from common.hogql.observability import HogQLTypeObservability
+    from common.hogql.transforms.property_types import PropertySwapper
+
+    Team = _resolve_backend_symbol("posthog.models", "Team")
+    User = _resolve_backend_symbol("posthog.models", "User")
+    UserAccessControl = _resolve_backend_symbol("posthog.rbac.user_access_control", "UserAccessControl")
+
+
+def _default_modifiers() -> "HogQLQueryModifiers":
+    return create_default_query_modifiers()
+
+
+@dataclass
+class HogQLFieldAccess:
+    input: list[str]
+    type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
+    field: Optional[str]
+    sql: str
+
+
+@dataclass
+class HogQLContext:
+    """Context given to a HogQL expression printer"""
+
+    # Team making the queries
+    team_id: Optional[int] = None
+    # Team making the queries - if team is passed in, then the team isn't queried when creating the database
+    team: Optional["Team"] = None
+
+    # User making the queries - used for access control on system tables
+    user: Optional["User"] = None
+    # Preloaded access-control snapshot for `user`, shared so schema filtering and the query
+    # cache fingerprint resolve access from the same rows (one bulk preload per run).
+    user_access_control: Optional["UserAccessControl"] = None
+
+    # Virtual database we're querying, will be populated from team_id if not present
+    database: Optional["Database"] = None
+    # Metadata discovered for a direct Postgres connection, if one is selected
+    direct_postgres_connection_metadata: dict[str, Any] | None = None
+    # If set, will save string constants to this dict. Inlines strings into the query if None.
+    values: dict = field(default_factory=dict)
+    # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
+    within_non_hogql_query: bool = False
+    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
+    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
+    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
+    # transform in common/hogql/transforms/geoip_dict_fallback.py.
+    geoip_dict_fallback_enabled: bool = False
+    # Enable full SELECT queries and subqueries in ClickHouse
+    enable_select_queries: bool = False
+    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
+    limit_top_select: bool = True
+    # Context for determining the appropriate limit to apply
+    limit_context: Optional[LimitContext] = None
+    # Apply a FORMAT clause to output data in given format.
+    output_format: str | None = None
+    # Globals that will be resolved in the context of the query
+    globals: Optional[dict] = None
+    # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
+    # merged into a table via UNION ALL in error tracking).
+    data_to_ingest: dict[str, Any] = field(default_factory=dict)
+
+    # Warnings returned with the metadata query
+    warnings: list["HogQLNotice"] = field(default_factory=list)
+    # Notices returned with the metadata query
+    notices: list["HogQLNotice"] = field(default_factory=list)
+    # Errors returned with the metadata query
+    errors: list["HogQLNotice"] = field(default_factory=list)
+
+    # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
+    # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
+    data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
+    # Timings in seconds for different parts of the HogQL query
+    timings: HogQLTimings = field(default_factory=HogQLTimings)
+    # Modifications requested by the HogQL client
+    modifiers: "HogQLQueryModifiers" = field(default_factory=_default_modifiers)
+    # Enables more verbose output for debugging
+    debug: bool = False
+    # Internal optimizer flag. Keep disabled until typed rewrites have broader compatibility coverage.
+    enable_type_aware_cast_simplification: bool = False
+
+    # Optional per-query HogQL type-system observability accumulator.
+    type_observability: Optional["HogQLTypeObservability"] = None
+    # Bounded source/surface label for type-system observability metrics.
+    observability_source: str = "unknown"
+
+    property_swapper: Optional["PropertySwapper"] = None
+    # Workload detected during AST resolution (set by prepare_ast_for_printing)
+    workload: Optional[Workload] = None
+    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # that the current user is denied access to. Populated before type resolution so that
+    # FieldType.get_child() can raise QueryError for restricted properties.
+    restricted_properties: Optional[set[tuple[str, int]]] = None
+
+    def __post_init__(self):
+        if self.team:
+            self.team_id = self.team.id
+
+    def add_value(self, value: Any) -> str:
+        key = f"hogql_val_{len(self.values)}"
+        self.values[key] = value
+        return f"%({key})s"
+
+    def add_sensitive_value(self, value: Any) -> str:
+        key = f"hogql_val_{len(self.values)}_sensitive"
+        self.values[key] = value
+        return f"%({key})s"
+
+    def add_notice(
+        self,
+        message: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        fix: Optional[str] = None,
+    ):
+        if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.notices):
+            self.notices.append(create_notice(start=start, end=end, message=message, fix=fix))
+
+    def add_warning(
+        self,
+        message: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        fix: Optional[str] = None,
+    ):
+        if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.warnings):
+            self.warnings.append(create_notice(start=start, end=end, message=message, fix=fix))
+
+    def add_error(
+        self,
+        message: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        fix: Optional[str] = None,
+    ):
+        if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
+            self.errors.append(create_notice(start=start, end=end, message=message, fix=fix))
+
+    def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
+        self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
+
+    @cached_property
+    def project_id(self) -> int:
+        if not self.team and not self.team_id:
+            raise ValueError("Either team or team_id must be set to determine project_id")
+        if self.team:
+            return self.team.project_id
+        assert self.team_id is not None
+        return get_project_id_for_team(self.team_id)

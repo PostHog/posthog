@@ -66,7 +66,7 @@ Key takeaways:
 3. If you now run tests, the locally-built version of `hogql_parser` will be used:
 
    ```bash
-   pytest posthog/hogql/
+   pytest common/hogql/
    ```
 
 ## How to install dependencies on Ubuntu

@@ -27,10 +27,10 @@ from posthog.schema import (
     QueryUpgradeResponse,
 )
 
-from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.metadata import enrich_hogql_validation_error
+from common.hogql.ai import PromptUnclear, write_sql_from_prompt
+from common.hogql.constants import LimitContext
+from common.hogql.errors import ExposedHogQLError, ResolutionError
+from common.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema

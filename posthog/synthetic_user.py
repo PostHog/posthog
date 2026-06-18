@@ -1,4 +1,4 @@
-"""Lives outside posthog.auth to avoid a circular import when imported by posthog.hogql."""
+"""Lives outside posthog.auth to avoid a circular import when imported by common.hogql."""
 
 from typing import Optional
 

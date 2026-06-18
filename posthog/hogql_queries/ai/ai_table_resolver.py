@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
@@ -26,9 +26,9 @@ AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
 )
 
 if TYPE_CHECKING:
-    from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-    from posthog.hogql.modifiers import HogQLQueryModifiers
-    from posthog.hogql.timings import HogQLTimings
+    from common.hogql.constants import HogQLGlobalSettings, LimitContext
+    from common.hogql.modifiers import HogQLQueryModifiers
+    from common.hogql.timings import HogQLTimings
 
     from posthog.clickhouse.client.connection import Workload
     from posthog.models import Team

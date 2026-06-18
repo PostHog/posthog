@@ -2,7 +2,7 @@ import ast
 import operator
 from typing import Any
 
-from posthog.hogql.errors import ExposedHogQLError
+from common.hogql.errors import ExposedHogQLError
 
 
 class FormulaAST:

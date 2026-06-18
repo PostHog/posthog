@@ -9,8 +9,8 @@ from posthog.schema import (
     StartHandling,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 

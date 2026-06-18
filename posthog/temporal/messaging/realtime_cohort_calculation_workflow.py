@@ -12,9 +12,9 @@ import temporalio.workflow
 from prometheus_client import Histogram
 from structlog.contextvars import bind_contextvars
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery

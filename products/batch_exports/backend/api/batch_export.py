@@ -24,12 +24,12 @@ from rest_framework.pagination import CursorPagination
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-from posthog.hogql import ast, errors
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import TraversingVisitor
+from common.hogql import ast, errors
+from common.hogql.escape_sql import escape_clickhouse_identifier
+from common.hogql.hogql import HogQLContext
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from common.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin

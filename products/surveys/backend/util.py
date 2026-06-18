@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID
 
-from posthog.hogql.escape_sql import escape_clickhouse_string
+from common.hogql.escape_sql import escape_clickhouse_string
 
 from posthog.models.property.util import get_property_string_expr
 

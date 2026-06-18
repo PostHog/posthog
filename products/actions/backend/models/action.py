@@ -7,7 +7,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from posthog.hogql.errors import BaseHogQLError
+from common.hogql.errors import BaseHogQLError
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -130,8 +130,8 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
         return [action_step.event for action_step in self.steps]
 
     def refresh_bytecode(self) -> None:
-        from posthog.hogql.compiler.bytecode import create_bytecode
-        from posthog.hogql.property import action_to_expr
+        from common.hogql.compiler.bytecode import create_bytecode
+        from common.hogql.property import action_to_expr
 
         try:
             new_bytecode = create_bytecode(action_to_expr(self)).bytecode

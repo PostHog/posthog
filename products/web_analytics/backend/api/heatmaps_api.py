@@ -15,14 +15,14 @@ from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
-from posthog.hogql import ast
-from posthog.hogql.ast import Constant
-from posthog.hogql.base import Expr
-from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.ast import Constant
+from common.hogql.base import Expr
+from common.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.filters import replace_filters
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin

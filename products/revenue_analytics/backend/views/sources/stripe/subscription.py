@@ -1,6 +1,6 @@
 from typing import cast
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,

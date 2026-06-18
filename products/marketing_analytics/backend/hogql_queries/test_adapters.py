@@ -14,9 +14,9 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, SourceMap
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
+from common.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY

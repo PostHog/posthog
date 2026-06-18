@@ -28,7 +28,7 @@ def get_org_ids_with_exceptions() -> list[str]:
 
 def get_exception_summary_for_team(team: Team) -> dict:
     """Get filtered exception counts, ingestion failures, and prev week count for a single team."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:exception_summary")
 
@@ -129,7 +129,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
 def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # import the helper at call time so this module doesn't pull the task graph.
@@ -189,7 +189,7 @@ def get_crash_free_sessions(team: Team) -> dict:
 
 def get_daily_exception_counts(team: Team) -> list[dict]:
     """Get exception counts per day for the last 7 days"""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_exception_counts")
 
@@ -235,7 +235,7 @@ def get_daily_exception_counts(team: Team) -> list[dict]:
 
 def get_top_issues_for_team(team: Team) -> list[dict]:
     """Query top 5 issues by occurrence count for the last 7 days with sparkline data"""
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
 
@@ -281,8 +281,8 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
 
 def get_new_issues_for_team(team: Team) -> list[dict]:
     """Query top 5 issues first seen in the last 7 days ranked by occurrence count with sparkline data"""
-    from posthog.hogql import ast
-    from posthog.hogql.query import execute_hogql_query
+    from common.hogql import ast
+    from common.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
 

@@ -4,7 +4,7 @@ from django.forms import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.hogql import HogQLContext
+from common.hogql.hogql import HogQLContext
 
 from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
@@ -281,7 +281,7 @@ def _to_value_expression(
             ),
         )
     elif breakdown_type == "hogql":
-        from posthog.hogql.hogql import translate_hogql
+        from common.hogql.hogql import translate_hogql
 
         if isinstance(breakdown, list):
             expressions = [translate_hogql(str(exp), hogql_context) for exp in breakdown]

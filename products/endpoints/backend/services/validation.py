@@ -13,9 +13,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EndpointRequest, HogQLQuery, HogQLVariable
 
-from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.errors import ExposedHogQLError, ResolutionError
+from common.hogql.parser import parse_select
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team

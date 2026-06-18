@@ -9,7 +9,7 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.hogql.errors import QueryError
+from common.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome

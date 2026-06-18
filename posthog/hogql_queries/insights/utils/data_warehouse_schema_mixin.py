@@ -1,7 +1,7 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DatabaseField, Table
+from common.hogql.database.database import Database
+from common.hogql.database.models import DatabaseField, Table
 
 from posthog.hogql_queries.insights.query_context import QueryContextProtocol
 

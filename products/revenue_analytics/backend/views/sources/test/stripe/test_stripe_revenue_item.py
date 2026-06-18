@@ -4,8 +4,8 @@ from posthog.test.base import snapshot_clickhouse_queries
 
 from parameterized import parameterized
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,

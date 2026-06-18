@@ -19,9 +19,9 @@ from posthog.schema import (
     SessionData,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import HogQLQueryExecutor
+from common.hogql import ast
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.models import Team

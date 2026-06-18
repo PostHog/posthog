@@ -9,7 +9,7 @@ tail (the aggregate counts in ``ci_cards`` can then legitimately exceed the list
 
 from datetime import datetime
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,

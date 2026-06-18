@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import RetentionEntity
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 

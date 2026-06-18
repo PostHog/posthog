@@ -33,10 +33,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from common.hogql.errors import ExposedHogQLError
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.query import execute_hogql_query
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -47,7 +47,7 @@ from products.data_warehouse.backend.test.utils import create_data_warehouse_tab
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
+TEST_BUCKET = "test_storage_bucket-common.hogql.datawarehouse.trendquery"
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):

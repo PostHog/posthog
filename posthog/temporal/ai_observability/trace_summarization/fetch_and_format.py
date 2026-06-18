@@ -5,8 +5,8 @@ import time
 import structlog
 import temporalio
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback

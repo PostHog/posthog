@@ -23,8 +23,8 @@ import dagster
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential, wait_random
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.constants import LimitContext
+from common.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners

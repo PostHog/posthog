@@ -17,15 +17,15 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.database.models import (
+from common.hogql import ast
+from common.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     StringDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from common.hogql.parser import parse_expr
+from common.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql

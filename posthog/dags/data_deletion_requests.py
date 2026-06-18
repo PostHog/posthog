@@ -19,7 +19,7 @@ from clickhouse_driver import Client
 # caches the chain in sys.modules so the op-time lazy import is a cache hit. Regular posthog.*
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
-import posthog.hogql.compiler.bytecode  # noqa: F401
+import common.hogql.compiler.bytecode  # noqa: F401
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner

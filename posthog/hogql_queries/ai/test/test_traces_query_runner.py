@@ -17,7 +17,7 @@ from posthog.schema import (
     TracesQuery,
 )
 
-from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from common.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team

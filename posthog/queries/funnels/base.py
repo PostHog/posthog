@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.database.database import Database
+from common.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import (
@@ -790,7 +790,7 @@ class ClickhouseFunnelBase(ABC):
             )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
-            from posthog.hogql.hogql import translate_hogql
+            from common.hogql.hogql import translate_hogql
 
             breakdown = self._filter.breakdown
             if isinstance(breakdown, list):

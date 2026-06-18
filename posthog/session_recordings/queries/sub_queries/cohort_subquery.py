@@ -1,7 +1,7 @@
 from posthog.schema import CohortPropertyFilter, PropertyOperator, RecordingsQuery
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from common.hogql import ast
+from common.hogql.parser import parse_select
 
 from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery

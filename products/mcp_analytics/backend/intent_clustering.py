@@ -27,9 +27,9 @@ from django.utils import timezone
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from common.hogql import ast
+from common.hogql.parser import parse_select
+from common.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context

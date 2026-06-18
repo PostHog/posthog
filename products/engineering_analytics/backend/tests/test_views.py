@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 import pandas as pd
 
-from posthog.hogql.query import execute_hogql_query
+from common.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 

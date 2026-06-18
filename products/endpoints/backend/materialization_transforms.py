@@ -5,15 +5,15 @@ from typing import Any, Optional
 
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.functions.aggregations import COMBINATORS
-from posthog.hogql.functions.mapping import find_hogql_aggregation
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+from common.hogql import ast
+from common.hogql.context import HogQLContext
+from common.hogql.functions.aggregations import COMBINATORS
+from common.hogql.functions.mapping import find_hogql_aggregation
+from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.parser import parse_select
+from common.hogql.printer import prepare_and_print_ast
+from common.hogql.timings import HogQLTimings
+from common.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
@@ -156,7 +156,7 @@ REAGGREGATABLE_BASE_FUNCTIONS: dict[str, AggregateReaggregation] = {
 def _strip_combinators(func_name: str) -> str | None:
     """Strip ClickHouse combinator suffixes to find the base aggregate function.
 
-    Uses the COMBINATORS registry from posthog.hogql.functions.aggregations.
+    Uses the COMBINATORS registry from common.hogql.functions.aggregations.
     Returns the base function name (lowercased), or None if no match found.
 
     Examples:

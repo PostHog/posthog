@@ -28,9 +28,9 @@ from posthog.schema import (
     WebOverviewQueryResponse,
 )
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import prepare_and_print_ast
+from common.hogql.constants import LimitContext
+from common.hogql.context import HogQLContext
+from common.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Element
@@ -658,7 +658,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
 
-    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    @patch("common.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
         self._run_web_overview_query("2023-12-01", "2023-12-03", limit_context=LimitContext.QUERY_ASYNC)
 

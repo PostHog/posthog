@@ -19,11 +19,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.timings import HogQLTimings
+from common.hogql import ast
+from common.hogql.constants import LimitContext
+from common.hogql.parser import parse_expr
+from common.hogql.property import action_to_expr, property_to_expr
+from common.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,

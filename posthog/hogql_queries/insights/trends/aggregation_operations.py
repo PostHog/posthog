@@ -10,11 +10,11 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.base import Expr
-from posthog.hogql.database.schema.exchange_rate import convert_currency_call
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.placeholders import replace_placeholders
+from common.hogql import ast
+from common.hogql.base import Expr
+from common.hogql.database.schema.exchange_rate import convert_currency_call
+from common.hogql.parser import parse_expr, parse_select
+from common.hogql.placeholders import replace_placeholders
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES

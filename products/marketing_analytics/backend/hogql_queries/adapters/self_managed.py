@@ -1,6 +1,6 @@
 # Self-Managed Marketing Source Adapters
 
-from posthog.hogql import ast
+from common.hogql import ast
 
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,

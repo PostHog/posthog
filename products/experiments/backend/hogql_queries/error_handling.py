@@ -10,7 +10,7 @@ from typing import Any, TypeVar, cast
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from common.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded

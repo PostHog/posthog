@@ -83,9 +83,9 @@ class LiveDebuggerBreakpoint(UUIDModel):
 
         Returns a list of BreakpointHit dataclass instances.
         """
-        from posthog.hogql import ast
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.query import execute_hogql_query
+        from common.hogql import ast
+        from common.hogql.parser import parse_select
+        from common.hogql.query import execute_hogql_query
 
         # Build WHERE conditions (team_id filter is automatically added by execute_hogql_query)
         where_conditions = [
