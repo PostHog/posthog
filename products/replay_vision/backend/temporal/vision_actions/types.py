@@ -12,11 +12,11 @@ class SynthesisStatus(str, Enum):
     ABORTED_NO_USER = "aborted_no_user"  # creator was deleted; can't attribute the LLM call
 
 
-class SynthesizeActionInputs(BaseModel, frozen=True):
+class SynthesizeGroupSummaryInputs(BaseModel, frozen=True):
     # The run already references its action (run.vision_action), so run_id is sufficient.
     run_id: UUID
 
 
-class SynthesizeActionResult(BaseModel, frozen=True):
+class SynthesizeGroupSummaryResult(BaseModel, frozen=True):
     status: SynthesisStatus
     observation_count: int = 0

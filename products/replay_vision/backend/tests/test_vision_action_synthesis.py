@@ -13,16 +13,23 @@ from products.replay_vision.backend.models import ReplayObservation, ReplayScann
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack, _synthesize
-from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeActionInputs
+from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
 _SYNTH_PATH = "products.replay_vision.backend.temporal.vision_actions.synthesis"
 
 
-def _mock_llm(content: str):
-    # MaxChatOpenAI(...).invoke([...]) → object with .content
-    instance = SimpleNamespace(invoke=lambda _messages: SimpleNamespace(content=content))
-    return lambda **_kwargs: instance
+def _mock_genai(content: str):
+    # genai.Client(...).models.generate_content(...) → object with .text
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_kwargs: SimpleNamespace(text=content)))
+    return SimpleNamespace(Client=lambda **_kwargs: client)
+
+
+def _no_llm_client(**_kwargs):
+    raise AssertionError("LLM should not be called")
+
+
+_NO_LLM = SimpleNamespace(Client=_no_llm_client)
 
 
 class TestVisionActionSynthesis(BaseTest):
@@ -68,9 +75,9 @@ class TestVisionActionSynthesis(BaseTest):
     def _synthesize(self, action: VisionAction, run: VisionActionRun, llm_content: str = "# Themes\nAll good."):
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.MaxChatOpenAI", _mock_llm(llm_content)),
+            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content)),
         ):
-            return _synthesize(SynthesizeActionInputs(run_id=run.id))
+            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
 
     def test_happy_path_persists_markdown_and_slack(self) -> None:
         self._observation("Users churned at checkout", title="Checkout")
@@ -97,12 +104,12 @@ class TestVisionActionSynthesis(BaseTest):
         run.observation_count = 5
         run.save()
 
-        # If the LLM were called, this would raise (MaxChatOpenAI patched to blow up).
+        # If the LLM were called, this would raise (genai client patched to blow up).
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.MaxChatOpenAI", side_effect=AssertionError("LLM should not be called")),
+            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeActionInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
 
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 5)
@@ -133,9 +140,9 @@ class TestVisionActionSynthesis(BaseTest):
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
-            patch(f"{_SYNTH_PATH}.MaxChatOpenAI", side_effect=AssertionError("LLM should not be called")),
+            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeActionInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
 
         self.assertEqual(result.status, expected)
         run.refresh_from_db()
@@ -190,18 +197,18 @@ class TestVisionActionSynthesis(BaseTest):
 
         captured: dict = {}
 
-        def _capturing_llm(**_kwargs):
-            def invoke(messages):
-                captured["human"] = messages[-1][1]
-                return SimpleNamespace(content="ok")
+        def _capturing_client(**_kwargs):
+            def generate_content(**kwargs):
+                captured["human"] = kwargs["contents"]
+                return SimpleNamespace(text="ok")
 
-            return SimpleNamespace(invoke=invoke)
+            return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.MaxChatOpenAI", _capturing_llm),
+            patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
         ):
-            _synthesize(SynthesizeActionInputs(run_id=run.id))
+            _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
 
         human = captured["human"]
         self.assertIn("focus on rage clicks", human)

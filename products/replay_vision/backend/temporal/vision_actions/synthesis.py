@@ -7,33 +7,38 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import structlog
+from google.genai import types
+from posthoganalytics.ai.gemini import genai
 from temporalio import activity
 
 from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.markdown_safety import strip_external_links_markdown
 from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
+from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.vision_actions.types import (
     SynthesisStatus,
-    SynthesizeActionInputs,
-    SynthesizeActionResult,
+    SynthesizeGroupSummaryInputs,
+    SynthesizeGroupSummaryResult,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
-from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
-SYNTHESIS_MODEL = "gpt-4.1"
-SYNTHESIS_TIMEOUT_SECONDS = 120.0
+# Track the scanners' default Gemini model so synthesis and scanning move together. Runs through the
+# PostHog-instrumented client so the generation lands in LLM analytics attributed to Replay Vision
+# (see `_run_synthesis`).
+SYNTHESIS_MODEL = ScannerModel.GEMINI_3_FLASH.value
 # Cap how many observations feed one group summary — bounds context size and cost.
 MAX_OBSERVATIONS = 100
 # Stay comfortably under Slack's ~40k message-text limit; truncate the tail if a report runs long.
@@ -54,11 +59,11 @@ _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 
 @activity.defn
 @track_activity()
-async def synthesize_action_activity(inputs: SynthesizeActionInputs) -> SynthesizeActionResult:
+async def synthesize_group_summary_activity(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryResult:
     return await database_sync_to_async(_synthesize, thread_sensitive=False)(inputs)
 
 
-def _synthesize(inputs: SynthesizeActionInputs) -> SynthesizeActionResult:
+def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryResult:
     run = VisionActionRun.all_teams.select_related(
         "vision_action", "team", "team__organization", "vision_action__created_by"
     ).get(pk=inputs.run_id)
@@ -67,27 +72,26 @@ def _synthesize(inputs: SynthesizeActionInputs) -> SynthesizeActionResult:
 
     # Idempotency: a retry after the markdown was already persisted must not re-bill the LLM.
     if run.synthesized_markdown:
-        return SynthesizeActionResult(status=SynthesisStatus.SYNTHESIZED, observation_count=run.observation_count)
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=run.observation_count)
 
     if not team.organization.is_ai_data_processing_approved:
         logger.warning("vision_action.synthesis.consent_not_approved", vision_action_id=str(action.id))
-        return SynthesizeActionResult(status=SynthesisStatus.ABORTED_NO_CONSENT)
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.ABORTED_NO_CONSENT)
 
-    creator = action.created_by
-    if creator is None:
-        # MaxChatOpenAI attributes the generation to a user; without one we can't bill/trace it.
+    if action.created_by_id is None:
+        # Don't run billable AI synthesis for an action whose creator was deleted.
         logger.warning("vision_action.synthesis.no_creator", vision_action_id=str(action.id))
-        return SynthesizeActionResult(status=SynthesisStatus.ABORTED_NO_USER)
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.ABORTED_NO_USER)
 
     if is_team_over_ai_credit_budget(team.api_token):
         logger.info("vision_action.synthesis.over_credit_budget", vision_action_id=str(action.id))
-        return SynthesizeActionResult(status=SynthesisStatus.SKIPPED_OVER_BUDGET)
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_OVER_BUDGET)
 
     lines = _fetch_observation_lines(team, action)
     if not lines:
-        return SynthesizeActionResult(status=SynthesisStatus.SKIPPED_EMPTY)
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    markdown = _run_synthesis(team, creator, action, lines)
+    markdown = _run_synthesis(team, action, lines)
     markdown = strip_external_links_markdown(markdown)
     slack_text = _markdown_to_slack(markdown)
 
@@ -96,7 +100,7 @@ def _synthesize(inputs: SynthesizeActionInputs) -> SynthesizeActionResult:
     run.observation_count = len(lines)
     run.save(update_fields=["synthesized_markdown", "output", "observation_count", "updated_at"])
 
-    return SynthesizeActionResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
+    return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
 
 
 def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
@@ -134,7 +138,7 @@ def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
     return lines
 
 
-def _run_synthesis(team: Team, creator: User, action: VisionAction, lines: list[str]) -> str:
+def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     prompt_guide = ""
     if isinstance(action.synthesis_config, dict):
         guide = action.synthesis_config.get("prompt_guide")
@@ -145,17 +149,19 @@ def _run_synthesis(team: Team, creator: User, action: VisionAction, lines: list[
     # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
     human = prompt_guide + _as_untrusted_data("observations", lines)
 
-    chat = MaxChatOpenAI(
-        model=SYNTHESIS_MODEL,
-        timeout=SYNTHESIS_TIMEOUT_SECONDS,
-        user=creator,
-        team=team,
-        billable=True,
+    # Same PostHog-instrumented Gemini client + Replay Vision tagging the scanners use, so the
+    # generation is captured in LLM analytics attributed to Replay Vision. The enclosing activity's
+    # start-to-close timeout bounds the call.
+    client = genai.Client(api_key=gemini_api_key())
+    response = client.models.generate_content(
+        model=f"models/{SYNTHESIS_MODEL}",
+        contents=human,
+        config=types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
+        posthog_distinct_id=replay_vision_distinct_id(team.id),
+        posthog_groups={"project": str(team.id)},
         posthog_properties={"ai_product": "replay_vision", "feature": "vision_action_group_summary"},
     )
-    result = chat.invoke([("system", _SYSTEM_PROMPT), ("human", human)])
-    content = result.content if hasattr(result, "content") else str(result)
-    return cast(str, content) if isinstance(content, str) else str(content)
+    return (response.text or "").strip()
 
 
 def _markdown_to_slack(markdown: str) -> str:
