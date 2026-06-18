@@ -1,12 +1,13 @@
 from typing import Any, NoReturn, cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -14,6 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.replay_vision.backend.api.delivery import archive_delivery_flow, provision_delivery_flow
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -306,3 +308,24 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
         return queryset.filter(team_id=self.team_id).select_related("scanner", "created_by").order_by("name", "id")
+
+    def perform_create(self, serializer: BaseSerializer) -> None:
+        # Atomic so a delivery-flow build failure rolls back the action row rather than leaving an
+        # action that looks created but never delivers.
+        with transaction.atomic():
+            action = serializer.save()
+            provision_delivery_flow(action, request=self.request, team=self.team)
+
+    def perform_update(self, serializer: BaseSerializer) -> None:
+        instance = cast(VisionAction, serializer.instance)
+        old_delivery = instance.delivery_config
+        old_enabled = instance.enabled
+        action = serializer.save()
+        # Only re-provision when delivery targets or the enabled flag actually changed — cadence or
+        # selection edits must not churn the flow (and bump its version / updated_at).
+        if action.delivery_config != old_delivery or action.enabled != old_enabled:
+            provision_delivery_flow(action, request=self.request, team=self.team)
+
+    def perform_destroy(self, instance: VisionAction) -> None:
+        archive_delivery_flow(instance, request=self.request, team=self.team)
+        super().perform_destroy(instance)

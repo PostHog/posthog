@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
@@ -13,15 +15,23 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 class _VisionActionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # Creating an action provisions a Slack delivery flow, which needs the template in the DB.
+        sync_template_to_db(template_slack)
         self.flag_patcher = patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
             return_value=True,
         )
         self.flag_patcher.start()
+        # The HogFlow post_save hook pushes flows to workers; there are none in tests.
+        self.reload_patcher = patch(
+            "products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers",
+        )
+        self.reload_patcher.start()
         self.scanner = self._create_scanner()
         self.integration = self._create_slack_integration()
 
     def tearDown(self) -> None:
+        self.reload_patcher.stop()
         self.flag_patcher.stop()
         super().tearDown()
 
@@ -74,7 +84,8 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(data["mode"], "group_summary")
         self.assertIsNotNone(data["next_run_at"])
         self.assertIsNone(data["last_run_at"])
-        self.assertIsNone(data["hog_flow_id"])
+        # A Slack delivery flow is provisioned on create.
+        self.assertIsNotNone(data["hog_flow_id"])
         self.assertEqual(data["created_by"]["id"], self.user.id)
 
         action = VisionAction.all_teams.get(id=data["id"])
