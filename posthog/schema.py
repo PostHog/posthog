@@ -170,7 +170,6 @@ from posthog.schema_enums import (
     MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
-    MetricGoodDirection as MetricGoodDirection,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -7676,23 +7675,25 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
-    metricBadColor: str | None = Field(
+    metricChangeDecreaseColor: str | None = Field(
         default=None,
-        description=("Metric display: hex color used when the trend is bad. Defaults to red."),
+        description=("Metric display: change pill color when the metric decreased. Defaults to red."),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: change pill color when the metric increased. Defaults to green."),
     )
     metricColorByDirection: bool | None = Field(
         default=False,
-        description=(
-            "Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color."
-        ),
+        description=("Metric display: color the sparkline by whether the metric increased or decreased."),
     )
-    metricGoodColor: str | None = Field(
+    metricLineDecreaseColor: str | None = Field(
         default=None,
-        description=("Metric display: hex color used when the trend is good. Defaults to green."),
+        description=("Metric display: line color when the metric decreased. Defaults to red."),
     )
-    metricGoodDirection: MetricGoodDirection | None = Field(
-        default=MetricGoodDirection.UP,
-        description=("Metric display: whether an increase is a good trend (green pill) or a bad one (red pill)."),
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: line color when the metric increased. Defaults to green."),
     )
     metricShowChange: bool | None = Field(
         default=True,

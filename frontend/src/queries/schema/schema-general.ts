@@ -1493,19 +1493,20 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
-    /** Metric display: whether an increase is a good trend (green pill) or a bad one (red pill).
-     * @default "up" */
-    metricGoodDirection?: 'up' | 'down'
     /** Show the period-over-period change pill on the Metric display.
      * @default true */
     metricShowChange?: boolean
-    /** Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color.
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
      * @default false */
     metricColorByDirection?: boolean
-    /** Metric display: hex color used when the trend is good. Defaults to green. */
-    metricGoodColor?: string
-    /** Metric display: hex color used when the trend is bad. Defaults to red. */
-    metricBadColor?: string
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
 }
 
 export type CalendarHeatmapFilter = {
@@ -1538,11 +1539,12 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
-    'metricGoodDirection',
     'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
     'metricColorByDirection',
-    'metricGoodColor',
-    'metricBadColor',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
 ])
 
 export interface BoxPlotDatum {

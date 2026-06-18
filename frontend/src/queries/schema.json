@@ -43535,23 +43535,25 @@
                     "default": false,
                     "type": "boolean"
                 },
-                "metricBadColor": {
-                    "description": "Metric display: hex color used when the trend is bad. Defaults to red.",
+                "metricChangeDecreaseColor": {
+                    "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Metric display: change pill color when the metric increased. Defaults to green.",
                     "type": "string"
                 },
                 "metricColorByDirection": {
                     "default": false,
-                    "description": "Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color.",
+                    "description": "Metric display: color the sparkline by whether the metric increased or decreased.",
                     "type": "boolean"
                 },
-                "metricGoodColor": {
-                    "description": "Metric display: hex color used when the trend is good. Defaults to green.",
+                "metricLineDecreaseColor": {
+                    "description": "Metric display: line color when the metric decreased. Defaults to red.",
                     "type": "string"
                 },
-                "metricGoodDirection": {
-                    "default": "up",
-                    "description": "Metric display: whether an increase is a good trend (green pill) or a bad one (red pill).",
-                    "enum": ["up", "down"],
+                "metricLineIncreaseColor": {
+                    "description": "Metric display: line color when the metric increased. Defaults to green.",
                     "type": "string"
                 },
                 "metricShowChange": {

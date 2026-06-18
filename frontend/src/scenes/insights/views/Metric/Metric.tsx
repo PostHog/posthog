@@ -19,13 +19,18 @@ import { insightLogic } from '../../insightLogic'
 // Above this magnitude the exact percentage is noise (it comes from a near-zero prior), so show ∞ instead.
 const MAX_CHANGE_PERCENT = 10_000 // ≈100×
 
-// Defaults for "color line by trend" — mirror MetricCard's default pill colors (green good, red bad).
-export const METRIC_DEFAULT_GOOD_COLOR = '#388600'
-export const METRIC_DEFAULT_BAD_COLOR = '#db3707'
+// Default increase/decrease colors (green increase, red decrease), shared by the change pill and the line.
+export const METRIC_DEFAULT_INCREASE_COLOR = '#388600'
+export const METRIC_DEFAULT_DECREASE_COLOR = '#db3707'
+
+const makeChangeColor = (hex: string): { background: string; foreground: string } => ({
+    background: hexToRGBA(hex, 0.1),
+    foreground: hex,
+})
 
 export function Metric({ showPersonsModal = true, inCardView, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, compareFilter, querySource, hasDataWarehouseSeries } = useValues(
+    const { insightData, trendsFilter, querySource, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { baseCurrency } = useValues(teamLogic)
@@ -40,43 +45,41 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
     // The Metric headline is the metric over the period (the series total); the sparkline shows its movement.
     const headlineValue = resultSeries.count
 
-    const goodDirection = trendsFilter?.metricGoodDirection ?? 'up'
     const showChange = trendsFilter?.metricShowChange ?? true
 
-    // Metric always compares to the previous period (compare is forced on when the display is selected), so the
-    // pill and subtitle reflect period-over-period change.
-    const showComparison = !!compareFilter?.compare && (insightData?.result?.length ?? 0) > 1
-    const previousValue = showComparison ? (insightData?.result?.[1] as TrendResult | undefined)?.count : undefined
-    // Without a comparison, leave `change` undefined so MetricCard derives the pill from the sparkline. When
-    // comparing, show the period-over-period %; but a change from a zero prior is infinite and a near-zero prior
-    // produces an absurd number, so render ∞ in those cases (the `value` still drives the arrow + color).
+    // The pill and line both measure the change ACROSS the displayed period: first point → last point of the
+    // series. A change from a zero start is infinite and a near-zero start produces an absurd number, so render ∞
+    // in those cases (the `value` still drives the arrow + color). Both read from `change`, so they always agree.
+    const finiteSeries = (resultSeries.data ?? []).filter((value) => Number.isFinite(value))
+    const startValue = finiteSeries.length >= 2 ? finiteSeries[0] : undefined
+    const endValue = finiteSeries.length >= 2 ? finiteSeries[finiteSeries.length - 1] : undefined
     let change: MetricChange | null | undefined = undefined
-    if (showComparison && previousValue != null && headlineValue != null) {
-        if (previousValue === 0) {
-            change = headlineValue > 0 ? { value: 1, label: '∞' } : null
+    if (startValue != null && endValue != null) {
+        if (startValue === 0) {
+            change = endValue > 0 ? { value: 1, label: '∞' } : null
         } else {
-            const percent = ((headlineValue - previousValue) / Math.abs(previousValue)) * 100
+            const percent = ((endValue - startValue) / Math.abs(startValue)) * 100
             change = Math.abs(percent) >= MAX_CHANGE_PERCENT ? { value: percent, label: '∞' } : { value: percent }
         }
     }
     const comparisonSubtitle =
-        showComparison && previousValue != null
-            ? `vs. ${formatAggregationAxisValue(trendsFilter, previousValue, baseCurrency)} prior`
+        startValue != null
+            ? `vs. ${formatAggregationAxisValue(trendsFilter, startValue, baseCurrency)} at start`
             : undefined
 
-    // Optional: color the line + pill by whether the trend is good or bad (else the line uses the theme color and
-    // the pill uses MetricCard's green/red defaults). `isGood` mirrors MetricCard's own pill logic.
-    const colorByDirection = trendsFilter?.metricColorByDirection ?? false
-    const goodColor = trendsFilter?.metricGoodColor ?? METRIC_DEFAULT_GOOD_COLOR
-    const badColor = trendsFilter?.metricBadColor ?? METRIC_DEFAULT_BAD_COLOR
-    const isGood = goodDirection === 'up' ? (change?.value ?? 0) >= 0 : (change?.value ?? 0) < 0
-    const lineColor = colorByDirection && change != null ? (isGood ? goodColor : badColor) : undefined
-    const pillColors = colorByDirection
-        ? {
-              positiveColor: { background: hexToRGBA(goodColor, 0.1), foreground: goodColor },
-              negativeColor: { background: hexToRGBA(badColor, 0.1), foreground: badColor },
-          }
-        : {}
+    const isIncrease = (change?.value ?? 0) >= 0
+    const pillColors = {
+        positiveColor: makeChangeColor(trendsFilter?.metricChangeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR),
+        negativeColor: makeChangeColor(trendsFilter?.metricChangeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR),
+    }
+    const lineIncreaseColor = trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR
+    const lineDecreaseColor = trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR
+    const lineColor =
+        (trendsFilter?.metricColorByDirection ?? false) && change != null
+            ? isIncrease
+                ? lineIncreaseColor
+                : lineDecreaseColor
+            : undefined
 
     // Sparkline hover/resting subtitle (used when there's no comparison) is the point's date — format it the app's
     // way ("June 16, 2026") rather than the raw backend label ("16-Jun-2026").
@@ -91,7 +94,6 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
                     query: {
                         kind: NodeKind.InsightActorsQuery,
                         source: querySource!,
-                        compare: showComparison ? 'current' : undefined,
                         includeRecordings: true,
                     },
                     additionalSelect: {
@@ -124,7 +126,6 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
                 labels={labels}
                 theme={theme}
                 color={lineColor}
-                goodDirection={goodDirection}
                 showChange={showChange}
                 formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
                 sparklineHeight={120}

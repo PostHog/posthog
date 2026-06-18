@@ -1481,13 +1481,6 @@ export interface GoalLineApi {
     value: number
 }
 
-export type MetricGoodDirectionApi = (typeof MetricGoodDirectionApi)[keyof typeof MetricGoodDirectionApi]
-
-export const MetricGoodDirectionApi = {
-    Up: 'up',
-    Down: 'down',
-} as const
-
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
 export const ResultCustomizationByApi = {
@@ -1573,14 +1566,16 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
-    /** Metric display: hex color used when the trend is bad. Defaults to red. */
-    metricBadColor?: string | null
-    /** Metric display: color the sparkline (and pill) by trend direction (good/bad) instead of the theme color. */
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string | null
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string | null
+    /** Metric display: color the sparkline by whether the metric increased or decreased. */
     metricColorByDirection?: boolean | null
-    /** Metric display: hex color used when the trend is good. Defaults to green. */
-    metricGoodColor?: string | null
-    /** Metric display: whether an increase is a good trend (green pill) or a bad one (red pill). */
-    metricGoodDirection?: MetricGoodDirectionApi | null
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string | null
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string | null
     /** Show the period-over-period change pill on the Metric display. */
     metricShowChange?: boolean | null
     minDecimalPlaces?: number | null
