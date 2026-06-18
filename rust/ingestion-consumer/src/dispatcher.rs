@@ -30,9 +30,9 @@ struct Pin {
 struct PinTable {
     /// `"{token}:{distinct_id}"` → sticky assignment.
     pins: HashMap<String, Pin>,
-    /// Outstanding (in-flight) message count per worker. Used for bin-packing:
-    /// new key-groups are assigned to whichever healthy worker carries the
-    /// fewest outstanding messages, so load is balanced by volume rather than
+    /// Outstanding (in-flight) message count per worker. Both routing strategies
+    /// use it as the per-worker load signal so new key-groups land on
+    /// lightly-loaded workers — load is balanced by message volume rather than
     /// by sub-batch count.
     in_flight_messages: Vec<usize>,
 }
@@ -89,8 +89,9 @@ impl WorkerSubBatchBuilder {
 #[derive(Default)]
 struct WorkerAssignments {
     by_worker: HashMap<usize, WorkerSubBatchBuilder>,
-    /// Messages provisionally assigned to each worker so far this round. Drives
-    /// least-loaded bin-packing so the largest groups steer load by volume.
+    /// Messages provisionally assigned to each worker so far this round. Both
+    /// routing strategies add it to in-flight load so intra-batch placement
+    /// accounts for groups already routed earlier in the same round.
     provisional_messages: Vec<usize>,
 }
 
@@ -245,7 +246,7 @@ impl Dispatcher {
                 }
                 _ => {
                     // No pin or pinned to a dead worker — drop stale entry and
-                    // queue for bin-packing.
+                    // queue for routing by the configured strategy.
                     table.pins.remove(&group.routing_key);
                     unpinned_groups.push(group);
                 }

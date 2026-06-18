@@ -59,6 +59,7 @@ impl Router {
     }
 
     /// Deterministic constructor for tests — seeds the RNG from a fixed value.
+    #[cfg(test)]
     pub fn with_seed(strategy: RoutingStrategy, seed: u64) -> Self {
         Self {
             strategy,
@@ -121,12 +122,13 @@ fn select_p2c(
         0 => None,
         1 => Some(healthy[0]),
         len => {
-            let a = healthy[rng.gen_range(0..len)];
-            // Sample without replacement: redraw until distinct from the first pick.
-            let mut b = healthy[rng.gen_range(0..len)];
-            while b == a {
-                b = healthy[rng.gen_range(0..len)];
-            }
+            // Sample two distinct *positions* in one step (no redraw loop): pick
+            // the first, then offset by 1..len to land on a different position.
+            // This terminates regardless of the slice's contents, so it stays
+            // correct even if a caller ever passes duplicate worker indices.
+            let i = rng.gen_range(0..len);
+            let j = (i + 1 + rng.gen_range(0..len - 1)) % len;
+            let (a, b) = (healthy[i], healthy[j]);
             Some(if load(a) <= load(b) { a } else { b })
         }
     }
@@ -227,6 +229,19 @@ mod tests {
                 select_p2c(&[0, 1], &[3, 0], &[0, 0], &mut rng),
                 Some(1),
                 "seed {seed}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_p2c_terminates_with_duplicate_indices() {
+        // Regression: selection must not loop even if the candidate slice
+        // contains duplicate worker indices.
+        let mut rng = StdRng::seed_from_u64(1);
+        for _ in 0..50 {
+            assert_eq!(
+                select_p2c(&[2, 2], &[0, 0, 0], &[0, 0, 0], &mut rng),
+                Some(2)
             );
         }
     }
