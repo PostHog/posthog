@@ -78,6 +78,14 @@ async function main(): Promise<void> {
         )
     }
 
+    // Gateway path authenticates every call with one static phs_ bearer; without
+    // it every request 401s, so fail fast rather than crash-loop at first turn.
+    if (config.useAiGateway && !config.posthogAiGatewayKey) {
+        throw new Error(
+            'AGENT_USE_AI_GATEWAY requires POSTHOG_AI_GATEWAY_KEY — a phs_ project secret key with the llm_gateway:read scope.'
+        )
+    }
+
     // Outbound HTTP — every tool fetch, gateway fetch, and MCP transport
     // dispatches through here. In prod `config.httpsProxy` points at smokescreen
     // so author-supplied URLs (web-fetch, http-request, external MCPs) get SSRF
@@ -158,9 +166,8 @@ async function main(): Promise<void> {
     await logSink.connect()
 
     // Resolves a team's `phc_` project key from the main PostHog DB (cached per
-    // team). Two consumers: the ai-gateway bearer (below) and the LLM-analytics
-    // sink (next). Constructed unconditionally so analytics can route per-team
-    // even when the gateway is off. See ai-gateway-integration.md §3 (W1).
+    // team) for the LLM-analytics sink's per-team routing (below). The gateway
+    // bearer is a single static phs_ now, so this no longer feeds it.
     const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
 
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
@@ -298,21 +305,24 @@ async function main(): Promise<void> {
                   posthogAiGatewayModel({
                       specModel,
                       baseUrl: config.aiGatewayUrl,
+                      // Non-null: boot guard above throws when useAiGateway && !posthogAiGatewayKey.
+                      apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
-        // The driver streams through pi-ai's `streamSimple`; the per-session
-        // API key flows in here (no more client-level default). Gateway path
-        // → resolve the owning team's `phc_`; direct path → fall back to the
-        // boot-time default (ANTHROPIC_API_KEY / OPENAI_API_KEY / etc).
-        resolveApiKey: config.useAiGateway ? (session) => teamApiKeys.resolve(session.team_id) : () => defaultApiKey,
+        // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
+        // Gateway path → the static phs_ (cost bills to the team that owns it);
+        // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).
+        resolveApiKey: config.useAiGateway ? () => config.posthogAiGatewayKey : () => defaultApiKey,
         resolveGatewayHeaders: config.useAiGateway
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
               })
             : undefined,
+        // /v1/usage + /v1/wallet reads use the same static phs_ (the `phc` field
+        // is the read client's bearer; key presence is guaranteed at boot above).
         resolveGatewayUsage: gatewayClient
-            ? async (session) => ({ client: gatewayClient, phc: await teamApiKeys.resolve(session.team_id) })
+            ? () => ({ client: gatewayClient, phc: config.posthogAiGatewayKey! })
             : undefined,
         // On the gateway path pi-ai's cost numbers are client-side estimates;
         // the gateway itself owns billing. We keep token counts. Cost is

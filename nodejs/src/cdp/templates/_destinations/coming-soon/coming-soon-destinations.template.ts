@@ -75,12 +75,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Advertising'],
     },
     {
-        name: 'Bing Ads',
-        id: 'coming-soon-bing-ads',
-        icon_url: '/static/coming-soon-destinations/Bing_Ads.svg',
-        category: ['Advertising'],
-    },
-    {
         name: 'Criteo',
         id: 'coming-soon-criteo',
         icon_url: '/static/coming-soon-destinations/Criteo.svg',

@@ -545,6 +545,87 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('compression resets when file_format changes', () => {
+        it.each([
+            { newFormat: 'JSONLines', expected: null },
+            { newFormat: 'Parquet', expected: 'zstd' },
+        ])('new export: switching to $newFormat sets compression to $expected', async ({ newFormat, expected }) => {
+            await initLogic({ service: 'S3', id: null })
+
+            logic.actions.setConfigurationValue('file_format', newFormat)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configuration.compression).toBe(expected)
+        })
+
+        it.each([
+            { startCompression: 'snappy', expected: null },
+            { startCompression: 'gzip', expected: 'gzip' },
+        ])(
+            'existing export: Parquet/$startCompression -> JSONLines yields $expected',
+            async ({ startCompression, expected }) => {
+                await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+                logic.actions.setConfigurationValues({ compression: startCompression })
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setConfigurationValue('file_format', 'JSONLines')
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.configuration.compression).toBe(expected)
+            }
+        )
+
+        it('existing export: Parquet/zstd -> JSONLines -> Parquet restores the saved zstd codec', async () => {
+            // AWS_S3_BATCH_EXPORT is saved with Parquet/zstd; zstd is invalid for JSONLines, so it's
+            // cleared on the way out and must come back from the saved config — not default to zstd by
+            // coincidence.
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('zstd')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBeNull()
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('zstd')
+        })
+
+        it('existing export: Parquet/gzip survives a JSONLines round-trip (valid for both formats)', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+        })
+    })
+
+    describe('invalid persisted compression is dropped on save', () => {
+        it('clears a JSONLines+zstd combination when saving an unrelated edit', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                file_format: 'JSONLines',
+                compression: 'zstd',
+                prefix: 'updated-prefix/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.file_format).toBe('JSONLines')
+            expect(lastPatchBody!.destination.config.compression).toBeNull()
+            expect(lastPatchBody!.destination.config.prefix).toBe('updated-prefix/')
+        })
+    })
+
     describe('Redshift bucket validation only runs in COPY mode', () => {
         // Validates that Redshift's mode-conditional validation only kicks in for COPY mode.
         // INSERT mode shouldn't validate the (irrelevant) bucket name field.

@@ -2437,8 +2437,16 @@ export interface WebAnalyticsItemBase<T> {
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
-export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
-    usedPreAggregatedTables?: boolean
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {}
+
+/** Which read path served a web analytics response. */
+export enum WebAnalyticsPreComputeStrategy {
+    /** Served from the v2 continuously-maintained pre-aggregated tables. */
+    PreAggregated = 'pre_aggregated',
+    /** Served from the on-demand lazy precompute tables. */
+    LazyPrecompute = 'lazy_precompute',
+    /** Computed live from raw events (no precompute). */
+    Live = 'live',
 }
 
 export interface SamplingRate {
@@ -2451,8 +2459,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2505,8 +2512,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2543,10 +2549,7 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2595,7 +2598,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -3457,10 +3460,26 @@ export interface SymbolStatsRow {
      */
     count_pct_change: number | null
     /**
+     * Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p50_duration_pct_change: number | null
+    /**
      * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
      * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
      */
     p95_duration_pct_change: number | null
+    /**
+     * Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p99_duration_pct_change: number | null
+    /**
+     * Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when
+     * the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a
+     * 0→N new-error spike, which surfaces as null rather than a delta.
+     */
+    error_rate_pct_change: number | null
 }
 
 export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
@@ -3866,6 +3885,9 @@ export interface ExperimentApiMetric {
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
+     *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -4010,6 +4032,9 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
         source: ExperimentMetricSource
+        /** When set, reports the percentage of users whose per-user summed/counted value
+         *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+        threshold?: number
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
@@ -5537,6 +5562,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
     results: PageURL[]
     hasMore?: boolean
     limit?: integer
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
@@ -5559,7 +5585,7 @@ export interface WebNotableChangeItem {
 export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
     results: WebNotableChangeItem[]
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
@@ -6789,6 +6815,7 @@ export const externalDataSources = [
     'StreamElements',
     'Streamlabs',
     'Datorama',
+    'Ahrefs',
     'Custom',
 ] as const
 

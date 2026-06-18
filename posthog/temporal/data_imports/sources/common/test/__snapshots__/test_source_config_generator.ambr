@@ -54,6 +54,7 @@
           ExternalDataSourceType.ADYEN: AdyenSourceConfig,
           ExternalDataSourceType.AGILECRM: AgileCRMSourceConfig,
           ExternalDataSourceType.AHA: AhaSourceConfig,
+          ExternalDataSourceType.AHREFS: AhrefsSourceConfig,
           ExternalDataSourceType.AIRBYTE: AirbyteSourceConfig,
           ExternalDataSourceType.AIRCALL: AircallSourceConfig,
           ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,

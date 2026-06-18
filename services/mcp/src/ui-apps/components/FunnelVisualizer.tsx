@@ -10,9 +10,12 @@ import {
     type FunnelStepsBarRow,
 } from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
-import { CHART_THEME, FUNNEL_COLOR } from './charts/theme'
+import { ChartHeader } from './ChartHeader'
+import { FUNNEL_COLOR, useMcpChartTheme } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
+
+const TITLE = 'Funnel'
 
 const NOOP = (): void => {}
 
@@ -41,27 +44,32 @@ function renderTooltip(rows: FunnelStepsBarRow[]) {
 }
 
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
+    const theme = useMcpChartTheme()
     const steps = normalizeFunnelSteps(results)
     const { series, labels, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
 
     if (steps.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
-                    <EmptyDescription>No funnel data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title={TITLE} />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
+                        <EmptyDescription>No funnel data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
     return (
         <div data-attr="funnel-steps-bar" className="w-full">
+            <ChartHeader title={TITLE} />
             <div className="flex flex-col h-72 w-full">
                 <BarChart
                     series={series}
                     labels={labels}
-                    theme={CHART_THEME}
+                    theme={theme}
                     config={CHART_CONFIG}
                     tooltip={renderTooltip(rows)}
                     onError={NOOP}

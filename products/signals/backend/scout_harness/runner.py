@@ -332,12 +332,22 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        # Tag every scout $ai_generation with a coarse pipeline stage so scout spend is
+        # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id).
+        # Constant 'scout' keeps ai_stage a low-cardinality stage enum (peer of research /
+        # repo_selection / implementation); per-scout granularity comes from scout_name (task_title).
+        ai_stage="scout",
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
         # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
         # ceiling and would let the activity die before salvage could return the written summary.
         max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
+        # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
+        # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
+        # failing the whole run. A failed run never finalizes, so its scan-position close-out is
+        # lost and the next run inherits a doubled scan delta.
+        fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
     )
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a
