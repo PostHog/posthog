@@ -1303,6 +1303,24 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         )
         assert delete.status_code == status.HTTP_403_FORBIDDEN, delete
 
+    def test_sibling_team_cannot_retrieve_soft_deleted_org_template(self) -> None:
+        owning_team = Team.objects.create(organization=self.organization, name="Owns deleted org template")
+        org_template = DashboardTemplate.objects.create(
+            team_id=owning_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Soon to be deleted org template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+            deleted=True,
+        )
+
+        # A sibling project that captured the UUID must not be able to read it once it's soft-deleted.
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve
+
     @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
     def test_scope_change_emits_analytics(self, mock_report) -> None:
         create = self.client.post(

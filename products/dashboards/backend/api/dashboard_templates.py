@@ -98,7 +98,7 @@ def _collect_warehouse_table_names(node: Any) -> set[str]:
     return names
 
 
-def detect_non_portable_references(tiles: list[dict[str, Any]]) -> dict[str, Any]:
+def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
     """Project-scoped references in template tiles that may not resolve when used in another project.
 
     Events and properties are portable (matched by name), so they are not reported.
@@ -655,7 +655,10 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         else:
             qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
 
-        if self.action == "list":
+        # Soft-deleted rows stay resolvable only for unsafe methods, so PATCH `{deleted: false}` (undo) by the
+        # owning project still works. Safe reads (list + retrieve) exclude them, so a sibling project that
+        # captured the UUID can't GET an organization template after its owning project deleted it.
+        if self.request.method in SAFE_METHODS:
             qs = qs.exclude(deleted=True)
 
         return qs
