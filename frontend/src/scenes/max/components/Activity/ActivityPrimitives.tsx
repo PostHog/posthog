@@ -268,7 +268,7 @@ export function Activity({
     }, [shouldExpandDetails])
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
+        <div className="flex flex-col rounded transition-all duration-500 w-full min-w-0 gap-1 text-xs">
             <ActivityHeader
                 title={title}
                 status={status}
