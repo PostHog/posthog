@@ -36,10 +36,10 @@ export interface ClipboardItem {
     dashboardId: number
 }
 
-// View state for the grid/finder arms: the dashboards-subtree folder structure (read from the same
-// FileSystem rows that back the sidebar tree), folder navigation/collapse state, and a clipboard. Writes
-// delegate to projectTreeDataLogic (moves) and dashboardsModel (duplicate/rename/delete) so the sidebar
-// stays consistent and there is no second folder model to sync.
+// View state for the explorer/tree arms: the dashboards-subtree folder structure (read from the same
+// FileSystem rows that back the sidebar tree — both dashboard and folder rows), folder navigation/collapse
+// state, and a clipboard. Writes delegate to projectTreeDataLogic (moves) and dashboardsModel
+// (duplicate/rename/delete) so the sidebar stays consistent and there is no second folder model to sync.
 export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
@@ -75,12 +75,23 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 loadDashboardFileSystemEntries: async (): Promise<FileSystemEntry[]> => {
                     const response = await api.fileSystem.list({ type: 'dashboard', limit: DASHBOARD_FS_PAGE_LIMIT })
                     if (response.results.length >= DASHBOARD_FS_PAGE_LIMIT) {
-                        // v1 reads a single page; surplus dashboards fall back to Unfiled in the grid/finder.
+                        // v1 reads a single page; surplus dashboards fall back to Unfiled in the arms.
                         // Pagination is deferred — warn so the truncation is detectable rather than silent.
                         console.warn(
                             `dashboardsFileSystemLogic: hit the ${DASHBOARD_FS_PAGE_LIMIT}-entry page limit — some dashboards may appear under Unfiled.`
                         )
                     }
+                    return response.results
+                },
+            },
+        ],
+        // Real folder rows, so empty folders (and ones the user creates) show up as navigable, droppable
+        // targets — not just folders inferred from dashboard paths.
+        folderEntries: [
+            [] as FileSystemEntry[],
+            {
+                loadFolderEntries: async (): Promise<FileSystemEntry[]> => {
+                    const response = await api.fileSystem.list({ type: 'folder', limit: DASHBOARD_FS_PAGE_LIMIT })
                     return response.results
                 },
             },
@@ -121,22 +132,24 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboardFileSystemEntries],
             (entries): Record<string, FileSystemEntry> => buildEntryByRef(entries),
         ],
+        folderPaths: [(s) => [s.folderEntries], (folderEntries): string[] => folderEntries.map((entry) => entry.path)],
         folderTree: [
-            (s) => [s.dashboards, s.entryByRef],
-            (dashboards, entryByRef): FolderTreeNode[] => buildFolderTree(dashboards, entryByRef),
+            (s) => [s.dashboards, s.entryByRef, s.folderPaths],
+            (dashboards, entryByRef, folderPaths): FolderTreeNode[] =>
+                buildFolderTree(dashboards, entryByRef, folderPaths),
         ],
         currentFolderContents: [
-            (s) => [s.dashboards, s.entryByRef, s.currentFolder],
-            (dashboards, entryByRef, currentFolder): FolderContents =>
-                folderContents(dashboards, entryByRef, currentFolder),
+            (s) => [s.dashboards, s.entryByRef, s.currentFolder, s.folderPaths],
+            (dashboards, entryByRef, currentFolder, folderPaths): FolderContents =>
+                folderContents(dashboards, entryByRef, currentFolder, folderPaths),
         ],
         // Explorer arm: immediate subfolders with single-child pass-through chains collapsed, so one
         // click reaches a buried dashboard. The tree arm shows the full hierarchy and doesn't use this.
         compactedSubfolders: [
-            (s) => [s.currentFolderContents, s.dashboards, s.entryByRef],
-            (currentFolderContents, dashboards, entryByRef): CompactedSubfolder[] =>
+            (s) => [s.currentFolderContents, s.dashboards, s.entryByRef, s.folderPaths],
+            (currentFolderContents, dashboards, entryByRef, folderPaths): CompactedSubfolder[] =>
                 currentFolderContents.subfolders.map((subfolder) =>
-                    compactFolderChain(subfolder, dashboards, entryByRef)
+                    compactFolderChain(subfolder, dashboards, entryByRef, folderPaths)
                 ),
         ],
         // Tree arm: every dashboard at or below the selected folder, recursively (root = all). The tree
@@ -206,5 +219,6 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadDashboardFileSystemEntries()
+        actions.loadFolderEntries()
     }),
 ])

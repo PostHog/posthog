@@ -25,27 +25,33 @@ export function buildEntryByRef(entries: FileSystemEntry[]): Record<string, File
     return byRef
 }
 
-// Build the nested folder tree the tree arm renders: every folder that contains a dashboard, plus all
-// its ancestors, derived from the dashboard paths. Unfiled dashboards contribute the Unfiled subtree.
-// (Folders with no dashboards anywhere beneath them don't appear yet — that needs loading folder rows.)
+// Build the nested folder tree the tree arm renders: every folder that contains a dashboard (plus all its
+// ancestors), unioned with the explicit `folderPaths` (real folder rows) so empty folders also appear.
+// Unfiled dashboards contribute the Unfiled subtree.
 export function buildFolderTree(
     dashboards: DashboardBasicType[],
-    entryByRef: Record<string, FileSystemEntry>
+    entryByRef: Record<string, FileSystemEntry>,
+    folderPaths: string[] = []
 ): FolderTreeNode[] {
-    const folderPaths = new Set<string>()
+    const allFolderPaths = new Set<string>()
+    const addWithAncestors = (segments: string[]): void => {
+        for (let i = 1; i <= segments.length; i++) {
+            allFolderPaths.add(joinPath(segments.slice(0, i)))
+        }
+    }
     for (const dashboard of dashboards) {
         const entry = entryByRef[String(dashboard.id)]
         const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
-        const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
-        for (let i = 1; i <= segments.length; i++) {
-            folderPaths.add(joinPath(segments.slice(0, i)))
-        }
+        addWithAncestors(parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS)
+    }
+    for (const folderPath of folderPaths) {
+        addWithAncestors(splitPath(folderPath))
     }
 
     const byPath = new Map<string, FolderTreeNode>()
     const roots: FolderTreeNode[] = []
     // Shallowest first so a node's parent always exists before the node is attached.
-    const sorted = [...folderPaths].sort((a, b) => splitPath(a).length - splitPath(b).length || a.localeCompare(b))
+    const sorted = [...allFolderPaths].sort((a, b) => splitPath(a).length - splitPath(b).length || a.localeCompare(b))
     for (const path of sorted) {
         const segments = splitPath(path)
         const node: FolderTreeNode = { path, label: segments.at(-1) ?? path, children: [] }
@@ -104,17 +110,25 @@ export interface FolderContents {
     dashboards: DashboardBasicType[]
 }
 
-// Finder arm: given the current folder, return its immediate subfolders and the dashboards directly in it,
-// derived from each dashboard's folder path. (Folders with no dashboards in their subtree don't appear — a
-// v1 limitation, since we only load dashboard entries, not standalone folder rows.)
+// Explorer arm: given the current folder, return its immediate subfolders and the dashboards directly in
+// it. Subfolders come from each dashboard's folder path unioned with the explicit `folderPaths` (real
+// folder rows), so empty folders also show up as navigable, droppable subfolders.
 export function folderContents(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>,
-    currentFolder: string
+    currentFolder: string,
+    folderPaths: string[] = []
 ): FolderContents {
     const currentSegments = currentFolder ? splitPath(currentFolder) : []
     const subfolders = new Set<string>()
     const directDashboards: DashboardBasicType[] = []
+
+    const addImmediateChild = (segments: string[]): void => {
+        const withinCurrent = currentSegments.every((segment, index) => segments[index] === segment)
+        if (withinCurrent && segments.length > currentSegments.length) {
+            subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
+        }
+    }
 
     for (const dashboard of dashboards) {
         const entry = entryByRef[String(dashboard.id)]
@@ -130,6 +144,10 @@ export function folderContents(
         } else {
             subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
         }
+    }
+
+    for (const folderPath of folderPaths) {
+        addImmediateChild(splitPath(folderPath))
     }
 
     return { subfolders: [...subfolders].sort((a, b) => a.localeCompare(b)), dashboards: directDashboards }
@@ -170,12 +188,13 @@ export interface CompactedSubfolder {
 export function compactFolderChain(
     folder: string,
     dashboards: DashboardBasicType[],
-    entryByRef: Record<string, FileSystemEntry>
+    entryByRef: Record<string, FileSystemEntry>,
+    folderPaths: string[] = []
 ): CompactedSubfolder {
     const labels = [folderLabel(folder)]
     let path = folder
     for (;;) {
-        const { subfolders, dashboards: direct } = folderContents(dashboards, entryByRef, path)
+        const { subfolders, dashboards: direct } = folderContents(dashboards, entryByRef, path, folderPaths)
         if (subfolders.length !== 1 || direct.length !== 0) {
             break
         }

@@ -44,6 +44,18 @@ describe('dashboardsFileSystemUtils', () => {
         expect(buildFolderTree([], {})).toEqual([])
     })
 
+    it('buildFolderTree includes empty folder rows (no dashboards beneath) and their ancestors', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A')])
+        const tree = buildFolderTree([dash(1, 'A')], byRef, ['Ideas', 'Archive/2024'])
+        expect(tree.map((node) => node.path)).toEqual(['Archive', 'Ideas', 'Marketing'])
+        expect(tree.find((node) => node.path === 'Archive')?.children.map((c) => c.path)).toEqual(['Archive/2024'])
+    })
+
+    it('folderContents includes empty folder rows as immediate subfolders', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A')])
+        expect(folderContents([dash(1, 'A')], byRef, '', ['Ideas']).subfolders).toEqual(['Ideas', 'Marketing'])
+    })
+
     it('round-trips a card drag onto a folder header', () => {
         const result = parseDashboardDragEnd(dashboardDraggableId(42), folderDroppableId('Marketing/Q1'))
         expect(result).toEqual({ dashboardId: 42, folder: 'Marketing/Q1' })

@@ -23,11 +23,16 @@ describe('dashboardsFileSystemLogic', () => {
     })
 
     beforeEach(() => {
-        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
-            count: 1,
-            results: [{ id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' }],
-            users: [],
-        } as any)
+        jest.spyOn(api.fileSystem, 'list').mockImplementation(
+            async ({ type }: { type?: string } = {}) =>
+                (type === 'folder'
+                    ? { count: 0, results: [], users: [] }
+                    : {
+                          count: 1,
+                          results: [{ id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' }],
+                          users: [],
+                      }) as any
+        )
         jest.spyOn(api.fileSystem, 'unfiled').mockResolvedValue(null as any)
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] } as any)
         jest.spyOn(api.fileSystem, 'move').mockResolvedValue({
