@@ -1569,6 +1569,71 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
+ * List the names of secrets currently set on this revision.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+ * a declared secret in the editor UI.
+ */
+export const AgentRevisionsEnvKeysListParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysGetParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysClearParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
  *
  * Django is a thin proxy here: resolve template refs into the

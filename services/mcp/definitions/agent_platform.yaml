@@ -154,6 +154,9 @@ tools:
     agent-applications-preview-token:
         operation: agent_applications_preview_token
         enabled: false
+    agent-applications-preview-token-mint:
+        operation: agent_applications_preview_token_mint
+        enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -371,6 +374,9 @@ tools:
             Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision
             id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
             `agent-applications-revisions-bundle-retrieve`.
+    agent-applications-revisions-set-env-create:
+        operation: agent_applications_revisions_set_env_create
+        enabled: false
     agent-applications-revisions-skills-destroy:
         operation: agent_applications_revisions_skills_destroy
         enabled: true
@@ -528,22 +534,6 @@ tools:
             long sessions where you only care about the tail; `conversation_trimmed: true` plus
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate.
-    agent-applications-set-env-create:
-        operation: agent_applications_set_env_create
-        enabled: false
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Replace the application's env block (raw values — disabled by default)
-        description: >
-            Body `{ env: { KEY: "value", … } }` — the whole env is replaced (not patched). **Disabled for the standard
-            MCP surface** — the body carries raw secret values, which would land in the agent's tool-call history. Raw
-            secret entry goes through the agent console's secret editor instead (deep-link flow; see the
-            secrets-and-integrations skill). Values are encrypted at rest with the team's Fernet keys and never leave
-            Django; this endpoint stays available on the REST API for the console / CI that already hold the values.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false
