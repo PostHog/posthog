@@ -12,7 +12,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -336,6 +337,13 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<DeletePersonsBatchForTeamRequest>,
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         route_request!(self, delete_persons_batch_for_team, request)
+    }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        route_request!(self, delete_personless_distinct_ids_batch_for_team, request)
     }
 
     // Person split

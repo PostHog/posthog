@@ -15,7 +15,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -607,6 +608,21 @@ impl PersonHogRouter {
             self,
             "DeletePersonsBatchForTeam",
             delete_persons_batch_for_team,
+            request
+        )
+    }
+
+    /// Delete a batch of personless distinct IDs for a team.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above.
+    pub async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeletePersonlessDistinctIdsBatchForTeam",
+            delete_personless_distinct_ids_batch_for_team,
             request
         )
     }
