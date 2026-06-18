@@ -3,6 +3,8 @@ export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
+export { ComboChart } from './charts/ComboChart/ComboChart'
+export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
     ConfidenceIntervalConfig,
@@ -83,6 +85,7 @@ export type {
     ChartMargins,
     ChartScales,
     ChartTheme,
+    ComboChartConfig,
     CreateScalesFn,
     DateRangeZoomData,
     DragRect,
@@ -91,6 +94,7 @@ export type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    SeriesType,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
