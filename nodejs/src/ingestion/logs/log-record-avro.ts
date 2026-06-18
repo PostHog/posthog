@@ -4,8 +4,8 @@ import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import type { LogsSettings } from '~/types'
 
-import type { LogsSettings } from '../types'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
 

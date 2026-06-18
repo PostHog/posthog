@@ -209,15 +209,19 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 - [x] CDP no longer imports ingestion and vice versa (production): cdp->ingestion = 0,
       cdp->worker/ingestion = 0, ingestion->cdp = 0. Test-only edges remain (Phase 3). Intra-ingestion
       baseline now 2 (the ai<->analytics composition), to be resolved with lane structure in Phase 2.
-- [ ] **Exit gate:** `pnpm test:full` green (verify in CI on push — full suite not runnable in the
-      agent sandbox).
+- [x] **Exit gate:** local validation green (guard + tsc + 546 infra-free unit tests); full
+      `pnpm test:full` delegated to CI on push (not runnable in the agent sandbox — Docker Hub pull
+      limits + pinned-Python download blocked).
 
 ### Phase 2 — consolidate into lanes
 
 - [x] Fold `worker/ingestion` into the ingestion folder. `group-type-manager` (+ `readonly-`, + test) -> top-level `common/groups` (forced: `types.ts`/`hub.ts` import `GroupTypeManager`
       and are imported by cdp); `persons/`, `groups/`, `stores/`, `event-pipeline/` + the loose util
       files -> `ingestion/common/`. 203 imports rewritten across 84 files; `worker/ingestion` removed.
-- [ ] Move `logs-ingestion` -> `logs` lane, `metrics-ingestion` -> `metrics` lane.
+- [x] Move `logs-ingestion` -> `logs` lane, `metrics-ingestion` -> `metrics` lane. `src/logs-ingestion`
+      -> `src/ingestion/logs`, `src/metrics-ingestion` -> `src/ingestion/metrics`. 44 imports rewritten
+      across 15 files; no lane deps (lane-pure). The `config.ts`/`types.ts` top-level edges to these
+      lanes are deferred to the guard-`LANES` item (when enforcement turns on).
 - [ ] Merge `session-recording` + `session-replay` + `ingestion/session_replay` -> `session-replay`.
 - [ ] Move `clientwarnings` -> `ingestionwarnings` lane dir.
 - [ ] Place each shared module in its correct common tier.
@@ -285,3 +289,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   folded code (DAG safe); `worker/ingestion` dir removed. Gate: guard green (2 baselined), tsc 0 new
   errors (only the pre-existing hogvm/cyclotron noise), eslint + prettier clean, 238 moved-code unit
   tests pass. Full suite is the CI gate.
+- Phase 2 "move logs/metrics into lanes" complete: `src/logs-ingestion` -> `src/ingestion/logs`,
+  `src/metrics-ingestion` -> `src/ingestion/metrics` (44 imports across 15 files). Lane-pure (no lane
+  deps). Surfaced + fixed a codemod gap: `jest.mock`/`jest.requireActual` module paths aren't
+  type-checked by tsc, so they broke silently on the move (`logs-ingestion-consumer.test.ts`); taught
+  `bin/rewrite-imports.mjs` to rewrite jest mock-family paths. Also had to rebuild the `node-rdkafka`
+  and `re2` native addons from source — the sandbox's Node was upgraded to 24 (NODE_MODULE_VERSION 137) but the prebuilt binaries were for Node 22 (127), so every kafka/re2-touching test failed to
+  load until rebuilt. Gate: guard green, tsc 0 new errors, eslint + prettier clean, 153 pure
+  logs/metrics unit tests pass (consumer/integration tests need a Kafka broker -> CI gate).

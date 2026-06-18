@@ -1,4 +1,5 @@
-import { parseJSON } from '../utils/json-parse'
+import { parseJSON } from '~/utils/json-parse'
+
 import {
     PII_REDACTED,
     encodeAttributeCell,

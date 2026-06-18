@@ -7,14 +7,14 @@ import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/config/kafka-topics'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
 
-import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
-import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '../config/kafka-topics'
-import { parseJSON } from '../utils/json-parse'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
@@ -41,8 +41,8 @@ import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('../utils/posthog', () => {
-    const original = jest.requireActual('../utils/posthog')
+jest.mock('~/utils/posthog', () => {
+    const original = jest.requireActual('~/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),

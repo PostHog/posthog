@@ -1,25 +1,25 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-
-import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import {
     MetricsIngestionConsumerConfig,
     MetricsIngestionOutputsConfig,
     getDefaultMetricsIngestionOutputsConfig,
-} from '../metrics-ingestion/config'
-import { MetricsIngestionConsumer } from '../metrics-ingestion/metrics-ingestion-consumer'
-import { createProducerRegistry } from '../metrics-ingestion/outputs/producer-registry'
+} from '~/ingestion/metrics/config'
+import { MetricsIngestionConsumer } from '~/ingestion/metrics/metrics-ingestion-consumer'
+import { createProducerRegistry } from '~/ingestion/metrics/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamMetricsProducerEnvConfig,
     MetricsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamMetricsProducerEnvConfig,
-} from '../metrics-ingestion/outputs/producers'
-import { createMetricsOutputsRegistry } from '../metrics-ingestion/outputs/registry'
+} from '~/ingestion/metrics/outputs/producers'
+import { createMetricsOutputsRegistry } from '~/ingestion/metrics/outputs/registry'
+
+import { CommonConfig } from '../common/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
+import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'

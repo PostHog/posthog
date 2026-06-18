@@ -7,6 +7,8 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/logs/config'
+import type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -23,8 +25,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
-import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -47,8 +47,8 @@ export type {
     PersonBatchWritingMode,
 } from './ingestion/config'
 export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-export type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-export type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
+export type { LogsIngestionConsumerConfig } from '~/ingestion/logs/config'
+export type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
 export type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
