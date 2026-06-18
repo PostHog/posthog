@@ -61,9 +61,11 @@ upsert_env() {
     printf '%s=%s\n' "$key" "$value" >>"$file"
 }
 
-# 1. Sibling deps (postgres :5435 + valkey :6381).
+# 1. Sibling deps (postgres :5435 + valkey :6381). --remove-orphans clears the
+#    stale gateway/billing containers from the old `--profile full` era (the
+#    gateway runs on the host now, not as a container).
 log "bringing up sibling gateway deps (postgres + valkey)"
-(cd "$AI_GATEWAY_REPO" && docker compose up -d --wait >/dev/null)
+(cd "$AI_GATEWAY_REPO" && docker compose up -d --wait --remove-orphans >/dev/null)
 
 # 2-3. Enable the team, mint the phs_, publish the blob to the gateway's Valkey.
 #      AI_GATEWAY_REDIS_URL points the dedicated hypercache alias at :6381 so
