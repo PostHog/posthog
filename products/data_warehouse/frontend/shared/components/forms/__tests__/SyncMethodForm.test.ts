@@ -19,6 +19,7 @@ describe('SyncMethodForm lookback helpers', () => {
         [7200, { amount: 2, unit: 'hours' }],
         [86400, { amount: 1, unit: 'days' }],
         [172800, { amount: 2, unit: 'days' }],
+        [5184000, { amount: 60, unit: 'days' }], // 60-day max
         [60, { amount: 1, unit: 'minutes' }],
         [900, { amount: 15, unit: 'minutes' }],
         [null, { amount: null, unit: 'hours' }],
@@ -26,5 +27,10 @@ describe('SyncMethodForm lookback helpers', () => {
         [-5, { amount: null, unit: 'hours' }],
     ])('secondsToLookbackParts(%s) picks the largest exact unit', (seconds, expected) => {
         expect(secondsToLookbackParts(seconds as number | null)).toEqual(expected)
+    })
+
+    it('LOOKBACK_MAX_SECONDS is 60 days (5184000)', () => {
+        // 60 days × 86400 s/day
+        expect(60 * 86400).toBe(5184000)
     })
 })

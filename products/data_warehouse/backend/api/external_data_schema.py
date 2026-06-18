@@ -202,10 +202,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         min_value=0,
+        max_value=5_184_000,  # 60 days — larger windows defeat incremental efficiency
         help_text=(
             "Seconds to subtract from the stored incremental watermark at sync time, so each "
             "incremental run re-reads a rolling overlap window and catches late or backdated rows. "
-            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged."
+            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged. "
+            "Maximum 5184000 (60 days)."
         ),
     )
     sync_frequency = serializers.ChoiceField(

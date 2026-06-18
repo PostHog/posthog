@@ -404,6 +404,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                                 <LemonInput
                                                     type="number"
                                                     min={0}
+                                                    max={60}
                                                     value={lookbackAmount ?? undefined}
                                                     onChange={(newValue) => setLookbackAmount(newValue ?? null)}
                                                     placeholder="0"
@@ -419,6 +420,13 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                                     ]}
                                                 />
                                             </div>
+                                            {lookbackSeconds !== null && lookbackSeconds > 604800 && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    Large lookback windows re-read more source data on every sync, which
+                                                    increases warehouse cost and sync duration. Consider a shorter
+                                                    window if your source timestamps are broadly reliable.
+                                                </LemonBanner>
+                                            )}
                                         </div>
                                     )}
                                 {radioValue === 'incremental' && columns.length > 0 && (

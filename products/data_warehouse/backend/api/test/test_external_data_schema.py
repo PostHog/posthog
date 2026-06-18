@@ -456,6 +456,96 @@ class TestExternalDataSchema(APIBaseTest):
         assert "incremental_field_last_value" not in schema.sync_type_config
         assert schema.sync_type_config["incremental_field_lookback_seconds"] == 7200
 
+    def test_create_source_persists_lookback_for_incremental_omits_for_non_incremental(self):
+        incremental_schema = SourceSchema(
+            name="Orders",
+            supports_incremental=True,
+            supports_append=False,
+            supports_webhooks=False,
+        )
+        full_refresh_schema = SourceSchema(
+            name="Products",
+            supports_incremental=False,
+            supports_append=False,
+            supports_webhooks=False,
+        )
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=[incremental_schema, full_refresh_schema]),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Stripe",
+                    "payload": {
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                        "schemas": [
+                            {
+                                "name": "Orders",
+                                "should_sync": True,
+                                "sync_type": "incremental",
+                                "incremental_field": "updated_at",
+                                "incremental_field_type": "timestamp",
+                                "incremental_field_lookback_seconds": 3600,
+                            },
+                            {
+                                "name": "Products",
+                                "should_sync": True,
+                                "sync_type": "full_refresh",
+                                "incremental_field_lookback_seconds": 3600,
+                            },
+                        ],
+                    },
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 201, response.json()
+
+        incremental = ExternalDataSchema.objects.get(
+            source__team=self.team, name="Orders", sync_type=ExternalDataSchema.SyncType.INCREMENTAL
+        )
+        assert incremental.sync_type_config["incremental_field_lookback_seconds"] == 3600
+
+        full_refresh = ExternalDataSchema.objects.get(
+            source__team=self.team, name="Products", sync_type=ExternalDataSchema.SyncType.FULL_REFRESH
+        )
+        assert "incremental_field_lookback_seconds" not in full_refresh.sync_type_config
+
+    def test_update_schema_rejects_lookback_above_60_days(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "sync_type": "incremental",
+                    "incremental_field": "updated_at",
+                    "incremental_field_type": "timestamp",
+                    "incremental_field_lookback_seconds": 5_184_001,  # 60 days + 1 second
+                },
+            )
+
+        assert response.status_code == 400
+
     @parameterized.expand(
         [
             # Stored PK from earlier discovery — reuse it; no caller override needed.
