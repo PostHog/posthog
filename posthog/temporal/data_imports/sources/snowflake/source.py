@@ -211,6 +211,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
             # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
             "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
+            # Snowflake error 250001 (08001): key-pair login was rejected because the JWT we signed with
+            # the configured private key doesn't match the public key registered on the Snowflake user
+            # (rotated/removed key, key assigned to a different user, or the wrong key pasted). Retrying
+            # can never succeed until the customer re-registers the matching public key. The host and
+            # request id in the message are volatile, so we match the stable phrase.
+            "JWT token is invalid": "Snowflake rejected key-pair authentication because the signed token is invalid — the private key you configured doesn't match the public key registered on the Snowflake user. Re-register the matching public key on the user in Snowflake (or paste the correct private key), then resync.",
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist
