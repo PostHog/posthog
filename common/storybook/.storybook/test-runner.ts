@@ -21,7 +21,7 @@ type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/types' {
+declare module 'storybook/internal/types' {
     interface Parameters {
         options?: any
         /** @default 'padded' */

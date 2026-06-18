@@ -1,10 +1,11 @@
 import type { ReactRenderer } from '@storybook/react'
-import { DecoratorFunction } from '@storybook/types'
 import { setupWorker } from 'msw/browser'
 
 import { handlers } from '~/mocks/handlers'
 import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
+
+import type { DecoratorFunction } from 'storybook/internal/types'
 
 // Default handlers ensure no request is unhandled by msw
 export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)

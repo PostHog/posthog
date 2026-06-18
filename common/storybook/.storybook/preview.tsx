@@ -1,6 +1,6 @@
 import '~/styles'
 
-import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'

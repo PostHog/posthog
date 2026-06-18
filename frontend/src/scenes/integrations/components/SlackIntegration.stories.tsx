@@ -22,7 +22,9 @@ const SLACK_INSTANCE_SETTINGS = [
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Integrations/Slack',
-    component: SlackIntegration,
+    // No `component` here: Storybook 10 types `Meta<TArgs>.component` as
+    // `ComponentType<TArgs>`, but this story drives a custom `render` whose
+    // args (instanceConfigured/integrated) are unrelated to SlackIntegration's props.
     parameters: {},
     render: ({ instanceConfigured = true, integrated = false }) => {
         useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
