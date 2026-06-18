@@ -71,6 +71,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
+        // Scout detail surface: selecting a scout opens its full-width detail over the list.
+        setSelectedScoutSkillName: (skillName: string | null) => ({ skillName }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -120,6 +122,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             'pulls' as InboxTabKey,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        selectedScoutSkillName: [
+            null as string | null,
+            {
+                setSelectedScoutSkillName: (_, { skillName }) => skillName,
             },
         ],
         isRunningSessionAnalysis: [
@@ -172,9 +180,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.seedSelectedReport(null)
                 return
             }
+            // A report and a scout detail are mutually exclusive full-width views.
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
+            }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
             actions.seedSelectedReport(findLoadedReport(id, values.runsTabReports))
             actions.loadSelectedReport({ id })
+        },
+        setSelectedScoutSkillName: ({ skillName }) => {
+            if (skillName !== null && values.selectedReportId !== null) {
+                actions.setSelectedReportId(null)
+            }
         },
         loadSourceConfigsSuccess: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
@@ -218,9 +235,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             { replace: false },
         ],
         setSelectedReportId: () => [
+            // When a report is cleared because a scout was just selected (mutually exclusive views),
+            // honor the scout's URL rather than bouncing to the list and clobbering the scout route.
             values.selectedReportId
                 ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                : urls.inbox(values.activeTab),
+                : values.selectedScoutSkillName
+                  ? urls.inboxScout(values.selectedScoutSkillName)
+                  : urls.inbox(values.activeTab),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setSelectedScoutSkillName: () => [
+            values.selectedScoutSkillName
+                ? urls.inboxScout(values.selectedScoutSkillName)
+                : values.selectedReportId
+                  ? urls.inboxReport(values.activeTab, values.selectedReportId)
+                  : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
@@ -231,6 +262,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         [urls.inbox()]: () => {
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
+            }
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
@@ -245,8 +279,21 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
             }
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
+            }
+        },
+        [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            const name = skillName ?? null
+            if (values.selectedScoutSkillName !== name) {
+                actions.setSelectedScoutSkillName(name)
+            }
         },
         [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
+            // This pattern also matches `/inbox/scouts/<skillName>`; the scout handler owns that path.
+            if (tab === 'scouts') {
+                return
+            }
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
                 return
