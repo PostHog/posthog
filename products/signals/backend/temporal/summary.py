@@ -77,7 +77,7 @@ def _capture_report_event(
         properties["failure_reason"] = failure_reason
 
     if event == "signal_report_completed" and result is not None:
-        metrics.increment_report_outcome(result)
+        metrics.increment_report_completed(result)
 
     try:
         posthoganalytics.capture(

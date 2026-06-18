@@ -1,5 +1,4 @@
 import json
-import time
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -384,7 +383,6 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     from django.utils import timezone
 
-    started_at = time.perf_counter()
     team = await Team.objects.aget(pk=input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
@@ -435,7 +433,6 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
         temporalio.activity.heartbeat(attempt)
 
         if result.results and result.results[0][0] >= expected_count:
-            metrics.record_ch_wait(started_at=started_at, timed_out=False)
             logger.debug(
                 f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
                 signal_ids=signal_ids,
@@ -451,7 +448,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             remaining -= chunk
             temporalio.activity.heartbeat(attempt)
 
-    metrics.record_ch_wait(started_at=started_at, timed_out=True)
+    metrics.increment_ch_wait_timeout()
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
         signal_ids=signal_ids,

@@ -251,8 +251,7 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         raise
 
     if not result.safe:
-        metrics.increment_funnel_stage(metrics.FUNNEL_STAGE_SAFETY_BLOCKED, input.source_product or "unknown")
-        metrics.increment_signal_dropped(stage="safety_filter", reason=result.threat_type)
+        metrics.increment_funnel(metrics.FUNNEL_STAGE_SAFETY_BLOCKED, input.source_product or "unknown")
         await _capture_signal_blocked_event(input, result)
 
     return SafetyFilterOutput(

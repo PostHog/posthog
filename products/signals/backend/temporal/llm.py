@@ -1,5 +1,4 @@
 import os
-import time
 from collections.abc import Callable
 from typing import Optional, TypeVar
 
@@ -122,56 +121,49 @@ async def call_llm(
 
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
-    started_at = time.perf_counter()
-    status = "error"
-    try:
-        for attempt in range(retries):
-            response = None
-            # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-            # only if we fail to validate the response.
+    for attempt in range(retries):
+        # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
+        # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
+        try:
             response = await client.messages.create(**create_kwargs)
-            metrics.record_llm_tokens(stage=stage_label, model=MATCHING_MODEL, response=response)
             text_content = _extract_text_content(response)
-            text_content = _strip_markdown_json_fences(text_content)
-            if not thinking:
-                # Prepend the `{` we pre-filled
-                text_content = "{" + text_content
-            try:
-                result = validate(text_content)
-                status = "success"
-                return result
-            except Exception as e:
-                metrics.increment_llm_retry(stage_label)
+        except Exception:
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+            raise
+        text_content = _strip_markdown_json_fences(text_content)
+        if not thinking:
+            # Prepend the `{` we pre-filled
+            text_content = "{" + text_content
+        try:
+            result = validate(text_content)
+        except Exception as e:
+            logger.warning(
+                f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
+                attempt=attempt + 1,
+                retries=retries,
+            )
+            # This is expected to contain pretty sensitive and/or large amounts of data, so for real only
+            # log it in local dev
+            if settings.DEBUG:
                 logger.warning(
-                    f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
-                    attempt=attempt + 1,
-                    retries=retries,
+                    f"LLM response that failed validation:\n{text_content}",
                 )
-                # This is expected to contain pretty sensitive and/or large amounts of data, so for real only
-                # log it in local dev
-                if settings.DEBUG:
-                    logger.warning(
-                        f"LLM response that failed validation:\n{text_content}",
-                    )
-                if response:
-                    messages.append({"role": "assistant", "content": response.content})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
-                    }
-                )
-                # Re-add assistant pre-fill for non-thinking calls so the LLM
-                # continues from `{` on the next attempt (matching the prepend above).
-                if not thinking:
-                    messages.append({"role": "assistant", "content": "{"})
-                last_exception = e
-                continue
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
+                }
+            )
+            # Re-add assistant pre-fill for non-thinking calls so the LLM
+            # continues from `{` on the next attempt (matching the prepend above).
+            if not thinking:
+                messages.append({"role": "assistant", "content": "{"})
+            last_exception = e
+            continue
 
-        raise last_exception or ValueError(f"LLM call failed after {retries} attempts")
-    except Exception as e:
-        if status != "success":
-            status = "timeout" if "timeout" in type(e).__name__.lower() else "error"
-        raise
-    finally:
-        metrics.record_llm_call(stage=stage_label, model=MATCHING_MODEL, status=status, started_at=started_at)
+        metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_OK)
+        return result
+
+    metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+    raise last_exception or ValueError(f"LLM call failed after {retries} attempts")

@@ -57,7 +57,7 @@ def _summarize_drop_error(error: BaseException) -> tuple[str, str]:
 @close_db_connections
 async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> None:
     """Emit a lifecycle event when the pipeline drops a signal, so drops are trackable per signal."""
-    metrics.increment_signal_dropped(stage=input.stage, reason=input.error_type)
+    metrics.increment_dropped(stage=input.stage, reason=input.error_type)
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         posthoganalytics.capture(
