@@ -129,7 +129,7 @@ Match on the most specific property combination you can:
 
 The canonical exception properties (`$exception_types`, `$exception_values`,
 `$exception_sources`, `$exception_functions`) are arrays at capture time. The
-property filter compiler [special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L904) — it parses the
+property filter compiler [special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L983-L1057) (see `is_exception_string_array_property`) — it parses the
 JSON-materialized column and wraps the filter in
 `arrayExists(v -> ..., JSONExtract(...))`, so all the standard operators
 (`exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`) work
@@ -314,11 +314,14 @@ After creating the rule:
   count won't drop.
 - Watch related active issues over the post-creation window — if their volume
   drops while non-related issues hold steady, the rule was scoped correctly
-- If a related real issue's volume drops too (false-positive), ask the user to
-  disable the rule via **Project settings → Error tracking → Suppression rules**
-  immediately and tighten the filter before re-creating it. The MCP tools to
-  edit or delete a rule (`error-tracking-suppression-rules-partial-update`,
-  `-destroy`) are not enabled — the agent has no way to recover programmatically.
+- If a related real issue's volume drops too (false-positive), retune the rule
+  immediately with `error-tracking-suppression-rules-update` (same
+  `error_tracking:write` scope you used to create it) — raise `sampling_rate`
+  to dampen the drop, or tighten `filters` to exclude the real issue. There is
+  no delete tool enabled (`error-tracking-suppression-rules-destroy` is off), so
+  retuning the rule is the recovery path. The update tool only touches `filters`
+  and `sampling_rate`; to fully disable a rule instead, point the user to
+  **Project settings → Error tracking → Suppression rules**.
 
 If you see signs of false positives (a real issue going quiet at the same time
 the rule was created), prefer disabling the rule over deleting it — that
