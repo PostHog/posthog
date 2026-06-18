@@ -1,3 +1,4 @@
+import json
 import uuid
 from urllib.parse import parse_qs, urlparse
 
@@ -332,3 +333,55 @@ async def test_github_workflow_jobs_full_refresh(
         assert params["filter"] == ["all"]
         assert "created" not in params
         assert "since" not in params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_jobs_load_bearing_fields_land_queryable(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_jobs_full_refresh
+):
+    # The cost-attribution + log-join keys (run_id, conclusion, head_sha/head_branch,
+    # labels, runner_group_name) must survive the fan-out and stay queryable; nested
+    # steps/labels must arrive as JSON lists, not flattened or dropped.
+    expected_num_rows = len(WORKFLOW_JOBS)
+    load_bearing_columns = [
+        "id",
+        "run_id",
+        "conclusion",
+        "head_sha",
+        "head_branch",
+        "labels",
+        "runner_group_name",
+        "steps",
+    ]
+
+    res = await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_jobs_full_refresh,
+        table_name="github_workflow_jobs",
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+        expected_columns=load_bearing_columns,
+    )
+
+    rows_by_id = {row[res.columns.index("id")]: row for row in res.results}
+    # Job 20001 carries the full field set, including labels + runner_group_name.
+    job = rows_by_id[20001]
+
+    def value(column: str):
+        return job[res.columns.index(column)]
+
+    assert value("run_id") == 1001
+    assert value("conclusion") == "success"
+    assert value("head_sha") == "abc123"
+    assert value("head_branch") == "master"
+    assert value("runner_group_name") == "GitHub Actions"
+
+    # steps + labels are stored as JSON; they must round-trip as lists, not
+    # stringified scalars or dropped columns.
+    steps = json.loads(value("steps")) if isinstance(value("steps"), str) else value("steps")
+    labels = json.loads(value("labels")) if isinstance(value("labels"), str) else value("labels")
+    assert isinstance(steps, list) and len(steps) == 2
+    assert labels == ["depot-ubuntu-latest-4"]

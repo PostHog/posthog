@@ -150,6 +150,8 @@ WORKFLOW_RUNS = [
         "created_at": "2026-01-20T10:00:00Z",
         "updated_at": "2026-01-20T10:30:00Z",
         "run_started_at": "2026-01-20T10:00:30Z",
+        "actor": {"login": "alice", "id": 100},
+        "pull_requests": [],
     },
     {
         "id": 1002,
@@ -165,6 +167,8 @@ WORKFLOW_RUNS = [
         "created_at": "2026-01-22T10:00:00Z",
         "updated_at": "2026-01-22T10:45:00Z",
         "run_started_at": "2026-01-22T10:00:20Z",
+        "actor": {"login": "bob", "id": 101},
+        "pull_requests": [{"id": 11, "number": 11, "head": {"ref": "feature/foo"}}],
     },
     {
         "id": 1003,
@@ -180,6 +184,8 @@ WORKFLOW_RUNS = [
         "created_at": "2026-01-25T10:00:00Z",
         "updated_at": "2026-01-25T10:05:00Z",
         "run_started_at": "2026-01-25T10:00:10Z",
+        "actor": {"login": "charlie", "id": 102},
+        "pull_requests": [],
     },
 ]
 
@@ -194,8 +200,13 @@ WORKFLOW_JOBS = [
         "status": "completed",
         "conclusion": "success",
         "workflow_name": "CI",
+        "head_sha": "abc123",
         "head_branch": "master",
+        "runner_id": 5,
         "runner_name": "ubuntu-latest",
+        "runner_group_id": 1,
+        "runner_group_name": "GitHub Actions",
+        "labels": ["depot-ubuntu-latest-4"],
         "created_at": "2026-01-20T10:00:05Z",
         "started_at": "2026-01-20T10:00:30Z",
         "completed_at": "2026-01-20T10:10:00Z",

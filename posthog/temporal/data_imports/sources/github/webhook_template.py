@@ -78,9 +78,10 @@ if (empty(schemaId)) {
   }
 }
 
-// The poll endpoints land the job/run objects themselves, so the webhook must
-// land the same nested shape — request.body.workflow_job / request.body.workflow_run —
-// rather than the whole event envelope.
+// The poll endpoints land the job/run objects themselves, so the webhook lands the
+// same nested object — request.body.workflow_job / request.body.workflow_run — rather
+// than the whole event envelope. GitHub uses one object schema per resource, so the
+// nested webhook object matches the REST "list jobs for a workflow run" response shape.
 let row := request.body?.[eventType]
 
 if (empty(row)) {

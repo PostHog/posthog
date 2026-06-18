@@ -571,9 +571,11 @@ def github_source(
     def items() -> Iterator[Any] | AsyncIterator[Any]:
         if webhook_enabled:
             assert webhook_source_manager is not None
-            # The Hog template already lands the nested workflow_job / workflow_run
-            # object as the row, so the warehouse rows match the poll shape and need
-            # no per-row transform here.
+            # The Hog template lands the nested workflow_job / workflow_run object as the
+            # row, with no transform — it matches the polled REST shape. GitHub defines the
+            # job and workflow-run objects once: the "list jobs for a workflow run" REST
+            # response object is the same schema as the workflow_job webhook event's nested
+            # workflow_job object (same for workflow_run), so the rows are interchangeable.
             return webhook_source_manager.get_items()
 
         return get_rows(

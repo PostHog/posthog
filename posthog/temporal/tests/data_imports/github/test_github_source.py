@@ -1040,10 +1040,20 @@ class TestFanOutJobs:
         session = _RoutingSession(
             runs_pages=[(_runs_envelope(_run("2026-01-22T00:00:00Z", 1002), _run("2026-01-20T00:00:00Z", 1001)), "")],
             jobs_by_run={
-                1002: (_jobs_envelope({"id": 3, "run_id": 1002, "steps": [{"name": "test", "number": 1}]}), ""),
+                1002: (
+                    _jobs_envelope(
+                        {
+                            "id": 3,
+                            "run_id": 1002,
+                            "steps": [{"name": "test", "number": 1}],
+                            "labels": ["depot-ubuntu-latest-4"],
+                        }
+                    ),
+                    "",
+                ),
                 1001: (
                     _jobs_envelope(
-                        {"id": 1, "run_id": 1001, "steps": [{"name": "build", "number": 1}]},
+                        {"id": 1, "run_id": 1001, "steps": [{"name": "build", "number": 1}], "labels": []},
                         {"id": 2, "run_id": 1001, "steps": []},
                     ),
                     "",
@@ -1055,10 +1065,12 @@ class TestFanOutJobs:
 
         assert [row["id"] for row in rows] == [3, 1, 2]
         assert all("run_id" in row for row in rows)
-        # steps[] is yielded nested (a list), not pre-flattened or stringified —
-        # the pipeline JSON-serializes it on write.
+        # steps[] and labels[] are yielded nested (lists), not pre-flattened or
+        # stringified — the pipeline JSON-serializes them on write.
         assert rows[0]["steps"] == [{"name": "test", "number": 1}]
+        assert rows[0]["labels"] == ["depot-ubuntu-latest-4"]
         assert isinstance(rows[1]["steps"], list)
+        assert isinstance(rows[1]["labels"], list)
 
     def test_child_request_uses_filter_all_and_per_page_only(self) -> None:
         session = _RoutingSession(
@@ -1235,3 +1247,127 @@ class TestIterPages:
         assert "filter=all" in url
         # Cap of 1 page reached (a next link exists) → warning emitted.
         logger.warning.assert_called_once()
+
+
+def _pat_config() -> GithubSourceConfig:
+    return GithubSourceConfig(
+        auth_method=GithubAuthMethodConfig(selection="pat", personal_access_token="test-token"),
+        repository="owner/repo",
+    )
+
+
+class TestGithubWebhookSource:
+    """The WebhookSource surface: event mapping, schema flags, and the create/
+    delete/info round-trips that mint and reconcile the repo webhook."""
+
+    def setup_method(self) -> None:
+        self.source = GithubSource()
+
+    def test_webhook_resource_map(self) -> None:
+        assert self.source.webhook_resource_map == {
+            "workflow_jobs": "workflow_job",
+            "workflow_runs": "workflow_run",
+        }
+
+    def test_webhook_template_identity(self) -> None:
+        template = self.source.webhook_template
+        assert template is not None
+        assert template.id == "template-warehouse-source-github"
+        assert template.type == "warehouse_source_webhook"
+
+    def test_get_schemas_marks_only_workflow_schemas_webhook_capable(self) -> None:
+        schemas = self.source.get_schemas(_pat_config(), team_id=1)
+        webhook_capable = {s.name for s in schemas if s.supports_webhooks}
+        assert webhook_capable == {"workflow_jobs", "workflow_runs"}
+
+    @parameterized.expand(
+        [
+            ("both", ["workflow_jobs", "workflow_runs"], ["workflow_job", "workflow_run"]),
+            ("jobs_only", ["workflow_jobs"], ["workflow_job"]),
+            ("drops_non_webhook_schemas", ["workflow_jobs", "issues", "commits"], ["workflow_job"]),
+        ]
+    )
+    def test_get_desired_webhook_events(self, _name: str, eligible: list[str], expected_events: list[str]) -> None:
+        assert self.source.get_desired_webhook_events(_pat_config(), eligible) == expected_events
+
+    def test_create_webhook_sends_secret_and_returns_it_as_extra_input(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def post(url: str, headers: Any = None, json: Any = None, timeout: Any = None) -> Any:
+            captured["url"] = url
+            captured["json"] = json
+            return _make_response(status=201, body={"id": 99})
+
+        session = mock.Mock()
+        session.post.side_effect = post
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.create_webhook(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
+
+        assert "/repos/owner/repo/hooks" in captured["url"]
+        sent_secret = captured["json"]["config"]["secret"]
+        assert sent_secret  # a non-empty secret is minted and handed to GitHub
+        assert result.success is True
+        # GitHub never echoes the secret, so create_webhook returns the minted one
+        # for the framework to persist as the hog function's signing_secret.
+        assert result.extra_inputs["signing_secret"] == sent_secret
+
+    def test_create_webhook_permission_error_falls_back_to_manual(self) -> None:
+        session = mock.Mock()
+        session.post.return_value = _make_response(status=403, body={"message": "Forbidden"})
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.create_webhook(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
+
+        assert result.success is False
+        assert result.error is not None
+        assert "admin:repo_hook" in result.error
+
+    def test_delete_webhook_lists_then_deletes_matching_hook(self) -> None:
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session.delete.return_value = _make_response(status=204)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.delete_webhook(_pat_config(), webhook_url, team_id=1)
+
+        assert result.success is True
+        delete_url = session.delete.call_args.args[0]
+        assert "/repos/owner/repo/hooks/42" in delete_url
+
+    def test_get_external_webhook_info_reports_existing_hook(self) -> None:
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200,
+            body=[
+                {
+                    "id": 42,
+                    "active": True,
+                    "events": ["workflow_job", "workflow_run"],
+                    "config": {"url": webhook_url},
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            info = self.source.get_external_webhook_info(_pat_config(), webhook_url, team_id=1)
+
+        assert info.exists is True
+        assert info.url == webhook_url
+        assert info.status == "active"
+        assert info.enabled_events == ["workflow_job", "workflow_run"]
