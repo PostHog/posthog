@@ -13,7 +13,7 @@ use tracing::error;
 use crate::{
     error::{FrameError, UnhandledError},
     metric_consts::{CHUNK_ID_FAILURE_FETCHED, CHUNK_ID_NOT_FOUND},
-    symbol_store::BlobClient,
+    symbolication::symbol_store::BlobClient,
 };
 
 use super::{saving::SymbolSetRecord, Fetcher, Parser};
@@ -347,7 +347,7 @@ mod test {
         error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
-        symbol_store::{
+        symbolication::symbol_store::{
             apple::AppleProvider,
             chunk_id::{ChunkIdFetcher, OrChunkId, SymbolSetCacheKey},
             hermesmap::HermesMapProvider,
@@ -359,9 +359,10 @@ mod test {
         types::{RawErrProps, Stacktrace},
     };
 
-    const EXAMPLE_EXCEPTION: &str = include_str!("../../tests/static/raw_ch_exception_list.json");
-    const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
+    const EXAMPLE_EXCEPTION: &str =
+        include_str!("../../../tests/static/raw_ch_exception_list.json");
+    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
 
     // Used to construct a Catalog with only the chunk id based provider implemented
     #[allow(dead_code)]

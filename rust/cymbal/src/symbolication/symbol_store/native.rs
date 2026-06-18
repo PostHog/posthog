@@ -7,7 +7,7 @@ use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
-use crate::{error::NativeError, symbol_store::caching::Countable};
+use crate::{error::NativeError, symbolication::symbol_store::caching::Countable};
 
 /// Manifest format for source files bundled in the symbol ZIP under `__source/`
 #[derive(Deserialize)]

@@ -9,7 +9,7 @@ use sourcemap::OwnedSourceMapCache;
 use crate::{
     error::ResolveError,
     langs::hermes::HermesRef,
-    symbol_store::{
+    symbolication::symbol_store::{
         apple::AppleRef,
         hermesmap::ParsedHermesMap,
         native::ParsedNativeSymbols,

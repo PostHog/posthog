@@ -7,18 +7,18 @@ use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
 use tracing::{debug, warn};
 
-use cymbal::error::UnhandledError;
-use cymbal::langs::native::DebugImage;
-use cymbal::stages::resolution::exception::ExceptionResolver;
-use cymbal::stages::resolution::frame::FrameResolver;
-use cymbal::stages::resolution::ResolutionStage;
-use cymbal::types::Exception;
+use crate::error::UnhandledError;
+use crate::langs::native::DebugImage;
+use crate::stages::resolution::exception::ExceptionResolver;
+use crate::stages::resolution::frame::FrameResolver;
+use crate::stages::resolution::ResolutionStage;
+use crate::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
 };
 
 use super::codes;
-use crate::load_monitor::LoadMonitor;
+use crate::modes::resolution::load_monitor::LoadMonitor;
 
 const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
 const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
@@ -204,22 +204,12 @@ async fn process_item(
 }
 
 fn error_result(kind: codes::ErrorKind, message: String) -> resolve_outcome::Result {
-    metrics::counter!(SERVER_ERROR_KINDS, "kind" => error_kind_label(kind)).increment(1);
+    metrics::counter!(SERVER_ERROR_KINDS, "kind" => kind.metric_label()).increment(1);
     resolve_outcome::Result::Error(ItemError {
         kind: kind as i32,
         message,
         details_json: Vec::new(),
     })
-}
-
-fn error_kind_label(kind: codes::ErrorKind) -> &'static str {
-    match kind {
-        codes::ErrorKind::Unspecified => "unspecified",
-        codes::ErrorKind::InvalidPayload => "invalid_payload",
-        codes::ErrorKind::Poison => "poison",
-        codes::ErrorKind::Unhandled => "unhandled",
-        codes::ErrorKind::Overloaded => "overloaded",
-    }
 }
 
 fn record_resolve_duration(started_at: Instant, outcome: &'static str) {

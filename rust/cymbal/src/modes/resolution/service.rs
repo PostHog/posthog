@@ -3,11 +3,11 @@ use std::sync::{
     Arc,
 };
 
-use cymbal::stages::resolution::symbol::SymbolResolver;
-use cymbal::stages::resolution::ResolutionStage;
+use crate::stages::resolution::ResolutionStage;
+use crate::symbolication::symbol::SymbolResolver;
 use std::pin::Pin;
 
-use crate::load_monitor::LoadMonitor;
+use crate::modes::resolution::load_monitor::LoadMonitor;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolution;
 use cymbal_proto::cymbal::resolution::v1::{
     LoadEvent, ResolveItem, ResolveOutcome, SubscribeRequest,

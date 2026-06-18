@@ -6,7 +6,7 @@ use crate::{
     error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 pub struct ParsedHermesMap {

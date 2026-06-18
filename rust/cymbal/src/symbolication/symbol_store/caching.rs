@@ -182,7 +182,7 @@ mod tests {
     use reqwest::Url;
 
     use super::*;
-    use crate::symbol_store::chunk_id::OrChunkId;
+    use crate::symbolication::symbol_store::chunk_id::OrChunkId;
 
     struct FakeProvider {
         fetches: Arc<AtomicUsize>,

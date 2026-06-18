@@ -1,8 +1,9 @@
 use std::time::Duration;
 
-/// Configuration handed to the gRPC service. Subset of [`crate::config::Config`]
-/// that the handler actually needs; isolating it lets tests construct the
-/// service without touching the env-var surface.
+/// Configuration handed to the gRPC service. Subset of the resolution-mode
+/// [`crate::modes::resolution::Config`] that the handler actually needs;
+/// isolating it lets tests construct the service without touching the env-var
+/// surface.
 #[derive(Clone, Debug)]
 pub struct ServiceConfig {
     pub default_tick_interval: Duration,
@@ -10,8 +11,8 @@ pub struct ServiceConfig {
     pub max_tick_interval: Duration,
 }
 
-impl From<&crate::config::Config> for ServiceConfig {
-    fn from(cfg: &crate::config::Config) -> Self {
+impl From<&crate::modes::resolution::Config> for ServiceConfig {
+    fn from(cfg: &crate::modes::resolution::Config) -> Self {
         Self {
             default_tick_interval: Duration::from_millis(cfg.subscribe_tick_interval_ms),
             min_tick_interval: Duration::from_millis(cfg.subscribe_min_tick_ms),
