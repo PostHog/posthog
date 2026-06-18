@@ -41,7 +41,8 @@ class TestGithubSource:
             '"status":"403"}'
         )
         non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in error_message for key in non_retryable_errors)
+        assert "This installation has been suspended" in non_retryable_errors
+        assert "This installation has been suspended" in error_message
 
     @pytest.mark.parametrize(
         "selection,github_integration_id,personal_access_token,expected_error",
