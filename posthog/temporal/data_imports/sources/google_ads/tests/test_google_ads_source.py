@@ -176,6 +176,27 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Observed in production: gRPC RESOURCE_EXHAUSTED quota rejection surfaced as both
+            # `_InactiveRpcError` and `google.api_core.exceptions.ResourceExhausted`.
+            (
+                "<_InactiveRpcError of RPC that terminated with:\n\tstatus = StatusCode.RESOURCE_EXHAUSTED\n\t"
+                'details = "Resource has been exhausted (e.g. check quota)."\n>'
+            ),
+            "Resource has been exhausted (e.g. check quota).",
+        ],
+    )
+    def test_quota_exhausted_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_quota_exhausted_has_friendly_message(self):
+        friendly = self.non_retryable["Resource has been exhausted (e.g. check quota)"]
+        assert friendly is not None
+        assert "quota" in friendly.lower()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Transient network/infrastructure errors should still be retried.
             "DeadlineExceeded: 504 Deadline Exceeded",
             "UNAVAILABLE: The service is currently unavailable",
@@ -184,6 +205,12 @@ class TestGoogleAdsNonRetryableErrors:
             # A RefreshError wrapping a transient 502 from Google's token endpoint shares the
             # same error-tracking group as access_not_configured but must remain retryable.
             "('<!DOCTYPE html><title>Error 502 (Server Error)!!1</title>', None)",
+            # The client-side "message too large" RESOURCE_EXHAUSTED is a distinct failure handled
+            # by raising the gRPC receive limit — it must NOT be swept up by the quota pattern.
+            (
+                "<_InactiveRpcError of RPC that terminated with:\n\tstatus = StatusCode.RESOURCE_EXHAUSTED\n\t"
+                'details = "Received message larger than max (104857600 vs. 67108864)"\n>'
+            ),
         ],
     )
     def test_transient_errors_are_retryable(self, error_msg):

@@ -63,6 +63,14 @@ class GoogleAdsSource(
             # recover — the user must reconnect their Google Ads account. Model-specific so we don't
             # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # gRPC RESOURCE_EXHAUSTED quota rejection from the Google Ads API: the account's API
+            # quota (operations/day for the developer token's access level) is used up. Retrying
+            # within the activity's window can't recover — Google's quota resets on its own schedule,
+            # not within our backoff — and each retry burns more of the limited quota. Match the
+            # stable quota phrase, NOT the bare status: the client-side "Received message larger than
+            # max" RESOURCE_EXHAUSTED is a different failure handled by raising the receive limit (see
+            # google_ads.py), and must stay out of this list.
+            "Resource has been exhausted (e.g. check quota)": "PostHog hit your Google Ads API quota and paused this sync. The quota typically resets within 24 hours — re-enable the sync once it recovers. If this keeps happening, request a higher Google Ads API access level or sync fewer resources.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
