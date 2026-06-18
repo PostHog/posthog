@@ -1,13 +1,20 @@
-import { cleanup } from '@testing-library/react'
+import { cleanup, fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { getHogChart, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
-const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
+const THEME: ChartTheme = {
+    colors: ['#111', '#222', '#333'],
+    backgroundColor: '#ffffff',
+}
 const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
+const MULTI_SERIES: Series[] = [
+    { key: 'a', label: 'A', data: [1, 2, 3] },
+    { key: 'b', label: 'B', data: [3, 2, 1] },
+]
 
 describe('TimeSeriesLineChart', () => {
     let teardownJsdom: () => void
@@ -69,7 +76,11 @@ describe('TimeSeriesLineChart', () => {
                     labels={['2024-06-10', '2024-06-11', '2024-06-12']}
                     theme={THEME}
                     config={{
-                        xAxis: { tickFormatter: explicit, timezone: 'UTC', interval: 'day' },
+                        xAxis: {
+                            tickFormatter: explicit,
+                            timezone: 'UTC',
+                            interval: 'day',
+                        },
                     }}
                 />
             )
@@ -122,7 +133,12 @@ describe('TimeSeriesLineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit, format: 'percentage' } }}
+                    config={{
+                        yAxis: {
+                            tickFormatter: explicit,
+                            format: 'percentage',
+                        },
+                    }}
                 />
             )
             expect(chart.yTicks().every((t) => t.startsWith('y:'))).toBe(true)
@@ -171,7 +187,10 @@ describe('TimeSeriesLineChart', () => {
                     series={[{ key: 'a', label: 'A', data: [50] }]}
                     labels={['Mon']}
                     theme={THEME}
-                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                    config={{
+                        yAxis: { format: 'percentage' },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
@@ -184,7 +203,10 @@ describe('TimeSeriesLineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                    config={{
+                        yAxis: { tickFormatter: explicit },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])
@@ -253,7 +275,12 @@ describe('TimeSeriesLineChart', () => {
 
     describe('derived-series wiring', () => {
         it.each([
-            ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
+            [
+                'confidenceIntervals',
+                {
+                    confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }],
+                },
+            ],
             ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
             ['trendLines', { trendLines: [{ seriesKey: 'a', kind: 'linear' as const }] }],
         ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
@@ -267,7 +294,12 @@ describe('TimeSeriesLineChart', () => {
         it('skips comparison-period series count change while still rendering them', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [1, 2, 3], color: '#112233' },
-                { key: 'a-prev', label: 'A (prev)', data: [1, 2, 3], color: '#112233' },
+                {
+                    key: 'a-prev',
+                    label: 'A (prev)',
+                    data: [1, 2, 3],
+                    color: '#112233',
+                },
             ]
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart
@@ -288,5 +320,31 @@ describe('TimeSeriesLineChart', () => {
             </TimeSeriesLineChart>
         )
         expect(container.querySelector('[data-attr="custom-overlay"]')).not.toBeNull()
+    })
+
+    describe('interactive legend', () => {
+        it('lists the raw series (not derived trend lines) and toggles one off on click', () => {
+            const { container, chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={MULTI_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        legend: { show: true },
+                        trendLines: [{ seriesKey: 'a' }],
+                    }}
+                />
+            )
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-timeseries-line-legend"] button'))
+            // The legend lists only the user's series, not the derived trend line.
+            expect(buttons().map((b) => b.textContent)).toEqual(['A', 'B'])
+
+            // A + B + trend-of-A are all drawn before any toggle.
+            expect(chart.seriesCount).toBe(3)
+            fireEvent.click(buttons()[0])
+            // Hiding A also suppresses its trend line, leaving only B.
+            expect(getHogChart(container).seriesCount).toBe(1)
+        })
     })
 })
