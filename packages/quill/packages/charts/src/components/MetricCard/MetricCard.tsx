@@ -42,6 +42,9 @@ export interface MetricCardProps {
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
+    /** Horizontal alignment of the card contents. `center` centers the title/headline/subtitle —
+     *  use it for a bare headline (no title, pill, or sparkline). Defaults to the left-aligned tile. */
+    align?: 'left' | 'center'
     /** Override the headline rendering. Receives the already-formatted value string (the hover-animated
      *  value when a sparkline is present); return the node to render in place of the default headline —
      *  e.g. to attach click handlers or custom typography. */
@@ -91,6 +94,7 @@ function MetricCardInner({
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
+    align = 'left',
     headline,
     animationMs = 350,
     hoverIntentMs = 140,
@@ -129,11 +133,15 @@ function MetricCardInner({
     const pillColors = isGood ? positiveColor : negativeColor
 
     const showHeader = title != null || delta != null
+    const centered = align === 'center'
 
     return (
-        <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
+        <div
+            className={`flex flex-col w-full ${centered ? 'items-center text-center' : ''} ${className ?? ''}`}
+            data-attr={dataAttr}
+        >
             {showHeader && (
-                <div className="flex items-start justify-between gap-2">
+                <div className={`flex items-start gap-2 ${centered ? 'justify-center' : 'justify-between'}`}>
                     {title != null && <div className="text-sm font-medium">{title}</div>}
                     {delta != null && <ChangePill positive={positive} label={delta.label} colors={pillColors} />}
                 </div>

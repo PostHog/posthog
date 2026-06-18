@@ -191,11 +191,17 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         )} prior`
     }
 
+    // With no chrome (no title, sparkline, or pill) the card is just the value, so render it as the
+    // original centered, auto-scaling hero number. Once a toggle adds chrome, switch to the
+    // left-aligned MetricCard tile (title top-left, pill top-right, sparkline below).
+    const showChrome = showTitle || showSparkline || (showComparison && showComparisonPill)
+
     return (
         <div className="BoldNumber ph-no-capture">
             <MetricCard
                 title={showTitle ? resultSeries.label : null}
                 value={resultSeries.aggregated_value}
+                align={showChrome ? 'left' : 'center'}
                 data={showSparkline ? resultSeries.data : undefined}
                 labels={showSparkline ? resultSeries.labels : undefined}
                 theme={showSparkline ? theme : undefined}
@@ -206,7 +212,8 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                 headline={(formattedValue) => (
                     <div
                         className={clsx(
-                            'BoldNumber__value mt-2 text-4xl font-bold tracking-tight tabular-nums',
+                            'BoldNumber__value',
+                            showChrome && 'mt-2 text-4xl tabular-nums',
                             showPersonsModal ? 'cursor-pointer' : 'cursor-default'
                         )}
                         data-attr="bold-number-value"
@@ -215,12 +222,18 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                         ref={valueRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                     >
-                        {formattedValue}
+                        {showChrome ? (
+                            formattedValue
+                        ) : (
+                            <Textfit min={32} max={64}>
+                                {formattedValue}
+                            </Textfit>
+                        )}
                     </div>
                 )}
             />
             {showComparison && !showComparisonPill && (
-                <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />
+                <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} centered={!showChrome} />
             )}
         </div>
     )
@@ -229,7 +242,8 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
 function BoldNumberComparison({
     showPersonsModal = true,
     context,
-}: Pick<ChartParams, 'showPersonsModal' | 'context'>): JSX.Element | null {
+    centered = false,
+}: Pick<ChartParams, 'showPersonsModal' | 'context'> & { centered?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightData, querySource } = useValues(insightVizDataLogic(insightProps))
 
@@ -271,6 +285,7 @@ function BoldNumberComparison({
             className="BoldNumber__comparison"
             data-attr="bold-number-comparison"
             fullWidth
+            center={centered}
         >
             <span>
                 {percentageDiffDisplay}{' '}
