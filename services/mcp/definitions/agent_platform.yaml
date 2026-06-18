@@ -48,7 +48,7 @@ tools:
             CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped
             to `archived=false`).
     agent-applications-env-keys-clear:
-        operation: agent_applications_env_keys_clear
+        operation: agent_revisions_env_keys_clear
         enabled: true
         scopes:
             - agents:write
@@ -62,7 +62,7 @@ tools:
             required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts —
             in-flight sessions keep the value they resolved at start.
     agent-applications-env-keys-get:
-        operation: agent_applications_env_keys_get
+        operation: agent_revisions_env_keys_get
         enabled: true
         scopes:
             - agents:read
@@ -76,7 +76,7 @@ tools:
             user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write
             landed.
     agent-applications-env-keys-list:
-        operation: agent_applications_env_keys_list
+        operation: agent_revisions_env_keys_list
         enabled: true
         scopes:
             - agents:read
@@ -90,7 +90,7 @@ tools:
             populated so you don't ask the user to set something that's already set. Pair with
             `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.
     agent-applications-env-keys-set:
-        operation: agent_applications_env_keys_set
+        operation: agent_revisions_env_keys_set
         enabled: false
         scopes:
             - agents:write

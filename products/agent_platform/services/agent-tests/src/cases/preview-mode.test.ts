@@ -1,8 +1,9 @@
 /**
  * Preview-mode e2e: a session created via the preview ingress path stamps
  * `agent_session.is_preview = true`, every `$ai_*` event the runner emits
- * carries `$agent_is_preview: true`, and the write-side Slack tool noops
- * its side effect (synthetic `ts` is returned without hitting slack.com).
+ * carries `$agent_is_preview: true`, and the session runs against the DRAFT
+ * revision it was addressed to (so per-revision secrets stay isolated from
+ * the live revision).
  *
  * The harness's `deployAgent` always promotes the revision to live, so the
  * test creates a SECOND revision directly via `c.revisions.createRevision`
@@ -16,20 +17,12 @@ import request from 'supertest'
 import {
     AgentSpecSchema,
     DEV_INTERNAL_SIGNING_KEY,
-    EncryptedFields,
     INTERNAL_JWT_AUDIENCE,
     mintInternalJwt,
     TEST_S3_BUCKET,
 } from '@posthog/agent-shared'
 
 import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
-
-// Mirrors `HARNESS_ENCRYPTION_SALT_KEYS` in cluster.ts — the same value is
-// wired into `buildApp({ encryption })`. The override-overlay sub-case
-// decrypts the persisted column to assert the round-trip; constructing a
-// second `EncryptedFields` here with the same key reads what the ingress
-// wrote without reaching into harness internals.
-const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
 
 describe('preview-mode: real e2e', () => {
     let c: Cluster
@@ -115,23 +108,17 @@ describe('preview-mode: real e2e', () => {
         expect(session!.is_preview).toBe(false)
     })
 
-    it('preview JWT carrying `sec_ovr` lands an encrypted override on the session row', async () => {
-        c.setScript([fauxText('used my override')])
-        const { application } = await c.deployAgent({ slug: 'preview-secret-override' })
+    it('preview run resolves to the draft revision carrying its own encrypted_env (per-revision secrets)', async () => {
+        c.setScript([fauxText('ran against the draft')])
+        const { application } = await c.deployAgent({ slug: 'preview-per-revision-secrets' })
 
-        // Draft revision declaring a secret name. The override-claim contract
-        // is "keys must be a subset of spec.secrets[]" — the JWT path itself
-        // doesn't re-validate that on ingress (Django validated at mint), but
-        // including the declaration here mirrors how a real author flow would
-        // construct the draft they're previewing against.
+        // Draft revision with its OWN secret block, isolated from whatever the
+        // live revision runs with. Secrets live on the revision now, so a
+        // preview run against this draft gets exactly these secrets.
         const draftSpec = AgentSpecSchema.parse({
             model: 'faux/faux',
             triggers: [
-                {
-                    type: 'chat',
-                    config: {},
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
-                },
+                { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
             ],
             secrets: ['FOO_API_KEY'],
         })
@@ -141,23 +128,21 @@ describe('preview-mode: real e2e', () => {
             created_by_id: null,
             bundle_uri: `s3://${TEST_S3_BUCKET}/${c.bundlePrefix}/${application.id}/`,
             spec: draftSpec,
+            encrypted_env: c.encryption.encrypt(JSON.stringify({ FOO_API_KEY: 'draft-val' })),
         })
-        await c.bundle.write(draft.id, 'agent.md', 'You are a secret-override tester.')
+        await c.bundle.write(draft.id, 'agent.md', 'You are a draft agent with its own secrets.')
         const sha = await c.bundle.freeze(draft.id)
         await c.revisions.setRevisionState(draft.id, 'ready', sha)
 
-        // Mint with the `sec_ovr` claim. Django would emit the same shape
-        // after validating keys against `spec.secrets[]`; here we construct
-        // it directly so the test exercises the JWT-extraction code path
-        // end-to-end without the Django mint hop.
+        // Preview JWT bound to (application, draft revision) — no `sec_ovr`.
         const token = await mintInternalJwt({
             audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
             signingKey: DEV_INTERNAL_SIGNING_KEY,
-            claims: { app: application.id, rev: draft.id, sec_ovr: { FOO_API_KEY: 'override-from-preview' } },
+            claims: { app: application.id, rev: draft.id },
             ttlSec: 900,
         })
 
-        const slug = `preview-secret-override-${draft.id.replace(/-/g, '')}`
+        const slug = `preview-per-revision-secrets-${draft.id.replace(/-/g, '')}`
         const res = await request(c.ingress)
             .post(`/agents/${slug}/run`)
             .set('x-agent-preview-token', token)
@@ -167,55 +152,11 @@ describe('preview-mode: real e2e', () => {
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         expect(session).not.toBeNull()
+        // Routed to the draft, marked preview — the runner's secret resolver
+        // reads the draft revision's `encrypted_env`, so the draft-only
+        // `FOO_API_KEY` is what this session ran with.
         expect(session!.is_preview).toBe(true)
-        // The column is Fernet bytes, not plaintext — assert presence first,
-        // then decrypt with a fresh `EncryptedFields` against the same key
-        // the ingress wrote with.
-        expect(session!.preview_secret_override).not.toBeNull()
-        const enc = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
-        const overlay = enc.decryptJsonEnv(session!.preview_secret_override)
-        expect(overlay).toEqual({ FOO_API_KEY: 'override-from-preview' })
-    })
-
-    it('preview JWT with no `sec_ovr` leaves the column null (no encrypted-empty-bag rows)', async () => {
-        c.setScript([fauxText('no override here')])
-        const { application } = await c.deployAgent({ slug: 'preview-no-override' })
-        const draftSpec = AgentSpecSchema.parse({
-            model: 'faux/faux',
-            triggers: [
-                {
-                    type: 'chat',
-                    config: {},
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
-                },
-            ],
-        })
-        const draft = await c.revisions.createRevision({
-            application_id: application.id,
-            parent_revision_id: null,
-            created_by_id: null,
-            bundle_uri: `s3://${TEST_S3_BUCKET}/${c.bundlePrefix}/${application.id}/`,
-            spec: draftSpec,
-        })
-        await c.bundle.write(draft.id, 'agent.md', 'You are a preview agent without an override.')
-        const sha = await c.bundle.freeze(draft.id)
-        await c.revisions.setRevisionState(draft.id, 'ready', sha)
-
-        const token = await mintInternalJwt({
-            audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-            signingKey: DEV_INTERNAL_SIGNING_KEY,
-            claims: { app: application.id, rev: draft.id },
-            ttlSec: 900,
-        })
-        const slug = `preview-no-override-${draft.id.replace(/-/g, '')}`
-        const res = await request(c.ingress)
-            .post(`/agents/${slug}/run`)
-            .set('x-agent-preview-token', token)
-            .send({ message: 'go' })
-        await c.drain()
-        const session = await c.queue.get(res.body.session_id)
-        expect(session!.is_preview).toBe(true)
-        expect(session!.preview_secret_override).toBeNull()
+        expect(session!.revision_id).toBe(draft.id)
     })
 
     // Output-adapter and tool-level preview-mode noop branches (slack reply
@@ -226,12 +167,5 @@ describe('preview-mode: real e2e', () => {
     // the slack.com endpoint, and asserted on the absence of a request would
     // duplicate that coverage without catching any new integration drift —
     // the seam that's hard to keep right under refactor is the flag flowing
-    // through the queue + analytics, which the two cases above cover.
-
-    // Django-side validation of `secret_override` (undeclared key rejection,
-    // size cap, live-revision gate) lives in
-    // `products/agent_platform/backend/tests/test_preview_token.py` — that
-    // tier exercises the body serializer + JWT-claim embedding directly
-    // against the Django view, which is more honest than re-faking the
-    // mint via supertest here.
+    // through the queue + analytics, which the cases above cover.
 })

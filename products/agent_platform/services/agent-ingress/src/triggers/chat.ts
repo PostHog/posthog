@@ -37,7 +37,7 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
     // Unauthenticated header — UX gating only, never a security boundary.
     const clientKind = parseClientKind(ctx.req.headers[CLIENT_KIND_HEADER])
     const outcome = await enqueueOrResume(
-        { queue: deps.queue, encryption: deps.encryption },
+        { queue: deps.queue },
         {
             application: resolved.application,
             revision: resolved.revision,
@@ -48,7 +48,6 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             requesterDisplay: principalDisplay(sessionPrincipal),
             triggerMetadata: clientKind ? { client_kind: clientKind } : undefined,
             isPreview: resolved.isPreview,
-            previewSecretOverride: resolved.previewSecretOverride,
         }
     )
     if (outcome.kind === 'elevation_required') {

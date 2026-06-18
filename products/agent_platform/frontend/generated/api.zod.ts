@@ -1981,6 +1981,41 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysSetBody = /* @__PURE__ */ zod
+    .object({
+        value: zod.string(),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.\n\nThe view merges `{KEY: value}` into the existing encrypted env block\nwithout touching other keys, so callers can set or rotate one secret\nwithout needing to read the whole block back.'
+    )
+
+/**
+ * Replace this revision's encrypted env block.
+ *
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text is stored on `AgentRevision.encrypted_env`; the worker decrypts it
+ * at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
+ */
+export const AgentApplicationsRevisionsSetEnvCreateBody = /* @__PURE__ */ zod
+    .object({
+        env: zod.record(zod.string(), zod.string()),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
+    )
+
+/**
  * Revisions of an agent. Created in `draft`, promoted through
  * `ready → live` once the bundle has been uploaded + frozen.
  *
@@ -2199,67 +2234,3 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const AgentApplicationsEnvKeysSetBody = /* @__PURE__ */ zod
-    .object({
-        value: zod.string(),
-    })
-    .describe(
-        'Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.\n\nThe view merges `{KEY: value}` into the existing encrypted env block\nwithout touching other keys, so callers can set or rotate one secret\nwithout needing to read the whole block back.'
-    )
-
-/**
- * Mint a short-lived JWT for talking to a non-live revision
- * directly via the public ingress URL. The caller attaches it as
- * the `x-agent-preview-token` header (or `?preview_token=` query
- * param for `EventSource`). See `_mint_preview_jwt` for the
- * payload + claim binding.
- *
- * The response also includes `endpoints`, `auth`, and
- * `preview_proxy` blocks so the caller can wire a preview
- * invocation without grepping the agent-ingress source for which
- * path each trigger exposes or which header name carries the
- * token. This is the "self-describing" half of preview-mode —
- * every piece of info you need to hit ingress is in one response.
- */
-export const agentApplicationsPreviewTokenMintBodySecretOverrideMaxOne = 4096
-
-export const AgentApplicationsPreviewTokenMintBody = /* @__PURE__ */ zod
-    .object({
-        secret_override: zod
-            .record(zod.string(), zod.string().max(agentApplicationsPreviewTokenMintBodySecretOverrideMaxOne))
-            .optional()
-            .describe(
-                'Per-session secret overlay applied for the resulting preview session. Keys must be declared in `spec.secrets[]`; undeclared keys are rejected with a 400. Values are encrypted into the JWT and applied only for the lifetime of one session — never persisted to `encrypted_env`. Omit to inherit live secrets unchanged.'
-            ),
-    })
-    .describe(
-        'Body shape for `POST ...\/preview-token\/`.\n\n`secret_override` is optional per-session secret overlay applied at preview\nmint time. Keys MUST be a subset of `revision.spec[\"secrets\"]` — the view\nvalidates server-side and rejects undeclared keys with a field-level\n400. The overlay is encrypted into the minted JWT\'s claims (the JWT is\nHS256-signed with `AGENT_INTERNAL_SIGNING_KEY` so the override is\ntamper-proof in transit); the ingress extracts it at session create and\nstamps it onto the row. It is never returned through any read path and\nnever persisted as plaintext.\n\nValues are bounded at the DRF level (CharField default ~1 KiB) and the\ntotal serialized map is capped by the view so the JWT stays under typical\nheader limits. Authors who need to test against a real secret value should\nset it through the standard `env_keys` UI instead of this hatch.'
-    )
-
-/**
- * Replace the agent's encrypted env block.
- *
- * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
- * text gets stored on AgentApplication.encrypted_env; the worker
- * decrypts it at session start via the same Fernet schedule (see
- * agent-shared/src/runtime/encryption.ts).
- */
-export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
-    .object({
-        env: zod.record(zod.string(), zod.string()),
-    })
-    .describe(
-        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
-    )

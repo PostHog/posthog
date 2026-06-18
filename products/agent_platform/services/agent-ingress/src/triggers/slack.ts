@@ -16,7 +16,7 @@ import { createLogger } from '@posthog/agent-shared'
 
 const log = createLogger('slack-trigger')
 
-import { AgentApplication, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@posthog/agent-shared'
+import { AgentApplication, AgentRevision, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@posthog/agent-shared'
 
 import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
@@ -170,7 +170,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // window. Fails open: a revoked/missing bot token, a slack.com 5xx, an
     // `already_reacted`, or a missing channel must NOT break the handler.
     if (ackReaction) {
-        void postAckReaction(deps, resolved.application, {
+        void postAckReaction(deps, resolved.application, resolved.revision, {
             channel: event.channel,
             ts: event.ts,
             name: ackReaction,
@@ -238,7 +238,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         event.text ?? '',
     ].join('\n')
     const outcome = await enqueueOrResume(
-        { queue: deps.queue, encryption: deps.encryption },
+        { queue: deps.queue },
         {
             application: resolved.application,
             revision: resolved.revision,
@@ -267,7 +267,6 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                 thread_ts: event.thread_ts ?? event.ts,
             },
             isPreview: resolved.isPreview,
-            previewSecretOverride: resolved.previewSecretOverride,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -275,7 +274,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         // own. The message is parked as an elevation request; tell them
         // in-thread why nothing happened. Awaited so the reply lands before we
         // ack, but error-swallowed so it can never break the 200 Slack needs.
-        await postThreadMessage(deps, resolved.application, {
+        await postThreadMessage(deps, resolved.application, resolved.revision, {
             channel: event.channel,
             thread_ts: event.thread_ts ?? event.ts,
             text:
@@ -423,9 +422,10 @@ interface SlackInteractivityPayload {
 async function postAckReaction(
     deps: TriggerDeps,
     application: AgentApplication,
+    revision: AgentRevision,
     opts: { channel: string; ts: string; name: string }
 ): Promise<void> {
-    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
     if (!token) {
         log.warn({ slug: application.slug, reaction: opts.name }, 'ack_reaction_no_bot_token')
         return
@@ -485,9 +485,10 @@ async function postAckReaction(
 async function postThreadMessage(
     deps: TriggerDeps,
     application: AgentApplication,
+    revision: AgentRevision,
     opts: { channel: string; thread_ts: string; text: string }
 ): Promise<boolean> {
-    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
     if (!token || !deps.http) {
         log.warn(
             { slug: application.slug, has_token: Boolean(token), has_http: Boolean(deps.http) },

@@ -55,7 +55,6 @@ function makeSession(opts: { state?: AgentSession['state']; pending?: PendingEle
         acl: [],
         pending_elevation_requests: opts.pending ?? [],
         is_preview: false,
-        preview_secret_override: null,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }

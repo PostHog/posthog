@@ -24,7 +24,7 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
     const idempotencyKey = extractProviderIdempotencyKey(req, body)
     const sessionPrincipal = ctx.principal
     const outcome = await enqueueOrResume(
-        { queue: deps.queue, encryption: deps.encryption },
+        { queue: deps.queue },
         {
             application: resolved.application,
             revision: resolved.revision,
@@ -40,7 +40,6 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
             trigger: 'webhook',
             requesterDisplay: principalDisplay(sessionPrincipal),
             isPreview: resolved.isPreview,
-            previewSecretOverride: resolved.previewSecretOverride,
         }
     )
     if (outcome.kind === 'elevation_required') {

@@ -4,7 +4,6 @@ import request from 'supertest'
 
 import {
     AgentSpecSchema,
-    EncryptedFields,
     PgCredentialBroker,
     PgRevisionStore,
     PgSessionQueue,
@@ -115,12 +114,6 @@ describe('ingress HTTP server (path mode)', () => {
                     return TEST_SLACK_SECRET
                 },
             },
-            // EncryptedFields wiring: required by `buildApp` because the
-            // preview-mode path needs to seal `secret_override` onto the
-            // session row. These routing/auth-focused tests never exercise
-            // preview, but the constructor expects a usable instance —
-            // wire one with the harness key.
-            encryption: new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS),
         })
         return { revisions, queue, bus, app }
     }

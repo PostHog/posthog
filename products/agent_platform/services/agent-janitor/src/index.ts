@@ -22,7 +22,6 @@ import {
     createAgentPool,
     createLogger,
     createModalSandboxTerminator,
-    EncryptedFields,
     installProcessHandlers,
     MemoryStore,
     MultiBackendSandboxTerminator,
@@ -138,13 +137,6 @@ async function main(): Promise<void> {
         'memory.s3.enabled'
     )
 
-    // Shared `EncryptedFields` for both the manual-fire endpoint and the
-    // scheduled cron tick. Cron firings inherently target the live revision
-    // (`listLiveCronRevisions`) so no preview-mode override map ever lands
-    // through these paths — but `EnqueueDeps.encryption` is a required dep
-    // at the type layer.
-    const encryption = new EncryptedFields(config.encryptionSaltKeys)
-
     const app = buildJanitorApp({
         queue,
         sweep,
@@ -154,7 +146,6 @@ async function main(): Promise<void> {
         memoryStore,
         tabularStore,
         internalSigningKey: config.internalSigningKey,
-        encryption,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port }, 'listening')
@@ -165,7 +156,7 @@ async function main(): Promise<void> {
     // `(application_id, idempotency_key)` keeps two janitor replicas from
     // double-firing. See `cron-tick.ts` for the contract.
     const cronTickState = newCronTickState()
-    const cronTickDeps = { revisions, queue, encryption }
+    const cronTickDeps = { revisions, queue }
 
     setInterval(async () => {
         // Sweep + cron tick run on the same interval but as independent

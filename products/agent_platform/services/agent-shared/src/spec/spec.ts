@@ -833,7 +833,6 @@ export interface AgentApplication {
     description: string
     live_revision_id: string | null
     archived: boolean
-    encrypted_env: string | null
 }
 
 export interface AgentRevision {
@@ -847,6 +846,14 @@ export interface AgentRevision {
     bundle_uri: string
     bundle_sha256: string | null
     spec: AgentSpec
+    /**
+     * Encrypted JSON env block — the secret values this revision runs with.
+     * Decrypted at session start by the runner's secret resolver (same
+     * `EncryptedFields` key schedule as before). Lives on the revision (not
+     * the application) so a draft preview runs against its own secrets,
+     * isolated from the live revision. NULL means "no secrets set".
+     */
+    encrypted_env: string | null
 }
 
 /**
@@ -1083,19 +1090,6 @@ export interface AgentSession {
      * the live ingress path.
      */
     is_preview: boolean
-    /**
-     * Sealed (Fernet-encrypted via the same `EncryptedFields` key schedule
-     * as `AgentApplication.encrypted_env`) JSON map `{KEY: value, ...}` of
-     * per-session secret overrides supplied at preview mint time. The
-     * runner's secret resolver overlays this on top of the application's
-     * `encrypted_env` for the lifetime of the session; the wire value is
-     * never returned through any read path (`/sessions/<id>` excludes it,
-     * the analytics sink doesn't see it). Null for live sessions and for
-     * preview sessions whose author didn't supply an override. Stored
-     * encrypted at rest so a DB dump alone doesn't disclose plaintext
-     * override values.
-     */
-    preview_secret_override: string | null
     created_at: string
     updated_at: string
 }

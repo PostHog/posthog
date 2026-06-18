@@ -4,7 +4,7 @@
  *
  * Reads channel + thread coordinates off `session.trigger_metadata` (stamped
  * by the slack trigger at enqueue) and resolves the bot token from the
- * application's `encrypted_env` via the shared `SecretResolver`.
+ * revision's `encrypted_env` via the shared `SecretResolver`.
  *
  * Failure modes are all silent (logged at warn, returned without throwing) —
  * the dispatcher already does an outer catch but the notifier's own contract
@@ -12,7 +12,7 @@
  * `session.crashed`.
  */
 
-import { AgentApplication } from '../spec/spec'
+import { AgentApplication, AgentRevision } from '../spec/spec'
 import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
@@ -52,7 +52,7 @@ export class SlackFailureNotifier implements FailureNotifier {
             )
             return
         }
-        const token = await this.resolveTokenSafely(input.application, input.session.id)
+        const token = await this.resolveTokenSafely(input.revision, input.application, input.session.id)
         if (!token) {
             return
         }
@@ -83,9 +83,13 @@ export class SlackFailureNotifier implements FailureNotifier {
         }
     }
 
-    private async resolveTokenSafely(application: AgentApplication, sessionId: string): Promise<string | null> {
+    private async resolveTokenSafely(
+        revision: AgentRevision,
+        application: AgentApplication,
+        sessionId: string
+    ): Promise<string | null> {
         try {
-            const token = await this.deps.resolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+            const token = await this.deps.resolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
             if (!token) {
                 this.deps.logger?.warn(
                     { session_id: sessionId, application_id: application.id },

@@ -228,7 +228,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 acl: [],
                 pending_elevation_requests: [],
                 is_preview: false,
-                preview_secret_override: null,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -299,7 +298,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: created,
             updated_at: created,
         })
@@ -358,7 +356,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -403,7 +400,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -446,7 +442,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -548,7 +543,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -648,7 +642,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -737,7 +730,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -896,7 +888,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             acl: [],
             pending_elevation_requests: [],
             is_preview: false,
-            preview_secret_override: null,
             created_at: ts,
             updated_at: ts,
         })

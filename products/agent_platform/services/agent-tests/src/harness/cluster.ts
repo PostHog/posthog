@@ -191,11 +191,10 @@ export interface Cluster {
      */
     tabularStore: S3JsonlTabularStore
     /**
-     * Same `EncryptedFields` the harness wires into the ingress and the
-     * janitor. Exposed so cases that drive `cronTick` / `fireCronManually`
-     * directly can satisfy the `CronTickDeps.encryption` shape, and so
-     * preview-mode cases can decrypt the persisted `preview_secret_override`
-     * column to assert the round-trip.
+     * The `EncryptedFields` instance the harness encrypts agent env with (and
+     * the runner's secret resolver decrypts). Exposed so cases can encrypt a
+     * value to stamp onto a revision's `encrypted_env`, or decrypt one to
+     * assert a round-trip.
      */
     encryption: EncryptedFields
     /** The faux pi-ai Model the runner is wired with. */
@@ -473,12 +472,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // can route them through a single recorder.
         http: opts.http,
         // Wire the JWT gate so preview-mode tests exercise the real claim
-        // verification (audience, signature, app/rev binding, secret_override
-        // extraction). Without this the resolver short-circuits and the
-        // override never flows from the JWT to the session row. Same key
-        // `mintInternalJwt` uses in the preview-mode case fixtures.
+        // verification (audience, signature, app/rev binding). Without this the
+        // resolver short-circuits and a non-live revision routes without a
+        // token. Same key `mintInternalJwt` uses in the preview-mode fixtures.
         internalSigningKey: DEV_INTERNAL_SIGNING_KEY,
-        encryption,
     })
 
     const janitor = buildJanitorApp({
@@ -491,10 +488,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
-        // Cron manual-fire endpoint uses this to satisfy `EnqueueDeps` —
-        // none of the harness's cron tests exercise an override, but the
-        // dep type still requires an instance.
-        encryption,
     })
 
     return {
@@ -549,7 +542,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 slug: input.slug,
                 name: input.name ?? input.slug,
                 description: input.description ?? '',
-                encrypted_env,
             })
             const rawSpec: Record<string, unknown> = {
                 // Default model is "faux/<name>"; tests can override via spec.model.
@@ -588,6 +580,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 created_by_id: null,
                 bundle_uri: `s3://${TEST_S3_BUCKET}/${bundlePrefix}/${app.id}/`,
                 spec,
+                encrypted_env,
             })
             for (const [p, content] of Object.entries(input.files ?? {})) {
                 await bundle.write(rev.id, p, content)

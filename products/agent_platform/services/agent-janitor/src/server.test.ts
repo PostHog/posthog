@@ -19,7 +19,6 @@ import {
     AgentSpecSchema,
     buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
-    EncryptedFields,
     INTERNAL_JWT_AUDIENCE,
     mintInternalJwt,
     newTestPrefix,
@@ -31,12 +30,6 @@ import {
 import { reset } from '@posthog/agent-shared/testing'
 
 import { buildJanitorApp } from './server'
-
-// Same deterministic key the cluster harness uses. Only the cron-fire
-// endpoint needs `encryption` (to satisfy `EnqueueDeps`); the other
-// janitor tests omit it and the `?` field stays unset.
-const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
-const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -87,7 +80,6 @@ function session(label: string): AgentSession {
         acl: [],
         pending_elevation_requests: [],
         is_preview: false,
-        preview_secret_override: null,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -618,7 +610,6 @@ describe('janitor HTTP', () => {
             sweep: { queue, stuckRunningThresholdMs: 60_000 },
             revisions,
             bundles,
-            encryption,
         })
         return { revisions, bundles, app, revisionId: rev.id }
     }
@@ -670,7 +661,6 @@ describe('janitor HTTP', () => {
             sweep: { queue, stuckRunningThresholdMs: 60_000 },
             revisions,
             bundles,
-            encryption,
         })
         const res = await request(app)
             .post(`/revisions/${rev.id}/cron/fire`)
@@ -708,7 +698,6 @@ describe('janitor HTTP', () => {
             sweep: { queue, stuckRunningThresholdMs: 60_000 },
             revisions,
             bundles,
-            encryption,
         })
         const a = await request(app)
             .post(`/revisions/${rev.id}/cron/fire`)

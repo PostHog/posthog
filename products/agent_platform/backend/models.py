@@ -62,10 +62,6 @@ class AgentApplication(ProductTeamModel, UUIDModel):
     slug = models.SlugField(max_length=63)
     description = models.TextField(blank=True, default="", db_default="")
 
-    # Encrypted JSON env block. Decrypted at runtime by the worker via
-    # `EncryptedFields` (see services/agent-shared/src/runtime/encryption.ts).
-    encrypted_env: EncryptedTextField = EncryptedTextField(null=True, blank=True)
-
     live_revision = models.ForeignKey(
         "AgentRevision",
         on_delete=models.SET_NULL,
@@ -130,6 +126,16 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     spec = models.JSONField(default=dict)
 
+    # Encrypted JSON env block — the secret values this revision runs with.
+    # Decrypted at runtime by the worker via `EncryptedFields` (see
+    # services/agent-shared/src/runtime/encryption.ts). Lives on the revision
+    # (not the application) so a draft can be previewed with its own secret
+    # values without touching the live revision's, and a promote carries the
+    # secrets it was tested with. Mutable in place (key rotation must not
+    # require cutting a new revision) and copied forward when a new draft is
+    # forked from a parent. NULL means "no secrets set".
+    encrypted_env: EncryptedTextField = EncryptedTextField(null=True, blank=True)
+
     created_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
@@ -177,16 +183,6 @@ class AgentSession(ProductTeamModel, UUIDModel):
     # observability dashboards. Cron is implicitly safe (janitor only schedules
     # off `live_revision_id`), so preview sessions never originate from cron.
     is_preview = models.BooleanField(default=False, db_default=False)
-    # Per-session secret overlay set at preview mint time. Encrypted JSON map
-    # `{KEY: value, ...}` whose keys are validated server-side at
-    # `POST .../preview-token/` against `revision.spec["secrets"]` — authors can
-    # only override secrets the spec actually declares. The runner's secret
-    # resolver overlays this on top of the application's `encrypted_env` for
-    # the duration of the session; the value is never returned through any read
-    # path (`/sessions/<id>` excludes it, the analytics sink doesn't see it).
-    # NULL for live sessions and for preview sessions whose author didn't
-    # supply an override. Same `EncryptedFields` keys as `encrypted_env`.
-    preview_secret_override: EncryptedTextField = EncryptedTextField(null=True, blank=True)
     usage_total = models.JSONField(
         default=dict,
         db_default=Value(

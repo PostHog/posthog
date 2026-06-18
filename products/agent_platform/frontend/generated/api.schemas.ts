@@ -1024,6 +1024,40 @@ export interface AgentRevisionCronFireResponseApi {
     request_id: string
 }
 
+export interface AgentRevisionEnvKeysResponseApi {
+    /** Names of env variables currently set on the revision. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentRevisionEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
+}
+
 export interface AgentRevisionSlackManifestResponseApi {
     revision_id: string
     /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
@@ -1292,28 +1326,6 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
-export interface AgentApplicationEnvKeysResponseApi {
-    /** Names of env variables currently set on the application. Values are never returned. */
-    keys: string[]
-}
-
-export interface AgentApplicationEnvKeyStatusApi {
-    key: string
-    /** True if the key is present in the env block. The value itself is never returned. */
-    is_set: boolean
-}
-
-/**
- * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
- *
- * The view merges `{KEY: value}` into the existing encrypted env block
- * without touching other keys, so callers can set or rotate one secret
- * without needing to read the whole block back.
- */
-export interface SetEnvKeyRequestApi {
-    value: string
-}
-
 export interface AgentApplicationPreviewTokenResponseApi {
     /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
     token: string
@@ -1327,33 +1339,6 @@ export interface AgentApplicationPreviewTokenResponseApi {
     auth: unknown
     /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
     preview_proxy: unknown
-}
-
-/**
- * Per-session secret overlay applied for the resulting preview session. Keys must be declared in `spec.secrets[]`; undeclared keys are rejected with a 400. Values are encrypted into the JWT and applied only for the lifetime of one session — never persisted to `encrypted_env`. Omit to inherit live secrets unchanged.
- */
-export type PreviewTokenMintRequestApiSecretOverride = { [key: string]: string }
-
-/**
- * Body shape for `POST .../preview-token/`.
- *
- * `secret_override` is optional per-session secret overlay applied at preview
- * mint time. Keys MUST be a subset of `revision.spec["secrets"]` — the view
- * validates server-side and rejects undeclared keys with a field-level
- * 400. The overlay is encrypted into the minted JWT's claims (the JWT is
- * HS256-signed with `AGENT_INTERNAL_SIGNING_KEY` so the override is
- * tamper-proof in transit); the ingress extracts it at session create and
- * stamps it onto the row. It is never returned through any read path and
- * never persisted as plaintext.
- *
- * Values are bounded at the DRF level (CharField default ~1 KiB) and the
- * total serialized map is capped by the view so the JWT stays under typical
- * header limits. Authors who need to test against a real secret value should
- * set it through the standard `env_keys` UI instead of this hatch.
- */
-export interface PreviewTokenMintRequestApi {
-    /** Per-session secret overlay applied for the resulting preview session. Keys must be declared in `spec.secrets[]`; undeclared keys are rejected with a 400. Values are encrypted into the JWT and applied only for the lifetime of one session — never persisted to `encrypted_env`. Omit to inherit live secrets unchanged. */
-    secret_override?: PreviewTokenMintRequestApiSecretOverride
 }
 
 export interface AgentSessionUsageTotalApi {
@@ -1581,18 +1566,6 @@ export interface LogEntryApi {
 
 export interface AgentApplicationSessionLogsResponseApi {
     results: LogEntryApi[]
-}
-
-export type SetEnvRequestApiEnv = { [key: string]: string }
-
-/**
- * Body shape for AgentApplicationViewSet.set_env.
- *
- * `env` is a JSON object of string→string. The view encrypts it via the
- * same Fernet schedule the worker uses to decrypt.
- */
-export interface SetEnvRequestApi {
-    env: SetEnvRequestApiEnv
 }
 
 export interface AgentAggregateStatsApi {

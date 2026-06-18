@@ -56,19 +56,6 @@ export interface ResolvedAgent {
      * live revisions have nothing to expire.
      */
     previewJwtExp: number | null
-    /**
-     * Per-session secret overlay extracted from the preview JWT's `sec_ovr`
-     * claim. Triggers forward this to `enqueueOrResume` so the session row
-     * stores the encrypted JSON map and the runner's `resolveSecrets`
-     * overlays it on top of the application's `encrypted_env` for the
-     * lifetime of the session. The map is null when (a) the request is
-     * live, (b) the dev path is in use, or (c) the author didn't supply an
-     * override at mint time. Values are not validated here — Django
-     * validated key membership against `spec.secrets[]` server-side at
-     * mint and the JWT is HS256-signed so the claim is tamper-proof in
-     * transit.
-     */
-    previewSecretOverride: Record<string, string> | null
 }
 
 /**
@@ -155,7 +142,6 @@ export class RevisionResolver {
             ...resolved,
             isPreview: resolved.revision.id !== resolved.application.live_revision_id,
             previewJwtExp: gateResult.exp,
-            previewSecretOverride: gateResult.secretOverride,
         }
     }
 
@@ -221,22 +207,19 @@ export class RevisionResolver {
      * revision. The check is bypassed when `internalSigningKey` isn't
      * configured (dev / harness path).
      */
-    // Returns the JWT's `exp` claim (unix seconds) and the optional
-    // `sec_ovr` secret-override map when a preview token was validated, or
-    // `{exp: null, secretOverride: null}` when the request was live / the
-    // signing key isn't configured. Callers attach `exp` to
-    // `ResolvedAgent.previewJwtExp` for SSE expiry scheduling, and the
-    // override map to `ResolvedAgent.previewSecretOverride` for plumbing
-    // into the session row.
+    // Returns the JWT's `exp` claim (unix seconds) when a preview token was
+    // validated, or `{exp: null}` when the request was live / the signing key
+    // isn't configured. Callers attach `exp` to `ResolvedAgent.previewJwtExp`
+    // for SSE expiry scheduling.
     private async assertPreviewGate(
         resolved: { application: AgentApplication; revision: AgentRevision },
         providedToken: string | undefined
-    ): Promise<{ exp: number | null; secretOverride: Record<string, string> | null }> {
+    ): Promise<{ exp: number | null }> {
         if (!this.opts.internalSigningKey) {
-            return { exp: null, secretOverride: null }
+            return { exp: null }
         }
         if (resolved.revision.id === resolved.application.live_revision_id) {
-            return { exp: null, secretOverride: null }
+            return { exp: null }
         }
         if (!providedToken) {
             throw new MissingPreviewSecretError('missing_token')
@@ -263,7 +246,7 @@ export class RevisionResolver {
         // return null and skip the scheduled expiry event (live-style stream
         // behavior) rather than crash the request.
         const exp = typeof payload.exp === 'number' ? payload.exp : null
-        return { exp, secretOverride: extractSecretOverride(payload.sec_ovr) }
+        return { exp }
     }
 
     /**
@@ -300,26 +283,4 @@ export class RevisionResolver {
         const slug = rest.split('/')[0]
         return slug || null
     }
-}
-
-/**
- * Defensive extractor for the JWT's `sec_ovr` claim. Django wrote this as a
- * plain `dict[str, str]` (validated server-side against `spec.secrets[]`) and
- * the JWT is HS256-signed so we trust the shape — but we still treat any
- * non-conforming payload as "no override" rather than crashing the request,
- * mirroring the defensive style of the rest of the resolver. Returns null
- * when the claim is absent, empty, or not the expected shape.
- */
-function extractSecretOverride(raw: unknown): Record<string, string> | null {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-        return null
-    }
-    const out: Record<string, string> = {}
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-        if (typeof v !== 'string') {
-            continue
-        }
-        out[k] = v
-    }
-    return Object.keys(out).length > 0 ? out : null
 }

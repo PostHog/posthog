@@ -1,9 +1,15 @@
 /**
- * Default `resolveSecrets` impl for production: read the AgentApplication
- * row, decrypt `encrypted_env` (Django's `EncryptedJSONStringField`), return
- * a plaintext `Record<string, string>`. The runner hands that to
+ * Default `resolveSecrets` impl for production: read the AgentRevision row,
+ * decrypt `encrypted_env` (Django's `EncryptedTextField`), return a plaintext
+ * `Record<string, string>`. The runner hands that to
  * `SecretBroker.mintSessionMap()` which nonce-wraps the values for the
  * sandbox.
+ *
+ * Secrets live on the revision (not the application), so resolving off
+ * `session.revision_id` gives each session exactly the secrets its revision
+ * was configured with — a draft preview runs against the draft's own secrets,
+ * isolated from the live revision by construction. No per-session override
+ * needed.
  *
  * Pass an `EncryptedFields` constructed from `ENCRYPTION_SALT_KEYS` (same
  * env var Django reads from). Missing / empty env → returns `{}` so an
@@ -19,31 +25,8 @@ export function makeEncryptedEnvResolver(deps: {
     encryption: EncryptedFields
 }): (session: AgentSession) => Promise<Record<string, string>> {
     return async (session) => {
-        const app = await deps.revisions.getApplication(session.application_id)
-        const base = app?.encrypted_env ? safeDecrypt(deps.encryption, app.encrypted_env, session) : {}
-        // Preview-mode overlay: if the session row carries an encrypted
-        // `preview_secret_override` map, decrypt it and merge on top. Overlay
-        // wins per key (the whole point — the author is testing an alternate
-        // value), and the merge is per-session so a live session running
-        // concurrently against the same application sees nothing from this
-        // path. Decryption failures fall back to the base map so a malformed
-        // override row can't take down preview sessions wholesale; the live
-        // session would never reach this branch.
-        if (session.is_preview && session.preview_secret_override) {
-            const overlay = safeDecryptOverlay(deps.encryption, session.preview_secret_override, session)
-            if (overlay) {
-                log.info(
-                    {
-                        session_id: session.id,
-                        application_id: session.application_id,
-                        override_keys: Object.keys(overlay).sort(),
-                    },
-                    'preview_secret_override.applied'
-                )
-                return { ...base, ...overlay }
-            }
-        }
-        return base
+        const revision = await deps.revisions.getRevision(session.revision_id)
+        return revision?.encrypted_env ? safeDecrypt(deps.encryption, revision.encrypted_env, session) : {}
     }
 }
 
@@ -51,26 +34,12 @@ function safeDecrypt(encryption: EncryptedFields, encrypted: string, session: Ag
     try {
         return encryption.decryptJsonEnv(encrypted)
     } catch (err) {
+        // Don't crash the session — log and continue with empty secrets. The
+        // agent will see undefined values and can react accordingly.
         log.error(
-            { err: (err as Error).message, session_id: session.id, application_id: session.application_id },
+            { err: (err as Error).message, session_id: session.id, revision_id: session.revision_id },
             'encrypted_env.decrypt_failed'
         )
         return {}
-    }
-}
-
-function safeDecryptOverlay(
-    encryption: EncryptedFields,
-    encrypted: string,
-    session: AgentSession
-): Record<string, string> | null {
-    try {
-        return encryption.decryptJsonEnv(encrypted)
-    } catch (err) {
-        log.error(
-            { err: (err as Error).message, session_id: session.id, application_id: session.application_id },
-            'preview_secret_override.decrypt_failed'
-        )
-        return null
     }
 }

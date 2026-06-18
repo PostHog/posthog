@@ -128,7 +128,6 @@ async function main(): Promise<void> {
         authProvider,
         credentialBroker,
         http,
-        encryption,
     })
     app.listen(config.port, () => {
         log.info(

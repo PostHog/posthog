@@ -72,6 +72,7 @@ function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}
         bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: FAUX_MODEL_ID, ...spec }),
+        encrypted_env: null,
     }
 }
 
@@ -92,7 +93,6 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         acl: [],
         pending_elevation_requests: [],
         is_preview: false,
-        preview_secret_override: null,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',

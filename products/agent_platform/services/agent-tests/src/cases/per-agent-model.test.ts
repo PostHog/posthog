@@ -164,7 +164,6 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 acl: [],
                 pending_elevation_requests: [],
                 is_preview: false,
-                preview_secret_override: null,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })

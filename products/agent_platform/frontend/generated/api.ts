@@ -12,8 +12,6 @@ import type {
     AgentAggregateStatsApi,
     AgentApplicationApi,
     AgentApplicationApprovalsListResponseApi,
-    AgentApplicationEnvKeyStatusApi,
-    AgentApplicationEnvKeysResponseApi,
     AgentApplicationPreviewTokenResponseApi,
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
@@ -49,6 +47,8 @@ import type {
     AgentRevisionApi,
     AgentRevisionCronFireRequestApi,
     AgentRevisionCronFireResponseApi,
+    AgentRevisionEnvKeyStatusApi,
+    AgentRevisionEnvKeysResponseApi,
     AgentRevisionSlackManifestResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
@@ -62,7 +62,6 @@ import type {
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
-    PreviewTokenMintRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     WriteAgentMdRequestApi,
@@ -869,6 +868,116 @@ export const agentApplicationsRevisionsCronFireCreate = async (
     )
 }
 
+export const getAgentRevisionsEnvKeysListUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/`
+}
+
+/**
+ * List the names of secrets currently set on this revision.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+ * a declared secret in the editor UI.
+ */
+export const agentRevisionsEnvKeysList = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeysResponseApi> => {
+    return apiMutator<AgentRevisionEnvKeysResponseApi>(getAgentRevisionsEnvKeysListUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentRevisionsEnvKeysGetUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysGet = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeyStatusApi> => {
+    return apiMutator<AgentRevisionEnvKeyStatusApi>(getAgentRevisionsEnvKeysGetUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentRevisionsEnvKeysSetUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysSet = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    setEnvKeyRequestApi: SetEnvKeyRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeyStatusApi> => {
+    return apiMutator<AgentRevisionEnvKeyStatusApi>(getAgentRevisionsEnvKeysSetUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setEnvKeyRequestApi),
+    })
+}
+
+export const getAgentRevisionsEnvKeysClearUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysClear = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentRevisionsEnvKeysClearUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, applicationId: string, id: string) => {
     return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/freeze/`
 }
@@ -941,6 +1050,33 @@ export const agentApplicationsRevisionsPromoteCreate = async (
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsPromoteCreateUrl(projectId, applicationId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAgentApplicationsRevisionsSetEnvCreateUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/set_env/`
+}
+
+/**
+ * Replace this revision's encrypted env block.
+ *
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text is stored on `AgentRevision.encrypted_env`; the worker decrypts it
+ * at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
+ */
+export const agentApplicationsRevisionsSetEnvCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    setEnvRequestApi: SetEnvRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSetEnvCreateUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setEnvRequestApi),
     })
 }
 
@@ -1266,7 +1402,7 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
  * Pre-flight checks before freeze + promote: entrypoint file exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
- * secret has a value set in the application's env block. Returns
+ * secret has a value set in this revision's env block. Returns
  * `{ ok, errors: [...] }`. Works on any revision state.
  */
 export const agentApplicationsRevisionsValidateCreate = async (
@@ -1516,112 +1652,6 @@ export const agentApplicationsApprovalsDecide = async (
     )
 }
 
-export const getAgentApplicationsEnvKeysListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/`
-}
-
-/**
- * List the names of secrets currently set on the application.
- *
- * Returns names only — values stay server-side under
- * `EncryptedTextField`. Use this to drive the "set / unset" badge
- * next to a declared secret in the editor UI.
- */
-export const agentApplicationsEnvKeysList = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeysResponseApi> => {
-    return apiMutator<AgentApplicationEnvKeysResponseApi>(getAgentApplicationsEnvKeysListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAgentApplicationsEnvKeysGetUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysGet = async (
-    projectId: string,
-    id: string,
-    key: string,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeyStatusApi> => {
-    return apiMutator<AgentApplicationEnvKeyStatusApi>(getAgentApplicationsEnvKeysGetUrl(projectId, id, key), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAgentApplicationsEnvKeysSetUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysSet = async (
-    projectId: string,
-    id: string,
-    key: string,
-    setEnvKeyRequestApi: SetEnvKeyRequestApi,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeyStatusApi> => {
-    return apiMutator<AgentApplicationEnvKeyStatusApi>(getAgentApplicationsEnvKeysSetUrl(projectId, id, key), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(setEnvKeyRequestApi),
-    })
-}
-
-export const getAgentApplicationsEnvKeysClearUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysClear = async (
-    projectId: string,
-    id: string,
-    key: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsEnvKeysClearUrl(projectId, id, key), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getAgentApplicationsPreviewProxyGetUrl = (
     projectId: string,
     id: string,
@@ -1790,7 +1820,6 @@ export const agentApplicationsPreviewTokenMint = async (
     projectId: string,
     id: string,
     params: AgentApplicationsPreviewTokenMintParams,
-    previewTokenMintRequestApi?: PreviewTokenMintRequestApi,
     options?: RequestInit
 ): Promise<AgentApplicationPreviewTokenResponseApi> => {
     return apiMutator<AgentApplicationPreviewTokenResponseApi>(
@@ -1798,8 +1827,6 @@ export const agentApplicationsPreviewTokenMint = async (
         {
             ...options,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(previewTokenMintRequestApi),
         }
     )
 }
@@ -1930,32 +1957,6 @@ export const agentApplicationsSessionLogs = async (
             method: 'GET',
         }
     )
-}
-
-export const getAgentApplicationsSetEnvCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/set_env/`
-}
-
-/**
- * Replace the agent's encrypted env block.
- *
- * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
- * text gets stored on AgentApplication.encrypted_env; the worker
- * decrypts it at session start via the same Fernet schedule (see
- * agent-shared/src/runtime/encryption.ts).
- */
-export const agentApplicationsSetEnvCreate = async (
-    projectId: string,
-    id: string,
-    setEnvRequestApi: SetEnvRequestApi,
-    options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsSetEnvCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(setEnvRequestApi),
-    })
 }
 
 export const getAgentApplicationsStatsUrl = (projectId: string, id: string, params?: AgentApplicationsStatsParams) => {

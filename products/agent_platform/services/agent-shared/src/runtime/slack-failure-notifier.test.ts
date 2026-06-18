@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
 import { SlackFailureNotifier } from './slack-failure-notifier'
@@ -13,6 +13,19 @@ const APP: AgentApplication = {
     description: '',
     live_revision_id: null,
     archived: false,
+}
+
+// The notifier resolves the bot token from the revision's `encrypted_env`.
+const REV: AgentRevision = {
+    id: 'rev-1',
+    application_id: APP.id,
+    parent_revision_id: null,
+    created_by_id: null,
+    created_at: new Date().toISOString(),
+    state: 'live',
+    bundle_uri: 's3://x/',
+    bundle_sha256: null,
+    spec: { model: 'claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: 'fernet-blob',
 }
 
@@ -34,7 +47,6 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         acl: [],
         pending_elevation_requests: [],
         is_preview: false,
-        preview_secret_override: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession
@@ -62,6 +74,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'docker run failed: Unable to find image',
             category: 'transient_infra',
         })
@@ -88,6 +101,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession({ type: 'webhook', url: 'https://example.com' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -103,6 +117,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession({ type: 'slack', channel: 'C1' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -119,6 +134,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -140,6 +156,7 @@ describe('SlackFailureNotifier', () => {
             n.notify({
                 session: makeSession(SLACK_META),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })
@@ -163,6 +180,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -187,6 +205,7 @@ describe('SlackFailureNotifier', () => {
             n.notify({
                 session: makeSession(SLACK_META),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })
