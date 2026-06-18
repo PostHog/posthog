@@ -940,9 +940,9 @@ def _poll_one_shared_channel(
 
         if sync.primed:
             for msg in messages:
-                created = _parse_graph_datetime(msg.get("createdDateTime"))
-                if created and (latest_message_at is None or created > latest_message_at):
-                    latest_message_at = created
+                msg_created = _parse_graph_datetime(msg.get("createdDateTime"))
+                if msg_created and (latest_message_at is None or msg_created > latest_message_at):
+                    latest_message_at = msg_created
                 activity = graph_message_to_activity(msg, channel_id, service_url)
                 if activity is None:
                     continue
