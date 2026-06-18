@@ -115,6 +115,13 @@ def build_workstreams(
     now: int,
     pr_by_branch: Optional[Mapping[tuple[str, str], PrInput]] = None,
 ) -> WorkstreamsResult:
+    # Branches that serve as a base for some task working on a *different* branch are real base
+    # branches (master, main, …). Resolving those to a PR would let unrelated base-branch runs
+    # collapse into whatever PR happens to be headed from that base. A follow-up run on a feature
+    # branch has branch == base_branch (the quick action passes the feature branch as the base),
+    # so it is never flagged here and still resolves.
+    base_branches = {t.base_branch for t in tasks if t.base_branch and t.base_branch != t.branch}
+
     def pr_of(task: TaskInput) -> Optional[PrInput]:
         # A task's own PR wins; otherwise resolve via the branch it ran on so a
         # follow-up run (e.g. "Fix CI") that pushed to an open PR's branch but
@@ -122,7 +129,7 @@ def build_workstreams(
         own = pr_by_task.get(task.id)
         if own is not None:
             return own
-        if pr_by_branch:
+        if pr_by_branch and task.branch not in base_branches:
             key = branch_lookup_key(task.repo_full_path or task.repo_name, task.branch)
             if key is not None:
                 return pr_by_branch.get(key)

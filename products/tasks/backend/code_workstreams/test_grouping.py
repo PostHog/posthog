@@ -211,6 +211,22 @@ def test_branch_resolution_is_repo_scoped():
     assert not workstreams
 
 
+def test_base_branch_task_does_not_resolve_to_base_headed_pr():
+    # A no-op run on the base branch must not collapse into a PR that happens to be headed from
+    # that base branch, while a real feature-branch follow-up still resolves.
+    feature = _task(id="a", repo_full_path="posthog/posthog", branch="feat/x", base_branch="master", cloud_pr_url=None)
+    base = _task(id="b", repo_full_path="posthog/posthog", branch="master", base_branch="master", cloud_pr_url=None)
+    pr_by_branch = {
+        ("posthog/posthog", "feat/x"): _pr(url="https://github.com/posthog/posthog/pull/1", head_branch="feat/x"),
+        ("posthog/posthog", "master"): _pr(url="https://github.com/posthog/posthog/pull/2", head_branch="master"),
+    }
+    result = build_workstreams([feature, base], {}, NOW, pr_by_branch)
+    workstreams = result.needs_attention + result.in_progress
+    assert len(workstreams) == 1
+    assert workstreams[0].id == "pr:https://github.com/posthog/posthog/pull/1"
+    assert {t.id for t in workstreams[0].tasks} == {"a"}
+
+
 def test_quick_action_is_carried_onto_workstream_task():
     task = _task(id="a", quick_action="Fix CI")
     result = build_workstreams([task], {task.id: _pr(ci_status="failing")}, NOW)

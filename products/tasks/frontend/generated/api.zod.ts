@@ -735,8 +735,6 @@ export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
 
-export const tasksRunsCreateBodyHomeQuickActionMax = 120
-
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
     .object({
         environment: zod
@@ -807,13 +805,6 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
-            ),
-        home_quick_action: zod
-            .string()
-            .max(tasksRunsCreateBodyHomeQuickActionMax)
-            .optional()
-            .describe(
-                "Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream."
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

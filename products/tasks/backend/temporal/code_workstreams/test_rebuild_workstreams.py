@@ -1,8 +1,11 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from products.tasks.backend.models import CodePrSnapshot, TaskRun
 from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
     _base_branch_from_run,
+    _branch_resolution_pref,
     _build_pr_input,
     _quick_action_from_run,
     _repo_from_pr_url,
@@ -62,6 +65,17 @@ def test_repo_from_pr_url(pr_url, expected):
 def test_build_pr_input_carries_head_branch():
     pr = _build_pr_input(_snapshot(head_branch="feat/x"), set())
     assert pr.head_branch == "feat/x"
+
+
+def test_branch_resolution_pref_prefers_open_then_recent():
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    new = datetime(2026, 6, 1, tzinfo=UTC)
+    closed_new = _snapshot(pr_url="c", state="closed", pr_updated_at=new)
+    open_old = _snapshot(pr_url="a", state="open", pr_updated_at=old)
+    open_new = _snapshot(pr_url="b", state="open", pr_updated_at=new)
+    # Sorting ascending puts the winner last (last-wins when building the map).
+    winner = sorted([closed_new, open_old, open_new], key=_branch_resolution_pref)[-1]
+    assert winner.pr_url == "b"
 
 
 @pytest.mark.parametrize(

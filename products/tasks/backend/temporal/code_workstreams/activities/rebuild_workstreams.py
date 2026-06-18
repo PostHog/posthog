@@ -13,7 +13,13 @@ from posthog.models.user_integration import UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.code_workstreams.classify import pick_primary_situation
-from products.tasks.backend.code_workstreams.grouping import PrInput, TaskInput, Workstream, build_workstreams
+from products.tasks.backend.code_workstreams.grouping import (
+    PrInput,
+    TaskInput,
+    Workstream,
+    branch_lookup_key,
+    build_workstreams,
+)
 from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW, MAX_TASKS_PER_TEAM
 
@@ -115,6 +121,15 @@ def _build_pr_input(snapshot: CodePrSnapshot, user_github_logins: set[str]) -> P
     )
 
 
+def _branch_resolution_pref(snapshot: CodePrSnapshot) -> tuple[int, float, str]:
+    # Order so the best snapshot for a (repo, head_branch) collision is written last (last wins):
+    # prefer still-open PRs over merged/closed (a reused branch's new PR beats the stale one),
+    # then the most recently updated, with pr_url as a stable final tiebreaker.
+    open_score = 1 if snapshot.state in ("open", "draft") else 0
+    updated = snapshot.pr_updated_at.timestamp() if snapshot.pr_updated_at else 0.0
+    return (open_score, updated, snapshot.pr_url)
+
+
 def _repo_from_pr_url(pr_url: str) -> Optional[str]:
     # https://<host>/<owner>/<repo>/pull/<n> -> "<owner>/<repo>" (host-agnostic, covers enterprise).
     idx = pr_url.find("/pull/")
@@ -193,7 +208,8 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
             )
         )
         snapshots_by_url = {s.pr_url: s for s in snapshots}
-        snapshots_by_branch = [s for s in snapshots if s.head_branch]
+        # Sorted so a (repo, head_branch) collision resolves deterministically (best wins last).
+        snapshots_by_branch = sorted((s for s in snapshots if s.head_branch), key=_branch_resolution_pref)
 
         for user_id, user_tasks in by_user.items():
             user_github_logins = github_logins_by_user.get(user_id, set())
@@ -212,10 +228,10 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
             # is_current_user_author depends on the user, so the branch map is built per user.
             for snapshot in snapshots_by_branch:
                 repo = _repo_from_pr_url(snapshot.pr_url)
-                if repo is None or not snapshot.head_branch:
+                key = branch_lookup_key(repo, snapshot.head_branch)
+                if key is None:
                     continue
-                pr_input = _build_pr_input(snapshot, user_github_logins)
-                pr_by_branch[(repo.lower(), snapshot.head_branch)] = pr_input
+                pr_by_branch[key] = _build_pr_input(snapshot, user_github_logins)
                 snapshot_id_by_url[snapshot.pr_url] = str(snapshot.id)
 
             result = build_workstreams(task_inputs, pr_by_task, now_ms, pr_by_branch)

@@ -1129,11 +1129,6 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
-    /**
-     * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-     * @maxLength 120
-     */
-    home_quick_action?: string
 }
 
 /**
