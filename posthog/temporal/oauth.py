@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Literal
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
@@ -13,6 +14,7 @@ ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 
 McpScopePreset = Literal["read_only", "full", "signals_scout"]
+SandboxOAuthApplication = Literal["array", "posthog_ai"]
 
 
 INTERNAL_SCOPES: list[str] = [
@@ -112,19 +114,52 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
-def get_array_app() -> OAuthApplication:
-    region = get_instance_region()
+def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:
     if region == "EU":
-        client_id = ARRAY_APP_CLIENT_ID_EU
-    elif region == "US":
-        client_id = ARRAY_APP_CLIENT_ID_US
-    else:
-        client_id = ARRAY_APP_CLIENT_ID_DEV
+        return eu
+    if region == "US":
+        return us
+    return dev
+
+
+def _get_oauth_app_for_client_id(client_id: str, app_name: str, region: str | None) -> OAuthApplication:
+    if not client_id:
+        raise RuntimeError(f"{app_name} app not configured for region {region}")
 
     try:
         return OAuthApplication.objects.get(client_id=client_id)
     except OAuthApplication.DoesNotExist as err:
-        raise RuntimeError(f"Array app not found for region {region} (client_id={client_id})") from err
+        raise RuntimeError(f"{app_name} app not found for region {region} (client_id={client_id})") from err
+
+
+def get_array_app() -> OAuthApplication:
+    region = get_instance_region()
+    client_id = _get_client_id_for_region(
+        region=region,
+        us=ARRAY_APP_CLIENT_ID_US,
+        eu=ARRAY_APP_CLIENT_ID_EU,
+        dev=ARRAY_APP_CLIENT_ID_DEV,
+    )
+
+    return _get_oauth_app_for_client_id(client_id, "Array", region)
+
+
+def get_posthog_ai_app() -> OAuthApplication:
+    region = get_instance_region()
+    client_id = _get_client_id_for_region(
+        region=region,
+        us=settings.POSTHOG_AI_APP_CLIENT_ID_US,
+        eu=settings.POSTHOG_AI_APP_CLIENT_ID_EU,
+        dev=settings.POSTHOG_AI_APP_CLIENT_ID_DEV,
+    )
+
+    return _get_oauth_app_for_client_id(client_id, "PostHog AI", region)
+
+
+def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAuthApplication:
+    if application == "posthog_ai":
+        return get_posthog_ai_app()
+    return get_array_app()
 
 
 def create_oauth_access_token_for_user(
@@ -133,9 +168,10 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
+    application: SandboxOAuthApplication = "array",
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
-    app = get_array_app()
+    app = get_sandbox_oauth_app(application)
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(

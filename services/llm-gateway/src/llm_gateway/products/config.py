@@ -157,6 +157,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=False,
     ),
+    "posthog_ai": ProductConfig(
+        allowed_application_ids=frozenset(),
+        allowed_models=None,  # any model
+        allow_api_keys=True,
+        billable=True,
+    ),
 }
 
 
@@ -176,6 +182,18 @@ def resolve_product_alias(product: str) -> str:
 
 def get_product_config(product: str) -> ProductConfig | None:
     return PRODUCTS.get(resolve_product_alias(product))
+
+
+def _posthog_ai_allowed_application_ids(settings: object) -> frozenset[str]:
+    return frozenset(
+        app_id
+        for app_id in (
+            getattr(settings, "posthog_ai_us_app_id", None),
+            getattr(settings, "posthog_ai_eu_app_id", None),
+            getattr(settings, "posthog_ai_dev_app_id", None),
+        )
+        if app_id
+    )
 
 
 def validate_product(product: str) -> str:
@@ -219,7 +237,8 @@ def check_product_access(
     Check if request is authorized for product.
     Returns (allowed, error_message).
     """
-    config = get_product_config(product)
+    resolved_product = resolve_product_alias(product)
+    config = PRODUCTS.get(resolved_product)
     if config is None:
         return False, f"Unknown product: {product}"
 
@@ -231,7 +250,11 @@ def check_product_access(
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        allowed_application_ids = config.allowed_application_ids or frozenset()
+        allowed_application_ids = (
+            _posthog_ai_allowed_application_ids(settings)
+            if resolved_product == "posthog_ai"
+            else config.allowed_application_ids or frozenset()
+        )
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
