@@ -364,26 +364,22 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 final_query = f"""
                     SELECT
                         COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                        CASE
-                            WHEN previous_members.person_id IS NULL THEN 'entered'
-                            WHEN current_matches.id IS NULL THEN 'left'
-                            ELSE 'unchanged'
-                        END as status
+                        if(previous_members.person_id IS NULL, 'entered', 'left') as status
                     FROM
                     (
                         {current_members_sql}
                     ) AS current_matches
                     FULL OUTER JOIN
                     (
-                        SELECT team_id, person_id, argMax(status, last_updated) as status
+                        SELECT person_id, argMax(status, last_updated) as status
                         FROM cohort_membership
                         WHERE
                             team_id = %(team_id)s
                             AND cohort_id = %(cohort_id)s
-                        GROUP BY team_id, person_id
+                        GROUP BY person_id
                         HAVING status = 'entered'
                     ) previous_members ON current_matches.id = previous_members.person_id
-                    WHERE status IN ('entered', 'left')
+                    WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)
                     SETTINGS join_use_nulls = 1
                     FORMAT JSONEachRow
                 """
