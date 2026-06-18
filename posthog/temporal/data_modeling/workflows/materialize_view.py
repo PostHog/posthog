@@ -12,12 +12,15 @@ from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     DuckgresShadowInputs,
     DuckgresShadowResult,
+    DuckLakeExportInputs,
     FailMaterializationInputs,
     MaterializeViewInputs,
     PrepareQueryableTableInputs,
     SucceedMaterializationInputs,
+    check_duckgres_export_enabled_activity,
     check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
+    export_ducklake_to_parquet_activity,
     fail_materialization_activity,
     materialize_view_activity,
     materialize_view_duckgres_activity,
@@ -26,6 +29,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.metrics import (
     get_clickhouse_materialization_duration_metric,
+    get_duckgres_export_finished_metric,
     get_duckgres_shadow_duration_metric,
     get_duckgres_shadow_finished_metric,
     get_duckgres_shadow_row_count_match_metric,
@@ -134,7 +138,16 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         )
 
         duckgres_shadow_handle = None
+        export_enabled = False
         if duckgres_enabled or inputs.duckgres_only:
+            export_enabled = await temporalio.workflow.execute_activity(
+                check_duckgres_export_enabled_activity,
+                inputs.team_id,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
             duckgres_job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
@@ -242,12 +255,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
-                    await self._collect_shadow_comparison(
+                    shadow_result = await self._collect_shadow_comparison(
                         duckgres_shadow_handle,
                         materialize_result.row_count,
                         duration_seconds,
                         inputs,
                     )
+                    await self._maybe_export_to_clickhouse(shadow_result, inputs, export_enabled)
 
                 temporalio.workflow.logger.info(
                     "MaterializeViewWorkflow completed successfully",
@@ -325,6 +339,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     extra=inputs.properties_to_log,
                 )
                 capture_exception(shadow_err)
+            await self._maybe_export_to_clickhouse(result, inputs, export_enabled)
         # fallback to duckgres job if no clickhouse job was run
         if job_id is None:
             if duckgres_job_id is None:
@@ -343,11 +358,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         clickhouse_row_count: int,
         clickhouse_duration_seconds: float,
         inputs: MaterializeViewWorkflowInputs,
-    ) -> None:
+    ) -> DuckgresShadowResult | None:
         """Await the duckgres shadow activity and emit comparison metrics.
 
-        The activity itself is responsible for updating its job to a terminal state.
-        This is best-effort — any failure is swallowed so it never affects the workflow result.
+        Returns the shadow result (or None if awaiting it failed) so the caller can chain
+        follow-on work like the ClickHouse parquet export. The activity itself is responsible
+        for updating its job to a terminal state. This is best-effort — any failure is swallowed
+        so it never affects the workflow result.
         """
         try:
             shadow_result: DuckgresShadowResult = await shadow_handle
@@ -384,6 +401,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     **inputs.properties_to_log,
                 },
             )
+            return shadow_result
         except Exception as shadow_err:
             get_duckgres_shadow_finished_metric("error").add(1)
             temporalio.workflow.logger.warning(
@@ -391,3 +409,39 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+            return None
+
+    async def _maybe_export_to_clickhouse(
+        self,
+        shadow_result: DuckgresShadowResult | None,
+        inputs: MaterializeViewWorkflowInputs,
+        export_enabled: bool,
+    ) -> None:
+        """Export the materialized DuckLake table to CH-readable parquet, if enabled.
+
+        Best-effort: skipped unless the export flag is on and the shadow produced a table.
+        Any failure is swallowed so it never affects the workflow result.
+        """
+        if not export_enabled or shadow_result is None or shadow_result.error is not None:
+            return
+        try:
+            export_result = await temporalio.workflow.execute_activity(
+                export_ducklake_to_parquet_activity,
+                DuckLakeExportInputs(
+                    team_id=inputs.team_id,
+                    schema_name=shadow_result.schema_name,
+                    table_name=shadow_result.table_name,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=2,
+                ),
+            )
+            get_duckgres_export_finished_metric("failed" if export_result.error else "completed").add(1)
+        except Exception as export_err:
+            get_duckgres_export_finished_metric("error").add(1)
+            temporalio.workflow.logger.warning(
+                f"DuckLake parquet export failed: {str(export_err)}",
+                extra=inputs.properties_to_log,
+            )
+            capture_exception(export_err)

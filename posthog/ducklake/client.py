@@ -7,7 +7,13 @@ import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
-from posthog.ducklake.common import get_duckgres_config_for_org, is_dev_mode, sanitize_ducklake_identifier
+from posthog.ducklake.common import (
+    get_config,
+    get_duckgres_config_for_org,
+    get_org_config,
+    is_dev_mode,
+    sanitize_ducklake_identifier,
+)
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
@@ -62,6 +68,41 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     literal = psql.Literal(",".join(schemas))
     sql = psql.SQL("SET search_path TO {}").format(literal)
     conn.execute(sql)
+
+
+# DuckDB types DuckLake can't store losslessly, mapped to a cast applied at write time.
+# DuckLake stores HUGEINT/UHUGEINT as DOUBLE (lossy beyond 2**53); DECIMAL(38,0) stays exact
+# and numeric in ClickHouse. Add lossy types here — _coerce_lossy_columns applies them generically.
+_STORAGE_COERCIONS: dict[str, str] = {
+    "HUGEINT": "DECIMAL(38, 0)",
+    "UHUGEINT": "DECIMAL(38, 0)",
+}
+
+
+def _coerce_lossy_columns(cur: psycopg.Cursor[Any], sql: str, values: dict[str, object] | None) -> psql.Composable:
+    """Wrap ``sql`` so columns whose DuckDB type is lossy in DuckLake storage are cast on write.
+
+    Returns a ``SELECT * REPLACE (...)`` wrapper when any output column's type is in
+    ``_STORAGE_COERCIONS``, otherwise the original query unchanged. Best-effort: if the type
+    probe fails, the query is returned as-is so materialization is never blocked.
+    """
+    try:
+        cur.execute(psql.SQL("DESCRIBE {}").format(psql.SQL(sql)), values or None)
+        described = cur.fetchall()
+    except Exception:
+        return psql.SQL(sql)
+    replacements = []
+    for name, col_type, *_ in described:
+        target = _STORAGE_COERCIONS.get(str(col_type).strip().upper())
+        if target:
+            replacements.append(
+                psql.SQL("CAST({col} AS {target}) AS {col}").format(col=psql.Identifier(name), target=psql.SQL(target))
+            )
+    if not replacements:
+        return psql.SQL(sql)
+    return psql.SQL("SELECT * REPLACE ({repl}) FROM ({inner}) AS _ph_coerce").format(
+        repl=psql.SQL(", ").join(replacements), inner=psql.SQL(sql)
+    )
 
 
 def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, dict[str, object], str]:
@@ -184,12 +225,13 @@ def execute_ducklake_create_table(
         # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])
         with conn.cursor() as cur:
+            create_select = _coerce_lossy_columns(cur, sql, values)
             cur.execute(
                 psql.SQL("""
                     CREATE OR REPLACE TABLE {} AS (
                         {}
                     )
-                """).format(qualified, psql.SQL(sql)),
+                """).format(qualified, create_select),
                 values or None,
             )
     row_count = 0
@@ -210,4 +252,68 @@ def execute_ducklake_create_table(
         row_count=row_count,
         file_size_bytes=file_size_bytes,
         file_size_delta_bytes=file_size_bytes - previous_file_size_bytes,
+    )
+
+
+@dataclass
+class DuckLakeExportResult:
+    schema_name: str
+    table_name: str
+    row_count: int
+    destination: str
+
+
+def _ch_export_destination(team_id: int, safe_table: str, *, organization_id: str | None) -> str:
+    from posthog.ducklake.common import _get_org_id_for_team
+
+    if is_dev_mode():
+        config = get_config()
+    else:
+        org_id = organization_id or _get_org_id_for_team(team_id)
+        config = get_org_config(org_id)
+    bucket = config.get("DUCKLAKE_BUCKET")
+    if not bucket:
+        raise ValueError("DUCKLAKE_BUCKET must be set")
+    # Single-file, latest-overwrite: the object is replaced atomically on each run, so a
+    # stale file can never linger for ClickHouse's read to over-count.
+    return f"s3://{bucket}/ch_export/team_{team_id}/{safe_table}.parquet"
+
+
+def export_ducklake_table_to_parquet(
+    team_id: int,
+    schema_name: str,
+    table_name: str,
+    *,
+    organization_id: str | None = None,
+) -> DuckLakeExportResult:
+    """Export a DuckLake table to plain parquet on S3 that ClickHouse can read.
+
+    Issues ``COPY (SELECT * FROM schema.table) TO 's3://…' (FORMAT parquet)`` through
+    duckgres, materializing the catalog's *live* row-set into a single parquet object.
+    ClickHouse cannot read a DuckLake table in place — its native layout carries positional
+    delete files the ``s3()`` reader would ingest as data — so exporting the live set is required.
+
+    Pass organization_id to skip the Team→Organization lookup when org context is
+    already available from the caller.
+    """
+    safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
+    safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
+    qualified = psql.Identifier(safe_schema, safe_table)
+    destination = _ch_export_destination(team_id, safe_table, organization_id=organization_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
+    row_count = 0
+    with psycopg.connect(conninfo) as conn:
+        _set_search_path(conn, extra_schemas=[safe_schema])
+        with conn.cursor() as cur:
+            cur.execute(
+                psql.SQL("COPY (SELECT * FROM {}) TO {} (FORMAT parquet)").format(qualified, psql.Literal(destination))
+            )
+            cur.execute(psql.SQL("SELECT count(*) FROM {}").format(qualified))
+            row = cur.fetchone()
+            row_count = int(row[0]) if row else 0
+    return DuckLakeExportResult(
+        schema_name=safe_schema,
+        table_name=safe_table,
+        row_count=row_count,
+        destination=destination,
     )

@@ -1,3 +1,4 @@
+import os
 import time
 import typing
 import datetime as dt
@@ -21,6 +22,7 @@ from products.endpoints.backend.services.materialization import prepare_executab
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
+EXPORT_FEATURE_FLAG = "duckgres-export-to-clickhouse"
 SHADOW_SCHEMA_PREFIX = "shadow"
 
 
@@ -53,18 +55,38 @@ class DuckgresShadowResult:
     file_size_delta_bytes: int = 0
 
 
-def _is_duckgres_shadow_enabled(team: Team) -> bool:
-    if is_dev_mode():
-        import os
+@dataclasses.dataclass
+class DuckLakeExportInputs:
+    team_id: int
+    schema_name: str
+    table_name: str
 
-        return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_name": self.schema_name,
+            "table_name": self.table_name,
+        }
+
+
+@dataclasses.dataclass
+class DuckLakeExportActivityResult:
+    row_count: int
+    destination: str
+    error: str | None = None
+
+
+def _flag_enabled_for_team(team: Team, *, flag: str, dev_env_var: str) -> bool:
+    if is_dev_mode():
+        return os.environ.get(dev_env_var, "").lower() in ("1", "true")
 
     if get_duckgres_server_for_organization(str(team.organization_id)) is None:
         return False
 
     try:
         return posthoganalytics.feature_enabled(
-            FEATURE_FLAG,
+            flag,
             str(team.pk),
             groups={
                 "organization": str(team.organization_id),
@@ -79,6 +101,14 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         )
     except Exception:
         return False
+
+
+def _is_duckgres_shadow_enabled(team: Team) -> bool:
+    return _flag_enabled_for_team(team, flag=FEATURE_FLAG, dev_env_var="DUCKGRES_SHADOW_ENABLED")
+
+
+def _is_duckgres_export_enabled(team: Team) -> bool:
+    return _flag_enabled_for_team(team, flag=EXPORT_FEATURE_FLAG, dev_env_var="DUCKGRES_EXPORT_ENABLED")
 
 
 def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str, dict[str, object]]:
@@ -114,6 +144,13 @@ async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
     """Check whether the duckgres shadow flag is enabled for a team."""
     team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
     return await database_sync_to_async_pool(_is_duckgres_shadow_enabled)(team)
+
+
+@activity.defn
+async def check_duckgres_export_enabled_activity(team_id: int) -> bool:
+    """Check whether the DuckLake→ClickHouse parquet export flag is enabled for a team."""
+    team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
+    return await database_sync_to_async_pool(_is_duckgres_export_enabled)(team)
 
 
 @database_sync_to_async_pool
@@ -211,3 +248,38 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
         )
         await _resolve_duckgres_job(inputs.job_id, shadow_result)
         return shadow_result
+
+
+@activity.defn
+async def export_ducklake_to_parquet_activity(inputs: DuckLakeExportInputs) -> DuckLakeExportActivityResult:
+    """Export a DuckLake shadow table to CH-readable parquet on S3.
+
+    Best-effort companion to the shadow materialization: it COPYs the live row-set to plain
+    parquet so ClickHouse can read it via s3(). Failures never propagate — they are captured
+    into the result so the parent workflow is unaffected.
+    """
+    from posthog.ducklake.client import export_ducklake_table_to_parquet
+
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+    try:
+        result = await database_sync_to_async_pool(export_ducklake_table_to_parquet)(
+            inputs.team_id, inputs.schema_name, inputs.table_name
+        )
+        await logger.ainfo(
+            "DuckLake parquet export completed",
+            schema_name=inputs.schema_name,
+            table_name=inputs.table_name,
+            row_count=result.row_count,
+            destination=result.destination,
+        )
+        return DuckLakeExportActivityResult(row_count=result.row_count, destination=result.destination)
+    except Exception as e:
+        capture_exception(e, {"inputs": inputs})
+        await logger.awarning(
+            "DuckLake parquet export failed",
+            schema_name=inputs.schema_name,
+            table_name=inputs.table_name,
+            error=str(e),
+        )
+        return DuckLakeExportActivityResult(row_count=0, destination="", error=str(e))

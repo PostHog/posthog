@@ -5,7 +5,12 @@ from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery
 
-from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, execute_ducklake_query
+from posthog.ducklake.client import (
+    _SEARCH_PATH_SCHEMAS,
+    _coerce_lossy_columns,
+    execute_ducklake_query,
+    export_ducklake_table_to_parquet,
+)
 
 pytestmark = [pytest.mark.django_db]
 
@@ -109,3 +114,88 @@ class TestExecuteDuckLakeQuery:
 
         mock_config_for_org.assert_called_once_with("org-456")
         assert result.results == [[1]]
+
+
+class TestExportDuckLakeTableToParquet:
+    @mock.patch("posthog.ducklake.client.psycopg")
+    @mock.patch("posthog.ducklake.client.get_config", return_value={"DUCKLAKE_BUCKET": "ducklake-dev"})
+    @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=True)
+    def test_copies_live_set_to_parquet_and_returns_count(self, _mock_dev_mode, _mock_config, mock_psycopg):
+        mock_cursor = mock.MagicMock()
+        mock_cursor.fetchone.return_value = (3,)
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+        result = export_ducklake_table_to_parquet(1, "shadow_1_models", "my_view")
+
+        # latest-overwrite single-file destination keyed by team + table
+        assert result.destination == "s3://ducklake-dev/ch_export/team_1/my_view.parquet"
+        assert result.schema_name == "shadow_1_models"
+        assert result.table_name == "my_view"
+        assert result.row_count == 3
+
+        # COPY uses a quoted identifier and a literal destination — never string interpolation
+        expected_copy = psql.SQL("COPY (SELECT * FROM {}) TO {} (FORMAT parquet)").format(
+            psql.Identifier("shadow_1_models", "my_view"),
+            psql.Literal("s3://ducklake-dev/ch_export/team_1/my_view.parquet"),
+        )
+        assert mock_cursor.execute.call_args_list[0] == mock.call(expected_copy)
+
+    @mock.patch("posthog.ducklake.client.psycopg")
+    @mock.patch("posthog.ducklake.client.get_org_config", return_value={"DUCKLAKE_BUCKET": "prod-ducklake"})
+    @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=False)
+    def test_production_resolves_bucket_from_org_config(self, _mock_dev_mode, mock_org_config, mock_psycopg):
+        mock_cursor = mock.MagicMock()
+        mock_cursor.fetchone.return_value = (0,)
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+        with mock.patch("posthog.ducklake.common._get_org_id_for_team", return_value="org-456"):
+            result = export_ducklake_table_to_parquet(1, "shadow_1_models", "my_view")
+
+        mock_org_config.assert_called_once_with("org-456")
+        assert result.destination == "s3://prod-ducklake/ch_export/team_1/my_view.parquet"
+
+
+class TestCoerceLossyColumns:
+    def test_wraps_lossy_columns_with_cast(self):
+        cur = mock.MagicMock()
+        # DESCRIBE rows: (column_name, column_type, ...)
+        cur.fetchall.return_value = [("big_h", "HUGEINT"), ("label", "VARCHAR")]
+
+        result = _coerce_lossy_columns(cur, "SELECT big_h, label FROM t", None)
+
+        expected = psql.SQL("SELECT * REPLACE ({repl}) FROM ({inner}) AS _ph_coerce").format(
+            repl=psql.SQL(", ").join(
+                [
+                    psql.SQL("CAST({col} AS {target}) AS {col}").format(
+                        col=psql.Identifier("big_h"),
+                        target=psql.SQL("DECIMAL(38, 0)"),
+                    )
+                ]
+            ),
+            inner=psql.SQL("SELECT big_h, label FROM t"),
+        )
+        assert result == expected
+
+    def test_returns_original_when_no_lossy_columns(self):
+        cur = mock.MagicMock()
+        cur.fetchall.return_value = [("label", "VARCHAR"), ("n", "BIGINT")]
+
+        result = _coerce_lossy_columns(cur, "SELECT label, n FROM t", None)
+
+        assert result == psql.SQL("SELECT label, n FROM t")
+
+    def test_returns_original_when_probe_fails(self):
+        cur = mock.MagicMock()
+        cur.execute.side_effect = Exception("DESCRIBE not supported")
+
+        result = _coerce_lossy_columns(cur, "SELECT 1", None)
+
+        assert result == psql.SQL("SELECT 1")

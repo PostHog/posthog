@@ -91,6 +91,17 @@ def get_duckgres_shadow_storage_delta_mib_metric() -> MetricHistogramFloat:
     )
 
 
+def get_duckgres_export_finished_metric(status: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"status": status})
+        .create_counter(
+            "duckgres_export_to_clickhouse_finished",
+            "Number of DuckLake→ClickHouse parquet export activities finished, by status.",
+        )
+    )
+
+
 def get_clickhouse_materialization_duration_metric() -> MetricHistogramFloat:
     return workflow.metric_meter().create_histogram_float(
         "clickhouse_materialization_duration_seconds",

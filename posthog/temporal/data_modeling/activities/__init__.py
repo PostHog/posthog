@@ -5,7 +5,11 @@ from .materialize_view import MaterializeViewInputs, MaterializeViewResult, mate
 from .materialize_view_duckgres import (
     DuckgresShadowInputs,
     DuckgresShadowResult,
+    DuckLakeExportActivityResult,
+    DuckLakeExportInputs,
+    check_duckgres_export_enabled_activity,
     check_duckgres_shadow_enabled_activity,
+    export_ducklake_to_parquet_activity,
     materialize_view_duckgres_activity,
 )
 from .preempt_dag_run import PreemptDAGRunInputs, preempt_dag_run_activity
@@ -20,6 +24,8 @@ __all__ = [
     "CreateDataModelingJobInputs",
     "DuckgresShadowInputs",
     "DuckgresShadowResult",
+    "DuckLakeExportActivityResult",
+    "DuckLakeExportInputs",
     "GetDAGStructureInputs",
     "FailMaterializationInputs",
     "MaterializeViewInputs",
@@ -28,8 +34,10 @@ __all__ = [
     "PrepareQueryableTableInputs",
     "PrepareQueryableTableResult",
     "SucceedMaterializationInputs",
+    "check_duckgres_export_enabled_activity",
     "check_duckgres_shadow_enabled_activity",
     "create_data_modeling_job_activity",
+    "export_ducklake_to_parquet_activity",
     "fail_materialization_activity",
     "materialize_view_activity",
     "materialize_view_duckgres_activity",
