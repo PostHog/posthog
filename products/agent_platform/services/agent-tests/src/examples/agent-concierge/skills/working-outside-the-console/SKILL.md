@@ -1,14 +1,14 @@
-# Skill — working outside the console
+# Skill — working outside PostHog Code
 
 How to be useful when there is no UI — load when the session
-reports a non-console client kind (Claude Code, Cursor, MCP
+reports a non-PostHog-Code client kind (Claude Code, Cursor, MCP
 Inspector, or any unknown shape) or when none of the `focus_*` /
 `toast` client tools are in your tool surface. Without client
 tools, every navigation has to happen in text.
 
-## What changes vs the console
+## What changes vs PostHog Code
 
-| Capability                               | Console                               | MCP / IDE                                   |
+| Capability                               | PostHog Code                          | MCP / IDE                                   |
 | ---------------------------------------- | ------------------------------------- | ------------------------------------------- |
 | User sees the artifact you're working on | Yes — `focus_*` tools drive the panel | No — the user sees only your text           |
 | User can context-switch by clicking      | Yes — they can wander                 | No — the conversation IS the navigation     |
@@ -19,7 +19,7 @@ tools, every navigation has to happen in text.
 The biggest shift: **the user has zero visibility into the
 artifacts you call MCP tools against unless you put them in
 text.** A `agent-applications-revisions-bundle-retrieve` that
-returns 5 files in the console can be opened in the panel; over
+returns 5 files in PostHog Code can be opened in the panel; over
 MCP, you have to summarize.
 
 ## Compensating moves
@@ -33,7 +33,7 @@ browser at app.posthog.com, a curl) if they want to verify.
 > Reading `weekly-digest` (id `app_abc123`), live revision
 > `r_xyz789`, file `agent.md` (87 lines, last edited 2026-05-12).
 
-vs the console-friendly equivalent:
+vs the PostHog Code-friendly equivalent:
 
 > Opening weekly-digest's live revision in the panel.
 
@@ -62,7 +62,7 @@ Don't dump the file unprompted — offer to.
 
 ### 3. Tighter sequencing
 
-In the console, you can fire multiple MCP calls in one turn
+In PostHog Code, you can fire multiple MCP calls in one turn
 because the user is watching the panel transitions. Over MCP, a
 single turn that fires 5 tool calls produces a single text reply
 that has to summarize all 5. Prefer:
@@ -72,26 +72,26 @@ that has to summarize all 5. Prefer:
 - "Want me to also pull X?" as a question, not as another tool
   call
 
-## Detecting that you're outside the console
+## Detecting that you're outside PostHog Code
 
 Look at the session-start info event — it reports the client
 kind. Treat it as a hint, not a contract:
 
-- A console client (web app, dock) → console
+- A PostHog Code client (web app, dock) → PostHog Code
 - An IDE / MCP client (Claude Code, Cursor, MCP Inspector, etc.)
   → text-only mode
 - A Slack client → Slack (use the slack flow instead, not this
   skill — but slack isn't in v0 spec, so this won't fire today)
-- Unknown or missing → assume non-console / MCP, since text-only
+- Unknown or missing → assume non-PostHog-Code / MCP, since text-only
   is the safer default
 
 The reliable signal is your own tool surface: if the `focus_*`
-and `toast` client tools are present you're in the console; if
+and `toast` client tools are present you're in PostHog Code; if
 they're absent, you're not.
 
 ## MCP-specific affordances you DO have
 
-The MCP transport exposes things the console doesn't always:
+The MCP transport exposes things PostHog Code doesn't always:
 
 - **The `Mcp-Session-Id` header** — the connecting MCP client's
   session id. Multiple chat-trigger sessions from the same MCP
@@ -107,12 +107,12 @@ The MCP transport exposes things the console doesn't always:
   have a "stop generating" button. The runner gets the cancel
   signal cleanly.
 
-## When the user asks for something only the console can do
+## When the user asks for something only PostHog Code can do
 
 E.g. "show me the file tree visually" or "click that button". Be
 direct:
 
-> The file tree view is a console-only thing — you're connected
+> The file tree view is a PostHog Code-only thing — you're connected
 > via MCP. I can list the file paths in text instead:
 >
 > - agent.md
@@ -120,7 +120,7 @@ direct:
 > - skills/slack-thread-protocol.md
 > - tests/happy-path.json
 >
-> Or, if you want the visual view, open your PostHog agent console
+> Or, if you want the visual view, open PostHog Code
 > → weekly-digest → bundle.
 
 Don't pretend you can drive a UI that isn't there.
@@ -147,7 +147,7 @@ mostly apply (text-only) but with Slack-specific formatting:
   backticks)
 - Stay terse — channel signal-to-noise matters
 - Always thread your replies under the triggering message
-- Don't paste long bundle contents in channel — link to the
-  console / DM instead
+- Don't paste long bundle contents in channel — link to
+  PostHog Code / DM instead
 
 Until the slack trigger lands, you won't see this client kind.
