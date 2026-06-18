@@ -244,6 +244,7 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
@@ -6739,6 +6740,7 @@ const api = {
                 content?: string | null
                 trace_id?: string
                 attached_context?: AttachedContext[]
+                initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
             }
         ): Promise<{
             task_id: string
