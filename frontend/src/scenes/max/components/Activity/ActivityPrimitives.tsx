@@ -131,8 +131,8 @@ export function ActivityHeader({
                     )}
                 </div>
                 {hasDetails && (
-                    <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
-                        <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
+                    <div className="relative shrink-0 flex flex-col items-start justify-center h-full">
+                        <button className="inline-flex items-center hover:opacity-70 transition-opacity shrink-0 cursor-pointer">
                             <span className={clsx('transform transition-transform', isDetailsExpanded && 'rotate-90')}>
                                 <IconChevronRight />
                             </span>
