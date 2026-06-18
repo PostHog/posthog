@@ -59,11 +59,19 @@ class MaterializedColumnInfo:
 
 @dataclass(frozen=True)
 class PropertyTypes:
-    """Property-type maps for the properties a query references.
+    """The inferred types of the properties a query touches, split by where the property lives.
 
-    Shapes match what ``PropertySwapper`` consumes: values are ``{"type": ...}`` dicts,
-    event entries may carry a ``"dmat"`` materialized-slot column, and group keys are
-    ``"{group_type_index}_{name}"``. Properties without a known type are absent.
+    Each map goes from a property to a small info dict. That info dict always carries a
+    ``"type"`` — the property's inferred type as a string (``"Numeric"``, ``"Boolean"``,
+    ``"DateTime"``, …) that the type-resolution pass (``PropertySwapper``) uses to decide
+    how to read and cast the otherwise-untyped raw value. Event properties may also carry
+    a ``"dmat"`` key naming a materialized column that backs them, which lets the compiler
+    read that column directly instead of unpacking JSON.
+
+    Keys are the bare property name for ``event`` and ``person``. ``group`` keys are
+    namespaced as ``"{group_type_index}_{name}"`` (e.g. ``"0_industry"``), because the same
+    property name can exist under different group types. A property missing from its map has
+    no known type and is compiled as an untyped JSON value — that is a normal case, not an error.
     """
 
     event: dict[str, dict[str, str | None]] = field(default_factory=dict)
