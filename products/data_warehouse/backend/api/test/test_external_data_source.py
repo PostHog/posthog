@@ -424,9 +424,10 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
-        return_value=False,
+        return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
+        # Enabled schema with an existing schedule: a frequency change re-issues (updates) it.
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
             name="Customers",
@@ -1290,7 +1291,7 @@ class TestExternalDataSource(APIBaseTest):
         assert returned_prefixes == sorted(expected_prefixes)
 
     def test_connections_returns_lightweight_direct_connection_options(self):
-        source = ExternalDataSource.objects.create(
+        postgres_source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -1302,18 +1303,36 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
         )
+        mysql_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="MySQL",
+            created_by=self.user,
+            prefix="Reporting MySQL",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "password": "secret"},
+            connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
         self.assertEqual(response.status_code, 200)
+        payload = sorted(response.json(), key=lambda item: item["prefix"])
         self.assertEqual(
-            response.json(),
+            payload,
             [
                 {
-                    "id": str(source.pk),
+                    "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
-                }
+                },
+                {
+                    "id": str(mysql_source.pk),
+                    "prefix": "Reporting MySQL",
+                    "engine": "mysql",
+                },
             ],
         )
 
@@ -1581,6 +1600,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
+                    "row_filters": None,
                     "available_columns": [],
                     "source": None,
                 }
@@ -2564,6 +2584,61 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_rejects_row_filters(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "accounts",
+                            "should_sync": True,
+                            "sync_type": None,
+                            "row_filters": [{"column": "id", "operator": ">", "value": 10}],
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
         self, mock_get_source
     ):
@@ -3209,7 +3284,7 @@ class TestExternalDataSource(APIBaseTest):
         assert legacy_schema.name == "public.auth_group"
         assert legacy_schema.table_id == legacy_table.id
 
-    def test_create_direct_non_postgres_is_rejected(self):
+    def test_create_direct_unsupported_source_type_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -3224,10 +3299,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
         )
 
-    def test_source_prefix_rejects_direct_non_postgres(self):
+    def test_source_prefix_rejects_direct_unsupported_source_type(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
             data={
@@ -3240,8 +3315,20 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
         )
+
+    def test_source_prefix_accepts_direct_mysql(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={
+                "source_type": "MySQL",
+                "access_method": "direct",
+                "prefix": "Read replica",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):

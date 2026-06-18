@@ -961,6 +961,7 @@ export type ActivityLogListParams = {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -1040,6 +1041,7 @@ export const ActivityLogListScope = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -1106,6 +1108,7 @@ export const ActivityLogListScope = {
  * * `UserGroup` - UserGroup
  * * `BatchExport` - BatchExport
  * * `BatchImport` - BatchImport
+ * * `ExportedAsset` - ExportedAsset
  * * `Integration` - Integration
  * * `Annotation` - Annotation
  * * `Tag` - Tag
@@ -1173,6 +1176,7 @@ export const ActivityLogListScopesItem = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',

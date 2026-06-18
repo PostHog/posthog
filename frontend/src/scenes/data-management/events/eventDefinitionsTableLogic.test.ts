@@ -27,9 +27,10 @@ describe('eventDefinitionsTableLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => {
-                    const limit = req.url.searchParams.get('limit')
-                    const offset = req.url.searchParams.get('offset')
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const limit = url.searchParams.get('limit')
+                    const offset = url.searchParams.get('offset')
 
                     if (limit === '50' && !offset) {
                         return [
@@ -39,7 +40,7 @@ describe('eventDefinitionsTableLogic', () => {
                                 count: 50,
                                 previous: null,
                                 next: `api/projects/${MOCK_TEAM_ID}/event_definitions${
-                                    combineUrl(req.url.pathname, {
+                                    combineUrl(url.pathname, {
                                         limit: 50,
                                         offset: 50,
                                         event_type: EventDefinitionType.Event,
@@ -55,7 +56,7 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventDefinitions.slice(50, 56),
                                 count: 6,
                                 previous: `api/projects/${MOCK_TEAM_ID}/event_definitions${
-                                    combineUrl(req.url.pathname, {
+                                    combineUrl(url.pathname, {
                                         limit: 50,
                                         event_type: EventDefinitionType.Event,
                                     }).search
@@ -65,9 +66,10 @@ describe('eventDefinitionsTableLogic', () => {
                         ]
                     }
                 },
-                '/api/projects/:team/property_definitions': (req) => {
-                    const limit = req.url.searchParams.get('limit')
-                    const offset = req.url.searchParams.get('offset')
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const limit = url.searchParams.get('limit')
+                    const offset = url.searchParams.get('offset')
 
                     if (limit === '5' && !offset) {
                         return [
@@ -77,8 +79,8 @@ describe('eventDefinitionsTableLogic', () => {
                                 count: 5,
                                 previous: null,
                                 next: `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                                    combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
+                                    combineUrl(url.pathname, {
+                                        ...url.searchParams,
                                         limit: 5,
                                         offset: 5,
                                     }).search
@@ -93,8 +95,8 @@ describe('eventDefinitionsTableLogic', () => {
                                 results: mockEventPropertyDefinitions.slice(5, 8),
                                 count: 3,
                                 previous: `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                                    combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
+                                    combineUrl(url.pathname, {
+                                        ...url.searchParams,
                                         limit: 5,
                                         offset: undefined,
                                     }).search
@@ -104,10 +106,11 @@ describe('eventDefinitionsTableLogic', () => {
                         ]
                     }
                 },
-                '/api/environments/:team_id/events': (req) => {
+                '/api/environments/:team_id/events': ({ request }) => {
+                    const url = new URL(request.url)
                     if (
-                        req.url.searchParams.get('limit') === '1' &&
-                        req.url.searchParams.get('event') === 'event_with_example'
+                        url.searchParams.get('limit') === '1' &&
+                        url.searchParams.get('event') === 'event_with_example'
                     ) {
                         return [
                             200,
@@ -119,7 +122,7 @@ describe('eventDefinitionsTableLogic', () => {
                             },
                         ]
                     }
-                    if (req.url.searchParams.get('limit') === '1') {
+                    if (url.searchParams.get('limit') === '1') {
                         return [200, { results: [mockEvent], next: null }]
                     }
                 },

@@ -71,6 +71,15 @@ LOGGER = get_logger(__name__)
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
+    # can't be parsed, or password auth is missing a username/password. Shared by every
+    # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
+    # so retrying just replays the same invalid credentials; stop and tell the customer to fix it.
+    "SSHTunnel auth is not valid": (
+        "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+        "(private key, passphrase, or username and password) on the source's SSH tunnel "
+        "configuration, then re-enable the sync."
+    ),
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",

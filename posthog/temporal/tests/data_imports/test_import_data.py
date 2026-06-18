@@ -103,6 +103,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             require_ssl=True,
             is_initial_sync=True,
             enabled_columns=None,
+            row_filters=[],
         )
 
 
@@ -145,6 +146,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             require_ssl=True,
             is_initial_sync=True,
             enabled_columns=None,
+            row_filters=[],
         )
 
 
@@ -199,6 +201,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             require_ssl=True,
             is_initial_sync=True,
             enabled_columns=None,
+            row_filters=[],
         )
 
 
@@ -268,6 +271,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             require_ssl=True,
             is_initial_sync=True,
             enabled_columns=None,
+            row_filters=[],
         )
 
 

@@ -861,7 +861,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations")
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
@@ -884,7 +884,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={204: None},
         description="Delete a notification destination by deleting its HogFunction group atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations/delete")
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["logs:write"])
     def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
@@ -948,7 +948,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
         ),
     )
-    @action(detail=True, methods=["GET"], url_path="events")
+    @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         queryset = (
@@ -979,7 +979,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: LogsAlertConfigurationSerializer},
         description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
     )
-    @action(detail=True, methods=["POST"], url_path="reset")
+    @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         previous_failures = alert.consecutive_failures
@@ -1030,7 +1030,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Simulate a logs alert on historical data using the full state machine. "
         "Read-only — no alert check records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate")
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["logs:read"])
     def simulate(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertSimulateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

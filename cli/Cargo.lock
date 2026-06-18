@@ -1851,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-cli"
-version = "0.7.24"
+version = "0.7.25"
 dependencies = [
  "anyhow",
  "chrono",

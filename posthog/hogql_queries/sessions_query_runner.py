@@ -23,9 +23,10 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.models.property import Property
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action
@@ -322,8 +323,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             for property in self.query.fixedProperties
                         )
                 if self.query.personId:
-                    with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
+                    with self.timings.measure("person_id"), personhog_caller_tag("persons/sessions-query"):
+                        person: Optional[Person] = get_person_by_pk_or_uuid(
+                            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                        )
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
                         distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]
