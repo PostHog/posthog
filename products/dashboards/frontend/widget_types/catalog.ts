@@ -22,7 +22,7 @@ import {
     ExperimentsListWidgetPreview,
 } from '../widgets/previews/ExperimentsWidgetPreviews'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
-import type { WidgetAvailabilityConfig } from './widgetAvailability'
+import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
 
@@ -99,6 +99,8 @@ export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ cl
 
 type DashboardWidgetGroupProductIntroConfig = {
     productKey: ProductKey
+    /** Setup requirement that gates the nudge — shown only while this requirement is unmet. */
+    requirement: WidgetAvailabilityRequirementId
     /** One-liner pitching why the product is worth a look — shown up front in the picker nudge. */
     valueProp: string
     /** Label for the CTA link (e.g. "Explore error tracking"). */
@@ -114,12 +116,14 @@ type DashboardWidgetGroupProductIntroConfig = {
 export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
     error_tracking: {
         productKey: ProductKey.ERROR_TRACKING,
+        requirement: 'exception_autocapture',
         valueProp: 'Catch and resolve the errors hurting your users.',
         ctaLabel: 'Explore error tracking',
         docsHref: 'https://posthog.com/docs/error-tracking',
     },
     session_replay: {
         productKey: ProductKey.SESSION_REPLAY,
+        requirement: 'session_replay_enabled',
         valueProp: 'Watch real sessions to see exactly where users get stuck.',
         ctaLabel: 'Explore session replay',
         docsHref: 'https://posthog.com/docs/session-replay',

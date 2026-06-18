@@ -22,7 +22,7 @@ import {
     getDashboardWidgetGroupIcon,
     getDashboardWidgetGroupProductIntro,
 } from '../widget_types/catalog'
-import { getWidgetAvailabilityStatus, type WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
+import { isWidgetAvailabilityRequirementMet } from '../widget_types/widgetAvailability'
 import {
     type AddWidgetPayload,
     getAddButtonLabel,
@@ -136,13 +136,8 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                     {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
                         // Nudge only when the product's setup requirement (a project setting) is unmet.
-                        const availabilityConfig = group.widgets
-                            .map(({ entry }) => entry.availability)
-                            .find((availability): availability is WidgetAvailabilityConfig => !!availability)
                         const showProductIntro =
-                            !!productIntro &&
-                            !!availabilityConfig &&
-                            !getWidgetAvailabilityStatus(availabilityConfig, currentTeam).isAvailable
+                            !!productIntro && !isWidgetAvailabilityRequirementMet(productIntro.requirement, currentTeam)
                         const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
                         const isCollapsed = collapsedGroups.has(group.groupId)
 

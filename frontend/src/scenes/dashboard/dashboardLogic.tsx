@@ -1356,6 +1356,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         addWidgetCollapsedGroups: [
             [] as string[],
             {
+                setAddWidgetModalOpen: (state, { open }) => (open ? [] : state),
                 toggleAddWidgetCollapsedGroup: (state, { groupId }) => {
                     const collapsed = new Set(state)
                     if (collapsed.has(groupId)) {
