@@ -53,6 +53,10 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                         <LemonButton
                             size="small"
                             noPadding
+                            // Enlarge the remove hit target (offset by an equal negative margin so the
+                            // visual footprint is unchanged) — near-misses on the X used to fall through to
+                            // the snack body and trigger its click/edit handler instead of removing.
+                            className="!p-1 -m-1"
                             icon={<IconX />}
                             onClick={(e) => {
                                 e.stopPropagation()
