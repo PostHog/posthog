@@ -650,7 +650,9 @@ class TestLinkedinAdsSource:
             db_incremental_field_last_value=None,
         )
 
-        list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
 
         date_start = mock_client.get_data_by_resource.call_args[1]["date_start"]
         parsed = dt.date.fromisoformat(date_start)
@@ -679,6 +681,8 @@ class TestLinkedinAdsSource:
             db_incremental_field_last_value=dt.date(2024, 1, 1),
         )
 
-        list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
 
         assert mock_client.get_data_by_resource.call_args[1]["date_start"] == "2024-01-01"
