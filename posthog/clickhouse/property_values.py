@@ -43,7 +43,7 @@ def PROPERTY_VALUES_TABLE_SQL() -> str:
         PROPERTY_VALUES_TABLE_BASE_SQL
         + """
 ORDER BY (team_id, property_type, property_key, property_value)
-TTL last_seen + INTERVAL 30 DAY DELETE
+TTL last_seen + INTERVAL 7 DAY DELETE
 SETTINGS
     index_granularity = 8192
 """

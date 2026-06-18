@@ -1003,7 +1003,7 @@ database "posthog" {
 
   table "property_values" {
     order_by = ["team_id", "property_type", "property_key", "property_value"]
-    ttl      = "last_seen + toIntervalDay(30)"
+    ttl      = "last_seen + toIntervalDay(7)"
     settings = {
       index_granularity = "8192"
     }

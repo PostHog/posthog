@@ -153,7 +153,7 @@ CREATE TABLE posthog.property_values (
   property_count SimpleAggregateFunction(sum, UInt64),
   last_seen SimpleAggregateFunction(max, DateTime) DEFAULT now(),
   INDEX idx_property_value_ngrambf lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) TTL last_seen + toIntervalDay(30) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) TTL last_seen + toIntervalDay(7) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.property_values_distributed (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
