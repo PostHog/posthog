@@ -5,6 +5,7 @@ import { IconWarning, IconWrench } from '@posthog/icons'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 
 import type { McpToolCallMessage } from '../../maxTypes'
+import { MessageTemplate } from '../../messages/MessageTemplate'
 import { Activity, ActivityToggleSection, ActivityStatus } from './ActivityPrimitives'
 
 export function SandboxActivity({
@@ -61,6 +62,18 @@ export function renderContentBlocks(content: unknown[]): string {
     return content.map(contentBlockText).join('\n')
 }
 
+function SandboxToolMessageBubble({ children }: { children: React.ReactNode }): JSX.Element | null {
+    if (!children) {
+        return null
+    }
+
+    return (
+        <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
+            {children}
+        </MessageTemplate>
+    )
+}
+
 export function SandboxToolActivity({
     message,
     icon,
@@ -104,15 +117,14 @@ export function SandboxToolActivity({
         </div>
     )
 
+    const hasFailureMessage = message.status === 'failed' && !!message.error?.message
     const activityBody =
-        message.status === 'failed' && message.error?.message ? (
+        hasFailureMessage || children ? (
             <div className="flex flex-col gap-2">
-                <div className="text-danger text-sm">{message.error.message}</div>
+                {hasFailureMessage && <div className="text-danger text-sm">{message.error?.message}</div>}
                 {children}
             </div>
-        ) : (
-            children
-        )
+        ) : null
 
     return (
         <Activity
@@ -124,7 +136,7 @@ export function SandboxToolActivity({
             failedIcon={<IconWarning className="text-danger size-3" />}
             details={details}
         >
-            {activityBody}
+            <SandboxToolMessageBubble>{activityBody}</SandboxToolMessageBubble>
         </Activity>
     )
 }

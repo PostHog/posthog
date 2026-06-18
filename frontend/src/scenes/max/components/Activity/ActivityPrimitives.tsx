@@ -281,13 +281,13 @@ export function Activity({
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}
             />
-            {children}
             {isDetailsExpanded && hasDetails && (
                 <ActivityDetails hasIcon={!!icon}>
                     {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
                     {details}
                 </ActivityDetails>
             )}
+            {children}
         </div>
     )
 }

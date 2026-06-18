@@ -35,8 +35,7 @@ const rawToolCall: ToolInvocation = {
     toolCallId: 'tc-1',
     rawServerName: 'posthog',
     rawToolName: 'exec',
-    resolvedKey: 'insight-create',
-    input: {},
+    input: { command: 'call insight-create {"name":"Signups"}' },
     status: 'pending',
     contentBlocks: [],
 }

@@ -244,8 +244,8 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
 }
 
 /**
- * The shape `mcpToolRegistry` renderers receive — a merged `ToolInvocation` flattened with the
- * fields the renderer adapters read. Built by `sandboxStreamLogic` from ACP frames.
+ * The shape `mcpToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
+ * renderer-facing fields resolved at render time.
  */
 export interface McpToolCallMessage {
     /** Stable id — the tool call id. */
