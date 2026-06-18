@@ -8,8 +8,6 @@ import {
 } from '~/ai-observability/_tests/fixtures'
 import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { parseTeamsList } from '~/ingestion/event-processing/split-ai-events-step'
-import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 import { logger } from '~/utils/logger'
 
 import {
@@ -23,21 +21,20 @@ import {
     unwrapOrLog,
 } from './evaluation-scheduler'
 
-jest.mock('~/ai-observability/services/temporal.service')
+jest.mock('~/ai-observability/services/temporal.service', () => {
+    const actual = jest.requireActual('~/ai-observability/services/temporal.service')
+    return {
+        ...actual,
+        TemporalService: jest.fn(),
+    }
+})
 jest.mock('~/ai-observability/services/evaluation-manager.service')
 jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
-    let hub: Hub
-
     const teamId = 1
 
-    beforeEach(async () => {
-        hub = await createHub()
-    })
-
-    afterEach(async () => {
-        await closeHub(hub)
+    afterEach(() => {
         jest.clearAllMocks()
     })
 
