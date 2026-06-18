@@ -2117,6 +2117,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
 
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
@@ -2124,6 +2127,67 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+        buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
+        self.assertEqual(sum(int(count) for count in buckets.values()), 1)
+
+    def test_remote_config_with_psak_rejects_wrong_scope(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "remote-config-wrong-scope", "scopes": ["endpoint:read"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        token = response.json()["value"]
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remote_config_with_psak_prevents_cross_team_access(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "remote-config", "scopes": ["feature_flag:read"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        token = response.json()["value"]
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="phc_other_team_token",
+            name="Other Team",
+        )
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="other-team-flag",
+            name="Other Team Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"other_team": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(

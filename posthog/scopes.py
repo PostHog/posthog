@@ -126,6 +126,7 @@ APIScopeObjectOrNotSupported = Literal[
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 
+# Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in frontend/src/lib/scopes.tsx
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     ("feature_flag", "read"),

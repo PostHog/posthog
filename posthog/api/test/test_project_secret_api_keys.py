@@ -1,6 +1,6 @@
-import pytest
-
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
 from posthog.models import Organization, OrganizationMembership, Team
@@ -59,12 +59,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    @pytest.mark.parametrize(
-        "label,scope",
+    @parameterized.expand(
         [
             ("the key to rule them all", "endpoint:read"),
             ("feature-flag-key", "feature_flag:read"),
-        ],
+        ]
     )
     def test_create_project_secret_api_key(self, label, scope):
         response = self.client.post(

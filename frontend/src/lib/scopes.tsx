@@ -217,7 +217,10 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
     label: string
     scopes: string[]
     isCloudOnly?: boolean
-}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
+}[] = [
+    { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'feature_flag_read', label: 'Feature flag read', scopes: ['feature_flag:read'] },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
