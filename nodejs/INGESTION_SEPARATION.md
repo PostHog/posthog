@@ -252,13 +252,21 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       DAG is clean: no lane imports another lane, and no shared code (other than composition roots)
       imports a lane.**
 - [ ] **Exit gate:** `pnpm test:full` green.
-- [ ] **Exit gate:** `pnpm test:full` green.
 
 ### Phase 3 — split mixed tests
 
-- [ ] Find test files mixing CDP and ingestion logic.
-- [ ] Split ingestion logic into its own test (no tests removed).
+- [x] Find test files mixing CDP and ingestion logic. None found: 0 cdp test files import ingestion, and
+      every ingestion test that imports cdp does so only to wire the hog-transformer (the Phase-1
+      inversion) or to use shared cdp test helpers (`cdp/_tests/redis`, `cdp/_tests/fixtures`) — no cdp
+      _logic_ is embedded in ingestion tests. Phase 1's decoupling already separated the test logic.
+- [x] Split ingestion logic into its own test (no tests removed). N/A — nothing mixed to split (above).
+      Optional future tidy: relocate the shared `cdp/_tests/redis` + `cdp/_tests/fixtures` helpers used by
+      a few ingestion tests to a neutral `tests/helpers/` spot (benign test-infra reach, not blocking).
 - [ ] Move integration/e2e tests into their dedicated folders; keep unit tests beside source.
+      NOTE: keep the dedicated folders **per-lane** (e.g. `ingestion/<lane>/integration/`) so Phase 4's
+      path-based test selection can still attribute an integration/e2e test to its lane — moving them to a
+      single top-level folder would break that mapping. Organizational + sizable; best done where the
+      full suite can run (CI/devbox) since it changes many test paths.
 - [ ] **Exit gate:** `pnpm test:full` green.
 
 ### Phase 4 — wire CI test selection
