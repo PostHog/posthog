@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
-import { DashboardsFinder } from './DashboardsFinder'
+import { DashboardsExplorer } from './DashboardsExplorer'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 jest.mock('lib/lemon-ui/Link', () => ({
@@ -17,7 +17,7 @@ jest.mock('./dashboardsDnd', () => ({
     DroppableFolder: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-describe('DashboardsFinder', () => {
+describe('DashboardsExplorer', () => {
     const navigateToFolder = jest.fn()
     const pasteIntoFolder = jest.fn()
     const renameDashboard = jest.fn()
@@ -57,7 +57,7 @@ describe('DashboardsFinder', () => {
                 { label: 'Marketing', path: 'Marketing' },
             ],
         })
-        render(<DashboardsFinder />)
+        render(<DashboardsExplorer />)
         expect(screen.getByText('All dashboards')).toBeInTheDocument()
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
@@ -69,7 +69,7 @@ describe('DashboardsFinder', () => {
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [] },
             breadcrumb: [{ label: 'All dashboards', path: '' }],
         })
-        render(<DashboardsFinder />)
+        render(<DashboardsExplorer />)
         fireEvent.click(screen.getByText('Q1'))
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing/Q1')
     })
@@ -81,7 +81,7 @@ describe('DashboardsFinder', () => {
             clipboard: { mode: 'cut', dashboardId: 1 },
             currentFolder: 'Marketing',
         })
-        render(<DashboardsFinder />)
+        render(<DashboardsExplorer />)
         fireEvent.click(screen.getByText('Paste into this folder'))
         expect(pasteIntoFolder).toHaveBeenCalledWith('Marketing')
     })
@@ -92,7 +92,7 @@ describe('DashboardsFinder', () => {
             breadcrumb: [{ label: 'All dashboards', path: '' }],
             renamingDashboardId: 1,
         })
-        render(<DashboardsFinder />)
+        render(<DashboardsExplorer />)
         const input = screen.getByLabelText('Rename dashboard')
         fireEvent.change(input, { target: { value: 'New name' } })
         fireEvent.blur(input)
@@ -105,7 +105,7 @@ describe('DashboardsFinder', () => {
             breadcrumb: [{ label: 'All dashboards', path: '' }],
             renamingDashboardId: 1,
         })
-        render(<DashboardsFinder />)
+        render(<DashboardsExplorer />)
         const input = screen.getByLabelText('Rename dashboard')
         fireEvent.change(input, { target: { value: 'Changed' } })
         fireEvent.keyDown(input, { key: 'Escape' })

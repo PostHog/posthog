@@ -6,14 +6,12 @@ import { DashboardBasicType } from '~/types'
 export const UNFILED_DASHBOARDS_FOLDER = 'Unfiled/Dashboards'
 const UNFILED_SEGMENTS = splitPath(UNFILED_DASHBOARDS_FOLDER)
 
-export interface DashboardFolderGroup {
-    folder: string
-    dashboards: DashboardBasicType[]
-}
-
-// The folder a FileSystem item sits in = its path minus the trailing item name.
-function parentFolder(path: string): string {
-    return joinPath(splitPath(path).slice(0, -1))
+export interface FolderTreeNode {
+    // Full folder path, e.g. 'Marketing/Q1'.
+    path: string
+    // Last path segment, for display.
+    label: string
+    children: FolderTreeNode[]
 }
 
 // Index dashboard FileSystem rows by their `ref` (the dashboard id as a string) for O(1) lookup.
@@ -27,23 +25,41 @@ export function buildEntryByRef(entries: FileSystemEntry[]): Record<string, File
     return byRef
 }
 
-// Group dashboards under their containing folder, preserving the incoming dashboard order within each
-// group and sorting folders alphabetically. Dashboards without a folder entry fall back to Unfiled.
-export function groupDashboardsByFolder(
+// Build the nested folder tree the tree arm renders: every folder that contains a dashboard, plus all
+// its ancestors, derived from the dashboard paths. Unfiled dashboards contribute the Unfiled subtree.
+// (Folders with no dashboards anywhere beneath them don't appear yet — that needs loading folder rows.)
+export function buildFolderTree(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>
-): DashboardFolderGroup[] {
-    const byFolder = new Map<string, DashboardBasicType[]>()
+): FolderTreeNode[] {
+    const folderPaths = new Set<string>()
     for (const dashboard of dashboards) {
         const entry = entryByRef[String(dashboard.id)]
-        const folder = (entry?.path && parentFolder(entry.path)) || UNFILED_DASHBOARDS_FOLDER
-        const group = byFolder.get(folder) ?? []
-        group.push(dashboard)
-        byFolder.set(folder, group)
+        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
+        for (let i = 1; i <= segments.length; i++) {
+            folderPaths.add(joinPath(segments.slice(0, i)))
+        }
     }
-    return [...byFolder.entries()]
-        .map(([folder, groupedDashboards]) => ({ folder, dashboards: groupedDashboards }))
-        .sort((a, b) => a.folder.localeCompare(b.folder))
+
+    const byPath = new Map<string, FolderTreeNode>()
+    const roots: FolderTreeNode[] = []
+    // Shallowest first so a node's parent always exists before the node is attached.
+    const sorted = [...folderPaths].sort((a, b) => splitPath(a).length - splitPath(b).length || a.localeCompare(b))
+    for (const path of sorted) {
+        const segments = splitPath(path)
+        const node: FolderTreeNode = { path, label: segments.at(-1) ?? path, children: [] }
+        byPath.set(path, node)
+        const parent = segments.length > 1 ? byPath.get(joinPath(segments.slice(0, -1))) : undefined
+        ;(parent ? parent.children : roots).push(node)
+    }
+
+    const sortChildren = (nodes: FolderTreeNode[]): void => {
+        nodes.sort((a, b) => a.label.localeCompare(b.label))
+        nodes.forEach((node) => sortChildren(node.children))
+    }
+    sortChildren(roots)
+    return roots
 }
 
 // dnd-kit ids for the grid: dashboards are draggable, folder headers are droppable. We namespace and

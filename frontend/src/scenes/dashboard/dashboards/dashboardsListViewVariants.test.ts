@@ -10,8 +10,11 @@ describe('resolveDashboardsListViewVariant', () => {
         ['unknown', 'control'],
         [true, 'control'],
         ['control', 'control'],
-        ['grid', 'grid'],
-        ['finder', 'finder'],
+        ['explorer', 'explorer'],
+        ['tree', 'tree'],
+        // Retired arm names now fall back to control rather than enrolling a treatment arm.
+        ['grid', 'control'],
+        ['finder', 'control'],
     ]
 
     it.each(cases)('flag value %p resolves to %p', (value, expected) => {

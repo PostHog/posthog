@@ -13,12 +13,12 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
 import {
     buildEntryByRef,
-    DashboardFolderGroup,
+    buildFolderTree,
     folderBreadcrumb,
     FolderBreadcrumb,
     folderContents,
     FolderContents,
-    groupDashboardsByFolder,
+    FolderTreeNode,
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
@@ -117,9 +117,9 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboardFileSystemEntries],
             (entries): Record<string, FileSystemEntry> => buildEntryByRef(entries),
         ],
-        dashboardsByFolder: [
+        folderTree: [
             (s) => [s.dashboards, s.entryByRef],
-            (dashboards, entryByRef): DashboardFolderGroup[] => groupDashboardsByFolder(dashboards, entryByRef),
+            (dashboards, entryByRef): FolderTreeNode[] => buildFolderTree(dashboards, entryByRef),
         ],
         currentFolderContents: [
             (s) => [s.dashboards, s.entryByRef, s.currentFolder],

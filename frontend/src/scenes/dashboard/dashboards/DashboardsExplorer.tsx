@@ -1,76 +1,22 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconDashboard, IconFolder } from '@posthog/icons'
+import { IconChevronRight, IconFolder } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType } from '~/types'
 
-import { DashboardCardMenu } from './DashboardCardMenu'
-import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './dashboardsDnd'
+import { DashboardCard } from './DashboardCard'
+import { DashboardsDndContext, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { folderLabel } from './dashboardsFileSystemUtils'
 
-function FinderDashboardCard({
-    dashboard,
-    isRenaming,
-}: {
-    dashboard: DashboardBasicType
-    isRenaming: boolean
-}): JSX.Element {
-    const { renameDashboard, stopRenaming } = useActions(dashboardsFileSystemLogic)
-
-    if (isRenaming) {
-        return (
-            <LemonCard className="flex flex-col gap-1 h-full">
-                <IconDashboard className="text-2xl text-muted" />
-                <input
-                    autoFocus
-                    defaultValue={dashboard.name || ''}
-                    aria-label="Rename dashboard"
-                    className="w-full bg-transparent border-b border-primary"
-                    // onBlur is the single commit path. Enter blurs into it; Escape resets the value
-                    // first so the unmount-blur is a no-op rename. Keeps a rename from firing twice.
-                    onBlur={(e) => renameDashboard(dashboard.id, e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.currentTarget.blur()
-                        } else if (e.key === 'Escape') {
-                            e.currentTarget.value = dashboard.name || ''
-                            stopRenaming()
-                        }
-                    }}
-                />
-            </LemonCard>
-        )
-    }
-
-    return (
-        <DraggableDashboard dashboardId={dashboard.id}>
-            <div className="relative">
-                <Link to={urls.dashboard(dashboard.id)} data-attr="dashboards-finder-card">
-                    <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
-                        <IconDashboard className="text-2xl text-muted" />
-                        <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
-                    </LemonCard>
-                </Link>
-                <div className="absolute top-1 right-1">
-                    <DashboardCardMenu dashboardId={dashboard.id} />
-                </div>
-            </div>
-        </DraggableDashboard>
-    )
-}
-
-// Finder arm (variant=finder): folder-first navigation + organizing. Drill into folders via the breadcrumb,
-// drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete) plus the
-// clipboard paste affordance. Reuses the same FileSystem folder structure as the grid arm and sidebar tree.
-export function DashboardsFinder(): JSX.Element {
+// Explorer arm (variant=explorer): drill-in folder navigation + organizing. Drill into folders via the
+// breadcrumb, drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete)
+// plus the clipboard paste affordance. Shares the FileSystem folder structure with the tree arm and sidebar.
+export function DashboardsExplorer(): JSX.Element {
     const { currentFolderContents, breadcrumb, currentFolder, clipboard, renamingDashboardId } =
         useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
@@ -83,7 +29,7 @@ export function DashboardsFinder(): JSX.Element {
 
     return (
         <DashboardsDndContext onMove={moveDashboardToFolder}>
-            <div className="flex flex-col gap-4" data-attr="dashboards-finder">
+            <div className="flex flex-col gap-4" data-attr="dashboards-explorer">
                 <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
                         {breadcrumb.map((crumb, index) => (
@@ -111,7 +57,7 @@ export function DashboardsFinder(): JSX.Element {
                             <button
                                 type="button"
                                 className="w-full"
-                                data-attr="dashboards-finder-folder"
+                                data-attr="dashboards-explorer-folder"
                                 onClick={() => navigateToFolder(folder)}
                             >
                                 <LemonCard hoverEffect className="flex flex-col gap-1 h-full text-left">
@@ -122,7 +68,7 @@ export function DashboardsFinder(): JSX.Element {
                         </DroppableFolder>
                     ))}
                     {currentFolderContents.dashboards.map((dashboard) => (
-                        <FinderDashboardCard
+                        <DashboardCard
                             key={dashboard.id}
                             dashboard={dashboard}
                             isRenaming={renamingDashboardId === dashboard.id}
@@ -131,7 +77,7 @@ export function DashboardsFinder(): JSX.Element {
                 </div>
                 {isEmpty ? (
                     // Empty view (the breadcrumb above still navigates back), not a dead end (EC-06b).
-                    <div className="text-muted text-center py-8" data-attr="dashboards-finder-empty">
+                    <div className="text-muted text-center py-8" data-attr="dashboards-explorer-empty">
                         This folder is empty.
                     </div>
                 ) : null}

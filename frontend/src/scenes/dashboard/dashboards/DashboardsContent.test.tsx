@@ -8,8 +8,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { DashboardsContent } from './DashboardsContent'
 
 jest.mock('./DashboardsTable', () => ({ DashboardsTableContainer: () => <div>table-arm</div> }))
-jest.mock('./DashboardsGrid', () => ({ DashboardsGrid: () => <div>grid-arm</div> }))
-jest.mock('./DashboardsFinder', () => ({ DashboardsFinder: () => <div>finder-arm</div> }))
+jest.mock('./DashboardsExplorer', () => ({ DashboardsExplorer: () => <div>explorer-arm</div> }))
+jest.mock('./DashboardsTree', () => ({ DashboardsTree: () => <div>tree-arm</div> }))
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn() }))
 
 function renderWithFlag(value: string | undefined): void {
@@ -22,19 +22,20 @@ function renderWithFlag(value: string | undefined): void {
 describe('DashboardsContent', () => {
     afterEach(cleanup)
 
-    it.each([undefined, 'control', 'bogus'])('renders the table for variant %p', (value) => {
+    it.each([undefined, 'control', 'bogus', 'grid', 'finder'])('renders the table for variant %p', (value) => {
         renderWithFlag(value)
         expect(screen.getByText('table-arm')).toBeInTheDocument()
-        expect(screen.queryByText('grid-arm')).not.toBeInTheDocument()
+        expect(screen.queryByText('explorer-arm')).not.toBeInTheDocument()
+        expect(screen.queryByText('tree-arm')).not.toBeInTheDocument()
     })
 
-    it('renders the grid for the grid variant', () => {
-        renderWithFlag('grid')
-        expect(screen.getByText('grid-arm')).toBeInTheDocument()
+    it('renders the explorer for the explorer variant', () => {
+        renderWithFlag('explorer')
+        expect(screen.getByText('explorer-arm')).toBeInTheDocument()
     })
 
-    it('renders the finder for the finder variant', () => {
-        renderWithFlag('finder')
-        expect(screen.getByText('finder-arm')).toBeInTheDocument()
+    it('renders the tree for the tree variant', () => {
+        renderWithFlag('tree')
+        expect(screen.getByText('tree-arm')).toBeInTheDocument()
     })
 })

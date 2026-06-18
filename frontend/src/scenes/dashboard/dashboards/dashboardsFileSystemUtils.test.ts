@@ -3,14 +3,13 @@ import { DashboardBasicType } from '~/types'
 
 import {
     buildEntryByRef,
+    buildFolderTree,
     dashboardDraggableId,
     folderBreadcrumb,
     folderContents,
     folderDroppableId,
     folderLabel,
-    groupDashboardsByFolder,
     parseDashboardDragEnd,
-    UNFILED_DASHBOARDS_FOLDER,
 } from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
@@ -26,17 +25,21 @@ describe('dashboardsFileSystemUtils', () => {
         expect(Object.keys(byRef)).toEqual(['1'])
     })
 
-    it('groups dashboards under their folder, defaulting to Unfiled, folders sorted', () => {
+    it('builds a nested folder tree from dashboard paths, with ancestors and Unfiled, sorted', () => {
         const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C')]
-        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/B')])
-        expect(groupDashboardsByFolder(dashboards, byRef)).toEqual([
-            { folder: 'Marketing', dashboards: [dash(1, 'A'), dash(2, 'B')] },
-            { folder: UNFILED_DASHBOARDS_FOLDER, dashboards: [dash(3, 'C')] },
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
+        expect(buildFolderTree(dashboards, byRef)).toEqual([
+            { path: 'Marketing', label: 'Marketing', children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }] },
+            {
+                path: 'Unfiled',
+                label: 'Unfiled',
+                children: [{ path: 'Unfiled/Dashboards', label: 'Dashboards', children: [] }],
+            },
         ])
     })
 
-    it('returns an empty array when there are no dashboards', () => {
-        expect(groupDashboardsByFolder([], {})).toEqual([])
+    it('returns an empty tree when there are no dashboards', () => {
+        expect(buildFolderTree([], {})).toEqual([])
     })
 
     it('round-trips a card drag onto a folder header', () => {
