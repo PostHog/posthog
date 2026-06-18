@@ -12,6 +12,7 @@ import {
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
+    formatSqlSeriesValue,
 } from './sqlLineGraphAdapter'
 
 const numericColumn = (name: string, dataIndex: number): AxisSeries<number | null>['column'] => ({
@@ -136,6 +137,31 @@ describe('sqlLineGraphAdapter', () => {
         it('keys breakdown series by breakdown value', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
             expect(series.key).toBe('chrome')
+        })
+
+        it('threads each series settings through meta for the tooltip', () => {
+            const usd: AxisSeries<number | null>['settings'] = { formatting: { prefix: '$' } }
+            const [withSettings, plain] = buildSeries(
+                [ySeries('revenue', [1], usd), ySeries('count', [2])],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(withSettings.meta).toEqual({ settings: usd })
+            expect(plain.meta).toEqual({ settings: {} })
+        })
+    })
+
+    describe('formatSqlSeriesValue', () => {
+        it.each([
+            ['currency prefix', { formatting: { prefix: '$' } }, 1200, '$1200'],
+            ['percent suffix', { formatting: { style: 'percent' as const } }, 42, '42%'],
+            ['unit suffix', { formatting: { suffix: 'ms' } }, 350, '350ms'],
+            ['no settings', undefined, 7, '7'],
+        ])('formats with %s', (_name, settings, value, expected) => {
+            expect(formatSqlSeriesValue(value, settings)).toBe(expected)
+        })
+
+        it('falls back to the raw value when formatting yields null', () => {
+            expect(formatSqlSeriesValue(NaN)).toBe('NaN')
         })
     })
 
