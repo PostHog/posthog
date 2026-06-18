@@ -222,6 +222,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
                     placeholders={"key": ast.Constant(value=self.group0_id)},
                 ),
                 self.team,
+                user=self.user,
             )
 
             self.assertEqual(
@@ -246,7 +247,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
             ]
 
             for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
+                response = execute_hogql_query(parse_select(query), self.team, user=self.user, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
                     response.results,
@@ -282,6 +283,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -319,6 +321,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -349,6 +352,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -388,6 +392,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
                     placeholders={"key": ast.Constant(value=self.group0_id)},
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -409,6 +414,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -445,6 +451,7 @@ class TestGroupsRevenueAnalytics(TestGroupsRevenueAnalyticsMixin):
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -484,6 +491,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
                     placeholders={"key": ast.Constant(value=self.group0_id)},
                 ),
                 self.team,
+                user=self.user,
             )
 
             self.assertEqual(
@@ -508,7 +516,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             ]
 
             for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
+                response = execute_hogql_query(parse_select(query), self.team, user=self.user, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
                     response.results,
@@ -544,6 +552,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -581,6 +590,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             response = execute_hogql_query(
                 parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -612,6 +622,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
                     "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -652,6 +663,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
                     placeholders={"key": ast.Constant(value=self.group0_id)},
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -674,6 +686,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -711,6 +724,7 @@ class TestGroupsRevenueAnalyticsManagedViewsets(
             results = execute_hogql_query(
                 parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 

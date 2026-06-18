@@ -78,7 +78,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             query = RevenueExampleDataWarehouseTablesQuery(
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
-            runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query)
+            runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query, user=self.user)
 
             response = runner.calculate()
             RevenueExampleDataWarehouseTablesQueryResponse.model_validate(response)
@@ -191,7 +191,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         ]
 
     def test_database_query_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
             self._create_managed_viewsets()
 
             response = self._run_revenue_example_external_tables_query()

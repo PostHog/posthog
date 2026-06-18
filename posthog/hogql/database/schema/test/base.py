@@ -112,12 +112,7 @@ class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
 class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
     def setUp(self) -> None:
         super().setUp()
-        # Enable managed-viewsets et al. but NOT hogql-warehouse-access-control: these tests run
-        # userless, and the warehouse flag would fail-closed and deny every managed view.
-        self.mock_flag = patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control",
-        )
+        self.mock_flag = patch("posthoganalytics.feature_enabled", return_value=True)
         self.mock_flag.start()
 
     def tearDown(self) -> None:
@@ -148,7 +143,10 @@ class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
             if not query_text:
                 continue
 
-            response = execute_hogql_query(parse_select(query_text), team=self.team, modifiers=self.MODIFIERS)
+            # Materialization mirrors the data-modeling job (no user); bypass warehouse access control.
+            response = execute_hogql_query(
+                parse_select(query_text), team=self.team, modifiers=self.MODIFIERS, bypass_access_control=True
+            )
 
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:
                 writer = csv.writer(csv_file)

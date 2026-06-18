@@ -216,7 +216,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 properties=properties,
             )
             runner = RevenueAnalyticsTopCustomersQueryRunner(
-                team=self.team, query=query, modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+                team=self.team,
+                query=query,
+                user=self.user,
+                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
             response = runner.calculate()
@@ -260,7 +263,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(len(results), 16)
 
     def test_with_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
             self._create_managed_viewsets()
 
             results = self._run_revenue_analytics_top_customers_query().results
@@ -326,7 +329,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_with_events_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
             s1 = str(uuid7("2023-12-02"))
             s2 = str(uuid7("2024-01-03"))
             s3 = str(uuid7("2024-02-04"))
