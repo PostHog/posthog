@@ -1,19 +1,26 @@
 import re
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 import requests
+from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+)
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS, GithubEndpointConfig
 
 GITHUB_BASE_URL = "https://api.github.com"
@@ -546,6 +553,7 @@ def github_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    webhook_source_manager: Optional[WebhookSourceManager] = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -553,9 +561,22 @@ def github_source(
         endpoint_config, endpoint, should_use_incremental_field, db_incremental_field_last_value
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
+    # Steady-state webhook ingestion replaces the poll fan-out once the initial
+    # backfill is complete and a webhook function is enabled. When no manager is
+    # passed (or it isn't enabled), the poll path below stays unchanged.
+    webhook_enabled = (
+        async_to_sync(webhook_source_manager.webhook_enabled)() if webhook_source_manager is not None else False
+    )
+
+    def items() -> Iterator[Any] | AsyncIterator[Any]:
+        if webhook_enabled:
+            assert webhook_source_manager is not None
+            # The Hog template already lands the nested workflow_job / workflow_run
+            # object as the row, so the warehouse rows match the poll shape and need
+            # no per-row transform here.
+            return webhook_source_manager.get_items()
+
+        return get_rows(
             personal_access_token=personal_access_token,
             repository=repository,
             endpoint=endpoint,
@@ -564,7 +585,11 @@ def github_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
-        ),
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
         primary_keys=[endpoint_config.primary_key],
         sort_mode=actual_sort_mode,
         partition_count=1,
@@ -573,3 +598,147 @@ def github_source(
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )
+
+
+def _is_repo_hook_permission_error(response: requests.Response) -> bool:
+    """A token without admin:repo_hook can't manage repo webhooks — GitHub returns
+    403 (or 404 when the resource is hidden from the token). Treat both as the
+    permission case so callers fall back to manual setup instead of retrying."""
+    return response.status_code in (403, 404)
+
+
+def create_repo_webhook(
+    token: str, repo: str, webhook_url: str, events: list[str], secret: str
+) -> WebhookCreationResult:
+    """Create a repo webhook via POST /repos/{repo}/hooks.
+
+    Returns a failed (not raised) result when the token lacks admin:repo_hook so
+    the caller can surface a manual-setup caption instead of hard-failing.
+    """
+    headers = _get_headers(token, "workflow_runs")
+    payload = {
+        "name": "web",
+        "active": True,
+        "events": events,
+        "config": {
+            "url": webhook_url,
+            "content_type": "json",
+            "secret": secret,
+        },
+    }
+
+    try:
+        response = make_tracked_session().post(
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, json=payload, timeout=30
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {e}")
+
+    if response.status_code in (200, 201):
+        # PROTOTYPE: GitHub never returns the configured secret on create. We pass
+        # the secret in, so the caller already holds it; if the secret is instead
+        # entered via webhookFields, validate that the signing_secret input is
+        # populated on the hog function rather than relying on extra_inputs here.
+        return WebhookCreationResult(success=True)
+
+    if _is_repo_hook_permission_error(response):
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                "Your GitHub token lacks the admin:repo_hook scope needed to create a repository webhook. "
+                "Add the scope and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+
+    return WebhookCreationResult(
+        success=False, error=f"Failed to create webhook automatically: {response.status_code} {response.text}"
+    )
+
+
+def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
+    """Return (hook_id, error). Matches on config.url == webhook_url."""
+    headers = _get_headers(token, "workflow_runs")
+    try:
+        response = make_tracked_session().get(
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30
+        )
+    except requests.exceptions.RequestException as e:
+        return None, str(e)
+
+    if _is_repo_hook_permission_error(response):
+        return None, "permission"
+    if not response.ok:
+        return None, f"{response.status_code} {response.text}"
+
+    hooks = response.json()
+    if not isinstance(hooks, list):
+        return None, None
+    for hook in hooks:
+        if hook.get("config", {}).get("url") == webhook_url:
+            return hook.get("id"), None
+    return None, None
+
+
+def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDeletionResult:
+    """Find the repo webhook matching webhook_url and DELETE /repos/{repo}/hooks/{id}."""
+    hook_id, error = _find_repo_hook_id(token, repo, webhook_url)
+    if error == "permission":
+        return WebhookDeletionResult(
+            success=False,
+            error="Your GitHub token lacks the admin:repo_hook scope. Please delete the webhook manually.",
+        )
+    if error is not None:
+        return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error}")
+    if hook_id is None:
+        # Nothing to delete — treat as success, same as Stripe's no-match path.
+        return WebhookDeletionResult(success=True)
+
+    headers = _get_headers(token, "workflow_runs")
+    try:
+        response = make_tracked_session().delete(
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {e}")
+
+    if response.status_code in (200, 204):
+        return WebhookDeletionResult(success=True)
+    if _is_repo_hook_permission_error(response):
+        return WebhookDeletionResult(
+            success=False,
+            error="Your GitHub token lacks the admin:repo_hook scope. Please delete the webhook manually.",
+        )
+    return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {response.status_code}")
+
+
+def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
+    """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
+    headers = _get_headers(token, "workflow_runs")
+    try:
+        response = make_tracked_session().get(
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30
+        )
+    except requests.exceptions.RequestException as e:
+        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {e}")
+
+    if _is_repo_hook_permission_error(response):
+        return ExternalWebhookInfo(
+            exists=False,
+            error="Your GitHub token lacks the admin:repo_hook scope needed to read repository webhooks.",
+        )
+    if not response.ok:
+        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {response.status_code}")
+
+    hooks = response.json()
+    if isinstance(hooks, list):
+        for hook in hooks:
+            if hook.get("config", {}).get("url") == webhook_url:
+                return ExternalWebhookInfo(
+                    exists=True,
+                    url=webhook_url,
+                    enabled_events=hook.get("events"),
+                    status="active" if hook.get("active") else "disabled",
+                    created_at=hook.get("created_at"),
+                )
+
+    return ExternalWebhookInfo(exists=False)
