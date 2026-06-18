@@ -1,6 +1,12 @@
 import dagster
 
-from products.growth.dags import github_sdk_versions, identity_matching, oauth, team_production_event_activation, user_product_list
+from products.growth.dags import (
+    github_sdk_versions,
+    identity_matching,
+    oauth,
+    team_production_event_activation,
+    user_product_list,
+)
 
 from . import loggers, resources
 
