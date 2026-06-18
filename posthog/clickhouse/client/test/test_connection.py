@@ -10,6 +10,7 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.execute import sync_execute
 
 
+@pytest.mark.django_db
 def test_insert_with_http_client():
     sync_execute("DROP TABLE IF EXISTS _test_http_insert")
     sync_execute("CREATE TABLE _test_http_insert (id UInt64) ENGINE = Memory")

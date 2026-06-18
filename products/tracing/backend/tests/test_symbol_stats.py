@@ -200,6 +200,64 @@ class TestTraceSpansSymbolStats(_TraceSpansTestBase):
         rows = self._symbol_stats(file_path, [{"startLine": 10, "endLine": 30}])
         self.assertEqual([(r["line"], r["count"]) for r in rows], [(10, expected_count)])
 
+    # The recorded path is `feature-flags/src/flags/flag_matching.rs`. Many editor/repo conventions
+    # produce a different spelling for the same source file — each must resolve to it and aggregate
+    # byte-identical spans:
+    #   - request is a segment-suffix of recorded (editor sends a shorter, repo-relative path, down to
+    #     the bare basename),
+    #   - recorded is a segment-suffix of request (a monorepo editor prepends one or more workspace
+    #     segments the service never recorded — the bug this fixes),
+    #   - and request paths that only differ after normalization (leading `./`, leading `/`, Windows
+    #     separators).
+    @parameterized.expand(
+        [
+            ("exact", "feature-flags/src/flags/flag_matching.rs"),
+            ("suffix_drop_one_segment", "src/flags/flag_matching.rs"),
+            ("suffix_drop_two_segments", "flags/flag_matching.rs"),
+            ("suffix_basename_only", "flag_matching.rs"),
+            ("monorepo_one_prefix", "rust/feature-flags/src/flags/flag_matching.rs"),
+            ("monorepo_two_prefixes", "services/rust/feature-flags/src/flags/flag_matching.rs"),
+            ("leading_dot_slash", "./feature-flags/src/flags/flag_matching.rs"),
+            ("leading_slash", "/feature-flags/src/flags/flag_matching.rs"),
+            ("windows_separators", "rust\\feature-flags\\src\\flags\\flag_matching.rs"),
+        ]
+    )
+    def test_segment_suffix_match_across_path_conventions(self, _name, file_path):
+        expected = self._symbol_stats("feature-flags/src/flags/flag_matching.rs", FM_SYMBOLS)
+        self.assertEqual([r["line"] for r in expected], [459, 500, 900])  # baseline actually matched
+        self.assertEqual(self._symbol_stats(file_path, FM_SYMBOLS), expected)
+
+    # Paths that share only a partial segment or divergent leading segments must NOT match — the
+    # leading '/' anchors the suffix test on a segment boundary.
+    @parameterized.expand(
+        [
+            # Partial-segment overlap with `flag_matching.rs`: without the '/' anchor these would
+            # spuriously match (e.g. `flag_matching.rs` endsWith `lag_matching.rs`).
+            ("partial_basename_prefix", "lag_matching.rs", FM_SYMBOLS),
+            ("partial_basename_infix", "_matching.rs", FM_SYMBOLS),
+            ("divergent_middle_segment", "other/flag_matching.rs", FM_SYMBOLS),
+            # Divergent leading segment: `crate-c` shares only the unsent `src/mod.rs` tail with the
+            # recorded `crate-a`/`crate-b` files.
+            ("divergent_leading_segment", "crate-c/src/mod.rs", [{"startLine": 10, "endLine": 30}]),
+        ]
+    )
+    def test_non_segment_aligned_paths_do_not_match(self, _name, file_path, symbols):
+        self.assertEqual(self._symbol_stats(file_path, symbols), [])
+
+    def test_monorepo_match_identical_in_line_and_symbol_mode(self):
+        # Matching happens in the WHERE before bucketing, so a workspace-prefixed request aggregates
+        # the same spans as the exact path in BOTH line mode (no symbols) and symbol mode.
+        prefixed = "rust/feature-flags/src/flags/flag_matching.rs"
+        exact = "feature-flags/src/flags/flag_matching.rs"
+
+        line_exact = self._post(exact)["results"]
+        self.assertNotEqual(line_exact, [])
+        self.assertEqual(self._post(prefixed)["results"], line_exact)
+
+        symbol_exact = self._symbol_stats(exact, FM_SYMBOLS)
+        self.assertNotEqual(symbol_exact, [])
+        self.assertEqual(self._symbol_stats(prefixed, FM_SYMBOLS), symbol_exact)
+
     def test_each_period_window_is_respected(self):
         rows = self._symbol_stats("window/src/file.rs", [{"startLine": 1, "endLine": 50}])
         by_line = {r["line"]: r for r in rows}

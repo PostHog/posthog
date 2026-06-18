@@ -64,6 +64,27 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
+def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: str | None) -> tuple[str, str]:
+    """Return `(table_storage_name, folder_name)` for a schema row.
+
+    These are intentionally different normalizations:
+    - The S3 folder is the *snake_cased* identifier (`BalanceTransaction` -> `balance_transaction`).
+    - `build_table_name` only lower-cases, so the HogQL table name must derive from the *raw* schema
+      name (`BalanceTransaction` -> `stripe_balancetransaction`). Feeding it the folder would rename
+      existing tables, e.g. `stripe_balancetransaction` -> `stripe_balance_transaction`.
+
+    The exception is a row renamed during multi-schema migration: its folder is pinned to the
+    original path, which differs from the row's own normalized name, so the table stays anchored
+    there (e.g. `public.users` with folder `users` keeps `<prefix>_users`).
+    """
+    from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+    folder_name = NamingConvention.normalize_identifier(resolved_s3_folder_name or schema_name)
+    is_folder_pinned = folder_name != NamingConvention.normalize_identifier(schema_name)
+    table_storage_name = folder_name if is_folder_pinned else schema_name
+    return table_storage_name, folder_name
+
+
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
     """Re-sync revenue analytics materialized views after a data load completes.
 

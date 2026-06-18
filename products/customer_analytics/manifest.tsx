@@ -1,4 +1,5 @@
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -43,8 +44,12 @@ export const manifest: ProductManifest = {
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
     redirects: {
-        '/customer_analytics': (_params, searchParams, hashParams) =>
-            combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
+        '/customer_analytics': (_params, searchParams, hashParams) => {
+            const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
+                ? '/customer_analytics/accounts'
+                : '/customer_analytics/dashboard'
+            return combineUrl(defaultTab, searchParams, hashParams).url
+        },
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',

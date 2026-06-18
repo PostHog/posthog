@@ -37,10 +37,9 @@ export const TargetTypeEnumApi = {
  * * `monthly` - Monthly
  * * `yearly` - Yearly
  */
-export type SubscriptionFrequencyEnumApi =
-    (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
-export const SubscriptionFrequencyEnumApi = {
+export const RecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -169,7 +168,7 @@ export interface SubscriptionApi {
      * * `weekly` - Weekly
      * * `monthly` - Monthly
      * * `yearly` - Yearly */
-    frequency: SubscriptionFrequencyEnumApi
+    frequency: RecurrenceIntervalEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
      * @minimum 1
@@ -313,7 +312,7 @@ export interface PatchedSubscriptionApi {
      * * `weekly` - Weekly
      * * `monthly` - Monthly
      * * `yearly` - Yearly */
-    frequency?: SubscriptionFrequencyEnumApi
+    frequency?: RecurrenceIntervalEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
      * @minimum 1
