@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -313,21 +314,31 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         return mock_async_client
 
     def test_async_delivery_builds_message_off_event_loop(self, MockSlackIntegration: MagicMock) -> None:
-        # Regression: the async path must not touch lazily-loaded ORM relations
-        # (e.g. integration.team.organization) directly on the event loop — Django
-        # raises SynchronousOnlyOperation. Re-fetch cold so the relations are not
-        # cached on the instances and the lazy loads actually fire during delivery.
+        # Regression: `_prepare_slack_message` reads lazily-loaded ORM relations
+        # (e.g. integration.team.organization), so it must be built in a worker thread,
+        # never directly on the event loop where Django raises SynchronousOnlyOperation.
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
         mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
 
-        integration = Integration.objects.get(id=self.integration.id)
-        subscription = Subscription.objects.get(id=self.subscription.id)
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+        real_prepare = _prepare_slack_message
+        ran_on_event_loop: list[bool] = []
 
-        result = asyncio.run(
-            send_slack_message_with_integration_async(integration, subscription, assets, self.TOTAL_ASSET_COUNT)
-        )
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            try:
+                asyncio.get_running_loop()
+                ran_on_event_loop.append(True)
+            except RuntimeError:
+                ran_on_event_loop.append(False)
+            return real_prepare(*args, **kwargs)
 
+        with patch("ee.tasks.subscriptions.slack_subscriptions._prepare_slack_message", side_effect=_spy):
+            result = asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration, self.subscription, [self.asset], self.TOTAL_ASSET_COUNT
+                )
+            )
+
+        assert ran_on_event_loop == [False]
         assert result.is_complete_success
         mock_async_client.chat_postMessage.assert_awaited()
 
