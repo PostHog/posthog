@@ -828,12 +828,25 @@ def post_reply_to_teams(
         raise cast(Any, post_reply_to_teams).retry(exc=e)
 
 
+# Graph's channel membershipType is an evolvable enum: the v1.0
+# /teams/{id}/channels endpoint emits "unknownFutureValue" for shared channels in
+# some tenants instead of the literal "shared". So we treat anything that isn't an
+# explicit standard/private channel as pollable (shared), rather than matching
+# "shared" exactly — and the Graph re-verification below rejects only the explicit
+# standard/private cases.
+TEAMS_NON_POLLED_MEMBERSHIP_TYPES = {"standard", "private"}
+
+
+def _is_shared_membership_type(membership_type: str | None) -> bool:
+    return membership_type not in TEAMS_NON_POLLED_MEMBERSHIP_TYPES
+
+
 def _shared_channel_entries(support_settings: dict) -> list[dict]:
-    """Configured channels flagged as shared (the only ones the poller pulls)."""
+    """Configured channels the poller pulls (shared/unknownFutureValue, not standard/private)."""
     entries = support_settings.get("teams_channels")
     if not isinstance(entries, list):
         return []
-    return [e for e in entries if isinstance(e, dict) and e.get("membership_type") == "shared"]
+    return [e for e in entries if isinstance(e, dict) and _is_shared_membership_type(e.get("membership_type"))]
 
 
 def _parse_graph_datetime(value: str | None) -> datetime | None:
@@ -876,13 +889,15 @@ def _poll_one_shared_channel(
     # On first encounter, verify via Graph that the channel is actually shared.
     # conversations_settings is client-mutable, so we don't trust its
     # membership_type — we confirm from the authoritative source before polling.
+    # Graph returns "unknownFutureValue" for shared channels in some tenants, so we
+    # reject only explicit standard/private channels rather than requiring "shared".
     if created:
         ch_resp = requests.get(
             f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
         )
-        if ch_resp.status_code != 200 or ch_resp.json().get("membershipType") != "shared":
+        if ch_resp.status_code != 200 or not _is_shared_membership_type(ch_resp.json().get("membershipType")):
             logger.warning(
                 "poll_teams_shared_channel_not_shared",
                 team_id=team.id,
