@@ -327,6 +327,7 @@ modes share one implementation.
 pub async fn serialize_batch<E: Event + Send + Sync + 'static>(
     events: Vec<E>,
     ctx: &RequestContext,
+    scatter_gather_threshold: usize,
 ) -> (Vec<E>, SerializedBatch);
 
 pub struct SerializedBatch {
@@ -358,11 +359,15 @@ back into the request. `Bytes` makes it cheap to clone across a dual-write.
 
 ### Sequential vs parallel
 
+The threshold is configurable via `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`
+(default 8). Set to 0 to force sequential serialization for all batch
+sizes (useful for modes like replay where batches are always single large events).
+
 ```text
-  events.len() < SCATTER_GATHER_MIN_BATCH (8)
+  scatter_gather_threshold == 0  OR  events.len() < threshold
     └── serialize inline on the request task (no spawn overhead)
 
-  events.len() >= 8
+  events.len() >= threshold  (threshold > 0)
     └── Arc<Vec<E>> + Arc<RequestContext>
         └── JoinSet of tokio tasks (spawn, not spawn_blocking), one per event index
             └── each task: catch_unwind(prepare_one(&events[i], &ctx))

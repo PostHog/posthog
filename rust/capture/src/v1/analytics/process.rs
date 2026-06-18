@@ -107,7 +107,8 @@ pub async fn process_batch(
 
     // serialize_batch consumes the events and hands them back, so we can keep
     // correlating results to them and build the response.
-    let (mut events, serialized) = serialize_batch(events, context).await;
+    let (mut events, serialized) =
+        serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
 
     let sink_results = sink_router
         .publish_batch(sink_router.default_sink(), context, &serialized.prepared)
@@ -551,7 +552,7 @@ mod tests {
     };
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::analytics::types::{Batch, Event, Options};
-    use crate::v1::sinks::Destination;
+    use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
         wrapped_event_at,
@@ -2572,7 +2573,8 @@ mod tests {
             wrapped_event("button_clicked", "user-3"),
         ];
 
-        let (mut events, serialized) = serialize_batch(events, &ctx).await;
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
             .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
@@ -2606,7 +2608,8 @@ mod tests {
                 .with_result(EventResult::Warning, Some("person_processing_disabled")),
         ];
 
-        let (mut events, serialized) = serialize_batch(events, &ctx).await;
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(serialized.prepared.len(), 2); // only Ok + Warning are published
 
@@ -2645,7 +2648,8 @@ mod tests {
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
         ];
 
-        let (mut events, serialized) = serialize_batch(events, &ctx).await;
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert!(serialized.prepared.is_empty());
 
@@ -2674,7 +2678,8 @@ mod tests {
         let events =
             vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
 
-        let (mut events, serialized) = serialize_batch(events, &ctx).await;
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
             .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
