@@ -9423,6 +9423,10 @@ export namespace Schemas {
      * * `test_endpoint` - test_endpoint
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
+     * * `use_posthog_ai` - use_posthog_ai
+     * * `use_posthog_code` - use_posthog_code
+     * * `use_posthog_mcp` - use_posthog_mcp
+     * * `use_posthog_in_slack` - use_posthog_in_slack
      */
     export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
 
@@ -9493,6 +9497,10 @@ export namespace Schemas {
       TestEndpoint: 'test_endpoint',
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
+      UsePosthogAi: 'use_posthog_ai',
+      UsePosthogCode: 'use_posthog_code',
+      UsePosthogMcp: 'use_posthog_mcp',
+      UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
     export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
