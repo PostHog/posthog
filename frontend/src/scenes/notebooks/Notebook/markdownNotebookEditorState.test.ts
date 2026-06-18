@@ -9,6 +9,7 @@ import { AccessControlLevel } from '~/types'
 import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
+import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
 
 jest.mock('./migrations/migrate', () => {
     const actual = jest.requireActual('./migrations/migrate')
@@ -184,5 +185,26 @@ Thinking...`)
             ])
         )
         expect(logic.values.notebookPresenceParticipants).toHaveLength(2)
+    })
+
+    it('includes AI in notebook presence while the markdown AI cursor is active', () => {
+        logic.actions.setMarkdownAIPresenceActive(true)
+
+        expect(logic.values.notebookPresenceParticipants).toEqual([
+            expect.objectContaining({
+                clientId: 'current-user',
+                userName: 'You',
+                isCurrentUser: true,
+            }),
+            expect.objectContaining({
+                clientId: NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+                userName: NOTEBOOK_AI_PRESENCE_NAME,
+                isAI: true,
+            }),
+        ])
+
+        logic.actions.setMarkdownAIPresenceActive(false)
+
+        expect(logic.values.notebookPresenceParticipants).toHaveLength(1)
     })
 })

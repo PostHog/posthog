@@ -112,6 +112,9 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import {
+    NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+    NOTEBOOK_AI_PRESENCE_NAME,
+    NOTEBOOK_AI_PRESENCE_USER_ID,
     getNotebookMarkdownClientId,
     getNotebookPresenceParticipants,
     getNotebookRemoteParticipants,
@@ -294,6 +297,7 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorSelectionUpdate: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
+        setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
         handleMarkdownEditorChange: (markdown: string) => ({ markdown }),
         setMarkdownEditorDraft: (draft: string | null) => ({ draft }),
         setMarkdownEditorBuffer: (buffered: string | null) => ({ buffered }),
@@ -472,6 +476,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 }),
                 pruneRemotePresence: (state, { now }) => pruneNotebookRemotePresence(state, now, PRESENCE_TTL_MS),
                 disconnectMarkdownUpdateStream: () => ({}),
+            },
+        ],
+        markdownAIPresenceActive: [
+            false,
+            {
+                setMarkdownAIPresenceActive: (_, { active }) => active,
+                disconnectMarkdownUpdateStream: () => false,
             },
         ],
         editingNodeIds: [
@@ -971,16 +982,29 @@ export const notebookLogic = kea<notebookLogicType>([
                 getNotebookRemoteParticipants(markdownRemotePresence),
         ],
         notebookPresenceParticipants: [
-            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants],
+            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants, s.markdownAIPresenceActive],
             (
                 user,
                 markdownRemoteParticipants: NotebookRemoteParticipant[],
-                remoteParticipants: NotebookRemoteParticipant[]
+                remoteParticipants: NotebookRemoteParticipant[],
+                markdownAIPresenceActive: boolean
             ): NotebookPresenceParticipant[] => {
-                return getNotebookPresenceParticipants(
+                const participants = getNotebookPresenceParticipants(
                     user,
                     markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
                 )
+                if (!markdownAIPresenceActive) {
+                    return participants
+                }
+                const aiParticipant: NotebookPresenceParticipant = {
+                    clientId: NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+                    userId: NOTEBOOK_AI_PRESENCE_USER_ID,
+                    userName: NOTEBOOK_AI_PRESENCE_NAME,
+                    lastSeenAt: 0,
+                    isAI: true,
+                }
+                const [firstParticipant, ...remainingParticipants] = participants
+                return firstParticipant ? [firstParticipant, aiParticipant, ...remainingParticipants] : [aiParticipant]
             },
         ],
         content: [

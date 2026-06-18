@@ -15,8 +15,13 @@ export type NotebookRemoteParticipant = NotebookPresenceState
 
 export type NotebookPresenceParticipant = NotebookPresenceState & {
     isCurrentUser?: boolean
+    isAI?: boolean
     profileUser?: Pick<UserType, 'email' | 'first_name' | 'hedgehog_config'>
 }
+
+export const NOTEBOOK_AI_PRESENCE_CLIENT_ID = 'notebook-agent:ai'
+export const NOTEBOOK_AI_PRESENCE_USER_ID = 100_185
+export const NOTEBOOK_AI_PRESENCE_NAME = 'AI'
 
 export function getNotebookRemoteParticipants<T extends NotebookPresenceState>(
     presenceByClientId: Record<string, T>

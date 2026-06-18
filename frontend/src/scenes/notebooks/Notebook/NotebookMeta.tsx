@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
+import { IconBook, IconSparkles, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -15,7 +16,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { NotebookSyncStatus } from '../types'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
-import { type NotebookPresenceParticipant } from './notebookPresence'
+import { NOTEBOOK_AI_PRESENCE_USER_ID, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const MAX_PRESENCE_BUBBLES = 6
@@ -156,16 +157,32 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
     return (
         <Tooltip title={tooltip} placement="left">
             <div className="ProfileBubbles" aria-label={tooltip}>
-                {shownParticipants.map((participant) => (
-                    <ProfilePicture
-                        key={`${participant.userId}-${participant.clientId}`}
-                        user={participant.profileUser}
-                        name={participant.userName}
-                        title={participant.userName}
-                        size="md"
-                        index={participant.userId}
-                    />
-                ))}
+                {shownParticipants.map((participant) =>
+                    participant.isAI ? (
+                        <div
+                            key={`${participant.userId}-${participant.clientId}`}
+                            className="NotebookPresence__ai-bubble"
+                            title={participant.userName}
+                            aria-label={participant.userName}
+                            style={
+                                {
+                                    '--notebook-ai-presence-color': getSeriesColor(NOTEBOOK_AI_PRESENCE_USER_ID),
+                                } as React.CSSProperties
+                            }
+                        >
+                            <IconSparkles className="size-3" />
+                        </div>
+                    ) : (
+                        <ProfilePicture
+                            key={`${participant.userId}-${participant.clientId}`}
+                            user={participant.profileUser}
+                            name={participant.userName}
+                            title={participant.userName}
+                            size="md"
+                            index={participant.userId}
+                        />
+                    )
+                )}
                 {overflowCount > 0 ? (
                     <div className="ProfileBubbles__more" title={overflowTitle}>
                         +{overflowCount}
