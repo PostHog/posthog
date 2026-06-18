@@ -1,7 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
@@ -10,7 +8,6 @@ import { Query } from '~/queries/Query/Query'
 
 import { ZendeskTicketsFilters } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/ZendeskTicketsFilters'
 import { zendeskTicketsFiltersLogic } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/zendeskTicketsFiltersLogic'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import {
     useZendeskTicketsQueryContext,
     zendeskGroupTicketsQuery,
@@ -18,6 +15,7 @@ import {
 } from 'products/customer_analytics/frontend/queries/ZendeskTicketsQuery'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -28,17 +26,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
     const mountedZendeskLogic = zendeskTicketsFiltersLogic({ logicKey: nodeId })
     useAttachedLogic(mountedZendeskLogic, notebookLogic)
     const { status, priority, orderBy, orderDirection } = useValues(mountedZendeskLogic)
-    const { removeNode } = useActions(customerProfileLogic)
 
     useOnMountEffect(() => {
-        setMenuItems([
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.ZendeskTickets),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.ZendeskTickets)
+        if (removeMenuItem) {
+            setMenuItems([removeMenuItem])
+        }
     })
 
     const query = personId

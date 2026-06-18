@@ -805,6 +805,10 @@ h1.MarkdownNotebook__text-block--heading {
     font-size: 2rem;
 }
 
+h1.MarkdownNotebook__text-block.MarkdownNotebook__text-block--heading.MarkdownNotebook__text-block--title {
+    margin-top: 0;
+}
+
 h2.MarkdownNotebook__text-block--heading {
     margin: 0.875rem 0 0.4375rem;
     font-size: 1.5rem;

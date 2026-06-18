@@ -2408,6 +2408,32 @@ Tail paragraph`
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
     })
 
+    it('supports externally closing the markdown source drawer', () => {
+        function ControlledDebugNotebook(): JSX.Element {
+            const [debugOpen, setDebugOpen] = useState(true)
+
+            return createElement(
+                'div',
+                null,
+                createElement('button', { onClick: () => setDebugOpen(false) }, 'Close externally'),
+                createElement(MarkdownNotebook, {
+                    value: 'First paragraph',
+                    showDebug: true,
+                    debugOpen,
+                    onDebugOpenChange: setDebugOpen,
+                })
+            )
+        }
+
+        const { container, getByText } = render(createElement(ControlledDebugNotebook))
+
+        expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(getByText('Close externally'))
+
+        expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
+    })
+
     it('syncs Ask AI prompt edits into the markdown debug drawer while typing', async () => {
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI: jest.fn(), showDebug: true })
@@ -8195,6 +8221,8 @@ After component`,
 
         expect(shell).toBeInstanceOf(HTMLElement)
         expect(modeButtons).toHaveLength(2)
+        expect(modeButtons[0].getAttribute('aria-label')).toEqual('Hide filters')
+        expect(modeButtons[1].getAttribute('aria-label')).toEqual('Hide results')
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
         expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
@@ -8205,6 +8233,7 @@ After component`,
 
         fireEvent.click(modeButtons[0])
 
+        expect(modeButtons[0].getAttribute('aria-label')).toEqual('Show filters')
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(

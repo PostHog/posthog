@@ -1066,11 +1066,18 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editingNodeLogicsForLeft: [
-            (s) => [s.editingNodeLogics, s.containerSize],
-            (editingNodeLogics, containerSize) =>
-                containerSize === 'small'
+            (s) => [s.editingNodeLogics, s.containerSize, s.content],
+            (
+                editingNodeLogics: BuiltLogic<notebookNodeLogicType>[],
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) =>
+                containerSize === 'small' || isMarkdownNotebookContent(content)
                     ? []
-                    : editingNodeLogics.filter((nodeLogic) => nodeLogic.values.settingsPlacement !== 'inline'),
+                    : editingNodeLogics.filter(
+                          (nodeLogic: BuiltLogic<notebookNodeLogicType>) =>
+                              nodeLogic.values.settingsPlacement !== 'inline'
+                      ),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -1145,8 +1152,20 @@ export const notebookLogic = kea<notebookLogicType>([
                 s.showTableOfContents,
                 s.showKernelInfo,
                 s.containerSize,
+                s.content,
             ],
-            (editingNodeLogicsForLeft, showHistory, showTableOfContents, showKernelInfo, containerSize) => {
+            (
+                editingNodeLogicsForLeft: BuiltLogic<notebookNodeLogicType>[],
+                showHistory: boolean,
+                showTableOfContents: boolean,
+                showKernelInfo: boolean,
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) => {
+                if (isMarkdownNotebookContent(content)) {
+                    return false
+                }
+
                 const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
 
                 return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings

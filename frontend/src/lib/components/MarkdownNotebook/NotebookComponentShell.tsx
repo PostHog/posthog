@@ -81,6 +81,8 @@ export function NotebookComponentShell({
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
     const showToolbarTitle = !!toolbarTitle && (mode === 'view' || !componentPanels.filters || !showModeActions)
+    const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'
+    const resultsLabel = componentPanels.results ? 'Hide results' : 'Show results'
     const titleClassName = clsx(
         'MarkdownNotebook__component-title',
         `MarkdownNotebook__component-title--${titleDisplay.tone}`
@@ -215,19 +217,19 @@ export function NotebookComponentShell({
                     {showModeActions ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
-                                aria-label="Filters"
+                                aria-label={filtersLabel}
                                 size="xsmall"
                                 icon={<IconPencil />}
                                 active={componentPanels.filters}
-                                tooltip="Filters"
+                                tooltip={filtersLabel}
                                 onClick={() => toggleComponentPanel('filters')}
                             />
                             <LemonButton
-                                aria-label="Results"
+                                aria-label={resultsLabel}
                                 size="xsmall"
                                 icon={<IconEye />}
                                 active={componentPanels.results}
-                                tooltip="Results"
+                                tooltip={resultsLabel}
                                 onClick={() => toggleComponentPanel('results')}
                             />
                         </div>

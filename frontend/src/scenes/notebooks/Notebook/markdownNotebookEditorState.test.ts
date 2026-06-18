@@ -6,7 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { NotebookType } from '../types'
+import { NotebookNodeType, NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
@@ -206,5 +206,34 @@ Thinking...`)
         logic.actions.setMarkdownAIPresenceActive(false)
 
         expect(logic.values.notebookPresenceParticipants).toHaveLength(1)
+    })
+
+    it('does not surface legacy left-column state for markdown notebooks', () => {
+        logic.unmount()
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setLocalContent(buildMarkdownNotebookContent(BASE_MARKDOWN))
+
+        const nodeLogic = {
+            values: {
+                nodeId: 'markdown-node',
+                settingsPlacement: 'left',
+            },
+            props: {
+                nodeType: NotebookNodeType.Experiment,
+                attributes: { id: 1 },
+            },
+            actions: {
+                selectNode: jest.fn(),
+            },
+        } as any
+
+        logic.actions.setContainerSize('medium')
+        logic.actions.registerNodeLogic('markdown-node', nodeLogic)
+        logic.actions.setEditingNodeEditing('markdown-node', true)
+
+        expect(logic.values.editingNodeLogics).toEqual([nodeLogic])
+        expect(logic.values.editingNodeLogicsForLeft).toEqual([])
+        expect(logic.values.isShowingLeftColumn).toBe(false)
     })
 })

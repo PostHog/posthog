@@ -36,7 +36,12 @@ const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
 const NOTEBOOK_AI_PRESENCE_FADE_OUT_MS = 300
 
-export function MarkdownNotebookV2(): JSX.Element {
+type MarkdownNotebookV2Props = {
+    debugOpen?: boolean
+    onDebugOpenChange?: (isOpen: boolean) => void
+}
+
+export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
         useValues(notebookLogic)
     const {
@@ -439,6 +444,8 @@ export function MarkdownNotebookV2(): JSX.Element {
                 data-attr="notebook-markdown-v2"
                 autoFocus={isEditable}
                 showDebug={isEditable}
+                debugOpen={debugOpen}
+                onDebugOpenChange={onDebugOpenChange}
                 focusAIPromptRequest={focusAIPromptRequest}
             />
             {inlineAIRequests.map((request) => (
