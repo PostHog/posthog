@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, cast
@@ -26,6 +27,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -1672,6 +1674,57 @@ def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, mor
     )
     message.add_user_recipient(user)
     message.send()
+
+
+def _users_with_live_grant(application: OAuthApplication) -> list[User]:
+    """Distinct users who currently hold a grant for the app — the audience for a re-consent
+    notice. Unions access and refresh tokens so users whose access token expired but who can
+    still silently refresh are included. Access tokens are deleted on revocation, so a row
+    here means a live connection."""
+    user_ids = set(
+        OAuthAccessToken.objects.filter(application=application, user__isnull=False).values_list("user_id", flat=True)
+    ) | set(
+        OAuthRefreshToken.objects.filter(application=application, user__isnull=False).values_list("user_id", flat=True)
+    )
+    return list(User.objects.filter(pk__in=user_ids, is_active=True))
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_oauth_scope_expansion_notice(application_id: str, added_scopes: list[str]) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    try:
+        application = OAuthApplication.objects.get(pk=application_id)
+    except OAuthApplication.DoesNotExist:
+        logger.warning("oauth_scope_expansion_notice_app_missing", application_id=application_id)
+        return
+
+    if not added_scopes:
+        return
+
+    # Stable per (user, expansion) so a task retry dedupes via MessagingRecord rather than
+    # re-sending. The scope set is hashed because campaign_key is length-bounded and a long
+    # scope list would otherwise overflow it.
+    scopes_digest = hashlib.sha256(",".join(added_scopes).encode()).hexdigest()[:12]
+
+    for user in _users_with_live_grant(application):
+        message = EmailMessage(
+            use_http=True,
+            campaign_key=f"oauth-scope-expansion-{application.id}-{user.uuid}-{scopes_digest}",
+            subject=f"{application.name} now requests additional permissions",
+            template_name="oauth_scope_expansion_notice",
+            template_context={
+                "preheader": f"{application.name} now requests additional permissions",
+                "app_name": application.name,
+                "added_scopes": added_scopes,
+                "link": "/settings/user-connected-apps",
+                "site_url": settings.SITE_URL,
+            },
+        )
+        message.add_user_recipient(user)
+        message.send(send_async=False)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

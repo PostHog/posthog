@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -37,6 +37,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
+from posthog.tasks.email import send_oauth_scope_expansion_notice
 
 from .dcr import validate_client_name
 
@@ -370,6 +371,18 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     return filtered
 
 
+def _scope_growth(previous: list[str], current: list[str]) -> set[str]:
+    """Scopes present in `current` but not `previous` — the trigger for a re-consent notice.
+
+    An empty list means "no per-app cap" (the broadest set), so it isn't a concrete set we
+    can diff or name in an email. Only a transition between two concrete sets counts as growth;
+    a shrink, an unchanged set, or any transition touching the empty/uncapped state stays silent.
+    """
+    if not previous or not current:
+        return set()
+    return set(current) - set(previous)
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -444,9 +457,18 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
 
     resolved_scopes = _resolve_scopes(metadata)
+    added_scopes: list[str] = []
     if resolved_scopes is not None:
+        # Diff against the last set we emailed about (falling back to the app's current
+        # scopes for rows that pre-date the field), not the pre-save in-memory value, so a
+        # failed/retried email task doesn't drop or duplicate the notice.
+        baseline = app.scopes_last_notified or app.scopes
+        added_scopes = sorted(_scope_growth(baseline, resolved_scopes))
         app.scopes = resolved_scopes
         update_fields.append("scopes")
+        if added_scopes:
+            app.scopes_last_notified = resolved_scopes
+            update_fields.append("scopes_last_notified")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:
@@ -488,6 +510,12 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        # Notice-only re-consent nudge: tell existing users the app now requests more, so they
+        # re-consent at /authorize instead of running on stale scopes. on_commit keeps the email
+        # off rolled-back saves; existing-token holders are resolved inside the task at send time.
+        if added_scopes:
+            application_id = str(app.pk)
+            transaction.on_commit(lambda: send_oauth_scope_expansion_notice.delay(application_id, added_scopes))
         # Emit a distinct event on org re-linking so a metadata compromise
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.

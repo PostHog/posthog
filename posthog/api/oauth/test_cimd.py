@@ -23,6 +23,7 @@ from posthog.api.oauth.cimd import (
     CIMDValidationError,
     _fetch_lock_key,
     _resolve_scopes,
+    _scope_growth,
     fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
     get_application_by_client_id,
@@ -1050,3 +1051,89 @@ class TestResolveScopes(SimpleTestCase):
     def test_all_non_grantable_raises(self) -> None:
         with self.assertRaises(CIMDValidationError):
             _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})
+
+
+class TestScopeGrowth(SimpleTestCase):
+    """`_scope_growth` in isolation — the trigger predicate for the re-consent notice."""
+
+    @parameterized.expand(
+        [
+            ("grew", ["insight:read"], ["insight:read", "dashboard:write"], {"dashboard:write"}),
+            ("unchanged", ["insight:read"], ["insight:read"], set()),
+            ("shrank", ["insight:read", "dashboard:write"], ["insight:read"], set()),
+            ("reordered", ["a:read", "b:read"], ["b:read", "a:read"], set()),
+            ("swapped_same_size", ["insight:read"], ["survey:read"], {"survey:read"}),
+            # Empty == "no per-app cap" (broadest set), never a concrete diff in either direction.
+            ("from_uncapped", [], ["insight:read"], set()),
+            ("to_uncapped", ["insight:read"], [], set()),
+        ]
+    )
+    def test_scope_growth(self, _name, previous, current, expected) -> None:
+        self.assertEqual(_scope_growth(previous, current), expected)
+
+
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@patch("posthog.api.oauth.cimd.send_oauth_scope_expansion_notice")
+@patch("posthog.api.oauth.cimd.requests.get")
+class TestCIMDScopeExpansionNotice(APIBaseTest):
+    """The re-consent notice trigger hung off the CIMD refresh path."""
+
+    def _create_app_with_scopes(self, mock_get, scopes: list[str]) -> OAuthApplication:
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": scopes}), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        return app
+
+    def _refresh_with_scopes(self, mock_get, scopes: list[str]) -> OAuthApplication:
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": scopes}), headers={})
+        with self.captureOnCommitCallbacks(execute=True):
+            refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert refreshed is not None
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        return refreshed
+
+    def test_growth_fires_once_with_added_scopes(self, mock_get, mock_notice, _url_mock) -> None:
+        app = self._create_app_with_scopes(mock_get, ["insight:read"])
+        refreshed = self._refresh_with_scopes(mock_get, ["insight:read", "dashboard:write"])
+
+        mock_notice.delay.assert_called_once_with(str(app.pk), ["dashboard:write"])
+        self.assertEqual(sorted(refreshed.scopes_last_notified), ["dashboard:write", "insight:read"])
+
+    def test_no_change_is_silent(self, mock_get, mock_notice, _url_mock) -> None:
+        self._create_app_with_scopes(mock_get, ["insight:read"])
+        self._refresh_with_scopes(mock_get, ["insight:read"])
+
+        mock_notice.delay.assert_not_called()
+
+    def test_shrink_is_silent(self, mock_get, mock_notice, _url_mock) -> None:
+        self._create_app_with_scopes(mock_get, ["insight:read", "dashboard:write"])
+        self._refresh_with_scopes(mock_get, ["insight:read"])
+
+        mock_notice.delay.assert_not_called()
+
+    def test_repeat_expansion_does_not_resend(self, mock_get, mock_notice, _url_mock) -> None:
+        self._create_app_with_scopes(mock_get, ["insight:read"])
+        self._refresh_with_scopes(mock_get, ["insight:read", "dashboard:write"])
+        mock_notice.delay.assert_called_once()
+
+        # Same expanded set on the next refresh — dedupe on scopes_last_notified keeps it silent.
+        self._refresh_with_scopes(mock_get, ["insight:read", "dashboard:write"])
+        mock_notice.delay.assert_called_once()
+
+    def test_second_distinct_expansion_fires_again(self, mock_get, mock_notice, _url_mock) -> None:
+        app = self._create_app_with_scopes(mock_get, ["insight:read"])
+        self._refresh_with_scopes(mock_get, ["insight:read", "dashboard:write"])
+        self._refresh_with_scopes(mock_get, ["insight:read", "dashboard:write", "survey:read"])
+
+        self.assertEqual(mock_notice.delay.call_count, 2)
+        mock_notice.delay.assert_called_with(str(app.pk), ["survey:read"])
+
+    def test_absent_scopes_on_refresh_is_silent(self, mock_get, mock_notice, _url_mock) -> None:
+        self._create_app_with_scopes(mock_get, ["insight:read"])
+        # No com.posthog.scopes at all — scopes are left untouched, so nothing to notify.
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        with self.captureOnCommitCallbacks(execute=True):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        mock_notice.delay.assert_not_called()

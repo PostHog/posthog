@@ -1,1 +1,1 @@
-1226_identityproviderconfig_and_more
+1227_oauthapplication_scopes_last_notified

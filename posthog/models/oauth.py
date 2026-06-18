@@ -112,6 +112,19 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
+    # The scope set existing users were last emailed about. Compared against a freshly
+    # resolved scope set on CIMD refresh so a genuine expansion notifies once and repeated
+    # refreshes with no change stay silent. Survives a failed/retried email task, unlike the
+    # pre-save in-memory `scopes` value.
+    scopes_last_notified: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text="Scope set existing users were last sent a re-consent notice about.",
+    )
+
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
     # can't slip new tokens past the one-shot bulk revoke.

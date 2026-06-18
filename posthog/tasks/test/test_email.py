@@ -16,8 +16,10 @@ from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.utils import UUIDT
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -37,6 +39,7 @@ from posthog.tasks.email import (
     send_matview_failure_digest,
     send_member_join,
     send_new_ticket_notification,
+    send_oauth_scope_expansion_notice,
     send_password_reset,
     send_provisioning_welcome,
     should_send_pipeline_error_notification,
@@ -135,6 +138,73 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def _create_oauth_app(self, name: str = "Acme MCP") -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=f"client-{name}",
+            name=name,
+            redirect_uris="http://localhost/cb",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            organization=self.organization,
+        )
+
+    def _grant_access(self, app: OAuthApplication, user: User, token: str) -> OAuthAccessToken:
+        return OAuthAccessToken.objects.create(
+            user=user,
+            application=app,
+            token=token,
+            scope="insight:read",
+            expires="2099-01-01T00:00:00Z",
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+
+    def test_send_oauth_scope_expansion_notice(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        app = self._create_oauth_app()
+        _, user_a = create_org_team_and_user("2022-01-02 00:00:00", "grantee-a@posthog.com")
+        _, user_b = create_org_team_and_user("2022-01-02 00:00:00", "grantee-b@posthog.com")
+        self._grant_access(app, user_a, "tok-a")
+        self._grant_access(app, user_b, "tok-b")
+
+        send_oauth_scope_expansion_notice(str(app.pk), ["dashboard:write"])
+
+        assert len(mocked_email_messages) == 2
+        body = mocked_email_messages[0].html_body
+        assert "Acme MCP" in body
+        assert "dashboard:write" in body
+        assert MockEmailMessage.call_args.kwargs["subject"] == "Acme MCP now requests additional permissions"
+        assert MockEmailMessage.call_args.kwargs["template_name"] == "oauth_scope_expansion_notice"
+
+    def test_oauth_scope_expansion_notice_one_email_per_user(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        app = self._create_oauth_app()
+        _, access_user = create_org_team_and_user("2022-01-02 00:00:00", "has-access@posthog.com")
+        _, refresh_only_user = create_org_team_and_user("2022-01-02 00:00:00", "refresh-only@posthog.com")
+
+        # access_user has both an access and a refresh token — still one email.
+        access_token = self._grant_access(app, access_user, "tok-access")
+        OAuthRefreshToken.objects.create(
+            user=access_user, application=app, token="rt-1", access_token=access_token, scoped_teams=[]
+        )
+        # refresh_only_user's access token expired/was deleted, but the refresh grant is live.
+        OAuthRefreshToken.objects.create(user=refresh_only_user, application=app, token="rt-2", scoped_teams=[])
+
+        send_oauth_scope_expansion_notice(str(app.pk), ["dashboard:write"])
+
+        recipients = {m.to[0]["raw_email"] for m in mocked_email_messages}
+        assert recipients == {"has-access@posthog.com", "refresh-only@posthog.com"}
+
+    def test_oauth_scope_expansion_notice_missing_app_is_noop(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_oauth_scope_expansion_notice(str(UUIDT()), ["dashboard:write"])
+
+        assert len(mocked_email_messages) == 0
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
