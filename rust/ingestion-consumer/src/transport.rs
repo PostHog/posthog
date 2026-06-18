@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn test_busy_backoff_is_capped() {
         // Even at a high attempt the busy base is capped at 5s; jitter adds up to
-        // half the base, so the total stays under 7.5s.
-        assert!(retry_backoff(20, true) < Duration::from_millis(7_500));
+        // half the base, so the total stays at most 7.5s.
+        assert!(retry_backoff(20, true) <= Duration::from_millis(7_500));
     }
 }
