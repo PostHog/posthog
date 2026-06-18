@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.scout_harness.runner import RunResult, TransientScoutTimeoutError, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
@@ -381,6 +381,91 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # No bridge row persisted (TaskRun never created), so no emit tally or join key.
     assert props["emitted_count"] == 0
     assert props["task_run_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "timeout_message",
+    [
+        "custom_prompt - poll_for_turn: timed out after 900s",
+        "API Error: The operation timed out.",
+    ],
+)
+async def test_transient_timeout_reraises_for_retry(ateam, aerrors_skill, timeout_message):
+    # Transient timeouts must propagate as a retryable error (not be swallowed into a silent
+    # FAILED result) so the workflow's bounded RetryPolicy reruns the sweep.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError(timeout_message),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(TransientScoutTimeoutError) as exc_info:
+            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The surfaced error names the failing stage and elapsed seconds so repeated failures
+    # are diagnosable instead of opaque.
+    assert "stage=spawn_and_run" in str(exc_info.value)
+    assert "elapsed=" in str(exc_info.value)
+    # The failed attempt is still recorded for diagnosability before the re-raise.
+    capture.assert_called_once()
+    assert capture.call_args.kwargs["properties"]["status"] == TaskRun.Status.FAILED.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_non_timeout_failure_does_not_reraise(ateam, aerrors_skill):
+    # A genuine (non-timeout) failure stays on the swallow-into-FAILED path — it must not
+    # raise, so the workflow's RetryPolicy never spins a bad skill / prompt in a retry loop.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("sandbox refused to start"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_propagates_transient_timeout(ateam):
+    # The activity must let the transient error surface so Temporal's RetryPolicy sees a
+    # retryable failure rather than a `status='failed'` success it would never retry.
+    async def fake_arun(**_kwargs):
+        raise TransientScoutTimeoutError("signals_scout 'x': transient timeout (stage=spawn_and_run, elapsed=900s)")
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
+        side_effect=fake_arun,
+    ):
+        env = ActivityEnvironment()
+        with pytest.raises(TransientScoutTimeoutError):
+            await env.run(
+                run_signals_scout_activity,
+                RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+            )
 
 
 @pytest.mark.asyncio

@@ -36,6 +36,29 @@ logger = logging.getLogger(__name__)
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
 
+class TransientScoutTimeoutError(Exception):
+    """A scout run that failed on a transient timeout worth a bounded retry.
+
+    Raised by `arun_signals_scout` when a run dies on the agent poll-budget exhaustion
+    (`poll_for_turn: timed out`) or the Temporal activity's start_to_close / heartbeat
+    expiry (`operation timed out`) — so the activity surfaces a *retryable* failure that
+    `RunSignalsScoutWorkflow`'s RetryPolicy reruns with backoff, instead of dropping the
+    whole scheduled run until the next interval. Genuine skill / prompt errors stay on the
+    swallow-into-`FAILED` path so they fail fast and are not retried.
+    """
+
+
+# Substrings that mark a transient timeout worth retrying. The agent poll-budget exhaustion
+# raises `RuntimeError("custom_prompt - poll_for_turn: timed out after {n}s")`; the Temporal
+# activity start_to_close / heartbeat expiry surfaces as "The operation timed out."
+_TRANSIENT_TIMEOUT_MARKERS = ("poll_for_turn: timed out", "operation timed out")
+
+
+def _is_transient_timeout(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _TRANSIENT_TIMEOUT_MARKERS)
+
+
 @dataclass(frozen=True)
 class RunResult:
     """Outcome of a run-trigger.
@@ -176,7 +199,7 @@ async def arun_signals_scout(
             skill_name=skill.name,
             skill_version=skill.version,
         )
-    except Exception:
+    except Exception as exc:
         runtime_s = time.monotonic() - started
         # A failure before the on_task_run_created hook fires means no row was persisted —
         # don't hand callers a run_id that resolves to nothing.
@@ -215,6 +238,17 @@ async def arun_signals_scout(
             runtime_s=runtime_s,
             emitted_count=emitted_count,
         )
+        if _is_transient_timeout(exc):
+            # Transient timeout: re-raise a stage-tagged, retryable error so the activity's
+            # bounded RetryPolicy reruns the whole scout rather than silently dropping the
+            # scheduled run until the next interval. The FAILED capture above still records
+            # this attempt for diagnosability, and the linked TaskRun was already marked
+            # failed by MultiTurnSession — so the retry's `_has_running_run` guard sees it
+            # terminal and proceeds rather than skipping.
+            raise TransientScoutTimeoutError(
+                f"signals_scout '{skill.name}': transient timeout in agent run "
+                f"(stage=spawn_and_run, elapsed={runtime_s:.0f}s): {exc}"
+            ) from exc
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
             task_run_id=None,
