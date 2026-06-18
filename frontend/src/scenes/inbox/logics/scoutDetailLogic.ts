@@ -12,6 +12,12 @@ export interface ScoutDetailLogicProps {
     skillName: string
 }
 
+// A noisy scout on the 10-minute floor can rack up hundreds of emitted runs across the window;
+// fetching emissions for all of them at once would fan out hundreds of concurrent requests and
+// render hundreds of markdown cards. Bound both to the most recent N emitted runs — older
+// findings live on in the inbox reports they produced.
+const MAX_EMITTED_RUNS = 50
+
 /** An emitted finding paired with the run that produced it (for the run-level task link). */
 export interface ScoutEmissionRow {
     emission: SignalScoutEmission
@@ -31,7 +37,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
     key((props) => props.skillName),
 
     connect(() => ({
-        values: [scoutFleetLogic, ['rollups']],
+        values: [scoutFleetLogic, ['rollups', 'runsWindowLoadedOnce']],
     })),
 
     loaders(({ values }) => ({
@@ -43,29 +49,42 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
-                    const perRun = await Promise.all(runs.map((run) => api.signalScout.runs.emissions(run.run_id)))
-                    return perRun.flat()
+                    // allSettled, not all: one failed run's fetch (transient 500, deleted run)
+                    // shouldn't discard every other run's findings — surface the partial set.
+                    const settled = await Promise.allSettled(
+                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
+                    )
+                    return settled
+                        .filter(
+                            (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
+                                result.status === 'fulfilled'
+                        )
+                        .flatMap((result) => result.value)
                 },
             },
         ],
     })),
 
     selectors({
-        // This scout's runs that emitted at least one finding, newest first.
+        // This scout's runs that emitted at least one finding, newest first, capped to the most
+        // recent MAX_EMITTED_RUNS. `.filter()` returns a fresh array, so the in-place `.sort()`
+        // never touches the shared rollup `runs` the header timeline reads (oldest-first).
         emittedRuns: [
             (s) => [s.rollups, (_, props) => props.skillName],
             (rollups, skillName): SignalScoutRunSummary[] =>
                 (rollups.get(skillName)?.runs ?? [])
                     .filter((run) => (run.emitted_count ?? 0) > 0)
-                    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')),
+                    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+                    .slice(0, MAX_EMITTED_RUNS),
         ],
-        // Stable string key over the emitted run ids — refetch emissions only when the set
-        // actually changes, not on every 60s runs-window poll that returns the same runs.
+        // Stable string key over the emitted runs — refetch emissions only when the set actually
+        // changes, not on every 60s runs-window poll that returns the same runs. Includes
+        // `emitted_count` so a run that emits more findings while still in progress retriggers.
         emittedRunsKey: [
             (s) => [s.emittedRuns],
             (emittedRuns): string =>
                 emittedRuns
-                    .map((run) => run.run_id)
+                    .map((run) => `${run.run_id}:${run.emitted_count ?? 0}`)
                     .sort()
                     .join(','),
         ],

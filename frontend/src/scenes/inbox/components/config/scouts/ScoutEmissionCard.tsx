@@ -56,7 +56,10 @@ export function ScoutEmissionCard({
             </button>
 
             <div className="px-3 pb-2 pl-9">
-                <LemonMarkdown className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}>
+                <LemonMarkdown
+                    disableImages
+                    className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}
+                >
                     {emission.description || '_No description._'}
                 </LemonMarkdown>
 
