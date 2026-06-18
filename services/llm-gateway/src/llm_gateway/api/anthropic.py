@@ -258,7 +258,7 @@ def _wrap_stream_with_breaker(
 
     inner = response.body_iterator
 
-    async def wrapped() -> AsyncIterator[str | bytes | memoryview[int]]:
+    async def wrapped() -> AsyncIterator[str | bytes | memoryview]:
         success = True
         try:
             async for chunk in inner:
