@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import json
+import math
 import signal
 import traceback
 import subprocess
@@ -93,15 +94,39 @@ def _node_fields(node: Any) -> list[tuple[str, Any]]:
     return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
 
 
+def _nan_tolerant_equal(a: Any, b: Any, depth: int = 0) -> bool:
+    """Deep structural equality that treats two NaNs as equal (`float("nan") !=
+    float("nan")`) and otherwise defers to `==`, which already treats a str-enum
+    member as equal to its value (`CompareOperationOp.Eq == '=='`). Needed because
+    cpp-json leaves enum-shaped fields (`op`) as raw strings while rust-py emits
+    the enum, so an AST carrying BOTH a NaN constant AND such a field satisfies
+    neither dataclass `==` (NaN) nor `repr` equality (str vs enum) even though the
+    two parses are identical. Only ever upgrades a mismatch to agreement — a real
+    structural / positional / value difference still surfaces."""
+    if depth > 80:
+        return repr(a) == repr(b)
+    if isinstance(a, float) and isinstance(b, float):
+        return a == b or (math.isnan(a) and math.isnan(b))
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_nan_tolerant_equal(x, y, depth + 1) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(_nan_tolerant_equal(a[k], b[k], depth + 1) for k in a)
+    if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
+        return type(a) is type(b) and all(
+            _nan_tolerant_equal(getattr(a, f.name, None), getattr(b, f.name, None), depth + 1)
+            for f in dataclasses.fields(a)
+        )
+    return bool(a == b)
+
+
 def asts_agree(oracle: Any, candidate: Any) -> bool:
     """True when two parsed ASTs are equivalent. Mirrors the production shadow
-    comparison in `posthog/hogql/parser.py`: dataclass `==`, then a `repr()`
-    fallback so a NaN-bearing AST doesn't read as a spurious mismatch
-    (`float("nan") != float("nan")`, but `repr` is the stable `'nan'`). The
-    `repr` fallback only ever *upgrades* a `==` mismatch to agreement when the
-    two render identically, so it can't mask a real structural / positional
-    divergence."""
-    return oracle == candidate or repr(oracle) == repr(candidate)
+    comparison in `posthog/hogql/parser.py` (dataclass `==`), then falls back to
+    a NaN-tolerant deep walk so a NaN-bearing AST doesn't read as a spurious
+    mismatch (`float("nan") != float("nan")`) — including when an enum-vs-str
+    field rules out the simpler `repr()` equality. Only ever upgrades a mismatch
+    to agreement, so it can't mask a real structural / positional divergence."""
+    return oracle == candidate or _nan_tolerant_equal(oracle, candidate)
 
 
 def _diff_path(oracle: Any, candidate: Any, path: list | None = None, depth: int = 0) -> list:
