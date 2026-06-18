@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useCallback } from 'react'
 
 import { ChartLegend, TimeSeriesLineChart, type TooltipContext } from '@posthog/quill-charts'
 
@@ -21,8 +22,11 @@ const handleChartError = makeChartErrorHandler('sql-line-chart')
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
     const model = useSqlLineGraph(props)
 
-    const renderTooltip = (context: TooltipContext<SqlLineSeriesMeta>): JSX.Element => (
-        <SqlLineGraphTooltip context={context} chartSettings={props.chartSettings} />
+    const renderTooltip = useCallback(
+        (context: TooltipContext<SqlLineSeriesMeta>): JSX.Element => (
+            <SqlLineGraphTooltip context={context} chartSettings={props.chartSettings} />
+        ),
+        [props.chartSettings]
     )
 
     // Keep the styled container even with no data, matching the legacy path's background shell.

@@ -218,46 +218,39 @@ describe('sqlLineGraphAdapter', () => {
             expect(model.rows[0].name).toBe('Pretty')
         })
 
-        it('adds a total row summing non-percent series', () => {
-            const model = buildSqlLineTooltipModel(
-                tooltipContext([
+        it.each<[string, TooltipEntry[], ChartSettings, string | null]>([
+            [
+                'sums non-percent series',
+                [
                     { key: 'a', label: 'A', value: 2, color: '#111' },
                     { key: 'b', label: 'B', value: 3, color: '#222' },
-                ]),
-                {}
-            )
-            expect(model.totalLabel).toBe('5')
-        })
-
-        it('excludes percent-formatted series from the total', () => {
-            const model = buildSqlLineTooltipModel(
-                tooltipContext([
+                ],
+                {},
+                '5',
+            ],
+            [
+                'excludes percent-formatted series',
+                [
                     { key: 'a', label: 'A', value: 2, color: '#111' },
                     { key: 'b', label: 'B', value: 3, color: '#222' },
                     { key: 'c', label: 'C', value: 50, color: '#333', settings: { formatting: { style: 'percent' } } },
-                ]),
-                {}
-            )
-            expect(model.totalLabel).toBe('5')
-        })
-
-        it('omits the total row for a single series', () => {
-            const model = buildSqlLineTooltipModel(
-                tooltipContext([{ key: 'a', label: 'A', value: 2, color: '#111' }]),
-                {}
-            )
-            expect(model.totalLabel).toBeNull()
-        })
-
-        it('omits the total row when showTotalRow is disabled', () => {
-            const model = buildSqlLineTooltipModel(
-                tooltipContext([
+                ],
+                {},
+                '5',
+            ],
+            ['omits for a single series', [{ key: 'a', label: 'A', value: 2, color: '#111' }], {}, null],
+            [
+                'omits when showTotalRow is disabled',
+                [
                     { key: 'a', label: 'A', value: 2, color: '#111' },
                     { key: 'b', label: 'B', value: 3, color: '#222' },
-                ]),
-                { showTotalRow: false }
-            )
-            expect(model.totalLabel).toBeNull()
+                ],
+                { showTotalRow: false },
+                null,
+            ],
+        ])('total row %s', (_name, entries, chartSettings, expected) => {
+            const model = buildSqlLineTooltipModel(tooltipContext(entries), chartSettings)
+            expect(model.totalLabel).toBe(expected)
         })
     })
 

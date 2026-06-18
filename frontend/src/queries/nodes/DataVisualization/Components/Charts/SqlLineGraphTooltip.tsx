@@ -42,6 +42,7 @@ export function SqlLineGraphTooltip({ context, chartSettings }: SqlLineGraphTool
             <div className="max-h-64 overflow-y-auto">
                 <LemonTable
                     showHeader={false}
+                    rowKey="key"
                     dataSource={rows}
                     columns={[
                         {
