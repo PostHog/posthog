@@ -1,8 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from google.genai.errors import ClientError, ServerError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.temporal.common.posthog_client import _CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import REDIS_INDEX_KEY, REDIS_KEY_PREFIX
 from posthog.temporal.session_replay.session_summary.activities.video_based.a2_upload_video_to_gemini import (
     upload_video_to_gemini_activity,
@@ -129,3 +131,41 @@ async def test_raises_when_gemini_processing_fails():
     ):
         with pytest.raises(RuntimeError, match="File processing failed"):
             await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+
+@pytest.mark.asyncio
+async def test_transient_gemini_5xx_is_marked_for_deferred_capture():
+    asset = _make_asset(content=b"video-bytes")
+    fake_client = MagicMock()
+    fake_client.files.upload.side_effect = ServerError(
+        503, {"error": {"message": "The service is currently unavailable.", "status": "UNAVAILABLE"}}
+    )
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+    ):
+        with pytest.raises(ServerError) as exc_info:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert getattr(exc_info.value, _CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR, False) is True
+
+
+@pytest.mark.asyncio
+async def test_client_4xx_error_is_not_marked_for_deferred_capture():
+    asset = _make_asset(content=b"video-bytes")
+    fake_client = MagicMock()
+    fake_client.files.upload.side_effect = ClientError(
+        400, {"error": {"message": "Bad request.", "status": "INVALID_ARGUMENT"}}
+    )
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+    ):
+        with pytest.raises(ClientError) as exc_info:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert getattr(exc_info.value, _CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR, False) is False

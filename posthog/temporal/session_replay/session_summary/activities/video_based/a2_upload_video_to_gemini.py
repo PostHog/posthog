@@ -12,10 +12,12 @@ from google.genai import (
     Client as RawGenAIClient,
     types,
 )
+from google.genai.errors import APIError
 
 from posthog.schema import ReplayInactivityPeriod
 
 from posthog.storage import object_storage
+from posthog.temporal.common.posthog_client import capture_only_on_final_attempt
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
@@ -33,6 +35,13 @@ logger = structlog.get_logger(__name__)
 
 # Activity timeout is 10 minutes; this leaves buffer for the rest of the activity body.
 MAX_PROCESSING_WAIT_SECONDS = 300
+
+
+def _is_transient_gemini_error(e: BaseException) -> bool:
+    """Gemini 5xx responses (e.g. `ServerError: The service is currently unavailable.`) are
+    transient — the workflow's retry policy absorbs them, so they shouldn't surface as
+    error-tracking noise on non-final attempts."""
+    return isinstance(e, APIError) and 500 <= (e.code or 0) < 600
 
 
 @temporalio.activity.defn
@@ -158,6 +167,19 @@ async def upload_video_to_gemini_activity(
         )
 
     except Exception as e:
+        # Transient Gemini 5xx errors are expected to be absorbed by the workflow's retry policy.
+        # Log them as warnings and defer error-tracking capture to the final attempt, so a one-off
+        # outage that recovers on retry doesn't create error-tracking noise.
+        if _is_transient_gemini_error(e):
+            logger.warning(
+                "upload_video_to_gemini.transient_gemini_error",
+                session_id=inputs.session_id,
+                error=str(e),
+                gemini_status_code=getattr(e, "code", None),
+                attempt=temporalio.activity.info().attempt,
+                signals_type="session-summaries",
+            )
+            raise capture_only_on_final_attempt(e)
         logger.exception(
             f"Failed to upload video to Gemini for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,

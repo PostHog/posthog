@@ -14,7 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, capture_only_on_final_attempt
 
 
 @dataclass
@@ -158,6 +158,62 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@dataclass
+class DeferredCaptureInputs:
+    maximum_attempts: int
+
+
+@activity.defn
+async def always_transiently_failing_activity(inputs: DeferredCaptureInputs) -> None:
+    raise capture_only_on_final_attempt(ValueError("Transient upstream failure"))
+
+
+@workflow.defn
+class DeferredCaptureWorkflow:
+    @workflow.run
+    async def run(self, inputs: DeferredCaptureInputs) -> None:
+        await workflow.execute_activity(
+            always_transiently_failing_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(milliseconds=1),
+                maximum_interval=dt.timedelta(milliseconds=1),
+                maximum_attempts=inputs.maximum_attempts,
+            ),
+        )
+
+
+@pytest.mark.parametrize("maximum_attempts", [1, 3])
+@pytest.mark.asyncio
+async def test_deferred_capture_only_fires_on_final_attempt(maximum_attempts: int, temporal_client: Client):
+    """A marked transient exception is captured exactly once — on the final attempt — regardless
+    of how many times the activity is retried, so the retry policy can absorb the rest silently."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DeferredCaptureWorkflow],
+            activities=[always_transiently_failing_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DeferredCaptureWorkflow",
+                    DeferredCaptureInputs(maximum_attempts=maximum_attempts),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        assert mock_ph_capture.call_count == 1
+        assert mock_ph_capture.call_args_list[0][1]["properties"]["temporal.activity.attempt"] == maximum_attempts
 
 
 @pytest.mark.asyncio

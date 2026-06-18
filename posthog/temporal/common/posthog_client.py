@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import temporalio.exceptions
 from opentelemetry import trace
@@ -18,6 +18,37 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+# Exceptions carrying this attribute (set to True) are only reported to error tracking on the
+# final Temporal retry attempt. Lets an activity silence transient upstream failures (e.g. a 5xx)
+# that the retry policy is expected to absorb, while still surfacing genuinely terminal failures.
+_CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR = "_posthog_capture_only_on_final_attempt"
+
+_ExcT = TypeVar("_ExcT", bound=BaseException)
+
+
+def capture_only_on_final_attempt(exc: _ExcT) -> _ExcT:
+    """Mark an exception so the PostHog Temporal interceptor skips error-tracking capture on
+    non-final activity attempts. Use for transient errors the retry policy is expected to absorb.
+    Returns the same exception so callers can ``raise capture_only_on_final_attempt(e)``."""
+    setattr(exc, _CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR, True)
+    return exc
+
+
+def _is_final_activity_attempt(activity_info: activity.Info) -> bool:
+    retry_policy = activity_info.retry_policy
+    max_attempts = retry_policy.maximum_attempts if retry_policy else 0
+    # maximum_attempts <= 0 means unlimited retries — there is no final attempt to defer to, so
+    # capture rather than risk swallowing the error forever.
+    if max_attempts <= 0:
+        return True
+    return activity_info.attempt >= max_attempts
+
+
+def _should_capture_activity_exception(e: BaseException, activity_info: activity.Info) -> bool:
+    if not getattr(e, _CAPTURE_ONLY_ON_FINAL_ATTEMPT_ATTR, False):
+        return True
+    return _is_final_activity_attempt(activity_info)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -81,7 +112,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 }
             }
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
-            if api_key:
+            if api_key and _should_capture_activity_exception(e, activity_info):
                 try:
                     capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
                 except Exception as capture_error:
