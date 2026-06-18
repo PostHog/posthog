@@ -45,11 +45,11 @@ describe('dashboardsFileSystemUtils', () => {
     })
 
     it.each([
-        [undefined, folderDroppableId('Marketing'), 'no active id'],
-        [dashboardDraggableId(1), undefined, 'no over id'],
-        [dashboardDraggableId(1), 'something-else', 'over is not a folder'],
-        ['something-else', folderDroppableId('Marketing'), 'active is not a dashboard'],
-    ])('returns null for an invalid drop (%s)', (active, over) => {
+        ['no active id', undefined, folderDroppableId('Marketing')],
+        ['no over id', dashboardDraggableId(1), undefined],
+        ['over is not a folder', dashboardDraggableId(1), 'something-else'],
+        ['active is not a dashboard', 'something-else', folderDroppableId('Marketing')],
+    ])('returns null when %s', (_description, active, over) => {
         expect(parseDashboardDragEnd(active, over)).toBeNull()
     })
 
