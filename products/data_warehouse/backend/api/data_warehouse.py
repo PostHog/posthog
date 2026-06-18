@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import connection
@@ -34,6 +34,8 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.api import managed_warehouse
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+from products.data_warehouse.backend.warehouse_sync.contracts import WarehouseSyncStatusSerializer
+from products.data_warehouse.backend.warehouse_sync.factory import get_warehouse_sync_status_provider
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -948,3 +950,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
         return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
+
+    @extend_schema(responses={200: WarehouseSyncStatusSerializer})
+    @action(methods=["GET"], detail=False, url_path="warehouse_sync_status")
+    def warehouse_sync_status(self, request: Request, **kwargs: Any) -> Response:
+        """Backend-neutral freshness of the managed warehouse's event data."""
+        provider = get_warehouse_sync_status_provider(str(self.team.organization_id))
+        dto = provider.get_status(str(self.team.organization_id))
+        return Response(WarehouseSyncStatusSerializer(dto).data)

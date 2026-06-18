@@ -70,6 +70,7 @@ import type {
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
+    WarehouseSyncStatusApi,
     WarehouseTablesListParams,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -385,6 +386,23 @@ export const dataWarehouseWarehouseStatusRetrieve = async (
     options?: RequestInit
 ): Promise<WarehouseStatusResponseApi> => {
     return apiMutator<WarehouseStatusResponseApi>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseWarehouseSyncStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/warehouse_sync_status/`
+}
+
+/**
+ * Backend-neutral freshness of the managed warehouse's event data.
+ */
+export const dataWarehouseWarehouseSyncStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseSyncStatusApi> => {
+    return apiMutator<WarehouseSyncStatusApi>(getDataWarehouseWarehouseSyncStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
