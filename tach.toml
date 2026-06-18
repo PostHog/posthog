@@ -762,10 +762,12 @@ from = [
 ]
 
 # legal_documents is not fully sealed, so it stays out of the canonical alternation above.
-# posthog/urls registers its pandadoc webhook (presentation.webhook) and posthog/admin
-# imports its admin inline (LegalDocumentInline) for the project-wide registry — admin
-# registration cannot route through the facade. The admin leak is permanent, so
-# backend:contract-check stays off for this product (cf. error_tracking below).
+# posthog/urls registers its pandadoc webhook (presentation.webhook), and core's
+# OrganizationAdmin currently lists its LegalDocumentInline (a Django inline must be named in
+# its parent admin's `inlines`, and the parent lives in core). That admin coupling is
+# removable, not permanent — core can add a get_inlines registration hook so the product
+# registers its own inline (tracked as a follow-up). Until then backend:contract-check stays
+# off for this product.
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
