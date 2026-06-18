@@ -1,8 +1,11 @@
+import { Message } from 'node-rdkafka'
+
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
-import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
+import { EventHeaders, ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
@@ -54,16 +57,23 @@ describe('createExtractHeatmapDataStep', () => {
         step = createExtractHeatmapDataStep(mockOutputs)
     })
 
+    // The pipeline always provides headers and message at this step; fill defaults so each
+    // test only specifies what it cares about.
+    const runStep = (input: {
+        preparedEvent: PreIngestionEvent
+        headers?: EventHeaders
+        message?: Message
+    }): ReturnType<typeof step> => step({ headers: createTestEventHeaders(), message: createTestMessage(), ...input })
+
     describe('no heatmap or scroll depth data', () => {
         it('returns OK with no side effects when no $heatmap_data or scroll depth data is present', async () => {
             const event = createTestEvent()
             delete event.properties.$heatmap_data
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent).toEqual(event)
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
@@ -74,7 +84,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = null
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
@@ -84,7 +94,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = undefined
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
@@ -95,19 +105,12 @@ describe('createExtractHeatmapDataStep', () => {
         it('extracts and queues heatmap data', async () => {
             const event = createTestEvent()
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 // Original event should not be mutated
                 expect(event.properties.$heatmap_data).toBeDefined()
-
-                // Result should have heatmap data removed
-                expect(result.value.preparedEvent.properties.$heatmap_data).toBeUndefined()
-
-                // Should preserve other properties
-                expect(result.value.preparedEvent.properties.$current_url).toBe('http://localhost:3000/')
-                expect(result.value.preparedEvent.properties.$session_id).toBe('018eebf3-79cd-70da-895f-b6cf352bd688')
 
                 expect(result.sideEffects).toHaveLength(1)
                 expect(result.warnings).toEqual([])
@@ -150,7 +153,7 @@ describe('createExtractHeatmapDataStep', () => {
                 'http://localhost:3000/about': [{ x: 300, y: 400, target_fixed: true, type: 'mousemove' }],
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -171,7 +174,7 @@ describe('createExtractHeatmapDataStep', () => {
                 $prev_pageview_max_scroll: 225,
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -207,7 +210,7 @@ describe('createExtractHeatmapDataStep', () => {
                 $prev_pageview_max_scroll: 500,
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -232,11 +235,10 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             event.properties.$heatmap_data = {}
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent.properties.$heatmap_data).toBeUndefined()
                 expect(result.sideEffects).toEqual([])
             }
             expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
@@ -245,7 +247,7 @@ describe('createExtractHeatmapDataStep', () => {
         it('drops event with invalid distinct_id', async () => {
             const event = createTestEvent({ distinctId: '' })
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -257,7 +259,7 @@ describe('createExtractHeatmapDataStep', () => {
         it('drops event with illegal distinct_id', async () => {
             const event = createTestEvent({ distinctId: 'distinct_id' })
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -271,7 +273,7 @@ describe('createExtractHeatmapDataStep', () => {
             event.properties.$viewport_height = NaN
             event.properties.$viewport_width = 1071
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -284,7 +286,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             delete event.properties.$viewport_height
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.DROP)
             if (result.type === PipelineResultType.DROP) {
@@ -298,7 +300,7 @@ describe('createExtractHeatmapDataStep', () => {
                 '   ': [{ x: 100, y: 200, target_fixed: false, type: 'click' }],
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -321,7 +323,7 @@ describe('createExtractHeatmapDataStep', () => {
                 'http://localhost:3000/': 'not an array' as any,
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
@@ -351,7 +353,7 @@ describe('createExtractHeatmapDataStep', () => {
                 ],
             }
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -366,13 +368,13 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             const originalEvent = cloneObject(event)
 
-            await step({ preparedEvent: event })
+            await runStep({ preparedEvent: event })
 
             expect(event).toEqual(originalEvent)
             expect(event.properties.$heatmap_data).toBeDefined()
         })
 
-        it('preserves input properties in the result', async () => {
+        it('returns only the ingested handles', async () => {
             const event = createTestEvent()
             const input = {
                 preparedEvent: event,
@@ -380,14 +382,12 @@ describe('createExtractHeatmapDataStep', () => {
                 anotherField: 123,
             }
 
-            const result = await step(input as any)
+            const result = await runStep(input as any)
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value).toMatchObject({
-                    customField: 'test-value',
-                    anotherField: 123,
-                })
+                // The event is not emitted onwards — the step returns only the lag handles.
+                expect(Object.keys(result.value)).toEqual(['ingested'])
             }
         })
     })
@@ -401,7 +401,7 @@ describe('createExtractHeatmapDataStep', () => {
             }
             event.distinctId = null as any // This should cause an error
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             // The error should be caught and converted to a warning
             expect(result.type).toBe(PipelineResultType.DROP)
@@ -417,7 +417,7 @@ describe('createExtractHeatmapDataStep', () => {
             event.properties.$viewport_height = 1600
             event.properties.$viewport_width = 1280
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -438,11 +438,11 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             const headers = createTestEventHeaders({ skip_heatmap_processing: true })
 
-            const result = await step({ preparedEvent: event, headers })
+            const result = await runStep({ preparedEvent: event, headers })
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent).toBe(event)
+                expect(result.value.ingested).toEqual([])
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
@@ -453,7 +453,7 @@ describe('createExtractHeatmapDataStep', () => {
             const event = createTestEvent()
             const headers = createTestEventHeaders({ skip_heatmap_processing: false })
 
-            const result = await step({ preparedEvent: event, headers })
+            const result = await runStep({ preparedEvent: event, headers })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
@@ -462,10 +462,66 @@ describe('createExtractHeatmapDataStep', () => {
         it('extracts normally when headers are not provided', async () => {
             const event = createTestEvent()
 
-            const result = await step({ preparedEvent: event })
+            const result = await runStep({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('ingestion lag tracking', () => {
+        const capturedAt = new Date('2023-12-15T14:32:01.987Z')
+
+        it('resolves ingested with source event info once the produce is acked', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ now: capturedAt })
+            const message = createTestMessage({ topic: 'heatmaps_topic', partition: 3 })
+
+            const result = await runStep({ preparedEvent: event, headers, message })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toHaveLength(1)
+                await expect(result.value.ingested[0]).resolves.toEqual({
+                    capturedAt,
+                    topic: 'heatmaps_topic',
+                    partition: 3,
+                })
+            }
+        })
+
+        it('records no ingested handle when there is no heatmap data', async () => {
+            const event = createTestEvent()
+            delete event.properties.$heatmap_data
+            const message = createTestMessage()
+
+            const result = await runStep({ preparedEvent: event, message })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toEqual([])
+            }
+        })
+
+        // A failed produce must resolve the lag promise to null rather than reject it, so it
+        // can never surface as an unhandled rejection (the step's then() handles both branches).
+        // jest fails any test that leaks an unhandled rejection, so this also guards that.
+        it('resolves ingested to null when the produce fails, without rejecting', async () => {
+            mockOutputs.queueMessages.mockRejectedValue(new Error('produce failed'))
+            const event = createTestEvent()
+            const message = createTestMessage()
+
+            const result = await runStep({
+                preparedEvent: event,
+                headers: createTestEventHeaders({ now: capturedAt }),
+                message,
+            })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toHaveLength(1)
+                await expect(result.value.ingested[0]).resolves.toBeNull()
+            }
         })
     })
 })

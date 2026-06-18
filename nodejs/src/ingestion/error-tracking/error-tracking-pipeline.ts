@@ -18,6 +18,7 @@ import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restri
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
+import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -30,7 +31,7 @@ import {
     createSkipCookielessRateLimitToOverflowStep,
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -54,11 +55,11 @@ export interface ErrorTrackingPipelineInput {
 }
 
 /**
- * The pipeline output is void because the final step emits to Kafka.
- * Successful events are produced to the output topic, while failures
- * are handled by the result handling pipeline (DLQ, drop, redirect).
+ * The final step emits to Kafka and outputs handles to the in-flight
+ * emissions. Successful events are produced to the output topic, while
+ * failures are handled by the result handling pipeline (DLQ, drop, redirect).
  */
-export type ErrorTrackingPipelineOutput = void
+export type ErrorTrackingPipelineOutput = EmitEventStepOutput
 
 export type ErrorTrackingOutputs = IngestionOutputs<
     EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | AppMetricsOutput
@@ -66,7 +67,6 @@ export type ErrorTrackingOutputs = IngestionOutputs<
 
 export interface ErrorTrackingPipelineConfig {
     outputs: ErrorTrackingOutputs
-    groupId: string
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
     personRepository: PersonReadRepository
@@ -162,7 +162,6 @@ export function createErrorTrackingPipeline(
 > {
     const {
         outputs,
-        groupId,
         promiseScheduler,
         teamManager,
         personRepository,
@@ -289,7 +288,6 @@ export function createErrorTrackingPipeline(
                                                     topHogWrapper(
                                                         createEmitEventStep({
                                                             outputs,
-                                                            groupId,
                                                         }),
                                                         [
                                                             count('emitted_events', (input) => ({
@@ -303,6 +301,7 @@ export function createErrorTrackingPipeline(
                                                         ]
                                                     )
                                                 )
+                                                .pipe(createRecordIngestionLagStep())
                                         )
                                 )
                             })

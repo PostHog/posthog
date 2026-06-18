@@ -6,12 +6,13 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
@@ -40,15 +41,14 @@ export interface EventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
-    groupId: string
     topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -99,7 +99,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(
@@ -127,4 +126,5 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }

@@ -2,8 +2,9 @@ import { AsyncOutput, EVENTS_OUTPUT } from '~/common/outputs'
 import type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { createProcessGroupsStep } from '~/ingestion/event-processing/process-groups-step'
 
+import { createRecordIngestionLagStep } from '../../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
-import { createEmitEventStep } from '../../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
@@ -21,9 +22,8 @@ export type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingest
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, groupId, topHog } =
-        config
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -76,7 +76,6 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(
@@ -104,4 +103,5 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }

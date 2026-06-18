@@ -9,6 +9,7 @@ import { AiEventSubpipelineFactory, AiEventSubpipelineInput } from '~/ingestion/
 
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
+import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -28,7 +29,6 @@ export interface PerDistinctIdPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
-    groupId: string
     topHog: TopHogWrapper
 }
 
@@ -50,7 +50,7 @@ function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
 export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const {
         options,
         outputs,
@@ -59,7 +59,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         teamManager,
         groupTypeManager,
         hogTransformer,
-        groupId,
         topHog,
     } = config
 
@@ -75,7 +74,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             groupTypeManager,
                             hogTransformer,
                             splitAiEventsConfig,
-                            groupId,
                             topHog,
                         })
                     )
@@ -86,7 +84,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            groupId,
                             topHog,
                         })
                     )

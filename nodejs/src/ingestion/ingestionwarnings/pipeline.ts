@@ -10,6 +10,7 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '~/ingestion/common/steps/event-filters-steps'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
 import {
     createParseHeadersStep,
@@ -21,6 +22,7 @@ import {
 } from '~/ingestion/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/event-processing/handle-client-ingestion-warning-step'
 import { newBatchingPipeline } from '~/ingestion/pipelines/builders'
 import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
@@ -58,7 +60,7 @@ export function createClientWarningsPipeline<
         promiseScheduler,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, EventFiltersBatchContext, TContext>(
+    return newBatchingPipeline<TInput, EmitEventStepOutput, TContext, EventFiltersBatchContext, TContext>(
         (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
@@ -82,7 +84,8 @@ export function createClientWarningsPipeline<
                                             .pipe(createValidateEventPropertiesStep())
                                             .pipe(createApplyEventFiltersStep(eventFilterManager))
                                             .pipe(createDropOldEventsStep())
-                                            .pipe(createHandleClientIngestionWarningStep())
+                                            .pipe(createHandleClientIngestionWarningStep(outputs))
+                                            .pipe(createRecordIngestionLagStep())
                                     )
                                 )
                                 .handleIngestionWarnings(outputs)

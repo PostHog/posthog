@@ -13,6 +13,7 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '~/ingestion/event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/pipelines/builders/pipeline-builders'
@@ -39,7 +40,6 @@ export interface AiEventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
     splitAiEventsConfig: SplitAiEventsStepConfig
-    groupId: string
     topHog: TopHogWrapper
 }
 
@@ -51,4 +51,4 @@ export interface AiEventSubpipelineConfig {
 export type AiEventSubpipelineFactory = <TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
-) => PipelineBuilder<TInput, void, TContext, AsyncOutput>
+) => PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput>
