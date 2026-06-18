@@ -445,9 +445,20 @@ def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
     return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
 
 
-def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
-    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
-    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+def _multi_search_not_found(search_call: ast.Call) -> ast.Expr:
+    """Check that multiSearchAnyCaseInsensitive did not find a match.
+
+    Wrapped in ifNull(..., 1) so a NULL column keeps the row: toString(NULL)
+    propagates NULL through the `= 0` comparison, which would otherwise drop the
+    row from a negation result. Mirrors the single-value NOT_ICONTAINS path so
+    every "doesn't contain" variant treats a missing value as a match (#24429)."""
+    return ast.Call(
+        name="ifNull",
+        args=[
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0)),
+            ast.Constant(value=1),
+        ],
+    )
 
 
 def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:

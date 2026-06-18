@@ -201,6 +201,12 @@ class TestProperty(BaseTest):
             self._parse_expr("ifNull(toString(properties.a) not ilike '%3%', 1)"),
         )
         self.assertEqual(
+            # Multi-value negation must also keep NULL rows (same #24429 fix as the
+            # single-value path above), so the multiSearch comparison is ifNull-wrapped.
+            self._property_to_expr({"type": "event", "key": "a", "value": ["3", "4"], "operator": "not_icontains"}),
+            self._parse_expr("ifNull(multiSearchAnyCaseInsensitive(toString(properties.a), ['3', '4']) = 0, 1)"),
+        )
+        self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
             self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
