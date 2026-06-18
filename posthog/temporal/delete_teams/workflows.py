@@ -2,6 +2,7 @@ import datetime as dt
 
 import temporalio.common
 import temporalio.workflow
+import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
@@ -85,14 +86,23 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
 
         team_inputs = TeamDataActivityInputs(team_ids=inputs.team_ids, user_id=inputs.user_id)
 
-        # Start the autonomous session-replay recording deletion (fire-and-forget).
-        await temporalio.workflow.execute_activity(
-            queue_recording_deletions_activity,
-            team_inputs,
-            start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-            retry_policy=SIDE_EFFECT_RETRY_POLICY,
-        )
+        # Start the autonomous session-replay recording deletion (fire-and-forget). Best-effort:
+        # queuing recording deletion is not a prerequisite for removing the team's data, so if it
+        # exhausts its retries we log and carry on rather than wedging the whole deletion. Recordings
+        # left behind are reaped by their own retention/TTL.
+        try:
+            await temporalio.workflow.execute_activity(
+                queue_recording_deletions_activity,
+                team_inputs,
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=SIDE_EFFECT_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError:
+            temporalio.workflow.logger.warning(
+                "queue_recording_deletions_activity failed; continuing team deletion without it",
+                exc_info=True,
+            )
 
         for activity in BULKY_POSTGRES_ACTIVITIES:
             await temporalio.workflow.execute_activity(
