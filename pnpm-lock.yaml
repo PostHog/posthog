@@ -819,9 +819,6 @@ importers:
       '@react-hook/size':
         specifier: ^2.1.2
         version: 2.1.2(react@18.3.1)
-      '@sgratzl/chartjs-chart-boxplot':
-        specifier: ^4.4.5
-        version: 4.4.5(chart.js@4.5.1)
       '@simplewebauthn/browser':
         specifier: ^13.2.2
         version: 13.2.2
@@ -10405,14 +10402,6 @@ packages:
   '@sentry/core@8.55.2':
     resolution: {integrity: sha512-YlEBwybUcOQ/KjMHDmof1vwweVnBtBxYlQp7DE3fOdtW4pqqdHWTnTntQs4VgYfxzjJYgtkd9LHlGtg8qy+JVQ==}
     engines: {node: '>=14.18'}
-
-  '@sgratzl/boxplots@2.0.0':
-    resolution: {integrity: sha512-XHQTNTk0OtDEZyT7v+BKNKt4OEXYhn4GtfI+iQ1eFiFsx8Aq/csz+mOJYbfpkiP8Popd/8Nky8vLh1zzkYn0gw==}
-
-  '@sgratzl/chartjs-chart-boxplot@4.4.5':
-    resolution: {integrity: sha512-hvHcUIPIyzNPRmvPNIbA/R68zZKv7XHUcNrYJZTB8QsVE0KKuuGuEK98yCeCy32vZXQBl/PrHGOYMXeuqZrU0w==}
-    peerDependencies:
-      chart.js: ^4.1.1
 
   '@shikijs/engine-oniguruma@3.23.0':
     resolution: {integrity: sha512-1nWINwKXxKKLqPibT5f4pAFLej9oZzQTsby8942OTlsJzOBZ0MWKiwzMsd+jhzu8YPCHAswGnnN1YtQfirL35g==}
@@ -30658,13 +30647,6 @@ snapshots:
       '@sentry/core': 8.55.2
 
   '@sentry/core@8.55.2': {}
-
-  '@sgratzl/boxplots@2.0.0': {}
-
-  '@sgratzl/chartjs-chart-boxplot@4.4.5(chart.js@4.5.1)':
-    dependencies:
-      '@sgratzl/boxplots': 2.0.0
-      chart.js: 4.5.1
 
   '@shikijs/engine-oniguruma@3.23.0':
     dependencies:
