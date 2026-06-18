@@ -55,7 +55,7 @@ export function IntegrationScopesWarning({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const grantedScopes = useMemo(() => getGrantedScopes(integration), [integration.config])
+    const grantedScopes = useMemo(() => getGrantedScopes(integration), [integration.config, integration])
     const requiredScopes = schema?.requiredScopes?.split(' ') || []
     const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope))
 
