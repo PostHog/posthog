@@ -1723,7 +1723,10 @@ describe('maxThreadLogic', () => {
 
             logic.actions.prewarmSandbox()
             await flush()
-            expect(openSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, { content: null })
+            expect(openSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, {
+                content: null,
+                initial_permission_mode: 'auto',
+            })
 
             // User abandons the input before the warm resolves — nothing is warm yet, so the release
             // is deferred (pendingRelease), not dropped, and no cancel fires.
@@ -3466,7 +3469,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('holds the streaming lock until the sandbox turn completes and releases exactly once', async () => {
-            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3474,6 +3477,14 @@ describe('maxThreadLogic', () => {
                     0
                 )
             }).toDispatchActions(['openSandboxSse'])
+
+            expect(openSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    content: 'hello',
+                    initial_permission_mode: 'auto',
+                })
+            )
 
             // The POST finished, but the turn is still streaming — the lock must still be held
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
