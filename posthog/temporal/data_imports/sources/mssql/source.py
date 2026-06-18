@@ -70,6 +70,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # whose definition selects a column that's no longer present. Fixed source-data shape,
             # so retrying won't help.
             "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
+            # SQL Server error 245 — an implicit type conversion fails on a specific row's value
+            # (e.g. converting the varchar 'SFDR' to int). Our SELECT does no casts and the
+            # incremental predicate only ever compares like types, so this conversion lives in the
+            # view body or a computed column we're reading from. It's fixed by the source data +
+            # view definition, so retrying replays the identical 245. Match the stable error text,
+            # not the volatile value / data type that follow it.
+            "Conversion failed when converting": "A value in one of the tables or views you're syncing can't be converted to the type its query expects (SQL Server error 245) — for example a text value where a number is required. This usually comes from a view definition or computed column that casts or compares mismatched types. Fix the conversion at the source (correct the data or the view), then re-enable the sync.",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
             # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
