@@ -41,6 +41,14 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 
 logger = structlog.get_logger(__name__)
 
+# A PostHog AI sandbox session is a live chat: if the user goes quiet for this long
+# they've moved on, so the Run's workflow times out and reclaims the sandbox. Passed
+# as the per-task `inactivity_timeout_seconds` override on every Run we create, so the
+# workflow's idle timer and the SSE relay's freshness window both honor it (both read
+# it from Run state). Shorter than the generic user-origin default, which assumes a
+# human may still return much later.
+SANDBOX_INACTIVITY_TIMEOUT_SECONDS = 10 * 60
+
 
 class SandboxRouteResult(BaseModel):
     """Outcome of routing one sandbox message — the IDs the frontend opens SSE against."""
@@ -190,7 +198,12 @@ class SandboxSession(BaseSandboxService):
         # dispatches the workflow on commit; it is idempotent (an existing non-terminal Run is returned
         # as-is). `systemPrompt` is the one PostHog AI-specific Run-state key the generic warmer can't know.
         try:
-            result = SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
+            result = SandboxWarmer(task, user=self.user).warm(
+                extra_state={
+                    "systemPrompt": system_prompt,
+                    "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
+                }
+            )
         except exceptions.Throttled:
             # Warm-pool cap reached between the pre-check and the lock — best-effort no-op (no handle).
             logger.info(
@@ -237,6 +250,7 @@ class SandboxSession(BaseSandboxService):
             repository=None,
             create_pr=False,
             mode="interactive",
+            inactivity_timeout_seconds=SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             # Defer the workflow so the initial run state can carry the PostHog AI keys.
             start_workflow=False,
         )
@@ -411,6 +425,7 @@ class SandboxSession(BaseSandboxService):
                 # The full, undeduped list — survives for the life of the new Run.
                 "attached_context": attached_context,
                 "initial_permission_mode": "default",
+                "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
             # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
             snapshot_external_id = (run.state or {}).get("snapshot_external_id")
