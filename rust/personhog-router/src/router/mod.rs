@@ -15,7 +15,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -30,9 +31,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::metadata::MetadataMap;
 use tonic::Status;
@@ -611,6 +614,21 @@ impl PersonHogRouter {
         )
     }
 
+    /// Delete a batch of personless distinct IDs for a team.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above.
+    pub async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeletePersonlessDistinctIdsBatchForTeam",
+            delete_personless_distinct_ids_batch_for_team,
+            request
+        )
+    }
+
     /// Split distinct_ids off a person onto new persons.
     ///
     /// WARNING: Same routing caveat as delete_persons above — write operation on
@@ -621,6 +639,36 @@ impl PersonHogRouter {
         request: SplitPersonRequest,
     ) -> Result<SplitPersonResponse, Status> {
         call_backend!(self, "SplitPerson", split_person, request)
+    }
+
+    /// Set a person_distinct_id's version (undelete repair).
+    ///
+    /// WARNING: Same routing caveat as split_person above.
+    pub async fn set_person_distinct_id_version_floor(
+        &self,
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        call_backend!(
+            self,
+            "SetPersonDistinctIdVersionFloor",
+            set_person_distinct_id_version_floor,
+            request
+        )
+    }
+
+    /// Bump a person's version (undelete repair).
+    ///
+    /// WARNING: Same routing caveat as split_person above.
+    pub async fn set_person_version_floor(
+        &self,
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        call_backend!(
+            self,
+            "SetPersonVersionFloor",
+            set_person_version_floor,
+            request
+        )
     }
 
     // ============================================================

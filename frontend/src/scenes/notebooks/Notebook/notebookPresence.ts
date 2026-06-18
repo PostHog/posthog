@@ -1,4 +1,8 @@
+import { uuid } from 'lib/utils/dom'
+
 import type { UserType } from '~/types'
+
+const NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY = 'posthog_notebook_markdown_client_id'
 
 export type NotebookPresenceState = {
     clientId: string
@@ -11,8 +15,14 @@ export type NotebookRemoteParticipant = NotebookPresenceState
 
 export type NotebookPresenceParticipant = NotebookPresenceState & {
     isCurrentUser?: boolean
+    isAI?: boolean
     profileUser?: Pick<UserType, 'email' | 'first_name' | 'hedgehog_config'>
 }
+
+export const NOTEBOOK_AI_PRESENCE_CLIENT_ID = 'notebook-agent:ai'
+export const NOTEBOOK_AI_PRESENCE_USER_ID = 100_185
+export const NOTEBOOK_AI_PRESENCE_NAME = 'AI'
+export const NOTEBOOK_AI_PRESENCE_COLOR = 'var(--color-text-success)'
 
 export function getNotebookRemoteParticipants<T extends NotebookPresenceState>(
     presenceByClientId: Record<string, T>
@@ -64,4 +74,35 @@ export function pruneNotebookRemotePresence<T extends NotebookPresenceState>(
     return freshPresence.length === Object.keys(presenceByClientId).length
         ? presenceByClientId
         : (Object.fromEntries(freshPresence) as Record<string, T>)
+}
+
+export function getNotebookMarkdownClientId(): string {
+    const nextClientId = uuid()
+    if (typeof window === 'undefined') {
+        return nextClientId
+    }
+
+    try {
+        const storedClientId = window.sessionStorage.getItem(NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY)
+        if (storedClientId && getNavigationType() === 'reload') {
+            return storedClientId
+        }
+        window.sessionStorage.setItem(NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY, nextClientId)
+    } catch {
+        // Storage can be unavailable in private or embedded contexts. Presence is best effort.
+    }
+
+    return nextClientId
+}
+
+function getNavigationType(): PerformanceNavigationTiming['type'] | null {
+    if (typeof window.performance?.getEntriesByType !== 'function') {
+        return null
+    }
+
+    const navigation = window.performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    if (!navigation || !navigation.type) {
+        return null
+    }
+    return navigation.type
 }
