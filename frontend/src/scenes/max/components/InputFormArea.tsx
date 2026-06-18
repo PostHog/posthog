@@ -16,6 +16,7 @@ import { maxThreadLogic } from '../maxThreadLogic'
 import { Option, OptionSelector } from './OptionSelector'
 import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
 import { SandboxPermissionInput } from './SandboxPermissionInput'
+import { SandboxQuestionInput } from './SandboxQuestionInput'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,
@@ -463,6 +464,17 @@ export function InputFormArea(): JSX.Element | null {
     // originates from the sandbox stream, so its presence is sufficient — gating on `agent_runtime`
     // would strand approvals on new conversations whose runtime isn't resolved yet.
     if (pendingSandboxPermissionRequest) {
+        // An `AskUserQuestion` rides the same permission rails but is a question, not an approval —
+        // render the interactive question overlay instead of the approve/decline card.
+        if (pendingSandboxPermissionRequest.questions?.length) {
+            return (
+                <SandboxQuestionInput
+                    key={pendingSandboxPermissionRequest.requestId}
+                    streamKey={conversationId}
+                    request={pendingSandboxPermissionRequest}
+                />
+            )
+        }
         return (
             <SandboxPermissionInput
                 key={pendingSandboxPermissionRequest.requestId}

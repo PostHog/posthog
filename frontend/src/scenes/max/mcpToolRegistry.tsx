@@ -37,6 +37,7 @@ import { QueryWidget } from './messages/adapters/QueryWidget'
 import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
 import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
+import { SandboxQuestionRenderer } from './sandbox/SandboxQuestionRenderer'
 
 export interface McpToolRendererProps {
     message: McpToolCallMessage
@@ -191,13 +192,21 @@ const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[
     { keys: ['Skill'], displayName: 'Skill', icon: <IconMagicWand /> },
     { keys: ['ToolSearch'], displayName: 'Tool search', icon: <IconSearch /> },
     { keys: ['ExitPlanMode'], displayName: 'Plan', icon: <IconDocument /> },
-    { keys: ['AskUserQuestion'], displayName: 'Question', icon: <IconAI /> },
 ]
 for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
     for (const key of keys) {
         mcpToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
     }
 }
+
+// AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
+// lays the question + options out like the LangGraph question recap, rather than the generic JSON card.
+mcpToolRegistry.register({
+    key: 'AskUserQuestion',
+    displayName: 'Question',
+    icon: <IconAI />,
+    Renderer: SandboxQuestionRenderer,
+})
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
 export function lookupMcpToolRenderer(resolvedKey: string): McpToolRegistryEntry {
