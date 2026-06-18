@@ -264,7 +264,6 @@ class TestStoreTeamsServiceUrl(BaseTest):
         self.assertIsNone(self.config.teams_service_url)
 
 
-@patch("products.conversations.backend.tasks.poll_team_shared_channels.delay")
 class TestPollFanout(BaseTest):
     # Graph returns "unknownFutureValue" for shared channels in some tenants, so both
     # it and the literal "shared" must fan out; standard/private must not.
@@ -276,6 +275,7 @@ class TestPollFanout(BaseTest):
             ("private", "private", False),
         ]
     )
+    @patch("products.conversations.backend.tasks.poll_team_shared_channels.delay")
     def test_fanout_by_membership_type(
         self, _name: str, membership_type: str, should_fan_out: bool, mock_delay: MagicMock
     ) -> None:
