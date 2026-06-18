@@ -165,7 +165,8 @@ export function ReportCard({
                 </div>
             ) : null}
 
-            <div className="absolute right-4 bottom-3 z-10">
+            {/* Desktop: timestamp anchored bottom-right. On mobile the card stacks, so it moves inline (below). */}
+            <div className="absolute right-4 bottom-3 z-10 hidden @lg:block">
                 <TZLabel
                     time={report.updated_at ?? report.created_at}
                     className="text-xs text-tertiary tabular-nums"
@@ -181,7 +182,13 @@ export function ReportCard({
                 )}
 
                 <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                    <div className="min-w-0 break-words font-semibold text-sm leading-snug">
+                    {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
+                    <div
+                        className={clsx(
+                            'min-w-0 break-words font-semibold text-sm leading-snug',
+                            hasPr && 'pr-14 @lg:pr-0'
+                        )}
+                    >
                         {conventionalTitle && (
                             <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
                         )}
@@ -214,10 +221,17 @@ export function ReportCard({
                             )}
                         </div>
                     ) : null}
+
+                    {/* Mobile-only timestamp (desktop pins it to the card's bottom-right corner). */}
+                    <TZLabel
+                        time={report.updated_at ?? report.created_at}
+                        className="@lg:hidden mt-0.5 text-xs text-tertiary tabular-nums"
+                        title="Last updated"
+                    />
                 </div>
             </Link>
 
-            <div className="flex items-center gap-2.5 self-stretch shrink-0 border-l border-primary pl-3">
+            <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                 <LemonButton
                     type="secondary"
                     size="small"
