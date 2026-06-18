@@ -47579,6 +47579,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /**
+         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
+         * @maxLength 120
+         */
+      home_quick_action?: string;
     }
 
     /**
