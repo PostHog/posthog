@@ -207,7 +207,6 @@ export const calculateLayouts = (
                 defaultW = 2
                 defaultH = 2
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
-                // Headline + sparkline needs a bit more room than the bare BoldNumber tile.
                 defaultW = 3
                 defaultH = 3
             }

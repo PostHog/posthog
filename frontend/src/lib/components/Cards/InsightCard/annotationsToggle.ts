@@ -4,8 +4,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { getShowAnnotations, isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
-// Annotations only render for trends time-series charts (the single-value Metric card has no annotations overlay)
-// and funnels with the historical-trends viz type.
+// Annotations only render for trends time-series charts and funnels with the historical-trends viz type.
 export function canToggleAnnotationsInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
     if (!isInsightVizNode(query)) {
         return false

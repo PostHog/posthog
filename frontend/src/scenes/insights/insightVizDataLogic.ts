@@ -958,7 +958,7 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
-    // Metric is single-series (no breakdown); its change is measured across the displayed period, not vs a prior one
+    // Remove breakdown filter if display type is Metric because it is single-series
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Metric) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }

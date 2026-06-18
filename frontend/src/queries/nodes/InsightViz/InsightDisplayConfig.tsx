@@ -123,8 +123,6 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
 
-    // Metric shows a single headline value plus a sparkline; like the non-time-series displays it has no
-    // axes/scale/lines, so it hides the continuous-chart display options even though its data is time-series.
     const isMetric = display === ChartDisplayType.Metric
     const hideContinuousChartOptions = isNonTimeSeriesDisplay || isMetric
     const showCompare =
@@ -132,9 +130,8 @@ export function InsightDisplayConfig(): JSX.Element {
             display !== ChartDisplayType.ActionsAreaGraph &&
             display !== ChartDisplayType.CalendarHeatmap &&
             display !== ChartDisplayType.BoxPlot &&
-            !isSlopeGraph &&
-            // Metric computes its change pill from its own series, so the compare-to-previous control isn't needed.
-            !isMetric) ||
+            !isMetric &&
+            !isSlopeGraph) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource) ||
         (funnelsCompareEnabled && (isTrendsFunnel || isTimeToConvertFunnel))

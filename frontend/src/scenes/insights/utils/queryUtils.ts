@@ -182,7 +182,6 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
-    // Metric is a single headline value backed by the per-interval series, so its query matches a line graph's.
     [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series

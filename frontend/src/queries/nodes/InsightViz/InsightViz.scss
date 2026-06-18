@@ -223,8 +223,7 @@
     }
 }
 
-// The Metric sparkline bleeds to the card edges, so drop the viz content padding that would otherwise inset it.
-// Matches both the insight view (.TrendsInsight--Metric) and dashboard cards (.InsightCard__viz) via .Metric.
+// Drop the viz padding so the Metric sparkline can bleed to the card edges.
 .InsightVizDisplay__content:has(.Metric) {
     padding: 0;
 }

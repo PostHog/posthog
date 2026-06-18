@@ -38,8 +38,7 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
 
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
-    // `count` is typed as a number but can be absent at runtime; without a headline MetricCard renders nothing,
-    // so fall through to the empty state rather than showing a blank tile.
+    // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {
         return <InsightEmptyState />
     }
@@ -47,7 +46,6 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
     const headlineValue = resultSeries.count
     const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
-    // The pill and line both read from `change` (change across the displayed period), so they always agree.
     const { change, startValue } = computeMetricChange(resultSeries.data)
     const comparisonSubtitle =
         startValue != null
@@ -66,8 +64,7 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
         lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
     }
 
-    // Sparkline hover/resting subtitle (used when there's no comparison) is the point's date — format it the app's
-    // way ("June 16, 2026") rather than the raw backend label ("16-Jun-2026").
+    // Format the backend day labels the app's way ("June 16, 2026" rather than "16-Jun-2026").
     const labels = resultSeries.days?.map((day) => formatDate(dayjs(day))) ?? resultSeries.labels
 
     let handleClick: (() => void) | undefined
@@ -90,8 +87,6 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
             })
     }
 
-    // Left-aligned, full-width tile. On a dashboard card the content fills the height (value/pill at the top,
-    // sparkline grows to fill the rest); in the insight view the tile is content-height at the top.
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-4', inCardView && 'flex-1')}>
             <MetricCard

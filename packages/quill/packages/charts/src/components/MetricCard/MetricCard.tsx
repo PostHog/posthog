@@ -139,7 +139,6 @@ function MetricCardInner({
 
     const headerDelta = delta != null && !changeInline ? delta : null
     const showHeader = title != null || headerDelta != null
-    // With a title, space it against the pill; with only a pill (no title), keep the pill on the right.
     const headerJustify = title != null ? 'justify-between' : 'justify-end'
     const renderedHeadline = headline ? (
         headline(headlineDisplay)

@@ -288,9 +288,8 @@ describe('MetricCard', () => {
         })
     })
 
-    describe('new props', () => {
+    describe('headline override, inline change pill, fill, and subtitle', () => {
         it('replaces the default headline via the headline render-prop', () => {
-            // The consumer-supplied data-attr is the stable hook here.
             const { container } = renderHogChart(
                 <MetricCard
                     title="Total"
