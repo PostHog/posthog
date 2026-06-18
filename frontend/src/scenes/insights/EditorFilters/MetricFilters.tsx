@@ -66,7 +66,7 @@ export function MetricColorFilter(): JSX.Element {
             {colorByDirection && (
                 <div className="flex flex-col gap-1 p-1 px-2 pl-7">
                     <div className="flex items-center justify-between gap-2">
-                        <span className="font-normal">Good</span>
+                        <span className="font-normal">Improving</span>
                         <LemonColorPicker
                             colors={presetColors}
                             selectedColor={goodColor}
@@ -76,7 +76,7 @@ export function MetricColorFilter(): JSX.Element {
                         />
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                        <span className="font-normal">Bad</span>
+                        <span className="font-normal">Declining</span>
                         <LemonColorPicker
                             colors={presetColors}
                             selectedColor={badColor}
