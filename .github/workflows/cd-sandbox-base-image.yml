@@ -34,7 +34,7 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
-                        - 'products/tasks/backend/sandbox/images/**'
+                        - 'products/tasks/backend/logic/sandbox/images/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
 
@@ -202,7 +202,7 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
-                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  file: ./products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-base
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
@@ -214,7 +214,7 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
-                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
+                  file: ./products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-notebook
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
@@ -226,7 +226,7 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
-                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
+                  file: ./products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-pi
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-pi:master,ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) }}
@@ -239,7 +239,7 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
-                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
+                  file: ./products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-vm
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-vm:master,ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) }}

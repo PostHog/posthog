@@ -16,7 +16,7 @@ import pytest
 
 DOCKER_AVAILABLE = shutil.which("docker") is not None
 IMAGE_NAME = "posthog-sandbox-base-test"
-DOCKERFILE_PATH = "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+DOCKERFILE_PATH = "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-base"
 
 
 def _dockerfile_hash() -> str:

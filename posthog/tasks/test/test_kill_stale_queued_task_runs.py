@@ -115,7 +115,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         original_mark_failed = TaskRun.mark_failed
         call_count = {"n": 0}
 
-        def flaky_mark_failed(self: "TaskRun", error: str) -> None:
+        def flaky_mark_failed(self, error: str) -> None:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("synthetic failure")

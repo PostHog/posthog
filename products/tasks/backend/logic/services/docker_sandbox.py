@@ -227,7 +227,7 @@ class DockerSandbox(SandboxBase):
         """Build the local sandbox image with local PostHog Code packages."""
         logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
         dockerfile_path = os.path.join(
-            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
+            settings.BASE_DIR, "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-local"
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -270,7 +270,7 @@ class DockerSandbox(SandboxBase):
         """Build the sandbox image, using local packages if LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set."""
         if template == SandboxTemplate.NOTEBOOK_BASE:
             dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
+                settings.BASE_DIR, "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-notebook"
             )
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
@@ -279,19 +279,19 @@ class DockerSandbox(SandboxBase):
         # user + auth proxy), so it doesn't build on top of the base image like PI does.
         if template == SandboxTemplate.STREAMLIT_BASE:
             dockerfile_path = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"
+                settings.BASE_DIR, "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-streamlit"
             )
             DockerSandbox._build_image_if_needed(STREAMLIT_IMAGE_NAME, dockerfile_path)
             return STREAMLIT_IMAGE_NAME
 
         dockerfile_path = os.path.join(
-            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+            settings.BASE_DIR, "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-base"
         )
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
 
         if template == SandboxTemplate.PI_BASE:
             pi_dockerfile = os.path.join(
-                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"
+                settings.BASE_DIR, "products/tasks/backend/logic/sandbox/images/Dockerfile.sandbox-pi"
             )
             DockerSandbox._build_image_if_needed(
                 PI_IMAGE_NAME,
