@@ -12,21 +12,22 @@ import type { PermissionOption } from './types/sandboxWireTypes'
 function makeRecord(
     overrides: {
         toolName?: string
-        resolvedKey?: string
-        innerToolName?: string
+        rawServerName?: string
+        rawToolName?: string
+        input?: Record<string, unknown>
+        meta?: unknown
         options?: PermissionOption[]
         questions?: SandboxQuestion[]
     } = {}
 ): PermissionRequestRecord {
     const rawToolCall: ToolInvocation = {
         toolCallId: 'tc',
-        rawServerName: 'posthog',
-        rawToolName: 'exec',
-        resolvedKey: overrides.resolvedKey ?? 'exec',
-        innerToolName: overrides.innerToolName,
-        input: {},
+        rawServerName: overrides.rawServerName ?? 'posthog',
+        rawToolName: overrides.rawToolName ?? 'exec',
+        input: overrides.input ?? {},
         status: 'pending',
         contentBlocks: [],
+        meta: overrides.meta,
     }
     return {
         requestId: 'r',
@@ -68,27 +69,34 @@ describe('sandboxToolPolicy', () => {
 
     describe('defaultPermissionDecision', () => {
         it.each<[string, PermissionRequestRecord, PermissionDecision]>([
-            ['built-in tool', makeRecord({ toolName: 'Bash', resolvedKey: 'Bash' }), 'auto_allow'],
-            ['exec discovery verb', makeRecord({ resolvedKey: '__posthog_exec_tools__' }), 'auto_allow'],
             [
-                'exec create',
-                makeRecord({ resolvedKey: 'insight-create', innerToolName: 'insight-create' }),
+                'built-in tool',
+                makeRecord({
+                    toolName: 'Bash',
+                    rawServerName: 'claude',
+                    rawToolName: '',
+                    meta: { claudeCode: { toolName: 'Bash' } },
+                }),
                 'auto_allow',
             ],
-            ['exec update', makeRecord({ resolvedKey: 'insight-update', innerToolName: 'insight-update' }), 'prompt'],
+            ['exec discovery verb', makeRecord({ input: { command: 'tools' } }), 'auto_allow'],
+            ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'auto_allow'],
+            ['exec update', makeRecord({ input: { command: 'call insight-update {"id":"abc"}' } }), 'prompt'],
+            ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"new-nav"}' } }), 'prompt'],
             [
-                'exec delete',
-                makeRecord({ resolvedKey: 'feature-flag-delete', innerToolName: 'feature-flag-delete' }),
+                'other mcp tool',
+                makeRecord({ toolName: 'mcp__other__foo', rawServerName: 'other', rawToolName: 'foo' }),
                 'prompt',
             ],
-            ['other mcp tool', makeRecord({ toolName: 'mcp__other__foo', resolvedKey: 'foo' }), 'prompt'],
             // AskUserQuestion rides the permission framework with allow_once options, but must never
             // auto-approve — picking option_0 with no answers gets rejected by the agent.
             [
                 'question request',
                 makeRecord({
                     toolName: 'AskUserQuestion',
-                    resolvedKey: 'AskUserQuestion',
+                    rawServerName: 'claude',
+                    rawToolName: '',
+                    meta: { claudeCode: { toolName: 'AskUserQuestion' } },
                     questions: [{ question: 'Pick one', multiSelect: false, options: [{ label: 'A' }] }],
                 }),
                 'prompt',
