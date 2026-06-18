@@ -262,5 +262,70 @@ describe('Hog Inputs', () => {
                 `<div>Manage subscription preferences here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a>Or, click <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/?one_click_unsubscribe=1">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
         })
+
+        const buildEmailFunction = (recipients: { to?: string; cc?: string; bcc?: string }): HogFunctionType => {
+            const to: Record<string, string> = { email: recipients.to ?? '' }
+            const value: Record<string, unknown> = { to }
+            if (recipients.cc !== undefined) {
+                value.cc = recipients.cc
+            }
+            if (recipients.bcc !== undefined) {
+                value.bcc = recipients.bcc
+            }
+            return createHogFunction({
+                id: 'hog-function-email',
+                team_id: team.id,
+                type: 'destination',
+                inputs: { email: { templating: 'liquid', value } },
+                inputs_schema: [{ key: 'email', type: 'native_email', required: true, templating: true }],
+            })
+        }
+
+        it('keeps an author-configured comma-separated To list', async () => {
+            const inputs = await hogInputsService.buildInputs(
+                buildEmailFunction({ to: 'a@example.com, b@example.com' }),
+                globals
+            )
+            expect(inputs.email.to.email).toEqual('a@example.com, b@example.com')
+        })
+
+        it('drops a templated recipient that renders to multiple addresses (injection)', async () => {
+            const maliciousGlobals = createHogExecutionGlobals({
+                person: { properties: { email: 'victim@example.com, attacker@evil.com' } } as any,
+            })
+            const inputs = await hogInputsService.buildInputs(
+                buildEmailFunction({ to: '{{person.properties.email}}' }),
+                maliciousGlobals
+            )
+            expect(inputs.email.to.email).toEqual('')
+        })
+
+        it('keeps literal recipients but drops a templated segment that expands', async () => {
+            const maliciousGlobals = createHogExecutionGlobals({
+                person: { properties: { email: 'c@example.com, evil@evil.com' } } as any,
+            })
+            const inputs = await hogInputsService.buildInputs(
+                buildEmailFunction({ to: 'safe@example.com, {{person.properties.email}}' }),
+                maliciousGlobals
+            )
+            expect(inputs.email.to.email).toEqual('safe@example.com')
+        })
+
+        it('applies the same protection to cc and bcc', async () => {
+            const maliciousGlobals = createHogExecutionGlobals({
+                person: { properties: { email: 'victim@example.com, attacker@evil.com' } } as any,
+            })
+            const inputs = await hogInputsService.buildInputs(
+                buildEmailFunction({
+                    to: 'real@example.com',
+                    cc: '{{person.properties.email}}',
+                    bcc: 'ok@example.com, also@example.com',
+                }),
+                maliciousGlobals
+            )
+            expect(inputs.email.to.email).toEqual('real@example.com')
+            expect(inputs.email.cc).toEqual('')
+            expect(inputs.email.bcc).toEqual('ok@example.com, also@example.com')
+        })
     })
 })

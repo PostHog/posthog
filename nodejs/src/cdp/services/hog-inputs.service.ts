@@ -102,6 +102,29 @@ export class HogInputsService {
                 inputsResult = lower === 'true' || lower === '1'
             }
 
+            // Email recipient fields are split on commas when the message is sent, so a
+            // person property rendered into `to.email` (the default is templated) could
+            // otherwise expand one configured recipient into many. Re-render each recipient
+            // field from its CONFIGURED value, splitting before Liquid runs and dropping any
+            // segment that doesn't resolve to a single mailbox. native_email is always Liquid.
+            if (
+                key === emailInputSchema?.key &&
+                (input.templating ?? 'hog') === 'liquid' &&
+                inputsResult &&
+                typeof inputsResult === 'object'
+            ) {
+                const rawValue = input.value as { to?: { email?: unknown }; cc?: unknown; bcc?: unknown }
+                if (inputsResult.to && typeof inputsResult.to === 'object') {
+                    inputsResult.to.email = renderRecipientField(rawValue?.to?.email, newGlobals)
+                }
+                if (rawValue?.cc !== undefined) {
+                    inputsResult.cc = renderRecipientField(rawValue.cc, newGlobals)
+                }
+                if (rawValue?.bcc !== undefined) {
+                    inputsResult.bcc = renderRecipientField(rawValue.bcc, newGlobals)
+                }
+            }
+
             newGlobals.inputs[key] = inputsResult
         }
 
@@ -221,6 +244,30 @@ export const formatHogInput = async (
     }
 
     return bytecode
+}
+
+// Matches a single bare mailbox: one local@domain with no characters that could
+// introduce another recipient or an email header (comma, whitespace, angle brackets,
+// quotes, or control chars).
+const SINGLE_MAILBOX_RE = /^[^\s,<>"\x00-\x1F\x7F]+@[^\s,<>"\x00-\x1F\x7F]+$/
+
+/**
+ * Renders an email recipient field (To/Cc/Bcc) safely. The configured value may be an
+ * author-typed comma-separated list, so we split it BEFORE Liquid rendering and render
+ * each segment on its own. Any segment that resolves to something other than a single
+ * bare mailbox is dropped, so attacker-controlled data (e.g. a person property templated
+ * into `to.email`) can never expand one configured recipient into several. Returns a
+ * comma-joined list of the surviving addresses.
+ */
+export const renderRecipientField = (rawValue: unknown, globals: HogFunctionInvocationGlobalsWithInputs): string => {
+    if (typeof rawValue !== 'string' || !rawValue.trim()) {
+        return ''
+    }
+    return rawValue
+        .split(',')
+        .map((segment) => LiquidRenderer.renderWithHogFunctionGlobals(segment, globals).trim())
+        .filter((address) => SINGLE_MAILBOX_RE.test(address))
+        .join(', ')
 }
 
 export const formatLiquidInput = (
