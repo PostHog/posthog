@@ -121,7 +121,7 @@ And anything else attributable to a single product — nest it here rather than 
 - dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators
 
 Co-locating keeps tooling boundaries (CODEOWNERS, CI filters, lint) on the `products/<product>/**` path instead of hand-synced `<product>-*` prefixes.
-Reserve top-level `tools/`, `services/`, and `packages/` for things no single product owns.
+Reserve top-level `tools/`, `services/`, `packages/`, and `cli/` for things no single product owns.
 See [monorepo-layout.md](/docs/internal/monorepo-layout.md) → "What a product can own" for the full rationale and the nest-then-promote rule for shared packages.
 
 ## Product requirements
