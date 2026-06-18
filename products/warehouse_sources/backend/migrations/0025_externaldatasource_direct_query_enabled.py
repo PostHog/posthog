@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0023_alter_externaldatasource_source_type_and_more"),
+        ("warehouse_sources", "0024_alter_externaldataschema_sync_type"),
     ]
 
     operations = [
