@@ -244,6 +244,9 @@ export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',
         initialInsertMenu: { nodeIndex: 0, query: '' },
+        // The "Saved insight" command is only offered when a picker is wired up (injected from the
+        // scenes layer in the app); a stub keeps it present in the menu without mounting the real modal.
+        renderSavedInsightPicker: () => null,
     },
 }
 
