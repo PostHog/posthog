@@ -35,10 +35,10 @@ struct PollResponse {
     project_id: Option<String>,
 }
 
-// The `agent` use case grants the full MCP / `posthog-cli api` scope set
+// The `agent-cli` use case grants the full MCP / `posthog-cli api` scope set
 // (a superset of schema + error_tracking + endpoints), so a freshly logged-in
 // CLI can run the agent interface without re-authorizing.
-const DEFAULT_LOGIN_USE_CASES: &[&str] = &["agent"];
+const DEFAULT_LOGIN_USE_CASES: &[&str] = &["agent-cli"];
 
 pub fn login(host_override: Option<String>) -> Result<()> {
     if !io::stdout().is_terminal() {
@@ -280,12 +280,10 @@ fn manual_login() -> Result<(), Error> {
         .with_validator(env_id_validator)
         .prompt()?;
 
-    let token = Text::new(
-        "Enter your personal API token",
-    )
-    .with_validator(token_validator)
-    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
-    .prompt()?;
+    let token = Text::new("Enter your personal API token")
+        .with_validator(token_validator)
+        .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope. To enable tooling, select the 'Agent CLI' preset.")
+        .prompt()?;
 
     let token = Token {
         host: Some(host.trim_end_matches('/').to_string()),
@@ -305,9 +303,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_login_requests_the_agent_use_case() {
-        // The agent use case is what grants the CLI the full `posthog-cli api`
+    fn default_login_requests_the_agent_cli_use_case() {
+        // The agent-cli use case is what grants the CLI the full `posthog-cli api`
         // scope set; narrowing it here would silently break agent commands.
-        assert_eq!(DEFAULT_LOGIN_USE_CASES, &["agent"]);
+        assert_eq!(DEFAULT_LOGIN_USE_CASES, &["agent-cli"]);
     }
 }

@@ -1,10 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+
 import { initKeaTests } from '~/test/init'
 
-import { AGENT_USE_CASE_SCOPES } from './agentScopes.generated'
-import { cliAuthorizeLogic } from './cliAuthorizeLogic'
+import { CLI_SCOPE_PRESETS, cliAuthorizeLogic } from './cliAuthorizeLogic'
 
 describe('cliAuthorizeLogic', () => {
     let logic: ReturnType<typeof cliAuthorizeLogic.build>
@@ -19,11 +20,14 @@ describe('cliAuthorizeLogic', () => {
         logic.unmount()
     })
 
-    it('grants the MCP scope set for the agent use case, minus key-disabled writes', async () => {
-        router.actions.push('/cli/authorize', { code: 'ABCD-1234', use_cases: 'agent' })
+    it('grants the MCP scope set for the agent-cli use case, minus key-disabled writes', async () => {
+        router.actions.push('/cli/authorize', {
+            code: 'ABCD-1234',
+            use_cases: 'agent-cli',
+        })
 
         await expectLogic(logic).toMatchValues({
-            requestedUseCases: ['agent'],
+            requestedUseCases: ['agent-cli'],
         })
         const scopes = logic.values.authorize.scopes
         // Covers the agent surface (reads + the writes that are allowed on a key)
@@ -37,18 +41,32 @@ describe('cliAuthorizeLogic', () => {
     })
 
     it('filters out unknown use cases from the URL', async () => {
-        router.actions.push('/cli/authorize', { code: 'ABCD-1234', use_cases: 'agent,bogus,schema' })
+        router.actions.push('/cli/authorize', {
+            code: 'ABCD-1234',
+            use_cases: 'agent-cli,bogus,schema',
+        })
 
         await expectLogic(logic).toMatchValues({
-            requestedUseCases: ['agent', 'schema'],
+            requestedUseCases: ['agent-cli', 'schema'],
         })
     })
 
-    it('defaults to the agent use case when none are specified', async () => {
+    it('normalizes the legacy agent use case from older CLI links', async () => {
+        router.actions.push('/cli/authorize', {
+            code: 'ABCD-1234',
+            use_cases: 'agent,schema',
+        })
+
+        await expectLogic(logic).toMatchValues({
+            requestedUseCases: ['agent-cli', 'schema'],
+        })
+    })
+
+    it('defaults to the agent-cli use case when none are specified', async () => {
         router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
 
         await expectLogic(logic).toMatchValues({
-            requestedUseCases: ['agent'],
+            requestedUseCases: ['agent-cli'],
         })
         expect(logic.values.authorize.scopes).toEqual(
             expect.arrayContaining(['user:read', 'project:read', 'query:read'])
@@ -59,23 +77,29 @@ describe('cliAuthorizeLogic', () => {
     it('reflects the matching preset for the current scope selection', async () => {
         router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
 
-        // Default agent scopes map onto the agent preset
-        await expectLogic(logic).toMatchValues({ scopePreset: 'agent' })
+        // Default agent scopes map onto the agent-cli preset
+        await expectLogic(logic).toMatchValues({ scopePreset: 'agent-cli' })
+        expect(CLI_SCOPE_PRESETS.find((preset) => preset.value === 'agent-cli')?.label).toBe('Agent CLI')
 
         // Selecting a preset replaces the scope set and updates the dropdown
         logic.actions.setScopePreset('error_tracking')
-        await expectLogic(logic).toMatchValues({ scopePreset: 'error_tracking' })
+        await expectLogic(logic).toMatchValues({
+            scopePreset: 'error_tracking',
+        })
         expect(logic.values.authorize.scopes).toEqual(['error_tracking:write'])
 
         // All access is represented by the wildcard scope
         logic.actions.setScopePreset('all_access')
-        await expectLogic(logic).toMatchValues({ scopePreset: 'all_access', allAccessSelected: true })
+        await expectLogic(logic).toMatchValues({
+            scopePreset: 'all_access',
+            allAccessSelected: true,
+        })
         expect(logic.values.authorize.scopes).toEqual(['*'])
     })
 
     it('drops to a custom selection once a scope is fine-tuned', async () => {
         router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
-        await expectLogic(logic).toMatchValues({ scopePreset: 'agent' })
+        await expectLogic(logic).toMatchValues({ scopePreset: 'agent-cli' })
 
         logic.actions.setScopeRadioValue('survey', 'none')
         await expectLogic(logic).toMatchValues({ scopePreset: null })

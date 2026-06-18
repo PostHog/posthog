@@ -1,3 +1,5 @@
+import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
@@ -30,6 +32,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
@@ -42,6 +45,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
+    { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
@@ -129,6 +133,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
@@ -151,6 +156,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -167,6 +173,18 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
+
+// Actions the manual key-creation UI withholds from Personal API Keys
+// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
+// above. The Agent CLI preset mirrors the MCP tool scope set while respecting
+// the same disabled actions as the manual picker.
+export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
+    API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
+)
+
+export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter(
+    (scope) => !API_KEY_CREATION_DISABLED_SCOPES.has(scope)
+)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -204,6 +222,12 @@ export const API_KEY_SCOPE_PRESETS: {
         scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && !key.includes('file_system')).map(
             ({ key }) => `${key}:write`
         ),
+        access_type: 'all',
+    },
+    {
+        value: 'agent_cli',
+        label: 'Agent CLI',
+        scopes: AGENT_CLI_API_KEY_SCOPES,
         access_type: 'all',
     },
     {

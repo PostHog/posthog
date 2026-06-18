@@ -4,15 +4,14 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { API_SCOPES, APIScope, scopesArrayToObject } from 'lib/scopes'
+import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopesArrayToObject } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
 
-import { AGENT_USE_CASE_SCOPES } from './agentScopes.generated'
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
-export type CLIUseCase = 'schema' | 'error_tracking' | 'endpoints' | 'agent'
+export type CLIUseCase = 'schema' | 'error_tracking' | 'endpoints' | 'agent-cli'
 
 export interface CLIAuthorizeForm {
     userCode: string
@@ -21,34 +20,25 @@ export interface CLIAuthorizeForm {
     scopes: string[]
 }
 
-// Actions the manual key-creation UI withholds from Personal API Keys
-// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
-// in lib/scopes. These are security footguns on a long-lived key (e.g.
-// file_system:write's delete cascades into the backing resource, bypassing the
-// finer per-resource scopes), so the CLI must not grant them either.
-const KEY_CREATION_DISABLED_SCOPES = new Set(
-    API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
-)
+// The agent set mirrors what the MCP requests, minus the actions disabled for
+// manually-created keys. KNOWN LIMITATION: the few MCP tools needing those
+// writes (desktop file-system writes, integration deletes, reminder + user-settings
+// writes) therefore don't work through `posthog-cli api`.
+const AGENT_SCOPES = AGENT_CLI_API_KEY_SCOPES
 
-// The agent set mirrors what the MCP requests (agentScopes.generated.ts), minus
-// the actions disabled for manually-created keys above. KNOWN LIMITATION: the few
-// MCP tools needing those writes (desktop file-system writes, integration deletes,
-// reminder + user-settings writes) therefore don't work through `posthog-cli api`.
-const AGENT_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) => !KEY_CREATION_DISABLED_SCOPES.has(scope))
-
-// Map use cases to their required scopes. The `agent` set is generated from the
+// Map use cases to their required scopes. The `agent-cli` set is generated from the
 // MCP tool definitions (see agentScopes.generated.ts) so it stays in sync with
 // what `posthog-cli api` / the MCP actually requires.
 const USE_CASE_SCOPES: Record<CLIUseCase, string[]> = {
     schema: ['event_definition:read', 'property_definition:read'],
     error_tracking: ['error_tracking:write'],
     endpoints: ['endpoint:write', 'insight_variable:write'],
-    agent: AGENT_SCOPES,
+    'agent-cli': AGENT_SCOPES,
 }
 
 // Default use cases when none are specified. The CLI's agent interface drives
 // this page, so a bare visit grants the full agent scope set.
-const DEFAULT_USE_CASES: CLIUseCase[] = ['agent']
+const DEFAULT_USE_CASES: CLIUseCase[] = ['agent-cli']
 
 function getDefaultScopesForUseCases(useCases: CLIUseCase[]): string[] {
     const scopesSet = new Set<string>()
@@ -71,7 +61,7 @@ const READ_ONLY_SCOPES = API_SCOPES.filter(({ disabledActions }) => !disabledAct
 // Presets offered in the consent screen dropdown. Values match the URL `use_cases`
 // so a requested use case maps onto the matching preset.
 export const CLI_SCOPE_PRESETS: { value: string; label: string; scopes: string[] }[] = [
-    { value: 'agent', label: 'Agent CLI / MCP', scopes: USE_CASE_SCOPES.agent },
+    { value: 'agent-cli', label: 'Agent CLI', scopes: USE_CASE_SCOPES['agent-cli'] },
     { value: 'schema', label: 'Schema management', scopes: USE_CASE_SCOPES.schema },
     { value: 'error_tracking', label: 'Error tracking', scopes: USE_CASE_SCOPES.error_tracking },
     { value: 'endpoints', label: 'Endpoint execution', scopes: USE_CASE_SCOPES.endpoints },
@@ -91,6 +81,16 @@ function sameScopeSet(a: string[], b: string[]): boolean {
 // selection, or null ("Custom selection") once the user fine-tunes a row.
 function presetForScopes(scopes: string[]): string | null {
     return CLI_SCOPE_PRESETS.find((preset) => sameScopeSet(preset.scopes, scopes))?.value ?? null
+}
+
+function parseCLIUseCase(useCase: string): CLIUseCase | null {
+    if (useCase === 'agent') {
+        return 'agent-cli'
+    }
+    if (useCase === 'schema' || useCase === 'error_tracking' || useCase === 'endpoints' || useCase === 'agent-cli') {
+        return useCase
+    }
+    return null
 }
 
 export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
@@ -264,8 +264,8 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         missingAgentScopes: [
             (s) => [s.authorize, s.requestedUseCases],
             (authorize, requestedUseCases): boolean => {
-                // Only show warning if the agent use case was requested
-                if (!requestedUseCases.includes('agent')) {
+                // Only show warning if the agent-cli use case was requested
+                if (!requestedUseCases.includes('agent-cli')) {
                     return false
                 }
                 if (!authorize || !authorize.scopes) {
@@ -353,8 +353,9 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             // Parse use_cases from URL (comma-separated)
             const useCasesParam = searchParams.use_cases
             if (useCasesParam) {
-                const useCases = useCasesParam.split(',').filter((uc: string): uc is CLIUseCase => {
-                    return uc === 'schema' || uc === 'error_tracking' || uc === 'endpoints' || uc === 'agent'
+                const useCases = useCasesParam.split(',').flatMap((uc: string) => {
+                    const parsedUseCase = parseCLIUseCase(uc)
+                    return parsedUseCase ? [parsedUseCase] : []
                 })
                 if (useCases.length > 0) {
                     actions.setRequestedUseCases(useCases)
