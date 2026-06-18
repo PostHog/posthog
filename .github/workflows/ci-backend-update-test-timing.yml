@@ -12,12 +12,14 @@ on:
                 required: false
                 type: string
     schedule:
-        # Run daily at 3am UTC. Each run merges the latest CI timing artifacts and saves
-        # them to the Actions cache that ci-backend / ci-dagster restore for sharding — that
-        # cache is the day-to-day source of freshness. The committed .test_durations is only
-        # the cold-start / cache-miss fallback floor, so it is committed via PR just once a
-        # month (first few days) instead of on every run.
+        # Daily: merge the latest CI timing artifacts and refresh the Actions cache that
+        # ci-backend / ci-dagster restore for sharding. This is the day-to-day freshness.
         - cron: '0 3 * * *'
+        # Monthly (1st): same merge, but this run also commits the .test_durations fallback
+        # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
+        # need a daily commit. Distinguished from the daily run via github.event.schedule
+        # below — keep this string in sync with the should_commit check.
+        - cron: '0 4 1 * *'
 
 permissions:
     contents: write
@@ -206,19 +208,20 @@ jobs:
               env:
                   EVENT_NAME: ${{ github.event_name }}
                   REF: ${{ github.ref }}
+                  SCHEDULE: ${{ github.event.schedule }}
               run: |
                   # Per-day cache key → one new entry per day. Restores match by prefix and only
                   # ever touch the newest entry, so each prior day's entry ages out 7 days after
                   # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
                   # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
                   echo "cache_key=posthog-test-durations-$(date -u +%F)" >> "$GITHUB_OUTPUT"
-                  # Commit the repo fallback monthly, not daily: only the first few days of the
-                  # month open/refresh the PR (the window absorbs an occasionally-skipped
-                  # scheduled run). The cache carries daily freshness; the committed file is just
-                  # the cache-miss floor. Manual dispatch forces a refresh. Gated to master so a
-                  # workflow_dispatch on another branch can't reset chore/update-test-timings to a
-                  # non-master SHA and open a PR full of unrelated diffs (the cache still saves).
-                  if [ "$REF" = "refs/heads/master" ] && { [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%-d)" -le 3 ]; }; then
+                  # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
+                  # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
+                  # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
+                  # entry under `on.schedule`. Gated to master so a workflow_dispatch on another
+                  # branch can't reset chore/update-test-timings to a non-master SHA and open a PR
+                  # full of unrelated diffs (the cache still saves on any branch).
+                  if [ "$REF" = "refs/heads/master" ] && { [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$SCHEDULE" = "0 4 1 * *" ]; }; then
                       echo "should_commit=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "should_commit=false" >> "$GITHUB_OUTPUT"
