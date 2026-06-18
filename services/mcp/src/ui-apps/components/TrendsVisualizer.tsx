@@ -22,8 +22,9 @@ import {
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
+import { ChartHeader } from './ChartHeader'
 import { BigNumber, Select } from './charts'
-import { CHART_THEME, colorAt } from './charts/theme'
+import { colorAt, useMcpChartTheme } from './charts/theme'
 import { ChartSettings } from './ChartSettings'
 import {
     type ChartType,
@@ -71,22 +72,31 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
+    const theme = useMcpChartTheme()
 
     if (!results || results.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
-                    <EmptyDescription>No data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title="Trends" />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                        <EmptyDescription>No data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
     if (displayType === 'BoldNumber') {
         const total = calculateTotal(results)
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
-        return <BigNumber value={total} label={label} />
+        return (
+            <div>
+                <ChartHeader title="Trends" />
+                <BigNumber value={total} label={label} />
+            </div>
+        )
     }
 
     // ActionsBarValue is aggregated totals per series (no days[]) — a horizontal bar, not a time series.
@@ -98,13 +108,16 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
         const barConfig = buildTrendsBarValueConfig()
         return (
-            <div className="flex flex-col w-full h-[400px]">
-                <BarValueChart
-                    series={barSeries}
-                    labels={items.map((item) => item.label)}
-                    theme={CHART_THEME}
-                    config={barConfig}
-                />
+            <div>
+                <ChartHeader title="Trends" />
+                <div className="flex flex-col w-full h-[400px]">
+                    <BarValueChart
+                        series={barSeries}
+                        labels={items.map((item) => item.label)}
+                        theme={theme}
+                        config={barConfig}
+                    />
+                </div>
             </div>
         )
     }
@@ -142,7 +155,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 <SlopeChart
                     series={slopeSeries}
                     labels={slopeLabels}
-                    theme={CHART_THEME}
+                    theme={theme}
                     config={{ showSeriesLabels: false, legend: { show: true, position: 'bottom' } }}
                 />
             )
@@ -162,7 +175,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 <TimeSeriesBarChart
                     series={series}
                     labels={labels}
-                    theme={CHART_THEME}
+                    theme={theme}
                     config={config}
                     tooltip={renderDateTooltip}
                 />
@@ -189,7 +202,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             <TimeSeriesLineChart
                 series={series}
                 labels={labels}
-                theme={CHART_THEME}
+                theme={theme}
                 config={config}
                 tooltip={renderDateTooltip}
             />
@@ -198,7 +211,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <div className="mb-2 flex items-center justify-end gap-2">
+            <ChartHeader title="Trends">
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
                 {effectiveType !== 'slope' && (
@@ -210,7 +223,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                         percentStackDisabled={!supportsPercentStack(effectiveType)}
                     />
                 )}
-            </div>
+            </ChartHeader>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>
     )

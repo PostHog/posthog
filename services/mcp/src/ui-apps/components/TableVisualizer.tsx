@@ -3,9 +3,10 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
-import { formatNumber } from './utils'
+import { ChartHeader } from './ChartHeader'
 import { BigNumber, LineChart, type Series } from './charts'
 import type { TableVisualizerProps } from './types'
+import { formatNumber } from './utils'
 
 // Query results are truncated client-side; sorting a truncated view would
 // mislead, so columns are non-sortable.
@@ -123,7 +124,12 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     const format = detectResultFormat(columns, rows)
 
     if (format.type === 'single-number' && format.value !== undefined) {
-        return <BigNumber value={format.value} label={format.label} />
+        return (
+            <div>
+                <ChartHeader title="Query results" />
+                <BigNumber value={format.value} label={format.label} />
+            </div>
+        )
     }
 
     if (
@@ -138,19 +144,27 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
             format.valueColumnIndex,
             valueLabel
         )
-        return <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
+        return (
+            <div>
+                <ChartHeader title="Query results" />
+                <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
+            </div>
+        )
     }
 
     if (rows.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
-                    <EmptyDescription>
-                        {columns.length === 0 ? 'No rows to display' : 'Query returned no rows'}
-                    </EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title="Query results" />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                        <EmptyDescription>
+                            {columns.length === 0 ? 'No rows to display' : 'Query returned no rows'}
+                        </EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
@@ -166,6 +180,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
 
     return (
         <div className="flex flex-col gap-2">
+            <ChartHeader title="Query results" />
             <DataTable columns={tableColumns} data={displayRows} />
             {hasMore && (
                 <span className="text-center text-xs text-muted-foreground">

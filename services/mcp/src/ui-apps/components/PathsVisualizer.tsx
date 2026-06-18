@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
+import { ChartHeader } from './ChartHeader'
 import type { PathsVisualizerProps } from './types'
 import { formatDuration, formatNumber } from './utils'
 
@@ -35,12 +36,15 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
 
     if (edges.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
-                    <EmptyDescription>No path data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title="Paths" />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
+                        <EmptyDescription>No path data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
@@ -74,6 +78,7 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
 
     return (
         <div>
+            <ChartHeader title="Paths" />
             <DataTable columns={tableColumns} data={displayRows} className="rounded-lg border" />
             {hasMore && (
                 <span className="mt-2 block text-center text-xs text-muted-foreground">
