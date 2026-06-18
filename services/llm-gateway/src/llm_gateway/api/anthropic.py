@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import litellm
 import structlog
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -130,6 +131,28 @@ def _exception_log_fields(exc: BaseException, *, prefix: str) -> dict[str, Any]:
         f"{prefix}_error_type": type(exc).__name__,
         f"{prefix}_error_message": message[:_MAX_LOGGED_ERROR_MESSAGE_CHARS],
     }
+
+
+def _bedrock_runtime_exception_log_fields(exc: BaseException) -> dict[str, Any]:
+    fields = _exception_log_fields(exc, prefix="runtime")
+    if not isinstance(exc, ClientError):
+        return fields
+
+    error = exc.response.get("Error", {})
+    metadata = exc.response.get("ResponseMetadata", {})
+    status = metadata.get("HTTPStatusCode")
+    if status is not None:
+        fields["runtime_status"] = status
+
+    error_code = error.get("Code")
+    if error_code:
+        fields["runtime_error_code"] = str(error_code)
+
+    message = error.get("Message")
+    if message:
+        fields["runtime_error_message"] = str(message)[:_MAX_LOGGED_ERROR_MESSAGE_CHARS]
+
+    return fields
 
 
 def sanitize_for_bedrock(data: dict[str, Any], *, model: str, product: str) -> dict[str, Any]:
@@ -506,16 +529,17 @@ async def _bedrock_count_tokens_impl(
         logger.exception(
             "Bedrock CountTokens failed",
             model=bedrock_model,
-            error_type=type(e).__name__,
-            error_message=str(e),
+            product=product,
+            **_bedrock_runtime_exception_log_fields(e),
         )
-        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model)
+        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
                 data,
                 bedrock_model,
                 bedrock_region_name,
                 settings.request_timeout,
+                product=product,
             )
             return {"input_tokens": input_tokens}
         except Exception as mantle_exc:
@@ -524,9 +548,9 @@ async def _bedrock_count_tokens_impl(
             logger.exception(
                 "Error proxying bedrock-mantle count_tokens request",
                 model=bedrock_model,
+                product=product,
                 **_exception_log_fields(mantle_exc, prefix="mantle"),
-                runtime_error_type=type(e).__name__,
-                runtime_error_message=str(e),
+                **_bedrock_runtime_exception_log_fields(e),
             )
             raise HTTPException(
                 status_code=502,

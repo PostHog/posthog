@@ -2,6 +2,7 @@ from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -472,7 +473,16 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings.return_value = mock_settings
 
         # Mirrors bedrock-runtime rejecting CountTokens for a CRIS-only model like claude-opus-4-8.
-        mock_count_tokens.side_effect = Exception("The provided model doesn't support counting tokens.")
+        mock_count_tokens.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "ValidationException",
+                    "Message": "The provided model doesn't support counting tokens.",
+                },
+                "ResponseMetadata": {"HTTPStatusCode": 400},
+            },
+            "CountTokens",
+        )
         mock_mantle_count_tokens.return_value = 77
 
         with patch("llm_gateway.api.anthropic.logger") as mock_logger:
@@ -485,15 +495,20 @@ class TestBedrockCountTokensViaProvider:
         assert response.status_code == 200
         assert response.json()["input_tokens"] == 77
         assert mock_mantle_count_tokens.await_count == 1
+        assert mock_mantle_count_tokens.await_args.kwargs["product"] == "llm_gateway"
         mock_logger.exception.assert_called_once_with(
             "Bedrock CountTokens failed",
             model="us.anthropic.claude-sonnet-4-6",
-            error_type="Exception",
-            error_message="The provided model doesn't support counting tokens.",
+            product="llm_gateway",
+            runtime_status=400,
+            runtime_error_type="ClientError",
+            runtime_error_message="The provided model doesn't support counting tokens.",
+            runtime_error_code="ValidationException",
         )
         mock_logger.info.assert_any_call(
             "Attempting bedrock-mantle count_tokens fallback",
             model="us.anthropic.claude-sonnet-4-6",
+            product="llm_gateway",
         )
 
     @patch("llm_gateway.api.anthropic.get_settings")
@@ -715,6 +730,7 @@ class TestBedrockMantleCountTokens:
                 "us.anthropic.claude-opus-4-8",
                 "us-east-1",
                 300.0,
+                product="llm_gateway",
             )
 
         assert result == 99
@@ -722,6 +738,7 @@ class TestBedrockMantleCountTokens:
             "bedrock-mantle count_tokens request succeeded",
             model="us.anthropic.claude-opus-4-8",
             mantle_model="anthropic.claude-opus-4-8",
+            product="llm_gateway",
             region_name="us-east-1",
             status_code=200,
             duration_ms=ANY,
@@ -768,6 +785,7 @@ class TestBedrockMantleCountTokens:
                 "us.anthropic.claude-opus-4-8",
                 "us-east-1",
                 300.0,
+                product="llm_gateway",
             )
 
         assert exc_info.value.status_code == 400

@@ -235,6 +235,8 @@ async def count_tokens_with_bedrock_mantle(
     model: str,
     aws_region_name: str,
     timeout_seconds: float,
+    *,
+    product: str,
 ) -> int:
     """Count input tokens via Anthropic's count_tokens API on the bedrock-mantle endpoint.
 
@@ -269,6 +271,7 @@ async def count_tokens_with_bedrock_mantle(
         "bedrock-mantle count_tokens request succeeded",
         model=model,
         mantle_model=mantle_model,
+        product=product,
         region_name=aws_region_name,
         status_code=response.status_code,
         duration_ms=round((time.monotonic() - request_start_time) * 1000, 2),
