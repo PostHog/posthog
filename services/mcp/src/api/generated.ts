@@ -39127,6 +39127,10 @@ export namespace Schemas {
       readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
       readonly managed_viewsets?: PatchedTeamManagedViewsets;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      readonly event_retention_months?: number;
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      readonly events_retention_enforced?: boolean;
     }
 
     /**
@@ -48015,6 +48019,10 @@ export namespace Schemas {
       readonly product_intents: readonly TeamProductIntentsItem[];
       readonly managed_viewsets: TeamManagedViewsets;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      readonly event_retention_months: number;
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      readonly events_retention_enforced: boolean;
     }
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
