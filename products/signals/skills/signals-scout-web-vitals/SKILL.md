@@ -214,10 +214,16 @@ can line it up against a deploy:
 SELECT
     properties.$host AS host,
     replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
-    countIf(timestamp >= now() - INTERVAL 1 DAY) AS samples_24h,
+    -- Upper-bound the recent side at ~now: the WHERE's future-clock guard extends to
+    -- now()+1d, so without it `samples_24h` would span now-1d…now+1d = 48h, diluting the
+    -- regression. The +1h keeps a small skew tolerance. The prior-13d side is already
+    -- upper-bounded by `< now()-1d`.
+    countIf(timestamp >= now() - INTERVAL 1 DAY
+            AND timestamp <= now() + INTERVAL 1 HOUR) AS samples_24h,
     countIf(timestamp <  now() - INTERVAL 1 DAY) AS samples_prior13d,
     round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value),
-          timestamp >= now() - INTERVAL 1 DAY), 0) AS lcp_p75_24h,
+          timestamp >= now() - INTERVAL 1 DAY
+          AND timestamp <= now() + INTERVAL 1 HOUR), 0) AS lcp_p75_24h,
     round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value),
           timestamp <  now() - INTERVAL 1 DAY), 0) AS lcp_p75_prior13d
 FROM events
@@ -265,7 +271,7 @@ SELECT properties.$device_type AS device,
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 1 DAY
-  AND timestamp <= now() + INTERVAL 1 DAY   -- future-clock guard; client clocks lie
+  AND timestamp <= now() + INTERVAL 1 HOUR   -- ~24h window; small future-clock skew guard
   AND properties.$web_vitals_LCP_value IS NOT NULL
 GROUP BY device, country
 ORDER BY samples DESC
