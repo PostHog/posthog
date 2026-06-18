@@ -20,12 +20,8 @@ export interface ErrorTrackingAssignmentRuleApi {
     filters: unknown
     /** @nullable */
     readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -368,10 +364,6 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     filters?: unknown
     /** @nullable */
     readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
@@ -447,18 +439,14 @@ export interface ErrorTrackingGroupingRuleApi {
     /** @nullable */
     readonly assignee: ErrorTrackingGroupingRuleApiAssignee
     /** @nullable */
-    description?: string | null
+    description: string | null
     /**
      * Issue linked to this rule
      * @nullable
      */
     readonly issue: ErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -525,10 +513,6 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      * @nullable
      */
     readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
@@ -1295,12 +1279,18 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
+/**
+ * @nullable
+ */
+export type ErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
+
 export interface ErrorTrackingReleaseApi {
-    readonly id: string
+    id: string
     hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
+    team_id: number
+    created_at: string
+    /** @nullable */
+    metadata: ErrorTrackingReleaseApiMetadata
     version: string
     project: string
 }
@@ -1314,14 +1304,88 @@ export interface PaginatedErrorTrackingReleaseListApi {
     results: ErrorTrackingReleaseApi[]
 }
 
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
-    version?: string
-    project?: string
+/**
+ * Optional free-form metadata object stored alongside the release.
+ * @nullable
+ */
+export type ErrorTrackingReleaseCreateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseCreateRequestApi {
+    /** Human-readable release version, e.g. a semver string or build number. */
+    version: string
+    /** Identifier of the project this release belongs to. */
+    project: string
+    /**
+     * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseCreateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type ErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseUpdateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type PatchedErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface PatchedErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
 export interface ErrorTrackingSettingsApi {
@@ -1415,19 +1479,19 @@ export interface PatchedErrorTrackingSpikeDetectionConfigApi {
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
-    readonly id: string
+    id: string
     /** @nullable */
-    readonly name: string | null
+    name: string | null
     /** @nullable */
-    readonly description: string | null
+    description: string | null
 }
 
 export interface ErrorTrackingSpikeEventApi {
-    readonly id: string
-    readonly issue: ErrorTrackingSpikeEventIssueApi
-    readonly detected_at: string
-    readonly computed_baseline: number
-    readonly current_bucket_value: number
+    id: string
+    issue: ErrorTrackingSpikeEventIssueApi
+    detected_at: string
+    computed_baseline: number
+    current_bucket_value: number
 }
 
 export interface PaginatedErrorTrackingSpikeEventListApi {
@@ -1439,16 +1503,24 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
+export type ErrorTrackingStackFrameApiContents = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingStackFrameApiContext = { [key: string]: unknown } | null
+
 export interface ErrorTrackingStackFrameApi {
-    readonly id: string
-    /** Raw frame ID in 'hash/part' format */
-    readonly raw_id: string
-    readonly created_at: string
-    contents: unknown
+    id: string
+    raw_id: string
+    created_at: string
+    contents: ErrorTrackingStackFrameApiContents
     resolved: boolean
-    context?: unknown
-    symbol_set_ref?: string
-    readonly release: ErrorTrackingReleaseApi
+    /** @nullable */
+    context: ErrorTrackingStackFrameApiContext
+    /** @nullable */
+    symbol_set_ref: string | null
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingStackFrameListApi {
@@ -1460,16 +1532,27 @@ export interface PaginatedErrorTrackingStackFrameListApi {
     results: ErrorTrackingStackFrameApi[]
 }
 
+export interface ErrorTrackingStackFrameBatchGetRequestApi {
+    /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+    raw_ids: string[]
+    /**
+     * Optional symbol set reference to scope the lookup to a single symbol set.
+     * @nullable
+     */
+    symbol_set?: string | null
+}
+
+export interface ErrorTrackingStackFrameBatchGetResponseApi {
+    /** Resolved stack frames for the requested raw IDs. */
+    results: ErrorTrackingStackFrameApi[]
+}
+
 export interface ErrorTrackingSuppressionRuleApi {
     readonly id: string
     filters: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
-    sampling_rate?: number
+    disabled_data: unknown
+    sampling_rate: number
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1519,10 +1602,6 @@ export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     sampling_rate?: number
