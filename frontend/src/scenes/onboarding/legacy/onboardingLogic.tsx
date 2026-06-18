@@ -365,10 +365,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (flow, currentFlowStep): number =>
                 currentFlowStep ? flow.findIndex((step) => step.id === currentFlowStep.id) : -1,
         ],
-        // True only on the very first step of the flow — used to surface org-wide,
-        // once-per-onboarding UI (e.g. the PostHog AI consent section) regardless of
-        // which product is being onboarded.
-        isFirstFlowStep: [(s) => [s.flowIndex], (flowIndex): boolean => flowIndex === 0],
         currentStepKey: [
             (s) => [s.currentFlowStep],
             (currentFlowStep): OnboardingStepKey | null => currentFlowStep?.stepKey ?? null,
