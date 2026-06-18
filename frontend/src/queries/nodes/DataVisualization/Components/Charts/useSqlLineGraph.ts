@@ -16,6 +16,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LineGraphProps } from './LineGraph'
 import {
+    type SqlLineSeriesMeta,
     buildLineChartConfig,
     buildSeries,
     capYSeriesData,
@@ -24,7 +25,7 @@ import {
 } from './sqlLineGraphAdapter'
 
 export interface SqlLineGraphModel {
-    series: Series[]
+    series: Series<SqlLineSeriesMeta>[]
     labels: string[]
     theme: ChartTheme
     config: TimeSeriesLineChartConfig

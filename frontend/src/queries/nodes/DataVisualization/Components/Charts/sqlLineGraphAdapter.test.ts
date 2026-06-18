@@ -1,14 +1,18 @@
+import { type TooltipContext } from '@posthog/quill-charts'
+
 import { ChartSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 import {
     AREA_FILL_OPACITY,
     MAX_SERIES,
+    type SqlLineSeriesMeta,
     buildLineChartConfig,
     buildSeries,
+    buildSqlLineTooltipModel,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
@@ -136,6 +140,132 @@ describe('sqlLineGraphAdapter', () => {
         it('keys breakdown series by breakdown value', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
             expect(series.key).toBe('chrome')
+        })
+    })
+
+    describe('buildSqlLineTooltipModel', () => {
+        type TooltipEntry = { key: string; label: string; value: number; color: string; settings?: AxisSeriesSettings }
+
+        const tooltipContext = (entries: TooltipEntry[], label = '2024-01-01'): TooltipContext<SqlLineSeriesMeta> =>
+            ({
+                dataIndex: 0,
+                label,
+                seriesData: entries.map(({ key, label: seriesLabel, value, color, settings }) => ({
+                    series: { key, label: seriesLabel, data: [value], meta: { settings } },
+                    value,
+                    color,
+                })),
+                position: { x: 0, y: 0 },
+                hoverPosition: null,
+                canvasBounds: {} as DOMRect,
+                isPinned: false,
+            }) as TooltipContext<SqlLineSeriesMeta>
+
+        it('passes the x-axis label through', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([{ key: 'a', label: 'A', value: 1, color: '#111' }]),
+                {}
+            )
+            expect(model.label).toBe('2024-01-01')
+        })
+
+        it('formats values per series settings and carries the row color', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: 1234, color: '#abc', settings: { formatting: { style: 'number' } } },
+                ]),
+                {}
+            )
+            expect(model.rows).toEqual([{ key: 'a', name: 'A', color: '#abc', value: '1,234', rawValue: 1234 }])
+        })
+
+        it('sorts rows by value descending', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: 1, color: '#111' },
+                    { key: 'b', label: 'B', value: 9, color: '#222' },
+                    { key: 'c', label: 'C', value: 5, color: '#333' },
+                ]),
+                {}
+            )
+            expect(model.rows.map((r) => r.key)).toEqual(['b', 'c', 'a'])
+        })
+
+        it('drops empty (NaN) points', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: NaN, color: '#111' },
+                    { key: 'b', label: 'B', value: 2, color: '#222' },
+                ]),
+                {}
+            )
+            expect(model.rows.map((r) => r.key)).toEqual(['b'])
+        })
+
+        it('prefers an explicit display label over the series label', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    {
+                        key: 'a',
+                        label: 'raw name',
+                        value: 1,
+                        color: '#111',
+                        settings: { display: { label: 'Pretty' } },
+                    },
+                ]),
+                {}
+            )
+            expect(model.rows[0].name).toBe('Pretty')
+        })
+
+        it('adds a total row summing non-percent series', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: 2, color: '#111' },
+                    { key: 'b', label: 'B', value: 3, color: '#222' },
+                ]),
+                {}
+            )
+            expect(model.totalLabel).toBe('5')
+        })
+
+        it('excludes percent-formatted series from the total', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: 2, color: '#111' },
+                    { key: 'b', label: 'B', value: 3, color: '#222' },
+                    { key: 'c', label: 'C', value: 50, color: '#333', settings: { formatting: { style: 'percent' } } },
+                ]),
+                {}
+            )
+            expect(model.totalLabel).toBe('5')
+        })
+
+        it('omits the total row for a single series', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([{ key: 'a', label: 'A', value: 2, color: '#111' }]),
+                {}
+            )
+            expect(model.totalLabel).toBeNull()
+        })
+
+        it('omits the total row when showTotalRow is disabled', () => {
+            const model = buildSqlLineTooltipModel(
+                tooltipContext([
+                    { key: 'a', label: 'A', value: 2, color: '#111' },
+                    { key: 'b', label: 'B', value: 3, color: '#222' },
+                ]),
+                { showTotalRow: false }
+            )
+            expect(model.totalLabel).toBeNull()
+        })
+    })
+
+    describe('buildSeries meta', () => {
+        it('threads per-series settings into meta for the tooltip', () => {
+            const settings: AxisSeriesSettings = { formatting: { style: 'number' } }
+            const [series] = buildSeries([ySeries('a', [1], settings)], ChartDisplayType.ActionsLineGraph)
+            expect(series.meta).toEqual({ settings })
         })
     })
 

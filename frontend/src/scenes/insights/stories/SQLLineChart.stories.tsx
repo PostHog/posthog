@@ -2,6 +2,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -60,4 +61,26 @@ SQLLineChartBreakdown.parameters = {
         waitForSelector: '.DataVisualization canvas',
     },
 }
+
+// The `-Quill` variants render the same fixtures through @posthog/quill-charts (flag on) so the
+// ported rich tooltip is inspectable on hover. The tooltip itself is hover-only, so it isn't part
+// of the static snapshot — these exist to exercise the quill render path and host the tooltip.
+const quillParameters = {
+    ...meta.parameters,
+    featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true },
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '.DataVisualization canvas',
+    },
+}
+
+export const SQLLineChartQuill: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json')
+)
+SQLLineChartQuill.parameters = quillParameters
+
+export const SQLLineChartBreakdownQuill: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json')
+)
+SQLLineChartBreakdownQuill.parameters = quillParameters
 /* eslint-enable @typescript-eslint/no-var-requires */
