@@ -8,8 +8,8 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { DashboardsContent } from 'scenes/dashboard/dashboards/DashboardsContent'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
@@ -106,7 +106,7 @@ export function Dashboards(): JSX.Element {
                 {currentTab === DashboardsTab.Templates ? (
                     <DashboardTemplatesTable />
                 ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsTableContainer />
+                    <DashboardsContent />
                 ) : (
                     <ProductIntroduction
                         productName="Dashboards"
