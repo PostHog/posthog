@@ -45,9 +45,11 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
                 return (
                     <div className="flex flex-col">
                         <span className="font-semibold">{value}</span>
-                        <span className="text-xs text-muted">
-                            {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
-                        </span>
+                        {denominator > 0 && (
+                            <span className="text-xs text-muted">
+                                {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
+                            </span>
+                        )}
                         {delta && (
                             <span
                                 className={`text-xs ${

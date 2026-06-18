@@ -48,29 +48,37 @@ def _serialize_experiment_summary(experiment: Experiment) -> dict[str, Any]:
     }
 
 
-def _collect_metric_dicts(experiment: Experiment, *, secondary: bool) -> list[dict[str, Any]]:
-    """Inline metrics plus saved metrics linked to this section, in display order when known."""
-    section = "secondary" if secondary else "primary"
-    inline_metrics = experiment.metrics_secondary if secondary else experiment.metrics
-    metric_dicts: list[dict[str, Any]] = [dict(metric) for metric in (inline_metrics or [])]
+def _sort_by_ordered_uuids(metric_dicts: list[dict[str, Any]], ordered_uuids: list[str] | None) -> None:
+    if not ordered_uuids:
+        return
+    order = {uuid: index for index, uuid in enumerate(ordered_uuids)}
+    metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid"), len(order)))
+
+
+def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Inline metrics plus saved metrics, partitioned into (primary, secondary) in display order when known.
+
+    The saved-metric link set is read once and split here so a widget render issues a single query for it.
+    """
+    primary: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics or [])]
+    secondary: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics_secondary or [])]
 
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        metadata = link.metadata or {}
-        if metadata.get("type", "primary") != section:
-            continue
         saved_query = link.saved_metric.query
         if not saved_query:
             continue
-        metric_dicts.append({**saved_query, "name": saved_query.get("name") or link.saved_metric.name})
+        metric_dict = {**saved_query, "name": saved_query.get("name") or link.saved_metric.name}
+        # Links default to primary when untyped; an unrecognized type belongs to neither section.
+        metric_type = (link.metadata or {}).get("type", "primary")
+        if metric_type == "secondary":
+            secondary.append(metric_dict)
+        elif metric_type == "primary":
+            primary.append(metric_dict)
 
-    ordered_uuids = (
-        experiment.secondary_metrics_ordered_uuids if secondary else experiment.primary_metrics_ordered_uuids
-    )
-    if ordered_uuids:
-        order = {uuid: index for index, uuid in enumerate(ordered_uuids)}
-        metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid"), len(order)))
+    _sort_by_ordered_uuids(primary, experiment.primary_metrics_ordered_uuids)
+    _sort_by_ordered_uuids(secondary, experiment.secondary_metrics_ordered_uuids)
 
-    return metric_dicts
+    return primary, secondary
 
 
 def _compute_metric_entry(
@@ -151,8 +159,7 @@ def run_experiment_results_widget(
         # Draft experiments have no exposure data yet — nothing to compute.
         return payload
 
-    primary_metric_dicts = _collect_metric_dicts(experiment, secondary=False)
-    secondary_metric_dicts = _collect_metric_dicts(experiment, secondary=True)
+    primary_metric_dicts, secondary_metric_dicts = _collect_metric_dicts(experiment)
     if include_total_count:
         payload["totalMetricsCount"] = len(primary_metric_dicts)
         payload["totalSecondaryMetricsCount"] = len(secondary_metric_dicts)

@@ -43,21 +43,20 @@ export type ExperimentResultsWidgetResult = {
     totalSecondaryMetricsCount?: number
 }
 
-// Total exposed entities = baseline + every variant sample count, read off the first metric that
-// has results. number_of_samples is the exposed population, so this matches the table denominators.
-function getTotalExposures(metricGroups: ExperimentResultsWidgetMetricEntry[][]): number | null {
-    for (const metrics of metricGroups) {
-        for (const entry of metrics) {
-            const variantResults = entry.result?.variant_results
-            if (!variantResults?.length) {
-                continue
-            }
-            let total = entry.result?.baseline?.number_of_samples ?? 0
-            for (const variant of variantResults) {
-                total += variant.number_of_samples ?? 0
-            }
-            return total
+// Sample count of the first primary metric that has results (baseline + every variant). This is that
+// metric's analysis population, not a canonical exposure count — metrics with custom exposure criteria
+// can differ. We read it off primary only so the headline doesn't silently come from a secondary metric.
+function getPrimarySampleCount(metrics: ExperimentResultsWidgetMetricEntry[]): number | null {
+    for (const entry of metrics) {
+        const variantResults = entry.result?.variant_results
+        if (!variantResults?.length) {
+            continue
         }
+        let total = entry.result?.baseline?.number_of_samples ?? 0
+        for (const variant of variantResults) {
+            total += variant.number_of_samples ?? 0
+        }
+        return total
     }
     return null
 }
@@ -224,7 +223,7 @@ export function ExperimentResultsWidget({
     const { experiment, metrics } = payload
     const secondaryMetrics = payload.secondaryMetrics ?? []
     const isDraft = experiment.status === 'draft'
-    const totalExposures = getTotalExposures([metrics, secondaryMetrics])
+    const primarySampleCount = getPrimarySampleCount(metrics)
 
     return (
         <WidgetCardContent>
@@ -240,9 +239,9 @@ export function ExperimentResultsWidget({
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>
-                {totalExposures != null ? (
+                {primarySampleCount != null ? (
                     <span className="text-xs text-muted">
-                        {humanFriendlyNumber(totalExposures)} total exposures
+                        {humanFriendlyNumber(primarySampleCount)} total exposures
                     </span>
                 ) : null}
                 {isDraft ? (

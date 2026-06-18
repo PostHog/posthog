@@ -284,12 +284,12 @@ export function getMetricSubtitleValues(
 ): { numerator: number; denominator: number } {
     if (isExperimentRatioMetric(metric)) {
         return {
-            numerator: variant.sum,
+            numerator: variant.sum || 0,
             denominator: variant.denominator_sum || 0,
         }
     }
     return {
-        numerator: variant.sum,
+        numerator: variant.sum || 0,
         denominator: variant.number_of_samples || 0,
     }
 }
