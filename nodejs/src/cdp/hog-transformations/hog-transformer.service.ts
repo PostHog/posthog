@@ -21,6 +21,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
 import { EmailService } from '../services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -470,6 +471,7 @@ export function createHogTransformerService(
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
@@ -481,7 +483,8 @@ export function createHogTransformerService(
         deps.integrationManager,
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL
+        config.SITE_URL,
+        trackingCodeSigner
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogExecutor = new HogExecutorService(
