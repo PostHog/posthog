@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
     IconActivity,
@@ -99,9 +99,13 @@ const PlanPrice = ({
 const PlanCard = ({
     addon,
     onExpandCompare,
+    purchaseDisabledReason,
+    onPurchaseClick,
 }: {
     addon: BillingProductV2AddonType
     onExpandCompare: () => void
+    purchaseDisabledReason?: string
+    onPurchaseClick?: () => void
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const pricedPlan = addon.plans?.find((p) => p.flat_rate)
@@ -156,24 +160,22 @@ const PlanCard = ({
                 button bottom-aligned so prices line up across cards regardless of trial state (the
                 "Start trial" label/button stack is taller than a lone "Cancel trial" button). */}
             <div className="mt-auto flex flex-col gap-3">
-                {addon.type === BillingPlan.Enterprise ? (
-                    // Enterprise is sales-led (no flat rate / self-serve trial) — show custom-pricing copy
-                    // in place of a price so the card isn't blank.
-                    <div>
-                        <div className="font-bold text-xl leading-none">Custom pricing</div>
-                        <div className="text-secondary text-xs mt-1">We'll reach out about pricing</div>
-                    </div>
-                ) : (
-                    pricedPlan?.flat_rate && (
-                        <PlanPrice
-                            addon={addon}
-                            unit_amount_usd={pricedPlan.unit_amount_usd}
-                            unit_label={pricedPlan.unit}
-                        />
-                    )
+                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
+                    <PlanPrice
+                        addon={addon}
+                        unit_amount_usd={pricedPlan.unit_amount_usd}
+                        unit_label={pricedPlan.unit}
+                    />
                 )}
                 <div className="flex min-h-16 flex-col justify-end">
-                    <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
+                    <BillingProductAddonActions
+                        addon={addon}
+                        buttonSize="small"
+                        align="left"
+                        hidePricingNote
+                        purchaseDisabledReason={purchaseDisabledReason}
+                        onPurchaseClick={onPurchaseClick}
+                    />
                 </div>
             </div>
         </div>
@@ -288,12 +290,26 @@ const ComparisonTable = ({
     )
 }
 
-export const PlatformAddonComparison = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+export const PlatformAddonComparison = ({
+    product,
+    actionsSlot,
+}: {
+    product: BillingProductV2Type
+    /** Optional content rendered between the package cards and the feature-comparison table (e.g. onboarding nav). */
+    actionsSlot?: JSX.Element
+}): JSX.Element | null => {
+    const { billing } = useValues(billingLogic)
     const comparableAddons = (Object.keys(COMPARISON_PLANS) as BillingPlan[])
         .map((type) => product.addons?.find((addon) => addon.type === type && !addon.legacy_product))
         .filter((addon): addon is BillingProductV2AddonType => !!addon)
     const legacyAddon = product.addons?.find((addon) => addon.legacy_product && addon.subscribed) ?? null
     const [isCompareOpen, setIsCompareOpen] = useState(false)
+    // One activation at a time: the cards' loading state is per-addon, so without this a fast click on
+    // one package then another fires two activate calls before the page reloads. The first click flips
+    // this, disabling every card's CTA. Reset when billing reloads so the error path re-enables them
+    // (success reloads the whole page, so the flag doesn't need clearing there).
+    const [activating, setActivating] = useState(false)
+    useEffect(() => setActivating(false), [billing])
 
     if (comparableAddons.length === 0) {
         return null
@@ -329,9 +345,17 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
 
             <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
                 {comparableAddons.map((addon) => (
-                    <PlanCard key={addon.type} addon={addon} onExpandCompare={() => setIsCompareOpen(true)} />
+                    <PlanCard
+                        key={addon.type}
+                        addon={addon}
+                        onExpandCompare={() => setIsCompareOpen(true)}
+                        purchaseDisabledReason={activating ? 'Please wait…' : undefined}
+                        onPurchaseClick={() => setActivating(true)}
+                    />
                 ))}
             </div>
+
+            {actionsSlot}
 
             {features.length > 0 && (
                 <LemonCollapse

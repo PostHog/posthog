@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
@@ -26,7 +27,7 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepSkipped } = useActions(eventUsageLogic)
+    const { reportOnboardingStepSkipped, reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
     if (billingLoading) {
         return (
@@ -39,12 +40,17 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
     const showPlatformPackages =
         !!product.subscribed && featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test' && !!platformProduct
-    // The package the org is currently trialing, if any (billing.trial.target is the addon type; a
-    // 'paid'-plan trial won't match a platform addon, so it stays undefined here).
+    // The platform package the org is now on, whether via a free trial (billing.trial.target — a
+    // 'paid'-plan trial won't match a platform addon) or a direct subscribe ("Add" when no trial is left).
     const trialAddon = platformProduct?.addons?.find((addon) => addon.type === billing?.trial?.target)
+    const activeAddon = trialAddon ?? platformProduct?.addons?.find((addon) => addon.subscribed)
 
     const skipPlatformPackages = (): void => {
         reportOnboardingStepSkipped(OnboardingStepKey.PLANS)
+        goToNextStep()
+    }
+    const continueFromPlatformPackages = (): void => {
+        reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
         goToNextStep()
     }
 
@@ -52,22 +58,21 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
         <OnboardingStep
             title="Select a plan"
             stepKey={OnboardingStepKey.PLANS}
-            // The packages screen carries its own heading and an above-the-fold skip, so the
-            // "Select a plan" title (misleading once subscribed) and the bottom Next are dropped there.
+            // The packages screen carries its own heading and its own Skip/Next nav (below the cards),
+            // so the "Select a plan" title (misleading once subscribed) and the bottom Next are dropped there.
             hideTitle={showPlatformPackages}
             showContinue={!!product.subscribed && !showPlatformPackages}
-            actions={
-                showPlatformPackages ? (
-                    <LemonButton type="secondary" onClick={skipPlatformPackages} data-attr="onboarding-skip-button">
-                        {trialAddon ? 'Continue' : 'Skip for now'}
-                    </LemonButton>
-                ) : undefined
-            }
         >
             {!product.subscribed && <PlanCards product={product} />}
             {product.subscribed && !showPlatformPackages && <SubscribedCelebration product={product} />}
             {showPlatformPackages && platformProduct && (
-                <PlatformPackagesUpsell platformProduct={platformProduct} trialPackageName={trialAddon?.name} />
+                <PlatformPackagesUpsell
+                    platformProduct={platformProduct}
+                    activePackageName={activeAddon?.name}
+                    isTrial={!!trialAddon}
+                    onSkip={skipPlatformPackages}
+                    onContinue={continueFromPlatformPackages}
+                />
             )}
         </OnboardingStep>
     )
@@ -108,13 +113,65 @@ const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): 
 
 const PlatformPackagesUpsell = ({
     platformProduct,
-    trialPackageName,
+    activePackageName,
+    isTrial,
+    onSkip,
+    onContinue,
 }: {
     platformProduct: BillingProductV2Type
-    trialPackageName?: string
+    /** Name of the package the org is now on (trialing or subscribed), if any. */
+    activePackageName?: string
+    isTrial: boolean
+    onSkip: () => void
+    onContinue: () => void
 }): JSX.Element => {
+    const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
+    const onPackage = !!activePackageName
+
+    useEffect(() => {
+        // Celebrate the package the user just got — starting a trial or adding a package lands them on
+        // this state, so fire the hedgehogs when they do.
+        if (!onPackage) {
+            return
+        }
+        const run = async (): Promise<void> => {
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+        }
+
+        void run()
+    }, [trigger, onPackage])
+
+    // Skip for now + a Next that stays disabled until they're on a package (mirrors the standard
+    // onboarding footer), placed below the cards but above the comparison table. Once they're on a
+    // package, "Skip for now" no longer makes sense, so drop it and enable Next.
+    const nav = (
+        <div className="flex justify-end gap-x-2">
+            {!onPackage && (
+                <LemonButton type="secondary" onClick={onSkip} data-attr="onboarding-skip-button">
+                    Skip for now
+                </LemonButton>
+            )}
+            <LemonButton
+                type="primary"
+                status="alt"
+                sideIcon={<IconArrowRight />}
+                onClick={onContinue}
+                disabledReason={onPackage ? undefined : 'Start a trial or add a package above, or skip for now'}
+                data-attr="onboarding-continue"
+            >
+                Next
+            </LemonButton>
+        </div>
+    )
+
     return (
         <div className="relative flex flex-col items-center">
+            <HogfettiComponent />
+
             {/* Superman Hog floating animation */}
             <div className="w-24 h-24 animate-float">
                 <SupermanHog className="w-full h-full object-contain" />
@@ -122,14 +179,7 @@ const PlatformPackagesUpsell = ({
 
             <div className="w-full max-w-4xl mt-2">
                 <div className="text-center mb-6">
-                    {trialPackageName ? (
-                        <>
-                            <h3 className="text-xl font-bold mb-1">You're on a trial of {trialPackageName}</h3>
-                            <p className="text-gray-700 dark:text-gray-400 mb-0">
-                                Enjoy your trial — cancel anytime before it ends, or explore the other packages below.
-                            </p>
-                        </>
-                    ) : (
+                    {!onPackage ? (
                         <>
                             <h3 className="text-xl font-bold mb-1">
                                 You're signed up! Now level up with a platform package
@@ -138,9 +188,23 @@ const PlatformPackagesUpsell = ({
                                 Start a free trial of a platform package — cancel anytime, with no charge until it ends.
                             </p>
                         </>
+                    ) : isTrial ? (
+                        <>
+                            <h3 className="text-xl font-bold mb-1">You're on a trial of {activePackageName}</h3>
+                            <p className="text-gray-700 dark:text-gray-400 mb-0">
+                                Enjoy your trial — cancel anytime before it ends, or explore the other packages below.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="text-xl font-bold mb-1">You're on {activePackageName}</h3>
+                            <p className="text-gray-700 dark:text-gray-400 mb-0">
+                                Nice choice! Continue when you're ready, or explore the other packages below.
+                            </p>
+                        </>
                     )}
                 </div>
-                <PlatformAddonComparison product={platformProduct} />
+                <PlatformAddonComparison product={platformProduct} actionsSlot={nav} />
             </div>
         </div>
     )

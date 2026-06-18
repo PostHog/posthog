@@ -28,6 +28,10 @@ interface BillingProductAddonActionsProps {
     align?: 'left' | 'right'
     /** Collapse pricing into the CTA: hide the paragraph below and swap the next-to-button flat rate for the prorated amount when it applies. */
     hidePricingNote?: boolean
+    /** Disable the purchase/trial CTA (e.g. while a sibling package is being activated). */
+    purchaseDisabledReason?: string
+    /** Called when the purchase/trial CTA is clicked, before the activation fires. */
+    onPurchaseClick?: () => void
 }
 
 export const BillingProductAddonActions = ({
@@ -37,6 +41,8 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
     align = 'right',
     hidePricingNote = false,
+    purchaseDisabledReason,
+    onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
@@ -139,14 +145,18 @@ export const BillingProductAddonActions = ({
                         disableClientSideRouting
                         disabledReason={
                             (billingError && billingError.message) ||
-                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
+                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons') ||
+                            purchaseDisabledReason
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
-                        onClick={
-                            isTrialEligible
-                                ? () => activateTrial()
-                                : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
-                        }
+                        onClick={() => {
+                            onPurchaseClick?.()
+                            if (isTrialEligible) {
+                                activateTrial()
+                            } else {
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
                     >
                         {ctaTextOverride ?? (isTrialEligible ? 'Start trial' : 'Add')}
                     </LemonButton>
@@ -273,12 +283,35 @@ export const BillingProductAddonActions = ({
     } else if (billing?.trial && billing?.trial?.target === addon.type) {
         // Current trial on this addon
         content = renderTrialActions()
-    } else if (addon.type === 'enterprise' && !preflight?.is_debug) {
-        // In local development, show the standard "Add" purchase flow instead of the sales "Contact us" button.
+    } else if (addon.type === 'enterprise') {
+        // Enterprise is sales-led — always route to sales (matches prod). In local dev, also offer an
+        // explicit override so engineers can still start the self-serve trial; it's gated on is_debug so
+        // it never renders in production.
         content = (
-            <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
-                Contact us
-            </LemonButton>
+            <>
+                <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
+                    Contact us
+                </LemonButton>
+                {preflight?.is_debug && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        loading={trialLoading || billingProductLoading === addon.type}
+                        disabledReason={purchaseDisabledReason}
+                        tooltip="Local dev only — starts the self-serve trial. Never shown in production."
+                        onClick={() => {
+                            onPurchaseClick?.()
+                            if (isTrialEligible) {
+                                activateTrial()
+                            } else {
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
+                    >
+                        Local dev override
+                    </LemonButton>
+                )}
+            </>
         )
     } else if (addon.contact_support) {
         content = (
