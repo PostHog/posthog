@@ -549,6 +549,29 @@ ignore_imports = [
     "products.error_tracking.backend.presentation.views.suppression_rules -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.symbol_sets -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.utils -> products.error_tracking.backend.hogvm_stl",
+    # logs presentation isolation (temporary): the moved viewsets still reach in-product
+    # internals directly. Removed by the follow-up that thins each viewset to go through
+    # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_check_query",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
+    # logs presentation isolation (temporary): cross-product imports the moved viewsets
+    # still make directly. These resolve once cdp/exports expose the needed facades, so
+    # they outlive the in-product cleanup above.
+    "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
+    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
+    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
 ]
 
 [tool.ty.rules]

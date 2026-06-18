@@ -18,12 +18,12 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
-from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -1092,102 +1092,6 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     return True
 
 
-def classify_task_needs_repo(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-) -> bool:
-    """Classify whether a Slack conversation requires code repository access.
-
-    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
-    False if it does not (analytics, data queries, PostHog config).
-    Defaults to True on error (conservative — falls back to picker).
-    """
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-    normalized = f"{conversation}\nLatest message: {event_text}".lower()
-
-    product_debug_terms = (
-        "automation",
-        "destination",
-        "slack destination",
-        "posthog ai feedback",
-        "feature flag",
-        "experiment",
-        "survey",
-        "dashboard",
-        "insight",
-        "session replay",
-        "recording",
-        "mcp",
-        "webhook",
-    )
-    explicit_code_patterns = (
-        r"\brepository\b",
-        r"\brepo\b",
-        r"\bpull request\b",
-        r"\bopen a pr\b",
-        r"\bcreate a pr\b",
-        r"\bcommit\b",
-        r"\bbranch\b",
-        r"\bmodify code\b",
-        r"\bchange code\b",
-        r"\bwrite code\b",
-        r"\bimplement\b",
-        r"\.py\b",
-        r"\.ts\b",
-        r"\.tsx\b",
-        r"\.js\b",
-        r"\bserializer\b",
-        r"\bviewset\b",
-        r"\bmigration\b",
-    )
-
-    if any(term in normalized for term in product_debug_terms) and not any(
-        re.search(pattern, normalized) for pattern in explicit_code_patterns
-    ):
-        logger.info("classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
-        return False
-
-    prompt = (
-        "You are a task classifier. Given a Slack conversation, determine whether the task "
-        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
-        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
-        "querying data, PostHog configuration, general knowledge questions, planning, or "
-        "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
-        "Return needs_repo=false for tasks that are primarily about debugging or investigating "
-        "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
-        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
-        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
-        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
-        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
-        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
-        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
-        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
-        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
-        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
-        "there's no good match.\n\n"
-        f"Conversation:\n{conversation}\n\n"
-        f"Latest message: {event_text}\n\n"
-        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
-    )
-    try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        parsed = json.loads(content)
-        return bool(parsed.get("needs_repo", True))
-    except Exception:
-        logger.exception("classify_task_needs_repo_failed")
-        return True
-
-
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1354,26 +1258,69 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
+# Slack ``users.info`` error codes that mean the stored bot token can no longer talk to
+# Slack on this workspace's behalf. Surfaced as ``token_broken=True`` on the failure log
+# so support can distinguish "needs reconnect" from other API failures at a glance.
+_SLACK_AUTH_FAILURE_CODES = frozenset(
+    {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
+)
+
+
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
-    """Best-effort lookup of the Slack user's email via ``users.info``,
-    cache-first then a fresh hit on miss. Returns ``None`` when Slack doesn't
-    expose an email for the user (profile email hidden) or the lookup fails.
+    """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
+    a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
+    user (profile email hidden) or the lookup fails.
+
+    Every termination path emits a distinct structured log so a silent ``None`` can
+    still be diagnosed from logs alone — historically the failure modes collapsed
+    onto a downstream ``user_not_found`` warning that hid the actual cause.
     """
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
+        if slack_email:
+            return slack_email
+
+        fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+        if not fresh:
+            logger.warning(
+                "slack_app_resolve_user_email_empty_response",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+            )
+            return None
+
+        persist_slack_user_info(probe_integration, slack_user_id, fresh)
+        slack_email = fresh.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
-            if fresh:
-                persist_slack_user_info(probe_integration, slack_user_id, fresh)
-                slack_email = fresh.get("user", {}).get("profile", {}).get("email")
-        return slack_email or None
+            logger.warning(
+                "slack_app_resolve_user_email_missing_in_profile",
+                integration_id=probe_integration.id,
+                slack_user_id=slack_user_id,
+                ok=fresh.get("ok"),
+            )
+            return None
+        return slack_email
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        token_broken = isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES
+        logger.warning(
+            "slack_app_resolve_user_email_failed",
+            integration_id=probe_integration.id,
+            slack_user_id=slack_user_id,
+            error_code=error_code,
+            token_broken=token_broken,
+            exc_info=True,
+        )
+        return None
     except Exception:
         logger.warning(
             "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
+            error_code=None,
+            token_broken=False,
             exc_info=True,
         )
         return None

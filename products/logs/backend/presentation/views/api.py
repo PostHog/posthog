@@ -37,22 +37,22 @@ from posthog.models import User
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
 )
-from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
-from products.logs.backend.sampling_api import LogsSamplingRuleViewSet
+from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
+from products.logs.backend.presentation.views.explain import LogExplainViewSet
+from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
+from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
-from products.logs.backend.views_api import LogsViewViewSet
 
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
 
@@ -740,12 +740,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
         query = LogsQuery(
-            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            dateRange=date_range,
             severityLevels=query_data.get("severityLevels", []),
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
-            filterGroup=query_data.get("filterGroup", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )

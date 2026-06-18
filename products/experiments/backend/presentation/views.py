@@ -18,6 +18,7 @@ from django.utils.text import slugify
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from opentelemetry import trace
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -85,6 +86,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+
+tracer = trace.get_tracer(__name__)
 
 PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
 
@@ -276,6 +279,11 @@ class EnterpriseExperimentsViewSet(
     )
     ordering = "-created_at"
 
+    @tracer.start_as_current_span("ExperimentViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    @tracer.start_as_current_span("ExperimentViewSet.safely_get_queryset")
     def safely_get_queryset(self, queryset) -> QuerySet:
         request = getattr(self, "request", None)
         service = ExperimentService(team=self.team, user=getattr(request, "user", None))
