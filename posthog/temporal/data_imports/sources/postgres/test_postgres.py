@@ -1404,6 +1404,14 @@ class TestValidateCredentialsErrorMapping:
                 "pool_size, or switch it to transaction mode) or reduce the number of concurrent "
                 "connections to your database, then try again.",
             ),
+            # Supabase/Supavisor pooler reports a missing tenant/user with a volatile username/host.
+            (
+                'connection failed: connection to server at "44.216.29.125", port 5432 failed: '
+                "FATAL:  (ENOTFOUND) tenant/user postgres.icjrfprdtrgjpxfpbrvx not found",
+                "Your database connection pooler couldn't find the tenant or user. This usually means the "
+                "database project is paused or deleted, or the pooler username/host is wrong. Check that "
+                "your database is active and the connection details are correct.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
