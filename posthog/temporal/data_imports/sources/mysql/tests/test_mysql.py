@@ -891,7 +891,25 @@ class TestConnectTransientRetry:
             assert yielded is conn
 
         assert mock_connect.call_count == 2
-        sleep.assert_called_once_with(1)
+        sleep.assert_called_once_with(2)
+
+    def test_recovers_when_drop_outlasts_first_retries(self, mocker):
+        # A drop that recovers on the 4th attempt — past the old 3-attempt window — must still
+        # be absorbed in-process rather than surfacing as error-tracking noise.
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        drop = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[drop, drop, drop, conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 4
+        assert [c.args[0] for c in sleep.call_args_list] == [2, 4, 6]
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
