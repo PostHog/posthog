@@ -182,6 +182,7 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
+                        - .github/scripts/shard_django_files.py # Computes per-shard pytest targets
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -2343,21 +2344,28 @@ jobs:
                           --junitxml=junit-core.xml \
                           $PYTEST_ARGS
                   else
-                    pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
-                        matrix.compat
-                        && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
-                        || (
-                        matrix.person-on-events
-                        && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
-                        || 'posthog'
-                        )
-                    }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
-                        --ignore=posthog/temporal \
-                        --ignore=posthog/dags \
-                        --ignore=common/hogvm/python/test \
-                        ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
-                        ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                        --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                    if [[ "${{ matrix.compat }}" == "true" ]]; then
+                        # Compat shards run a fixed ClickHouse target subset across older
+                        # ClickHouse images; keep the legacy whole-target + pytest-split path.
+                        targets="${{ env.CLICKHOUSE_COMPAT_PYTEST_TARGETS }} --ignore=posthog/temporal --ignore=posthog/dags --ignore=common/hogvm/python/test --splits ${{ matrix.concurrency }} --group ${{ matrix.group }}"
+                    elif [[ -f .github/scripts/shard_django_files.py ]]; then
+                        # File-level sharding: each shard collects only its assigned files
+                        # instead of importing the whole posthog+ee tree (the dominant cost
+                        # of the pre-first-test setup span). The script itself falls back to
+                        # the legacy whole-tree invocation when .test_durations is missing.
+                        # See .github/scripts/shard_django_files.py.
+                        if [[ "${{ matrix.person-on-events }}" == "true" ]]; then SEGMENT=CorePOE; else SEGMENT=Core; fi
+                        targets="$(python .github/scripts/shard_django_files.py --segment "$SEGMENT" --shards ${{ matrix.concurrency }} --group ${{ matrix.group }})"
+                    elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                        # Legacy whole-tree invocation for branches predating the sharding
+                        # script (unrebased PRs check out head.ref, which may lack it).
+                        targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/ --ignore=posthog/temporal --ignore=posthog/dags --ignore=common/hogvm/python/test --ignore=posthog/hogql_queries --ignore=posthog/hogql --splits ${{ matrix.concurrency }} --group ${{ matrix.group }}"
+                    else
+                        targets="posthog ee/ --ignore=posthog/temporal --ignore=posthog/dags --ignore=common/hogvm/python/test --splits ${{ matrix.concurrency }} --group ${{ matrix.group }}"
+                    fi
+                    if [[ -z "$targets" ]]; then echo "::error::empty pytest targets for shard ${{ matrix.group }}/${{ matrix.concurrency }}"; exit 1; fi
+                    # shellcheck disable=SC2086
+                    pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
                         --splitting-algorithm=duration_based_chunks \
@@ -2431,8 +2439,19 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
-                          --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                      # File-level sharding: each shard collects only its assigned files
+                      # instead of importing the whole temporal tree. The script falls back
+                      # to the legacy whole-tree invocation when .test_durations is missing.
+                      # See .github/scripts/shard_django_files.py.
+                      if [[ -f .github/scripts/shard_django_files.py ]]; then
+                          targets="$(python .github/scripts/shard_django_files.py --segment Temporal --shards ${{ matrix.concurrency }} --group ${{ matrix.group }})"
+                      else
+                          # Legacy whole-tree invocation for branches predating the sharding script.
+                          targets="posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal --splits ${{ matrix.concurrency }} --group ${{ matrix.group }}"
+                      fi
+                      if [[ -z "$targets" ]]; then echo "::error::empty pytest targets for shard ${{ matrix.group }}/${{ matrix.concurrency }}"; exit 1; fi
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
                           --splitting-algorithm=duration_based_chunks \
