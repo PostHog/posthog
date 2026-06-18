@@ -5878,6 +5878,71 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "expr")
 
+        def test_hogqlx_tight_vs_loose_tags(self):
+            # cpp lexes `<ident…` ("tight") through dedicated tag/text lexer modes
+            # and `< ident…` ("loose") through the default mode, and the two
+            # diverge: tight captures child text (incl. whitespace); loose admits
+            # only nested tags / `{expr}` children (stray text rejected, whitespace
+            # dropped); loose attribute values may be `f'…'` templates (tight
+            # rejects them); a loose opening name may be quoted (`< "x" />`) but a
+            # closing name never is (so `< "x" ></ "x" >` rejects).
+            accept = (
+                "<a></a>",
+                "< a ></ a >",
+                "<a>x</a>",
+                "<a> </a>",
+                "< a > </ a >",
+                "< a b=f'x' />",
+                "<a b={1}/>",
+                "< a b={1} />",
+                "< a >< b /></ a >",
+                '< "x" />',
+            )
+            for src in accept:
+                self._assert_ast(src, "expr")
+            reject = (
+                "< a >x</ a >",
+                "<a b=f'x'/>",
+                '< "x" ></ "x" >',
+            )
+            for src in reject:
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        def test_cast_type_param_admits_date_literal_as_raw_text(self):
+            # A `date ''` / `timestamp ''` literal inside a `ColumnTypeExprParam`
+            # is `getText()`'d, never visited, so cpp accepts it as raw param
+            # text; the visitor-level "not supported" rejection must not fire.
+            for src in (
+                "cast(0 as a(date ''))",
+                "cast(0 as a(date '', date '', ))",
+                "cast(0 as a(a(date '', date '', ), ))",
+                "cast(0 as a(timestamp ''))",
+            ):
+                self._assert_ast(src, "expr")
+            # Guards: a genuine ColumnTypeExprEnum and a bare `date ''` cast type
+            # still reject on every backend.
+            for src in ("cast(0 as a(f''=0))", "cast(0 as a('x'=1))", "cast(0 as date '')"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        def test_placeholder_discarded_interpolate_must_be_terminated(self):
+            # A `{placeholder}` select's trailing ORDER BY is grammar-parsed but
+            # never visited, so its INTERPOLATE is consume-dropped. An
+            # unterminated clause — e.g. a `#`-comment swallowing the `)` to
+            # end-of-line — must still reject, matching cpp's "mismatched input
+            # '<EOF>'", not be silently accepted.
+            for src in (
+                "{x} order by 1 interpolate ( # 6 )",
+                "{x} order by 1 interpolate ( a # 6 )",
+                "{x} order by 1 interpolate ( a",
+            ):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+            # Guards: a well-formed interpolate (and a `#6` positional ref) parse.
+            for src in ("{x} order by 1 interpolate ( a )", "{x} order by 1 interpolate ( #6 )"):
+                self._assert_ast(src, "select")
+
         def test_join_expr_parens_does_not_take_outer_alias(self):
             # `JoinExprParens` isn't a `tableExpr`, so alias / FINAL / SAMPLE can't bind to a `(joinExpr)` from outside.
 

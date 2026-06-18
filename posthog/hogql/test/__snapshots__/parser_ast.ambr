@@ -2093,6 +2093,62 @@
   }
   '''
 # ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_a_date_date-686a8c1d]
+  '''
+  {
+    end: 37
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(a(date'', date''))"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_date-62774d40]
+  '''
+  {
+    end: 21
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(date'')"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_date_date-58ea95cb]
+  '''
+  {
+    end: 32
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(date'', date'')"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_timestamp-a5dc2724]
+  '''
+  {
+    end: 26
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(timestamp'')"
+  }
+  '''
+# ---
 # name: test_cast_type_param_group_mode_classification[cast_x_as_DateTime64_3_UTC-416fe76a]
   '''
   {
@@ -5839,6 +5895,173 @@
     ]
     end: 44
     kind: "outer"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-10320115]
+  '''
+  {
+    attributes: []
+    end: 11
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-c1b9c988]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            end: 4
+            start: 3
+            value: " "
+          }
+        ]
+      }
+    ]
+    end: 8
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-f61bc7e2]
+  '''
+  {
+    attributes: []
+    end: 7
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-f78190c8]
+  '''
+  {
+    attributes: []
+    end: 12
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_1-b6770467]
+  '''
+  {
+    attributes: [
+      {
+        end: 9
+        name: "b"
+        start: 4
+        value: {
+          end: 8
+          start: 7
+          value: 1
+        }
+      }
+    ]
+    end: 12
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_1-d73b5c66]
+  '''
+  {
+    attributes: [
+      {
+        end: 8
+        name: "b"
+        start: 3
+        value: {
+          end: 7
+          start: 6
+          value: 1
+        }
+      }
+    ]
+    end: 10
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_a-7f014af6]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            attributes: []
+            end: 11
+            kind: "b"
+            start: 5
+          }
+        ]
+      }
+    ]
+    end: 17
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_f_x-ac22291c]
+  '''
+  {
+    attributes: [
+      {
+        end: 10
+        name: "b"
+        start: 4
+        value: {
+          end: 9
+          start: 8
+          value: "x"
+        }
+      }
+    ]
+    end: 13
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_x_a-08a3bec8]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            end: 4
+            start: 3
+            value: "x"
+          }
+        ]
+      }
+    ]
+    end: 8
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[x-b5b588c7]
+  '''
+  {
+    attributes: []
+    end: 8
+    kind: "x"
     start: 0
   }
   '''
@@ -13714,6 +13937,38 @@
     distinct: False
     end: 31
     name: "if"
+    start: 0
+  }
+  '''
+# ---
+# name: test_placeholder_discarded_interpolate_must_be_terminated[x_order_by_1_interpolate_6-90b7bb71]
+  '''
+  {
+    end: 3
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 2
+      from_asterisk: False
+      start: 1
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_placeholder_discarded_interpolate_must_be_terminated[x_order_by_1_interpolate_a-8d94abdf]
+  '''
+  {
+    end: 3
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 2
+      from_asterisk: False
+      start: 1
+    }
     start: 0
   }
   '''
