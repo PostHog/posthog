@@ -1266,7 +1266,11 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            bypass_access_control=bypass_access_control,
+            # Synthetic principals (project secret API keys) are project-wide and bypass object-level
+            # RBAC by design, so they bypass warehouse access control too. System tables stay
+            # scope-gated for them via _compute_system_table_access_decision above. This field only
+            # gates the warehouse checks in _build_from_sources.
+            bypass_access_control=bypass_access_control or isinstance(user, SyntheticUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
