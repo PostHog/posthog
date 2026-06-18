@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
-import type { MarkdownNotebookAskAIRequest, MarkdownNotebookSavedInsightPickerProps } from 'lib/components/MarkdownNotebook'
+import type {
+    MarkdownNotebookAskAIRequest,
+    MarkdownNotebookSavedInsightPickerProps,
+} from 'lib/components/MarkdownNotebook'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
     replaceNotebookAIResponseMarkdown,
