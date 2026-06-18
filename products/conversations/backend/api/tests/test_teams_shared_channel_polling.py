@@ -53,6 +53,11 @@ def _resp(status_code: int = 200, json_data: dict | None = None) -> MagicMock:
     return resp
 
 
+def _channel_verify_resp() -> MagicMock:
+    """Graph GET /teams/{id}/channels/{id} confirming membershipType=shared."""
+    return _resp(json_data={"id": CHANNEL_ID, "membershipType": "shared"})
+
+
 class TestGraphMessageToActivity(BaseTest):
     @parameterized.expand(
         [
@@ -108,7 +113,10 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_first_run_primes_without_creating_tickets(self, mock_get: MagicMock, *_: Any) -> None:
-        mock_get.return_value = _resp(json_data={"value": [_graph_message()], "@odata.deltaLink": "DELTA1"})
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [_graph_message()], "@odata.deltaLink": "DELTA1"}),
+        ]
 
         poll_team_shared_channels(self.team.id)
 
@@ -119,12 +127,16 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_second_run_creates_one_ticket_and_is_idempotent(self, mock_get: MagicMock, *_: Any) -> None:
-        # Prime.
-        mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"})
+        # Prime (first call = verify, second = delta).
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
 
-        # New message after priming -> exactly one ticket.
+        # New message after priming -> exactly one ticket. No verify on second run.
+        mock_get.side_effect = None
         mock_get.return_value = _resp(json_data={"value": [_graph_message(msg_id="m2")], "@odata.deltaLink": "DELTA2"})
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 1)
@@ -138,9 +150,13 @@ class TestPollSharedChannel(BaseTest):
     @patch("products.conversations.backend.tasks.requests.get")
     def test_polled_ticket_uses_service_url_from_config(self, mock_get: MagicMock, *_: Any) -> None:
         TeamConversationsTeamsConfig.objects.filter(team=self.team).update(teams_service_url=TRUSTED_SERVICE_URL)
-        mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"})
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
         poll_team_shared_channels(self.team.id)
 
+        mock_get.side_effect = None
         mock_get.return_value = _resp(json_data={"value": [_graph_message(msg_id="m2")], "@odata.deltaLink": "DELTA2"})
         poll_team_shared_channels(self.team.id)
 
@@ -149,8 +165,11 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_pagination_follows_next_link(self, mock_get: MagicMock, *_: Any) -> None:
-        # Prime first.
-        mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"})
+        # Prime first (verify + delta).
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
         poll_team_shared_channels(self.team.id)
 
         mock_get.side_effect = [
@@ -164,10 +183,14 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_410_resets_state_for_reprime(self, mock_get: MagicMock, *_: Any) -> None:
-        mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"})
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
         poll_team_shared_channels(self.team.id)
         self.assertTrue(self._sync().primed)
 
+        mock_get.side_effect = None
         mock_get.return_value = _resp(status_code=410)
         poll_team_shared_channels(self.team.id)
 
@@ -180,9 +203,13 @@ class TestPollSharedChannel(BaseTest):
     def test_error_statuses_skip_without_crashing(
         self, _name: str, status_code: int, mock_get: MagicMock, *_: Any
     ) -> None:
-        mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"})
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
         poll_team_shared_channels(self.team.id)
 
+        mock_get.side_effect = None
         mock_get.return_value = _resp(status_code=status_code)
         # Should not raise.
         poll_team_shared_channels(self.team.id)
