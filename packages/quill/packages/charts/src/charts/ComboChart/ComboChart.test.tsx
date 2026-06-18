@@ -1,9 +1,6 @@
-import { fireEvent } from '@testing-library/react'
-
-import type { ChartTheme, ComboChartConfig, Series } from '../../core/types'
+import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { renderHogChart } from '../../testing'
-import { dimensions } from '../../testing/jsdom'
 import { ComboChart } from './ComboChart'
 
 const THEME: ChartTheme = {
@@ -70,29 +67,6 @@ describe('ComboChart', () => {
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
-    it('defaultSeriesType: "bar" treats an untyped series as a bar (band-gap suppresses it)', async () => {
-        // A bar is only surfaced when the cursor lands in its band-axis extent; a line would always
-        // show at the hovered column. So a band-gap probe that suppresses the tooltip proves the
-        // untyped series defaulted to a bar, not a line.
-        const series: Series[] = [{ key: 'a', label: 'A', data: [40, 60, 50] }]
-        const { chart } = renderHogChart(
-            <ComboChart
-                series={series}
-                labels={LABELS}
-                theme={THEME}
-                config={{ defaultSeriesType: 'bar', barLayout: 'grouped' }}
-            />
-        )
-        const d3Step = dimensions.plotWidth / LABELS.length
-        fireEvent.mouseMove(chart.element, {
-            clientX: dimensions.plotLeft + d3Step,
-            clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-        })
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
-        expect(tooltipEl?.textContent ?? '').toBe('')
-    })
-
     describe('hover & tooltip', () => {
         it('lists every visible series at the hovered x', async () => {
             const { chart } = renderHogChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
@@ -112,43 +86,6 @@ describe('ComboChart', () => {
             const tooltip = await chart.waitForTooltip()
             const keys = tooltip.seriesData.map((s) => s.series.key)
             expect(keys).toContain('l')
-        })
-
-        it('narrows the bar tooltip entry to the bar under the cursor in grouped layout', async () => {
-            const series: Series[] = [
-                { key: 'b1', label: 'B1', data: [10, 20, 30], type: 'bar' },
-                { key: 'b2', label: 'B2', data: [5, 15, 25], type: 'bar' },
-                { key: 'l', label: 'L', data: [12, 18, 28], type: 'line' },
-            ]
-            const config: ComboChartConfig = { barLayout: 'grouped' }
-            const { chart } = renderHogChart(
-                <ComboChart series={series} labels={LABELS} theme={THEME} config={config} />
-            )
-            // hoverAtIndex puts cursor at band-center / mid-plot — lands inside b2's sub-band.
-            chart.hoverAtIndex(1)
-            const tooltip = await chart.waitForTooltip()
-            const keys = tooltip.seriesData.map((s) => s.series.key).sort()
-            // b1 is suppressed (cursor not over its sub-band), b2 + line shown.
-            expect(keys).toEqual(['b2', 'l'])
-        })
-
-        it('grouped layout suppresses tooltip when no bar is hit AND no line is visible', async () => {
-            const series: Series[] = [{ key: 'b', label: 'B', data: [10, 20, 30], type: 'bar' }]
-            const { chart } = renderHogChart(
-                <ComboChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />
-            )
-            // Same band-gap probe the BarChart tests use.
-            const d3Step = dimensions.plotWidth / LABELS.length
-            fireEvent.mouseMove(chart.element, {
-                clientX: dimensions.plotLeft + d3Step,
-                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-            })
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
-            // Tooltip is suppressed when the cursor is in a band gap — either the portal never
-            // mounts (null) or it mounts empty because ComboTooltip returned null. Both collapse to
-            // "no content" in one unconditional assertion.
-            expect(tooltipEl?.textContent ?? '').toBe('')
         })
 
         it('renders bar+line on dual axes and shows both in the tooltip', async () => {

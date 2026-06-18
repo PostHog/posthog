@@ -43,7 +43,6 @@ import type {
 import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { resolveBarsAtCursor } from '../BarChart/utils/bars-under-cursor'
-import { ComboTooltip } from './ComboTooltip'
 
 export interface ComboChartProps<Meta = unknown> {
     series: Series<Meta>[]
@@ -302,20 +301,6 @@ function ComboChartInner<Meta = unknown>({
     const resolveValue = useMemo(() => buildSegmentResolveValue(barStackedData), [barStackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
 
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<Meta>) => (
-            <ComboTooltip<Meta>
-                ctx={ctx}
-                userTooltip={tooltip}
-                barStackedData={barStackedData}
-                topStackedKeyByAxis={topStackedKeyByAxis}
-                layout={barLayout}
-                defaultSeriesType={defaultSeriesType}
-            />
-        ),
-        [tooltip, barStackedData, topStackedKeyByAxis, barLayout, defaultSeriesType]
-    )
-
     return (
         <Chart
             series={series}
@@ -325,7 +310,7 @@ function ComboChartInner<Meta = unknown>({
             createScales={createScales}
             drawStatic={drawStatic}
             drawHover={drawHover}
-            tooltip={renderTooltip}
+            tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
