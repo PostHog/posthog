@@ -219,19 +219,41 @@ describe('GroupTypeManager()', () => {
         })
 
         it('falls back to now when no event timestamp is provided', async () => {
-            const before = Date.now()
-            expect(await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'foo')).toEqual(0)
-            const after = Date.now()
+            // Freeze only the wall clock; leave real timers/I/O alone so the DB query still resolves.
+            const now = DateTime.fromISO('2024-03-15T12:00:00.000Z', { zone: 'utc' })
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'performance',
+                    'queueMicrotask',
+                    'requestAnimationFrame',
+                    'cancelAnimationFrame',
+                    'requestIdleCallback',
+                    'cancelIdleCallback',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'setTimeout',
+                    'clearTimeout',
+                ],
+                now: now.toMillis(),
+            })
 
-            const { rows } = await hub.postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'foo'",
-                undefined,
-                'fetchCreatedAt'
-            )
-            const storedMs = DateTime.fromISO(rows[0].created_at).toMillis()
-            expect(storedMs).toBeGreaterThanOrEqual(before - 1000)
-            expect(storedMs).toBeLessThanOrEqual(after + 1000)
+            try {
+                expect(await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'foo')).toEqual(0)
+
+                const { rows } = await hub.postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'foo'",
+                    undefined,
+                    'fetchCreatedAt'
+                )
+                expect(DateTime.fromISO(rows[0].created_at).toMillis()).toEqual(now.toMillis())
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('uses next available index after a group type is deleted', async () => {
