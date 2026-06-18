@@ -28,9 +28,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 
@@ -353,6 +355,20 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<SplitPersonRequest>,
     ) -> Result<Response<SplitPersonResponse>, Status> {
         route_request!(self, split_person, request)
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        route_request!(self, set_person_distinct_id_version_floor, request)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        route_request!(self, set_person_version_floor, request)
     }
 
     // Person property updates (routed to leader)
