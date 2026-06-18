@@ -94,6 +94,11 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
+    except ImportError:
+        # A failed import means the runtime environment is broken (e.g. a Dagster worker that
+        # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.
+        # Let it propagate as-is rather than masquerading as a predicate validation error.
+        raise
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 

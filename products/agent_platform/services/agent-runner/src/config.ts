@@ -79,7 +79,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     posthogAiGatewayKey: z
         .string()
         .optional()
-        .describe('PostHog ai-gateway PAT (`phx_...`). First non-empty wins for pi-ai default apiKey.'),
+        .describe(
+            'Static ai-gateway bearer — a `phs_` project secret key with the `llm_gateway:read` scope. On the gateway path it authenticates every model + usage call (required there); on the direct path it falls through as the first-priority provider apiKey.'
+        ),
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
