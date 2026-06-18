@@ -1674,15 +1674,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema.detected_primary_keys if source_schema else None
                 )
                 # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
+                # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
+                # creation paths reject the same inputs instead of silently dropping null/float values.
                 lookback_seconds = schema.get("incremental_field_lookback_seconds")
-                if isinstance(lookback_seconds, int) and lookback_seconds > 5_184_000:
-                    new_source_model.delete()
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": f"incremental_field_lookback_seconds must not exceed 5184000 (60 days) for schema '{schema_name}'."
-                        },
-                    )
+                if lookback_seconds is not None:
+                    # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
+                    if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
+                        lookback_seconds = int(lookback_seconds)
+                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
+                    if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"incremental_field_lookback_seconds must be an integer between 0 and 5184000 (60 days) for schema '{schema_name}'."
+                            },
+                        )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
@@ -1690,7 +1698,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
                     **(
                         {"incremental_field_lookback_seconds": lookback_seconds}
-                        if sync_type == "incremental" and isinstance(lookback_seconds, int)
+                        if sync_type == "incremental" and lookback_seconds is not None
                         else {}
                     ),
                 }

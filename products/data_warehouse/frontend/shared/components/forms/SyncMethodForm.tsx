@@ -33,7 +33,9 @@ export const secondsToLookbackParts = (
             return { amount: seconds / LOOKBACK_UNIT_SECONDS[unit], unit }
         }
     }
-    return { amount: Math.round(seconds / 60), unit: 'minutes' }
+    // Floor (not round) so a non-divisible value never displays as more than it is and then
+    // saves back the inflated number — e.g. 90 s shows "1 minute" and round-trips to 60 s.
+    return { amount: Math.floor(seconds / 60), unit: 'minutes' }
 }
 
 const getIncrementalSyncSupported = (

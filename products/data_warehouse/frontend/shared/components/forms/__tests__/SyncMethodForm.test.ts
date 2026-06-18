@@ -22,6 +22,9 @@ describe('SyncMethodForm lookback helpers', () => {
         [5184000, { amount: 60, unit: 'days' }], // 60-day max
         [60, { amount: 1, unit: 'minutes' }],
         [900, { amount: 15, unit: 'minutes' }],
+        // Non-divisible values floor down to whole minutes (lossy round-trip), never round up.
+        [90, { amount: 1, unit: 'minutes' }],
+        [150, { amount: 2, unit: 'minutes' }],
         [null, { amount: null, unit: 'hours' }],
         [0, { amount: null, unit: 'hours' }],
         [-5, { amount: null, unit: 'hours' }],
