@@ -131,10 +131,8 @@ const IssuesRedesignedTab = (): JSX.Element => {
                 props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
             >
                 {banners}
-                {/* Chromeless bar: just the buttons and chips on the page surface, no filled container. */}
                 <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
                     <FilterBar
-                        chromeless
                         reload={<IssueReloadButton />}
                         logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                         quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}

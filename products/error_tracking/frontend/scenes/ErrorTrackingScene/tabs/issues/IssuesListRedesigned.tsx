@@ -1,12 +1,20 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonCheckbox, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
+import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
+import {
+    ErrorTrackingQueryOrderBy,
+    ErrorTrackingQueryOrderDirection,
+    issueQueryOptionsLogic,
+} from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
+import { IssueListTitleColumn } from 'products/error_tracking/frontend/components/TableColumns'
+import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 
 import { IssueCountCell, IssueVolumeCell } from './issueListCells'
@@ -14,13 +22,6 @@ import { IssueCountCell, IssueVolumeCell } from './issueListCells'
 // Title takes the remaining space; the sparkline + three counts get fixed tracks so
 // every row lines up without any table chrome.
 const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_13rem_5rem_5rem_5rem] items-center gap-x-3'
-
-const COLUMN_LABELS: { key: string; label: string }[] = [
-    { key: 'volume', label: 'Volume' },
-    { key: 'occurrences', label: 'Occurrences' },
-    { key: 'sessions', label: 'Sessions' },
-    { key: 'users', label: 'Users' },
-]
 
 /**
  * Table-less issues list. Renders each issue as a plain hover row (Linear-style) instead of the
@@ -32,7 +33,7 @@ export function IssuesListRedesigned(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <ListHeader results={results} />
+            <ColumnHeaders results={results} />
             {responseLoading && results.length === 0 ? (
                 <LoadingRows />
             ) : results.length === 0 ? (
@@ -46,15 +47,63 @@ export function IssuesListRedesigned(): JSX.Element {
     )
 }
 
-const ListHeader = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
+const SortArrow = ({ direction }: { direction: ErrorTrackingQueryOrderDirection }): JSX.Element => (
+    <IconArrowRight className={cn('text-xs', direction === 'DESC' ? 'rotate-90' : '-rotate-90')} />
+)
+
+/** Count column header that sorts by its field, toggling direction when already active. */
+const SortableCountHeader = ({ field, label }: { field: ErrorTrackingQueryOrderBy; label: string }): JSX.Element => {
+    const { orderBy, orderDirection } = useValues(issueQueryOptionsLogic)
+    const { setOrderBy, setOrderDirection } = useActions(issueQueryOptionsLogic)
+    const active = orderBy === field
+
     return (
-        <div className={cn(ROW_GRID, 'px-3 pb-2 text-xs font-medium text-muted')}>
-            <IssueListTitleHeader results={results} />
-            {COLUMN_LABELS.map(({ key, label }) => (
-                <div key={key} className="text-center">
-                    {label}
-                </div>
-            ))}
+        <button
+            type="button"
+            onClick={() => (active ? setOrderDirection(orderDirection === 'DESC' ? 'ASC' : 'DESC') : setOrderBy(field))}
+            className={cn(
+                'flex w-full items-center justify-center gap-1 rounded px-1 py-0.5 text-xs font-medium transition-colors hover:bg-fill-button-tertiary-hover',
+                active ? 'text-default' : 'text-muted hover:text-default'
+            )}
+        >
+            <span>{label}</span>
+            {active && <SortArrow direction={orderDirection} />}
+        </button>
+    )
+}
+
+const ColumnHeaders = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
+    return (
+        <div className={cn(ROW_GRID, 'border-b border-primary px-2 pb-2 pt-1')}>
+            <SelectAllHeader results={results} />
+            <div className="text-center text-xs font-medium text-muted">Volume</div>
+            <SortableCountHeader field="occurrences" label="Occurrences" />
+            <SortableCountHeader field="sessions" label="Sessions" />
+            <SortableCountHeader field="users" label="Users" />
+        </div>
+    )
+}
+
+/**
+ * Self-contained select-all + bulk action header. Doesn't go through the shared table header so the
+ * bulk actions always render inline here, independent of the v1/v2 search bar variant.
+ */
+const SelectAllHeader = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
+    const { selectedIssueIds } = useValues(bulkSelectLogic)
+    const { setSelectedIssueIds } = useActions(bulkSelectLogic)
+    const allSelected = results.length === selectedIssueIds.length && selectedIssueIds.length > 0
+
+    return (
+        <div className="-ml-1 flex items-center gap-3">
+            <LemonCheckbox
+                checked={allSelected}
+                onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
+            />
+            {selectedIssueIds.length > 0 ? (
+                <IssueActions issues={results} selectedIds={selectedIssueIds} />
+            ) : (
+                <span className="text-xs font-medium text-muted">Issue</span>
+            )}
         </div>
     )
 }
@@ -73,7 +122,7 @@ const IssueRow = ({
             data-attr="error-tracking-issue-row"
             className={cn(
                 ROW_GRID,
-                'px-3 py-1 border-b border-primary last:border-b-0 hover:bg-surface-secondary transition-colors'
+                'border-b border-primary px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-secondary'
             )}
         >
             <div className="min-w-0">
@@ -97,7 +146,7 @@ const LoadingRows = (): JSX.Element => {
     return (
         <div className="flex flex-col">
             {Array.from({ length: 8 }).map((_, index) => (
-                <div key={index} className={cn(ROW_GRID, 'px-3 py-3 border-b border-primary last:border-b-0')}>
+                <div key={index} className={cn(ROW_GRID, 'border-b border-primary px-2 py-3 last:border-b-0')}>
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-4 w-1/3" />
                         <LemonSkeleton className="h-3 w-2/3" />
