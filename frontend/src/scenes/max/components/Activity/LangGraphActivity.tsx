@@ -1,0 +1,126 @@
+import React from 'react'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
+
+import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
+
+import { MarkdownMessage } from '../../MarkdownMessage'
+import type { EnhancedToolCall } from '../../max-constants'
+import { SummarizeSessionsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from '../../messages/UIPayloadAnswer'
+import { Activity, ActivityToggleSection } from './ActivityPrimitives'
+
+export function LangGraphActivity({
+    id,
+    content,
+    substeps,
+    state,
+    icon,
+    animate = true,
+    showCompletionIcon = true,
+    widget = null,
+    toolCall = null,
+}: {
+    id: string
+    content: string
+    // actually a markdown message
+    substeps: string[]
+    state: ExecutionStatus
+    icon?: React.ReactNode
+    animate?: boolean
+    showCompletionIcon?: boolean
+    widget?: JSX.Element | null
+    toolCall?: EnhancedToolCall | null
+}): JSX.Element {
+    const result = toolCall?.result
+    const uiPayload = result?.ui_payload
+    const executedSQLQuery =
+        typeof uiPayload?.execute_sql === 'string'
+            ? uiPayload.execute_sql
+            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
+              ? toolCall.args.query
+              : null
+
+    const uiPayloadBody =
+        toolCall && uiPayload && isRenderableUIPayloadTool(toolCall.name, uiPayload)
+            ? Object.entries(uiPayload)
+                  .filter(([toolName]) => toolName !== 'summarize_sessions')
+                  .map(([toolName, toolPayload]) => (
+                      <UIPayloadAnswer
+                          key={`${result?.tool_call_id}-${toolName}`}
+                          toolCallId={result!.tool_call_id}
+                          toolName={toolName}
+                          toolPayload={toolPayload}
+                          embedded
+                      />
+                  ))
+            : []
+
+    const activityChildren = (
+        <>
+            {widget}
+            {/* Render summarize_sessions UI payload outside details so "Open report" is always visible. */}
+            {!!uiPayload?.summarize_sessions && result && (
+                <SummarizeSessionsWidget
+                    payload={uiPayload.summarize_sessions}
+                    title={toolCall?.args.summary_title as string | undefined}
+                />
+            )}
+            {uiPayloadBody.length > 0 && <div className="flex flex-col gap-2 mt-1">{uiPayloadBody}</div>}
+        </>
+    )
+
+    const details =
+        toolCall || executedSQLQuery ? (
+            <div className="flex flex-col gap-1">
+                {executedSQLQuery && (
+                    <div className="flex flex-col gap-1">
+                        <b className="text-secondary">SQL query</b>
+                        <CodeSnippet language={Language.SQL} className="text-xs" compact>
+                            {executedSQLQuery}
+                        </CodeSnippet>
+                    </div>
+                )}
+                {toolCall && (
+                    <ActivityToggleSection
+                        title="Tool called:"
+                        summary={<span>{toolCall.name}</span>}
+                        tooltip="Tool call arguments as JSON"
+                    >
+                        <CodeSnippet language={Language.JSON} className="text-xs">
+                            {JSON.stringify(toolCall.args, null, 2)}
+                        </CodeSnippet>
+                    </ActivityToggleSection>
+                )}
+                {toolCall && result?.content && (
+                    <ActivityToggleSection
+                        title="Tool result:"
+                        summary={<span>{result.content.slice(0, 20)}...</span>}
+                        tooltip="Show tool call results"
+                    >
+                        <div className="border rounded p-2 bg-surface-primary">
+                            <MarkdownMessage
+                                id={`${toolCall.id}-result`}
+                                content={result.content}
+                                className="text-xs [&_code]:text-xs"
+                            />
+                        </div>
+                    </ActivityToggleSection>
+                )}
+            </div>
+        ) : null
+
+    return (
+        <Activity
+            id={id}
+            title={<MarkdownMessage id={id} content={content} />}
+            substeps={substeps}
+            status={state}
+            icon={icon}
+            animate={animate}
+            showCompletionIcon={showCompletionIcon}
+            details={details}
+        >
+            {activityChildren}
+        </Activity>
+    )
+}
