@@ -211,3 +211,12 @@
 .CardMeta:hover .CardMeta__refresh {
     visibility: visible;
 }
+
+// On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden
+// even on hover — refresh stays available in the "⋯" menu. The container is only established in
+// compact mode, so this never applies to the non-compact (saved insights) layout.
+@container (max-width: 22rem) {
+    .CardMeta:hover .CardMeta__refresh {
+        visibility: hidden;
+    }
+}
