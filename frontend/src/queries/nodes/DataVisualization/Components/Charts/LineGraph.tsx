@@ -45,7 +45,6 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
-import { SqlBarGraph } from './SqlBarGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import {
     AREA_FILL_OPACITY,
@@ -734,12 +733,8 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
-    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
+    if (newChartsEnabled && (canRenderSqlLineGraph(props) || canRenderSqlBarGraph(props))) {
         return <SqlLineGraph {...props} />
-    }
-
-    if (newChartsEnabled && canRenderSqlBarGraph(props)) {
-        return <SqlBarGraph {...props} />
     }
 
     return <LegacyLineGraph {...props} />
