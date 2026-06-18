@@ -123,6 +123,11 @@ The baseline only ever shrinks. An empty baseline means the intra-ingestion DAG 
 4. Affected unit tests (the touched lane/shared area) **pass** — no failures, no tests removed.
 5. Diff is moves-only except for the allowlisted change reasons above.
 
+After pushing, confirm CI actually started on PR #64506. **A push that triggers no CI runs is almost
+always a merge conflict with master** (GitHub can't compute the merge commit, so it skips the
+`pull_request` workflows) — merge `origin/master`, resolve conflicts, and push again before assuming
+any GitHub-side problem.
+
 ### Running the full test suite
 
 The full jest suite needs the Kafka/ClickHouse/Postgres/Redis stack, so it requires a working
@@ -150,11 +155,30 @@ locally / on a devbox.
 Guardrails: work on `claude/affectionate-ritchie-6jh88d`; commit locally per step; do not push
 on every iteration.
 
-### Loop discipline — one part per iteration
+### Loop discipline — one part per iteration, CI is the source of truth
 
 The loop does **exactly one** checklist item per iteration, then stops; the next iteration picks up
 the next item. One part at a time keeps each step small, independently gated, and easy to review or
-revert. Run it self-paced with `/loop` from `nodejs/`, using this prompt:
+revert. **PR #64506's CI is the source of truth** — local gates are a fast pre-filter, but a step is
+only "validated" once CI is green on it. Each iteration should always try to push the work forward:
+do the next item, and if it needs CI to confirm, push and wait on CI rather than stalling.
+
+Cadence: **continuous + notify**, roughly every ~25 min. If the loop gets stuck (a gate or CI failure
+it can't resolve in-item, an ambiguous decision, or repeated red CI), **notify the user** instead of
+spinning — don't silently retry forever.
+
+**If CI is not running, it's almost always a merge conflict with master.** GitHub cannot compute the
+PR's merge commit when the branch conflicts with master, so it silently skips the `pull_request`
+workflow runs (only external scanner apps fire). Do NOT treat a no-CI push as a GitHub outage. When a
+push produces zero Node.js/Backend runs, the FIRST thing to do is:
+
+```bash
+git fetch origin master
+git merge origin/master      # resolve any conflicts, keep ~/ alias + new lanes/ + steps/ paths
+# re-run the loop gate, commit the merge, push — CI should trigger once the branch is mergeable
+```
+
+Run it self-paced with `/loop` from `nodejs/`, using this prompt:
 
 ```text
 Read nodejs/INGESTION_SEPARATION.md. Pick the FIRST unchecked "[ ]" checklist item (topmost
@@ -167,12 +191,19 @@ Run the loop gate; ALL must pass before committing:
   - tsc --noEmit                                      (no new errors)
   - pnpm --filter=@posthog/nodejs lint + format:check
   - the affected unit tests                           (no failures, no tests removed)
-If the item is a phase "Exit gate", run `pnpm test:full` instead of just the affected tests
-(or record it as the CI gate when no Docker daemon is available).
+If the item is a phase "Exit gate", treat PR #64506's CI as the gate: push and wait for CI to go
+green (run `pnpm test:full` instead only where a Docker daemon is available).
 
 If the gate fails, fix forward within this SAME item — do not move on.
 
-Commit locally with a conventional-commit message. Do NOT push unless explicitly told to.
+Commit locally with a conventional-commit message. Push when the item needs CI validation; CI on
+PR #64506 is the source of truth. If your push triggers NO CI runs, it is almost always a merge
+conflict with master — fetch + merge origin/master, resolve conflicts (keep the ~/ alias and the
+new lanes/ + steps/ paths), re-run the gate, and push again before assuming any GitHub problem.
+
+If you get stuck — a gate/CI failure you can't resolve within the item, an ambiguous call, or CI
+staying red after a merge — STOP and notify the user rather than looping.
+
 Check the item off ("[x]"), append a one-paragraph entry to the status log, then STOP.
 The next /loop iteration handles the next item.
 ```
@@ -462,3 +493,17 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   eslint enforcement rule (`import/no-relative-parent-imports` scoped to `src/ingestion`) and `tests/` `../`
   cleanup. Phases 4 + 5 are now complete locally; all parked on the branch awaiting GitHub Actions recovery
   to validate via the full CI gate (still not triggering as of this push).
+- ROOT CAUSE of the "CI not triggering" stretch (corrected): it was NOT a GitHub Actions outage/delivery
+  miss. The branch had drifted into a merge conflict with master, and GitHub silently skips `pull_request`
+  workflow runs when it can't compute the merge commit (only external scanner apps fire). Earlier entries
+  blaming an external Actions issue were wrong. Fix: `git fetch origin master` + `git merge origin/master`
+  (114 commits behind; tip `5e175bbd`). Rename detection kept it to 6 conflicts, all import-block only:
+  `common/groups/group-type-manager.ts`/`.test.ts`, `ingestion/steps/event-processing/groups.ts`/`.test.ts`,
+  `ingestion/lanes/ai/otel/middleware/vercel-ai.ts`, and `evaluation-scheduler/evaluation-scheduler.test.ts`.
+  Resolved all to keep the `~/` alias and the new `lanes/` + `steps/` paths, dropping imports master had
+  already removed (e.g. unused `Hub`/`createHub`/`closeHub` in the evaluation-scheduler test). Local gates
+  green post-merge: guard 0 new violations, static import-resolution 0 broken, eslint clean on
+  ingestion/evaluation-scheduler/common-groups, tsc 0 errors in touched trees (only the pre-existing
+  hogvm/cyclotron unbuilt-workspace noise in `src/cdp/`). Pushing the merge to make the branch mergeable
+  again so CI re-triggers and can finally validate the Phase 4 + 5 backlog. Documented the heuristic in the
+  loop plan: if a push triggers no CI, merge master first.
