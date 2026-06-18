@@ -79,8 +79,12 @@ export function InsertMenu({
                                 )}
                                 key={command.key}
                                 aria-selected={command.key === selectedCommandKey}
+                                disabled={command.disabled}
                                 type="button"
                                 onClick={() => {
+                                    if (command.disabled) {
+                                        return
+                                    }
                                     command.run(targetNodeId)
                                     if (command.closeOnRun !== false) {
                                         onClose()
@@ -168,6 +172,7 @@ export function buildInsertCommands(
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
+    isAskAIDisabled?: boolean,
     openSavedInsightPicker?: (nodeId: string) => void
 ): InsertCommand[] {
     const commonCategory = 'Common'
@@ -227,12 +232,13 @@ export function buildInsertCommands(
         ? [
               {
                   key: 'ai-ask',
-                  label: 'Ask PostHog AI',
+                  label: 'Ask AI',
                   category: commonCategory,
-                  description: 'Ask PostHog AI to write or edit this notebook',
+                  description: 'Ask AI to write or edit this notebook',
                   aliases: ['ai', 'ask', 'posthog ai'],
                   icon: <IconSparkles />,
                   closeOnRun: false,
+                  disabled: isAskAIDisabled,
                   run: openAIPrompt,
               },
           ]

@@ -21,7 +21,7 @@ import {
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { DESTINATIONS } from './destinations'
-import { genericPersonEventFields } from './destinations/common'
+import { genericPersonEventFields, isSelectedCompressionOptionValid } from './destinations/common'
 import { humanizeBatchExportName } from './utils'
 
 export interface BatchExportConfigFormLogicProps {
@@ -72,6 +72,12 @@ function buildDestinationPayload(formValues: Record<string, any>): {
             continue
         }
         config[key] = value
+    }
+    // A persisted compression value can be invalid for the selected file_format (e.g. an
+    // externally-created JSONLines export still carrying a Parquet-only codec). Drop it on save so
+    // editing an unrelated field doesn't resubmit a combination the backend rejects.
+    if ('compression' in config && !isSelectedCompressionOptionValid(config.file_format, config.compression)) {
+        config.compression = null
     }
     const result: { type: string; config: Record<string, any>; integration?: any } = {
         type: destinationType,
@@ -840,6 +846,28 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         },
         setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
+
+            if (fieldName === 'file_format') {
+                // Pick a compression that's valid for the newly-selected format, in priority order:
+                //   1. keep the current codec if it still fits (e.g. gzip works for both formats);
+                //   2. otherwise, when returning to the format the export was saved with, restore the
+                //      persisted codec — so a Parquet→JSONLines→Parquet round-trip recovers the saved
+                //      compression rather than stranding the export on a default;
+                //   3. otherwise fall back to the format's default (zstd for Parquet, none for JSONLines).
+                const current = values.configuration.compression
+                const saved = values.savedConfiguration
+                let next: string | null
+                if (current !== null && isSelectedCompressionOptionValid(value, current)) {
+                    next = current
+                } else if (value === saved.file_format && isSelectedCompressionOptionValid(value, saved.compression)) {
+                    next = saved.compression
+                } else {
+                    next = value === 'Parquet' ? 'zstd' : null
+                }
+                if (next !== current) {
+                    actions.setConfigurationValue('compression', next)
+                }
+            }
 
             if (fieldName === 'interval') {
                 // if changing to day or week, set the timezone to the team's timezone if not already set

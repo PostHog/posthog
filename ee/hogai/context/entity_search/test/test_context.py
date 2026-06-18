@@ -50,7 +50,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
-            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts"),
+            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):

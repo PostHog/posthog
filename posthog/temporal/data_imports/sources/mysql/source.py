@@ -1,6 +1,9 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -18,10 +21,15 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+from posthog.temporal.data_imports.sources.mysql.mysql import (
+    MySQLImplementation,
+    get_connection_metadata as get_mysql_connection_metadata,
+)
 
+from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 _MYSQL_IMPLEMENTATION = MySQLImplementation()
@@ -92,8 +100,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="public",
+                        required=False,
+                        placeholder="Leave blank to include all databases",
                         secret=False,
                     ),
                     SourceFieldSelectConfig(
@@ -161,6 +169,23 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
         }
 
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_mysql_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_mysql_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: MySQLSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
+        with self.get_implementation.connect(config) as conn:
+            return get_mysql_connection_metadata(conn, database=config.database)
+
     def validate_credentials(
         self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
@@ -204,3 +229,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             )
 
         return True, None
+
+    def validate_credentials_for_access_method(
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        access_method: str,
+        schema_name: Optional[str] = None,
+    ) -> tuple[bool, str | None]:
+        return self.validate_credentials(config, team_id, schema_name=schema_name)

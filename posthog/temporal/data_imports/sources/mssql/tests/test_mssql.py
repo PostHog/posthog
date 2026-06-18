@@ -589,3 +589,19 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_invalid_column_name_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 245 raised mid-fetch when a
+            # view body implicitly converts a varchar value to int.
+            "SQL Server message 245, severity 16, state 1, procedure b'@\\x88[\\xd4\\xfe\\xff', line 1:\n"
+            "b\"Conversion failed when converting the varchar value 'SFDR' to data type int."
+            'DB-Lib error message 20018, severity 16:\\nGeneral SQL Server error: Check messages from the SQL Server\\n"',
+            # Different value / target type must still match the stable substring.
+            "Conversion failed when converting the nvarchar value 'N/A' to data type bigint.",
+        ],
+    )
+    def test_conversion_failed_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
