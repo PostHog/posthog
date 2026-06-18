@@ -94,6 +94,10 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
     [NotebookNodeType.Survey]: {
         id: 'Survey ID',
     },
+    [NotebookNodeType.ZendeskTickets]: {
+        groupKey: 'Group key',
+        personId: 'Person UUID',
+    },
 }
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {

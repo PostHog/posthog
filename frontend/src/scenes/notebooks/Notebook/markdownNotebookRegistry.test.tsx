@@ -49,12 +49,20 @@ describe('markdownNotebookRegistry', () => {
                 tabId: 'properties',
             })
         ).toEqual(['id', 'groupTypeIndex'])
+        expect(
+            getEditableNodeAttributeKeys(KNOWN_NODES[NotebookNodeType.ZendeskTickets], {
+                personId: undefined,
+                groupKey: undefined,
+            })
+        ).toEqual(['personId', 'groupKey'])
     })
 
     it('uses product-specific labels for common reference attrs', () => {
         expect(getMarkdownNodeAttributeLabel(NotebookNodeType.FeatureFlag, 'id')).toEqual('Feature flag ID or key')
         expect(getMarkdownNodeAttributeLabel(NotebookNodeType.Group, 'groupTypeIndex')).toEqual('Group type index')
         expect(getMarkdownNodeAttributeLabel(NotebookNodeType.Person, 'distinctId')).toEqual('Distinct ID')
+        expect(getMarkdownNodeAttributeLabel(NotebookNodeType.ZendeskTickets, 'personId')).toEqual('Person UUID')
+        expect(getMarkdownNodeAttributeLabel(NotebookNodeType.ZendeskTickets, 'groupKey')).toEqual('Group key')
     })
 
     it('keeps numeric attrs numeric when edited through markdown filters', () => {
