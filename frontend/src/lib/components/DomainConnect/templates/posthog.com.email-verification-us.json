@@ -33,7 +33,6 @@
             "pointsTo": "%dkim3%.dkim.amazonses.com",
             "ttl": 3600
         },
-        { "groupId": "spf", "type": "SPFM", "host": "@", "spfRules": "include:amazonses.com", "ttl": 3600 },
         {
             "groupId": "mailfrom",
             "type": "MX",

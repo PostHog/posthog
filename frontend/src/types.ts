@@ -7327,13 +7327,6 @@ export interface EmailSenderDomainStatus {
               status: 'pending' | 'success'
           }
         | {
-              type: 'spf'
-              recordType: 'TXT'
-              recordHostname: '@'
-              recordValue: string
-              status: 'pending' | 'success'
-          }
-        | {
               type: 'mail_from'
               recordType: 'TXT' | 'MX'
               recordHostname: string

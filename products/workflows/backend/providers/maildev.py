@@ -29,13 +29,6 @@ MAILDEV_MOCK_DNS_RECORDS = [
         "status": "success",
     },
     {
-        "type": "verification",
-        "recordType": "TXT",
-        "recordHostname": "@",
-        "recordValue": "v=spf1 include:amazonses.com ~all",
-        "status": "success",
-    },
-    {
         "type": "mail_from",
         "recordType": "MX",
         "recordHostname": "mail.example.com",
