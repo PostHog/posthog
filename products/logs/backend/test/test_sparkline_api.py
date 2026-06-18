@@ -1,0 +1,48 @@
+import os
+import json
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from rest_framework import status
+
+from posthog.clickhouse.client import sync_execute
+
+_FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
+
+
+class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
+            sql = ""
+            for line in f:
+                log_item = json.loads(line)
+                log_item["team_id"] = cls.team.id
+                sql += json.dumps(log_item) + "\n"
+            sync_execute(f"""
+                INSERT INTO logs
+                FORMAT JSONEachRow
+                {sql}
+            """)
+
+    def _sparkline(self, query_params, expected_status=status.HTTP_200_OK):
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params})
+        self.assertEqual(response.status_code, expected_status)
+        return response.json() if expected_status == status.HTTP_200_OK else response
+
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_sparkline_with_date_range(self):
+        buckets = self._sparkline({"dateRange": _FIXTURE_WINDOW})
+        self.assertEqual(sum(bucket["count"] for bucket in buckets), 1011)
+
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_sparkline_defaults_date_range_to_last_hour(self):
+        # No dateRange in request — MCP/agent callers routinely omit it because the
+        # field is optional and documented as defaulting to the last hour. The default
+        # must be applied server-side rather than crashing on get_model(None).
+        buckets = self._sparkline({})
+        self.assertEqual(sum(bucket["count"] for bucket in buckets), 0)
