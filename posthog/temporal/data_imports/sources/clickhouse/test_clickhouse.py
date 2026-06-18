@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
+from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
     YIELD_TARGET_ROWS,
@@ -601,8 +602,6 @@ class TestGetClientTransientRetry:
         )
 
     def test_retries_transient_drop_then_succeeds(self):
-        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
-
         client = MagicMock()
         ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
         with (
@@ -613,8 +612,6 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == 2
 
     def test_gives_up_after_max_attempts(self):
-        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
-
         ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
         with (
             patch.object(ch_module.time, "sleep"),
@@ -625,8 +622,6 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
 
     def test_does_not_retry_deterministic_failure(self):
-        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
-
         cert_error = ClickHouseError("certificate verify failed")
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
