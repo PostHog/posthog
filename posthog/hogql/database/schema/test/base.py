@@ -112,7 +112,12 @@ class RevenueAnalyticsTestBase(ClickhouseTestMixin, BaseTest):
 class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
     def setUp(self) -> None:
         super().setUp()
-        self.mock_flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        # Enable managed-viewsets et al. but NOT hogql-warehouse-access-control: these tests run
+        # userless, and the warehouse flag would fail-closed and deny every managed view.
+        self.mock_flag = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control",
+        )
         self.mock_flag.start()
 
     def tearDown(self) -> None:

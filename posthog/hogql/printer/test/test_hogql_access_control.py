@@ -1,6 +1,5 @@
-from unittest.mock import Mock, patch
-
 from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
