@@ -251,6 +251,10 @@ class TestPostgresSourceNonRetryableErrors:
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
             "the connection is lost",
+            # Supavisor transaction-mode pool saturation: the pooler couldn't check out a backend
+            # within its checkout timeout. Transient — it clears once a connection is returned — so
+            # it's retried in-process and must stay out of NonRetryableErrors.
+            "InternalError_: (ECHECKOUTTIMEOUT) unable to check out connection from the pool after 15000ms in Transaction mode",
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -723,6 +727,12 @@ class TestIsConnectionDroppedError:
             psycopg.errors.InternalError_("(EDBHANDLEREXITED) DBHANDLER EXITED. Check logs for more information"),
             psycopg.errors.InternalError_(
                 "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
+            ),
+            # Supavisor's transaction-mode pooler couldn't check out a backend before its checkout
+            # timeout — transient pool saturation that recovers on reconnect, surfaced as the same
+            # XX000 InternalError_ as the drop above. The timeout duration is volatile.
+            psycopg.errors.InternalError_(
+                "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 15000ms in Transaction mode"
             ),
         ],
     )
@@ -1620,6 +1630,39 @@ class TestPostgresSchemaDiscovery:
         assert connect_mock.call_count == 2
         assert set(schemas.keys()) == {"public.users"}
         dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_retries_pooler_checkout_timeout_during_discovery_query(self):
+        # Supavisor's transaction-mode pooler can't check out a backend for the discovery query and
+        # times out — "(ECHECKOUTTIMEOUT) ... in Transaction mode" (XX000 InternalError_). It's
+        # transient pool saturation, so a reconnect after backoff must rerun discovery rather than
+        # escaping as captured error noise — the same recovery as the (EDBHANDLEREXITED) drop above.
+        checkout_timeout = psycopg.errors.InternalError_(
+            "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 15000ms in Transaction mode"
+        )
+        timed_out_connection = self._drop_on_execute_connection(checkout_timeout)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[timed_out_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        timed_out_connection.close.assert_called_once()
         good_connection.close.assert_called_once()
 
     def test_get_schemas_does_not_retry_non_drop_error_during_discovery_query(self):

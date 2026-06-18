@@ -168,6 +168,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
 
+# Supavisor's transaction-mode pooler raises "(ECHECKOUTTIMEOUT) unable to check out connection
+# from the pool after <n>ms in Transaction mode" when every pooled backend is busy and it can't
+# hand one to a transaction within its checkout timeout. Like (EMAXCONNSESSION) in session mode
+# (see source.py) it's transient pool saturation that clears once a connection is returned, and it
+# arrives as the same generic XX000 InternalError_ as the pooler drop above. Closing and reconnecting
+# after the in-process backoff gives the pool time to free a slot, so treat it as recoverable rather
+# than failing the activity. The volatile timeout duration is excluded from the match.
+_POOLER_CHECKOUT_TIMEOUT_ERROR_SUBSTRINGS = ("echeckouttimeout",)
+
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
 # PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
 # socket. IdleInTransactionSessionTimeout (SQLSTATE 25P03) is what Postgres raises
@@ -217,11 +226,15 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
-    # Supavisor's pooler drop arrives as a generic XX000 InternalError_, not the libpq/PgBouncer
-    # types above, so match it on its own narrow signature (see _POOLER_CONNECTION_DROPPED_*).
+    # Supavisor's pooler-internal transients — a dropped backend, or a saturated pool that times out
+    # the checkout — arrive as a generic XX000 InternalError_, not the libpq/PgBouncer types above,
+    # so match them on their own narrow signatures. Both recover by reconnecting after a backoff.
     if isinstance(error, psycopg.errors.InternalError_):
         message = " ".join(str(arg) for arg in error.args).lower()
-        return any(substring in message for substring in _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS)
+        return any(
+            substring in message
+            for substring in _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS + _POOLER_CHECKOUT_TIMEOUT_ERROR_SUBSTRINGS
+        )
     return False
 
 
