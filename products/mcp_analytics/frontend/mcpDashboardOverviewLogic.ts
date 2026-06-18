@@ -4,11 +4,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
@@ -24,7 +25,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // KPI tiles compare the selected window against the immediately preceding window
 // of equal length. The current/previous split is applied in `buildKPIs` against
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
-// is replaced with the granularity's bucket function at call time.
+// is replaced with a dateTrunc at the active interval at call time.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -340,26 +341,6 @@ export function deltaPct(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
-// Short windows get fine buckets so ranges like "last hour" stay legible; longer
-// windows fall back to coarser buckets to keep the point count sane.
-export type BucketGranularity = 'minute' | 'hour' | 'day'
-
-// ClickHouse bucket function per granularity. These are fixed expressions (never
-// user input), so they're safe to interpolate into the query string.
-const BUCKET_EXPR: Record<BucketGranularity, string> = {
-    minute: 'toStartOfMinute(timestamp)',
-    hour: 'toStartOfHour(timestamp)',
-    day: 'toDate(timestamp)',
-}
-
-// dayjs format that reproduces each bucket function's string output, so the
-// `buildKPIs` cutoff compares like-for-like against the bucket column.
-const BUCKET_CUTOFF_FORMAT: Record<BucketGranularity, string> = {
-    minute: 'YYYY-MM-DD HH:mm:00',
-    hour: 'YYYY-MM-DD HH:00:00',
-    day: 'YYYY-MM-DD',
-}
-
 // Resolve the filter to absolute bounds. Hour-level relative ranges ("-1h") are
 // rolling from now; dateStringToDayJs anchors relative dates to the start of the
 // day, which would inflate a "last hour" window to half a day. Day+ ranges keep
@@ -376,39 +357,27 @@ function resolveWindow(dateFilter: DateFilter, timezone: string): { start: dayjs
     return { start, end }
 }
 
-export function bucketGranularityForWindow(dateFilter: DateFilter, timezone: string): BucketGranularity {
-    const { start, end } = resolveWindow(dateFilter, timezone)
-    const hours = end.diff(start, 'hour')
-    if (hours <= 3) {
-        return 'minute'
-    }
-    if (hours <= 72) {
-        return 'hour'
-    }
-    return 'day'
-}
-
 export interface KpiWindow {
     dateFrom: string
     dateTo: string
     currentStartBucket: string
 }
 
-// Resolve the selected window to absolute bounds, then extend the query range back
-// so a single query returns both the selected period and an equal-length prior
-// period (measured in whole buckets of the active granularity). `currentStartBucket`
-// is the cutoff `buildKPIs` uses to split them.
-export function buildKpiWindow(dateFilter: DateFilter, timezone: string, granularity: BucketGranularity): KpiWindow {
+// Extend the resolved window back by an equal number of `interval` buckets so a
+// single query returns both the selected period and its prior period.
+// `currentStartBucket` is the cutoff `buildKPIs` splits on — formatted to match
+// dateTrunc's DateTime output.
+export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): KpiWindow {
     const { start, end } = resolveWindow(dateFilter, timezone)
     // The selected period covers the inclusive buckets [start, end] — one more than
     // end.diff(start). Step the prior window back by that same count so the two
     // halves of the comparison span an equal number of buckets.
-    const selectedBuckets = Math.max(1, end.diff(start, granularity) + 1)
-    const priorStart = start.subtract(selectedBuckets, granularity)
+    const selectedBuckets = Math.max(1, end.diff(start, interval) + 1)
+    const priorStart = start.subtract(selectedBuckets, interval)
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(granularity).format(BUCKET_CUTOFF_FORMAT[granularity]),
+        currentStartBucket: start.startOf(interval).format('YYYY-MM-DD HH:mm:ss'),
     }
 }
 
@@ -495,11 +464,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             EMPTY_KPIS,
             {
                 loadKPIs: async (_: void, breakpoint) => {
-                    const granularity = values.bucketGranularity
-                    const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, granularity)
+                    const { interval } = values
+                    const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: KPI_QUERY.replace('__BUCKET__', BUCKET_EXPR[granularity]),
+                        query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
                         filters: {
                             ...values.queryFilters,
                             dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
@@ -581,7 +550,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: ACTIVITY_QUERY.replace('__BUCKET__', BUCKET_EXPR[values.bucketGranularity]),
+                        query: ACTIVITY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
                     breakpoint()
@@ -600,7 +569,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', BUCKET_EXPR[values.bucketGranularity]),
+                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
                     breakpoint()
@@ -621,10 +590,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
             }),
         ],
-        bucketGranularity: [
-            (s) => [s.dateFilter, s.timezone],
-            (dateFilter: DateFilter, timezone: string): BucketGranularity =>
-                bucketGranularityForWindow(dateFilter, timezone),
+        interval: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
         ],
         harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
         dailyActivity: [
