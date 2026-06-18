@@ -376,6 +376,90 @@ export const MathTags: Story = {
     },
 }
 
+// Same math badge, but in the series-as-rows layout (no breakdown/compare), which
+// renders in a fixed-width label column. The math label word ("Average") must stay
+// fully visible; only the long property part may truncate.
+export const MathTagsAsRows: Story = {
+    args: {
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 3,
+                datasetIndex: 0,
+                order: 0,
+                dotted: false,
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'A really long series name that needs to be truncated',
+                    math: 'avg',
+                    math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview',
+                color: '#1d4aff',
+                count: 468,
+            },
+            {
+                id: 1,
+                dataIndex: 3,
+                datasetIndex: 1,
+                order: 1,
+                dotted: false,
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 1,
+                    name: '$pageview',
+                    custom_name: 'Another long series name that should also be truncated',
+                    math: 'avg',
+                    math_property: 'amount',
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview',
+                color: '#621da6',
+                count: 0,
+            },
+        ] as any,
+    },
+}
+
+// Single series in the rows layout (one row, "Click to view people"). The label
+// cell holds the icon, the truncated series name, and the "Average of <property>"
+// badge; the value sits in its own column. The math label word must stay whole and
+// must not collide with the property text.
+export const MathTagsSingleSeries: Story = {
+    args: {
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 3,
+                datasetIndex: 0,
+                order: 0,
+                dotted: false,
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'Avg widgets per dashboard over the whole period',
+                    math: 'avg',
+                    math_property: 'dashboard_widget_count_property',
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview',
+                color: '#1d4aff',
+                count: 1.54,
+            },
+        ] as any,
+    },
+}
+
 export function InWrapper(): JSX.Element {
     useMountedLogic(cohortsModel)
 
