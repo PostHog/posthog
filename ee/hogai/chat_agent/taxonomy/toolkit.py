@@ -30,6 +30,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
@@ -41,7 +42,6 @@ from ee.hogai.chat_agent.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
-from ee.hogai.chat_agent.taxonomy.property_access import restricted_property_names
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
