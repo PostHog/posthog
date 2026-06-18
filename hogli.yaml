@@ -1071,3 +1071,7 @@ environment:
         bin_script: inject_mcp_intents.py
         description: 'Used when developing MCP Analytics locally and trying to load some intents'
         hidden: true
+    dev:sandbox:shims:selftest:
+        bin_script: dev-sandbox-shims-selftest
+        description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
+        hidden: true
