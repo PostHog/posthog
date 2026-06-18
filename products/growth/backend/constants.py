@@ -52,6 +52,18 @@ class SdkVersionEntry(TypedDict):
     count: int
 
 
+# Identity matching ClickHouse tables, written by products/growth/dags/identity_matching.py.
+# Live here so the API view doesn't need to import from a Dagster module.
+IDENTITY_MATCHING_DEVICE_DAYS_TABLE = "identity_matching_device_days"
+IDENTITY_MATCHING_PERSON_TIMELINE_TABLE = "identity_matching_person_timeline"
+IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE = "identity_matching_candidate_pairs"
+IDENTITY_MATCHING_LINKS_TABLE = "identity_matching_links"
+
+IDENTITY_MATCHING_RULES_MODEL_VERSION = "rules_v1"
+IDENTITY_MATCHING_LOGREG_MODEL_VERSION = "logreg_v1"
+IDENTITY_MATCHING_TIERS = ["high", "medium", "low"]
+
+
 def github_sdk_versions_key(sdk_type: str) -> str:
     return f"github:sdk_versions:{sdk_type}"
 

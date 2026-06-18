@@ -201,7 +201,7 @@ After designing the MCP surface, point the user at where the connect
 snippet lives — it is **not** a callable tool. The ingress serves it
 as a public HTTP route, `GET /agents/<slug>/mcp/connect-info`, which
 returns the URL + auth instructions + paste-ready Claude Code / mcp.json
-snippets (the console's Connections tab renders the same thing). So
-either send them to the agent's **Connections** tab in the console or
+snippets (PostHog Code's Connections tab renders the same thing). So
+either send them to the agent's **Connections** tab in PostHog Code or
 hand them the connect-info URL. Don't try to set up the client
 yourself — the user does that locally.
