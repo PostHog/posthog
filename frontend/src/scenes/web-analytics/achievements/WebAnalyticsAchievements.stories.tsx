@@ -11,7 +11,7 @@ import type { AchievementsListResponseApi } from 'products/web_analytics/fronten
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 import { WebAnalyticsAchievementsModal } from './WebAnalyticsAchievementsModal'
 
-const STREAK_STAGE_NAMES = ['Spark', 'Heating up', 'On a roll', 'Relentless', 'Unstoppable']
+const STREAK_STAGE_NAMES = ['Getting started', 'Warming up', 'On a roll', 'Committed', 'Locked in']
 
 const stages = (names: string[], thresholds: number[]): { stage: number; name: string; threshold: number }[] =>
     names.map((name, index) => ({ stage: index + 1, name, threshold: thresholds[index] }))
@@ -20,78 +20,75 @@ function buildOverview(streakThresholds: number[]): AchievementsListResponseApi 
     return {
         definitions: [
             {
-                key: 'hog_streak',
-                display_name: 'Hog Streak',
-                description: 'Keep your streak alive — come back and check your traffic.',
+                key: 'streak',
+                display_name: 'Streak',
+                description: 'Check your analytics regularly to keep a streak going.',
                 scope: 'user',
                 is_experiment_track: true,
                 stages: stages(STREAK_STAGE_NAMES, streakThresholds),
             },
             {
-                key: 'loyal_hog',
-                display_name: 'Loyal Hog',
-                description: 'Every visit counts — forever.',
+                key: 'loyalty',
+                display_name: 'Loyalty',
+                description: 'Keep coming back — every visit counts.',
                 scope: 'user',
                 is_experiment_track: false,
-                stages: stages(['Regular', 'Familiar', 'Devoted', 'Stalwart', 'Lifer'], [5, 15, 30, 60, 100]),
+                stages: stages(['Regular', 'Familiar', 'Devoted', 'Dedicated', 'Loyal'], [5, 15, 30, 60, 100]),
             },
             {
-                key: 'data_hog',
-                display_name: 'Data Hog',
-                description: 'Slice your data like a pro.',
+                key: 'explorer',
+                display_name: 'Explorer',
+                description: 'Dig into your data.',
                 scope: 'user',
                 is_experiment_track: false,
-                stages: stages(['Curious', 'Digging in', 'Analyst', 'Power user', 'Data nerd'], [1, 15, 40, 100, 250]),
+                stages: stages(['Curious', 'Digging in', 'Analyst', 'Power user', 'Data pro'], [1, 15, 40, 100, 250]),
             },
             {
-                key: 'detective_hog',
-                display_name: 'Detective Hog',
-                description: 'Stop guessing — watch what actually happened.',
+                key: 'detective',
+                display_name: 'Detective',
+                description: 'Watch recordings to see what really happened.',
                 scope: 'user',
                 is_experiment_track: false,
-                stages: stages(
-                    ['First watch', 'Investigating', 'Sleuth', 'Profiler', 'Mastermind'],
-                    [1, 10, 50, 150, 500]
-                ),
+                stages: stages(['First watch', 'Investigating', 'Sleuth', 'Profiler', 'Expert'], [1, 10, 50, 150, 500]),
             },
             {
-                key: 'goal_hog',
-                display_name: 'Goal Hog',
-                description: 'Turn traffic into outcomes.',
+                key: 'conversions',
+                display_name: 'Conversions',
+                description: 'Turn traffic into conversions.',
                 scope: 'team',
                 is_experiment_track: false,
                 stages: stages(
-                    ['First goal', 'On target', 'Optimizer', 'Converting', 'Conversion master'],
+                    ['First conversion', 'On target', 'Optimizing', 'Converting', 'Conversion pro'],
                     [1, 3, 5, 100, 1000]
                 ),
             },
             {
-                key: 'mighty_hog',
-                display_name: 'Mighty Hog',
-                description: 'Your audience is growing — watch the numbers climb.',
+                key: 'traffic',
+                display_name: 'Traffic',
+                description: 'Watch your pageviews climb.',
                 scope: 'team',
                 is_experiment_track: false,
                 stages: stages(
-                    ['On the board', 'Picking up', 'Major traffic', 'High volume', 'Internet famous'],
+                    ['On the board', 'Picking up', 'Major traffic', 'High volume', 'Viral'],
                     [10000, 100000, 1000000, 10000000, 100000000]
                 ),
             },
         ],
         user_progress: [
             {
-                track_key: 'hog_streak',
+                track_key: 'streak',
                 current_stage: 2,
                 progress_value: streakThresholds[2] - 1,
                 last_computed_at: '2026-06-16T00:00:00Z',
             },
-            { track_key: 'loyal_hog', current_stage: 1, progress_value: 9, last_computed_at: '2026-06-16T00:00:00Z' },
-            { track_key: 'data_hog', current_stage: 3, progress_value: 62, last_computed_at: '2026-06-16T00:00:00Z' },
-            { track_key: 'detective_hog', current_stage: 0, progress_value: 0, last_computed_at: null },
+            { track_key: 'loyalty', current_stage: 1, progress_value: 9, last_computed_at: '2026-06-16T00:00:00Z' },
+            { track_key: 'explorer', current_stage: 3, progress_value: 62, last_computed_at: '2026-06-16T00:00:00Z' },
+            { track_key: 'detective', current_stage: 0, progress_value: 0, last_computed_at: null },
         ],
         team_progress: [
-            { track_key: 'goal_hog', current_stage: 2, progress_value: 4, last_computed_at: '2026-06-16T00:00:00Z' },
+            { track_key: 'conversions', current_stage: 2, progress_value: 4, last_computed_at: '2026-06-16T00:00:00Z' },
             {
-                track_key: 'mighty_hog',
+                track_key: 'traffic',
                 current_stage: 2,
                 progress_value: 250000,
                 last_computed_at: '2026-06-16T00:00:00Z',
@@ -121,7 +118,7 @@ const meta: Meta = {
     title: 'Scenes-App/Web Analytics/Achievements',
     component: WebAnalyticsAchievementsModal,
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="web-analytics-achievement-hog_streak"]' },
+        testOptions: { waitForSelector: '[data-attr="web-analytics-achievement-streak"]' },
     },
 }
 export default meta

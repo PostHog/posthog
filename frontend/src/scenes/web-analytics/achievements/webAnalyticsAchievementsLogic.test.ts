@@ -17,9 +17,9 @@ jest.mock('products/web_analytics/frontend/generated/api', () => ({
 
 const MOCK_OVERVIEW: AchievementsListResponseApi = {
     definitions: [],
-    user_progress: [{ track_key: 'hog_streak', current_stage: 2, progress_value: 4, last_computed_at: null }],
+    user_progress: [{ track_key: 'streak', current_stage: 2, progress_value: 4, last_computed_at: null }],
     team_progress: [],
-    pending_celebrations: [{ track_key: 'hog_streak', stage: 2, stage_name: 'Snuffler' }],
+    pending_celebrations: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
 }
 
 describe('webAnalyticsAchievementsLogic', () => {
@@ -42,8 +42,8 @@ describe('webAnalyticsAchievementsLogic', () => {
         })
             .toDispatchActions(['loadAchievementsSuccess'])
             .toMatchValues({
-                pendingCelebrations: [{ track_key: 'hog_streak', stage: 2, stage_name: 'Snuffler' }],
-                uncelebratedPending: [{ track_key: 'hog_streak', stage: 2, stage_name: 'Snuffler' }],
+                pendingCelebrations: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
+                uncelebratedPending: [{ track_key: 'streak', stage: 2, stage_name: 'Warming up' }],
             })
     })
 
@@ -53,11 +53,11 @@ describe('webAnalyticsAchievementsLogic', () => {
         }).toDispatchActions(['loadAchievementsSuccess'])
 
         await expectLogic(logic, () => {
-            logic.actions.acknowledgeCelebration('hog_streak', 2)
+            logic.actions.acknowledgeCelebration('streak', 2)
         }).toMatchValues({ uncelebratedPending: [] })
 
         expect(webAnalyticsAchievementsAcknowledgeCelebration).toHaveBeenCalledWith(expect.any(String), {
-            track_key: 'hog_streak',
+            track_key: 'streak',
             stage: 2,
         })
     })
