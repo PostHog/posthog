@@ -384,6 +384,18 @@ function isPendingCompactingStatus(item: ThreadItem): boolean {
     return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
 }
 
+function insertHumanMessageAtTurnStart(state: ThreadItem[], item: ThreadItem): ThreadItem[] {
+    const lastTurnSeparatorIndex = state.findLastIndex((threadItem) => threadItem.type === 'turn_separator')
+    const turnStartIndex = lastTurnSeparatorIndex + 1
+    const currentTurn = state.slice(turnStartIndex)
+
+    if (currentTurn.some((threadItem) => threadItem.type === 'human_message')) {
+        return [...state, item]
+    }
+
+    return [...state.slice(0, turnStartIndex), item, ...currentTurn]
+}
+
 function mapAcpStatus(status: unknown): ToolInvocationStatus {
     switch (status) {
         case 'in_progress':
@@ -798,10 +810,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         { id: invocation.toolCallId, type: 'tool_invocation', toolCallId: invocation.toolCallId },
                     ]
                 },
-                pushHumanMessage: (state, { content }) => [
-                    ...state,
-                    { id: `human-${state.length}`, type: 'human_message', text: content, complete: true },
-                ],
+                pushHumanMessage: (state, { content }) =>
+                    insertHumanMessageAtTurnStart(state, {
+                        id: `human-${state.length}`,
+                        type: 'human_message',
+                        text: content,
+                        complete: true,
+                    }),
                 markTurnComplete: (state) => [...state, { id: `turn-${state.length}`, type: 'turn_separator' }],
                 pushErrorItem: (state, { errorMessage, variant }) => [
                     ...state,

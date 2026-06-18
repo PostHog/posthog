@@ -5,7 +5,6 @@ import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     IconBrain,
-    IconCheck,
     IconChevronRight,
     IconCollapse,
     IconCopy,
@@ -40,7 +39,6 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
@@ -71,6 +69,7 @@ import { PendingApproval, Region } from '~/types'
 
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
+import { LangGraphActivity, SandboxActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { SandboxContextUsage } from './components/SandboxContextUsage'
@@ -91,12 +90,7 @@ import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
-import {
-    RecordingsWidget,
-    SummarizeSessionsWidget,
-    UIPayloadAnswer,
-    isRenderableUIPayloadTool,
-} from './messages/UIPayloadAnswer'
+import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import {
     SandboxCompactBoundaryItem,
@@ -282,7 +276,7 @@ function SandboxProgressItem({ item }: { item: SandboxThreadItem }): JSX.Element
     const state = resolveSandboxProgressState(steps)
 
     return (
-        <AssistantActionComponent
+        <SandboxActivity
             id={item.id}
             content={headline}
             substeps={substeps}
@@ -1216,286 +1210,6 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     )
 }
 
-function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
-    const isTextContent = typeof children === 'string'
-
-    if (isTextContent) {
-        return (
-            <span
-                className="bg-clip-text text-transparent"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
-                    backgroundSize: '200% 100%',
-                    animation: 'shimmer 3s linear infinite',
-                }}
-            >
-                {children}
-            </span>
-        )
-    }
-
-    return (
-        <span
-            className="inline-flex min-w-0 max-w-full"
-            style={{
-                animation: 'shimmer-opacity 3s linear infinite',
-            }}
-        >
-            {children}
-        </span>
-    )
-}
-
-function handleThreeDots(content: string, isInProgress: boolean): string {
-    if (content.at(0) === '[' && content.at(-1) === ')') {
-        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search results, _not_ an action
-        return content
-    }
-    if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
-        return content + '...'
-    } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
-        return content.replace(/[…]/g, '').replace(/[.]/g, '')
-    }
-    return content
-}
-
-function AssistantActionComponent({
-    id,
-    content,
-    substeps,
-    state,
-    icon,
-    animate = true,
-    showCompletionIcon = true,
-    widget = null,
-    isResultExpanded = false,
-    toolCall = null,
-}: {
-    id: string
-    content: string
-    // actually a markdown message
-    substeps: string[]
-    state: ExecutionStatus
-    icon?: React.ReactNode
-    animate?: boolean
-    showCompletionIcon?: boolean
-    widget?: JSX.Element | null
-    isResultExpanded?: boolean
-    toolCall?: EnhancedToolCall | null
-}): JSX.Element {
-    const isPending = state === 'pending'
-    const isCompleted = state === 'completed'
-    const isInProgress = state === 'in_progress'
-    const isFailed = state === 'failed'
-    const showSubstepsChevron = !!substeps.length || !!toolCall?.result?.content
-    // Initialize with the same logic as the effect to prevent flickering
-    const [isSubstepsExpanded, setIsSubstepsExpanded] = useState(showSubstepsChevron && !(isCompleted || isFailed))
-    const [showToolCallJson, setShowToolCallJson] = useState(false)
-    const [showResultJson, setShowResultJson] = useState(false)
-
-    useLayoutEffect(() => {
-        setIsSubstepsExpanded(showSubstepsChevron && !(isCompleted || isFailed))
-    }, [showSubstepsChevron, isCompleted, isFailed])
-
-    let markdownContent = <MarkdownMessage id={id} content={content} />
-    const result = toolCall?.result
-    const uiPayload = result?.ui_payload
-    const executedSQLQuery =
-        typeof uiPayload?.execute_sql === 'string'
-            ? uiPayload.execute_sql
-            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
-              ? toolCall.args.query
-              : null
-
-    return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
-            <div
-                className={clsx(
-                    'transition-all duration-500 flex select-none min-w-0',
-                    (isPending || isFailed) && 'text-muted',
-                    !isInProgress && !isPending && !isFailed && 'text-default',
-                    !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
-                )}
-                onClick={showSubstepsChevron ? () => setIsSubstepsExpanded(!isSubstepsExpanded) : undefined}
-                aria-label={
-                    showSubstepsChevron
-                        ? isSubstepsExpanded
-                            ? 'Collapse history'
-                            : 'Expand history'
-                        : isResultExpanded
-                          ? 'Collapse result'
-                          : 'Expand result'
-                }
-            >
-                {icon && (
-                    <div className="flex items-center justify-center size-5">
-                        {isInProgress && animate ? (
-                            <ShimmeringContent>{icon}</ShimmeringContent>
-                        ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
-                        )}
-                    </div>
-                )}
-                <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                    <div className="min-w-0">
-                        {isInProgress && animate ? (
-                            <ShimmeringContent>{markdownContent}</ShimmeringContent>
-                        ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
-                        )}
-                    </div>
-                    {showSubstepsChevron && (
-                        <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
-                            <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
-                                <span
-                                    className={clsx(
-                                        'transform transition-transform',
-                                        isSubstepsExpanded && 'rotate-90'
-                                    )}
-                                >
-                                    <IconChevronRight />
-                                </span>
-                            </button>
-                        </div>
-                    )}
-                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
-                </div>
-            </div>
-            {isSubstepsExpanded && substeps && substeps.length > 0 && (
-                <div
-                    className={clsx(
-                        'space-y-1 border-l-2 border-border-secondary',
-                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
-                    )}
-                >
-                    {substeps.map((substep, substepIndex) => {
-                        const isCurrentSubstep = substepIndex === substeps.length - 1
-                        const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
-
-                        return (
-                            <div key={substepIndex} className="animate-fade-in">
-                                <MarkdownMessage
-                                    id={id}
-                                    className={clsx(
-                                        'leading-relaxed',
-                                        isFailed && 'text-danger',
-                                        !isFailed && isCompletedSubstep && 'text-muted',
-                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
-                                    )}
-                                    content={handleThreeDots(substep ?? '', true)}
-                                />
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
-            {widget}
-            {/* Render summarize_sessions UI payload outside accordion so "Open report" is always visible */}
-            {!!uiPayload?.summarize_sessions && result && (
-                <SummarizeSessionsWidget
-                    payload={uiPayload.summarize_sessions}
-                    title={toolCall?.args.summary_title as string | undefined}
-                />
-            )}
-            {toolCall && isSubstepsExpanded && (
-                <>
-                    {!!uiPayload &&
-                        isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
-                        Object.entries(uiPayload)
-                            .filter(([toolName]) => toolName !== 'summarize_sessions')
-                            .map(([toolName, toolPayload]) => (
-                                <div
-                                    key={`${result?.tool_call_id}-${toolName}`}
-                                    className="ml-3 border-l-2 border-border-secondary pl-3.5"
-                                >
-                                    <UIPayloadAnswer
-                                        toolCallId={result!.tool_call_id}
-                                        toolName={toolName}
-                                        toolPayload={toolPayload}
-                                    />
-                                </div>
-                            ))}
-                    {executedSQLQuery && (
-                        <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
-                            <b className="text-secondary">SQL query</b>
-                            <CodeSnippet language={Language.SQL} className="text-xs" compact>
-                                {executedSQLQuery}
-                            </CodeSnippet>
-                        </div>
-                    )}
-                    <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
-                        <LemonButton
-                            size="xxsmall"
-                            type="tertiary"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setShowToolCallJson(!showToolCallJson)
-                            }}
-                            tooltip="Tool call arguments as JSON"
-                            tooltipPlacement="top-start"
-                            className="w-fit"
-                        >
-                            <span className="flex items-center gap-1">
-                                <b>Tool called:</b>
-                                <span className="text-secondary">{toolCall.name}</span>
-                                <span
-                                    className={clsx('transform transition-transform', showToolCallJson && 'rotate-90')}
-                                >
-                                    <IconChevronRight />
-                                </span>
-                            </span>
-                        </LemonButton>
-                        {showToolCallJson && (
-                            <CodeSnippet language={Language.JSON} className="text-xs">
-                                {JSON.stringify(toolCall.args, null, 2)}
-                            </CodeSnippet>
-                        )}
-                        {result && result.content && (
-                            <React.Fragment>
-                                <LemonButton
-                                    size="xxsmall"
-                                    type="tertiary"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setShowResultJson(!showResultJson)
-                                    }}
-                                    tooltip="Show tool call results"
-                                    tooltipPlacement="top-start"
-                                    className="w-fit"
-                                >
-                                    <span className="flex items-center gap-1">
-                                        <b>Tool result:</b>
-                                        <span className="text-secondary">{result.content.slice(0, 20)}...</span>
-                                        <span
-                                            className={clsx(
-                                                'transform transition-transform',
-                                                showResultJson && 'rotate-90'
-                                            )}
-                                        >
-                                            <IconChevronRight />
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                                {showResultJson && (
-                                    <div className="border rounded p-2 bg-surface-primary">
-                                        <MarkdownMessage
-                                            id={`${toolCall.id}-result`}
-                                            content={result.content}
-                                            className="text-xs [&_code]:text-xs"
-                                        />
-                                    </div>
-                                )}
-                            </React.Fragment>
-                        )}
-                    </div>
-                </>
-            )}
-        </div>
-    )
-}
-
 interface ReasoningAnswerProps {
     content: string
     completed: boolean
@@ -1512,7 +1226,7 @@ function ReasoningAnswer({
     animate = false,
 }: ReasoningAnswerProps): JSX.Element {
     return (
-        <AssistantActionComponent
+        <LangGraphActivity
             id={id}
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
@@ -1558,7 +1272,7 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                         const [description, widgetDef] = getToolCallDescriptionAndWidgetDef(toolCall, registeredToolMap)
                         const widget = renderToolCallWidget(widgetDef, toolCall.id)
                         return (
-                            <AssistantActionComponent
+                            <LangGraphActivity
                                 key={toolCall.id}
                                 id={toolCall.id}
                                 content={description}
@@ -1942,7 +1656,7 @@ function SuccessActions({
 function renderToolCallWidget(widgetDef: ToolCallWidgetDef | null, toolCallId: string): JSX.Element | null {
     switch (widgetDef?.widget) {
         case 'recordings':
-            return <RecordingsWidget toolCallId={toolCallId} filters={widgetDef.args} />
+            return <RecordingsWidget toolCallId={toolCallId} filters={widgetDef.args} embedded />
         case 'session_summarization':
             return <SessionSummarizationProgress updates={widgetDef.args.updates} />
         default:
