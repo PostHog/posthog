@@ -727,33 +727,75 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // Upsert all new persons in one statement (deterministic UUIDs, idempotent).
-        // RETURNING covers both freshly inserted and conflict-updated rows; for
-        // conflicts, created_at is the pre-existing row's original value.
-        let new_persons = sqlx::query!(
+        // Find persons that already exist for these UUIDs (idempotent re-split).
+        // No ON CONFLICT — the partitioned table has a unique index, not a
+        // unique constraint, so ON CONFLICT inference doesn't work.
+        let existing_persons = sqlx::query!(
             r#"
-            INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)
-            SELECT u.uuid, $2, '{}'::jsonb, NOW(), $3, false
-            FROM unnest($1::uuid[]) AS u(uuid)
-            ON CONFLICT (team_id, uuid) DO UPDATE SET version = $3
-            RETURNING id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
+            SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2)
+            FOR UPDATE
             "#,
-            &new_uuids,
             team_id as i32,
-            new_person_version
+            &new_uuids
         )
         .fetch_all(&mut *tx)
         .await?;
 
-        let person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = new_persons
+        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = existing_persons
             .into_iter()
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
+
+        let existing_uuids: HashSet<Uuid> = person_by_uuid.keys().copied().collect();
+
+        let uuids_to_insert: Vec<Uuid> = new_uuids
+            .iter()
+            .filter(|u| !existing_uuids.contains(u))
+            .copied()
+            .collect();
+
+        if !uuids_to_insert.is_empty() {
+            let inserted = sqlx::query!(
+                r#"
+                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)
+                SELECT u.uuid, $2, '{}'::jsonb, NOW(), $3, false
+                FROM unnest($1::uuid[]) AS u(uuid)
+                RETURNING id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
+                "#,
+                &uuids_to_insert,
+                team_id as i32,
+                new_person_version
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            for r in inserted {
+                person_by_uuid.insert(r.uuid, (r.id, r.created_at));
+            }
+        }
+
+        let uuids_to_update: Vec<Uuid> = existing_uuids.into_iter().collect();
+
+        if !uuids_to_update.is_empty() {
+            sqlx::query!(
+                r#"
+                UPDATE posthog_person SET version = $3
+                WHERE team_id = $1 AND uuid = ANY($2)
+                "#,
+                team_id as i32,
+                &uuids_to_update,
+                new_person_version
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
         let new_person_rows: Vec<(i64, DateTime<Utc>)> = new_uuids
             .iter()
             .map(|u| {
                 person_by_uuid.get(u).copied().ok_or_else(|| {
-                    StorageError::Query(format!("person upsert did not return a row for uuid {u}"))
+                    StorageError::Query(format!("person insert did not return a row for uuid {u}"))
                 })
             })
             .collect::<StorageResult<_>>()?;
