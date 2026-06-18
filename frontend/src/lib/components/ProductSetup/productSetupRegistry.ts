@@ -39,7 +39,7 @@ export const SET_UP_REVERSE_PROXY: SetupTask = {
 export const AI_TASKS: SetupTask[] = [
     {
         id: SetupTaskId.UsePosthogAi,
-        title: 'Use PostHog AI',
+        title: 'Try PostHog AI',
         description:
             "Ask Max, PostHog's AI assistant, to build insights, write SQL, and answer questions about your data.",
         taskType: 'ai',
@@ -48,7 +48,7 @@ export const AI_TASKS: SetupTask[] = [
     },
     {
         id: SetupTaskId.UsePosthogCode,
-        title: 'Use PostHog Code',
+        title: 'Try PostHog Code',
         description:
             'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
         taskType: 'ai',
@@ -57,7 +57,7 @@ export const AI_TASKS: SetupTask[] = [
     },
     {
         id: SetupTaskId.UsePosthogMcp,
-        title: 'Use PostHog MCP',
+        title: 'Try PostHog MCP',
         description:
             'Query your PostHog data in plain English from your coding agent — run funnels, check errors, and toggle flags without leaving your editor.',
         taskType: 'ai',
@@ -66,7 +66,7 @@ export const AI_TASKS: SetupTask[] = [
     },
     {
         id: SetupTaskId.UsePosthogInSlack,
-        title: 'Use PostHog in Slack',
+        title: 'Try PostHog in Slack',
         description:
             'Tag @PostHog in any Slack thread to ask data questions, run SQL, and draft pull requests — plus get insights and alerts delivered to your channels.',
         taskType: 'ai',
