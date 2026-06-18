@@ -8,6 +8,7 @@ Quick-reference for AI agents using `@posthog/quill-charts`. Canvas-rendered cha
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | LineChart           | Categorical x-axis trends; area fills, fill-between (confidence ribbons)                                                        |
 | BarChart            | Categorical comparisons — `barLayout: 'stacked' \| 'grouped' \| 'percent'`, `axisOrientation: 'horizontal'` for horizontal bars |
+| ComboChart          | Mixed bar/line/area series on one band x-axis — set `Series.type`; vertical-only, `barLayout: 'stacked' \| 'grouped'`           |
 | TimeSeriesLineChart | Time-indexed labels (ISO strings) with timezone/interval-aware x-axis                                                           |
 | TimeSeriesBarChart  | Same x-axis handling, bar rendering; supports per-series `yAxisId` axes                                                         |
 | PieChart            | Part-of-whole, one value per series; `innerRadiusRatio` for donut + `centerLabel`                                               |
