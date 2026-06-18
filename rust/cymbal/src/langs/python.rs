@@ -274,6 +274,9 @@ impl RawPythonFrame {
     }
 
     fn is_library_code(&self) -> bool {
+        if self.has_stdlib_pseudo_filename() {
+            return true;
+        }
         if let Some(path) = &self.path {
             if EXTERNAL_PACKAGE_PATH.is_match(path) || STDLIB_PATH.is_match(path) {
                 return true;
@@ -287,6 +290,18 @@ impl RawPythonFrame {
             .as_deref()
             .and_then(|module| module.split('.').next())
             .is_some_and(|top_level| STDLIB_MODULES.contains(&top_level))
+    }
+
+    fn has_stdlib_pseudo_filename(&self) -> bool {
+        self.module
+            .as_deref()
+            .and_then(|module| module.split('.').next())
+            .is_some_and(|top_level| STDLIB_MODULES.contains(&top_level))
+            && (is_python_pseudo_filename(&self.filename)
+                || self
+                    .path
+                    .as_deref()
+                    .is_some_and(contains_python_pseudo_filename))
     }
 
     pub fn get_context(&self) -> Option<Context> {
@@ -339,6 +354,17 @@ impl From<&RawPythonFrame> for Frame {
             code_variables: raw.code_variables.clone(),
         }
     }
+}
+
+fn is_python_pseudo_filename(value: &str) -> bool {
+    value.starts_with('<') && value.ends_with('>')
+}
+
+fn contains_python_pseudo_filename(value: &str) -> bool {
+    value
+        .rsplit(['/', '\\'])
+        .next()
+        .is_some_and(is_python_pseudo_filename)
 }
 
 #[cfg(test)]
@@ -436,6 +462,17 @@ mod test {
                     "filename": "concurrent/futures/thread.py",
                     "function": "run",
                     "module": "concurrent.futures.thread",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "stdlib pseudo filename is demoted even with sdk-made abs_path",
+                serde_json::json!({
+                    "abs_path": "/app/<frozen importlib._bootstrap>",
+                    "filename": "<frozen importlib._bootstrap>",
+                    "function": "_find_and_load",
+                    "module": "importlib._bootstrap",
                     "in_app": true,
                 }),
                 false,
