@@ -12,8 +12,12 @@ on:
                 required: false
                 type: string
     schedule:
-        # Run weekly on Sunday at 3am UTC
-        - cron: '0 3 * * 0'
+        # Run daily at 3am UTC. Each run merges the latest CI timing artifacts and saves
+        # them to the Actions cache that ci-backend / ci-dagster restore for sharding — that
+        # cache is the day-to-day source of freshness. The committed .test_durations is only
+        # the cold-start / cache-miss fallback floor, so it is committed via PR just once a
+        # month (first few days) instead of on every run.
+        - cron: '0 3 * * *'
 
 permissions:
     contents: write
@@ -197,6 +201,36 @@ jobs:
                   # belt-and-braces guard.
                   rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
 
+            - name: Compute cache key and monthly-commit flag
+              id: durations-meta
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+              run: |
+                  # Per-day cache key → one entry per day; GitHub's 7-day inactivity eviction
+                  # keeps the live footprint at ~1-2 entries (~1 MB zstd each), with no manual
+                  # pruning and no pressure on the shared cache budget.
+                  echo "cache_key=posthog-test-durations-$(date -u +%F)" >> "$GITHUB_OUTPUT"
+                  # Commit the repo fallback monthly, not daily: only the first few days of the
+                  # month open/refresh the PR (the window absorbs an occasionally-skipped
+                  # scheduled run). The cache carries daily freshness; the committed file is
+                  # just the cache-miss floor. Manual dispatch always commits to force a refresh.
+                  if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%-d)" -le 3 ]; then
+                      echo "should_commit=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "should_commit=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Save test durations to Actions cache
+              # The merged file is the source of truth for PR + master sharding (ci-backend and
+              # ci-dagster restore it by the posthog-test-durations- prefix). Scheduled/dispatch
+              # runs are on master, so the cache is readable from every branch. Saved every run;
+              # a same-day key is an immutable no-op.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: .test_durations
+                  key: ${{ steps.durations-meta.outputs.cache_key }}
+
             - name: Check for changes
               id: check-changes
               run: |
@@ -221,9 +255,10 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
-            # On schedule/dispatch: clean up stale branch if no changes
+            # On schedule/dispatch: clean up stale branch if no changes. Gated to the monthly
+            # commit window so a mid-month "no diff" day can't close the open monthly PR.
             - name: Clean up stale branch
-              if: steps.check-changes.outputs.changed == 'false' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'false' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -240,7 +275,7 @@ jobs:
               # matches workspace HEAD — otherwise a merge to master during the run could
               # leave ghcommit-action with a parent mismatch and the same
               # "Expected branch to point to X but it did not" failure mode.
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   TARGET_SHA: ${{ github.sha }}
@@ -256,7 +291,7 @@ jobs:
 
             # On schedule/dispatch: commit to a branch and create a PR
             - name: Commit via GitHub API (signed)
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore(ci): update backend and dagster test timings'
@@ -267,7 +302,7 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Create pull request
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
