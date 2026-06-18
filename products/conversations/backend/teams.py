@@ -717,8 +717,6 @@ def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> d
     canonical ``"<channelId>;messageid=<msgId>"`` conversation id so a later webhook
     reply on the same thread dedupes onto the same ticket.
     """
-    if not isinstance(msg, dict):
-        return None
     # Only real user messages: skip systemEventMessage, typing, etc.
     if msg.get("messageType") != "message":
         return None

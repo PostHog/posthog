@@ -694,7 +694,10 @@ def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None
     # only inbound activity a pure-ambient shared-channel tenant ever sends, and
     # the poller needs it to post confirmation cards / sync agent replies.
     tenant_id = ((activity.get("channelData") or {}).get("tenant") or {}).get("id") or ""
-    store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    try:
+        store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    except Exception:
+        pass
 
     try:
         ok = post_help_card(
@@ -736,7 +739,10 @@ def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: s
     # Capture the tenant's Bot Framework serviceUrl from any inbound activity so
     # the shared-channel poller (which has no inbound activity) can post
     # confirmation cards and route agent replies for polled tickets.
-    store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    try:
+        store_teams_service_url(tenant_id, activity.get("serviceUrl") or "")
+    except Exception:
+        logger.warning("store_teams_service_url_failed", team_id=team.id, tenant_id=tenant_id)
 
     try:
         if _is_bot_mention(activity):
