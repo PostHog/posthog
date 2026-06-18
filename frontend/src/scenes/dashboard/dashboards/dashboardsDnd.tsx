@@ -51,7 +51,11 @@ export function DraggableDashboard({
 }): JSX.Element {
     const { attributes, listeners, setNodeRef } = useDraggable({ id: dashboardDraggableId(dashboardId) })
     return (
-        <div ref={setNodeRef} {...attributes} {...listeners}>
+        // The card content is a <Link> (<a>), which the browser drags natively — and which
+        // useNotebookDrag additionally marks draggable. That native HTML5 drag suppresses the
+        // mousemove stream @dnd-kit's sensors need, so the drop never registers. Cancel it so
+        // @dnd-kit owns the gesture for folder moves (a plain click still navigates the link).
+        <div ref={setNodeRef} {...attributes} {...listeners} onDragStart={(e) => e.preventDefault()}>
             {children}
         </div>
     )
