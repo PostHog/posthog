@@ -218,7 +218,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
-        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean) => ({ useWebAnalyticsPrecompute }),
+        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -296,6 +296,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     })),
     reducers(() => {
         const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        // The precompute toggle changed from opt-in (default `false`) to a tri-state where
+        // `null` means "use the team default". Legacy users persisted the old `false`, which
+        // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
+        // they rehydrate `null` and the backend's per-team default applies.
+        const precomputePersistConfig = { persist: true, prefix: `${getCurrentTeamId()}__precompute_optout_v2__` }
         return {
             surveyModalPath: [
                 null as string | null,
@@ -449,8 +454,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
             useWebAnalyticsPrecompute: [
-                false as boolean,
-                persistConfig,
+                // Tri-state: `null` means the user never touched the toggle, so the
+                // backend's per-team default decides (opt-out for unrestricted teams,
+                // opt-in for everyone else). An explicit `true`/`false` overrides it.
+                null as boolean | null,
+                precomputePersistConfig,
                 {
                     setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
                 },
@@ -828,17 +836,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 shouldStripQueryParams: boolean,
                 includeHostPath: boolean,
-                useWebAnalyticsPrecompute: boolean,
+                useWebAnalyticsPrecompute: boolean | null,
                 featureFlags: Record<string, boolean>
             ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                // Gate the persisted opt-in on the flag so killing the flag can never send a stale `true`
-                // to the backend for a team that had it enabled — belt-and-suspenders, not a backend guard.
+                // `null` (untouched) → omitted, so the backend's per-team default decides.
+                // Explicit `false` (opt-out) → always sent, even if the flag is later killed.
+                // Explicit `true` (opt-in) → only sent while the flag is on; with the flag off we
+                // omit it (fall back to the default) rather than flipping it to `false`, which on an
+                // unrestricted team would wrongly opt the user out instead of leaving them default-on.
                 useWebAnalyticsPrecompute:
-                    useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
+                    useWebAnalyticsPrecompute == null
+                        ? undefined
+                        : useWebAnalyticsPrecompute === false
+                          ? false
+                          : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]
+                            ? true
+                            : undefined,
             }),
         ],
         filters: [

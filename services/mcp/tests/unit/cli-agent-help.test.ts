@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { buildAgentHelp, toCliSyntax } from '@/cli/agent-help'
 import { getCliTools } from '@/cli/tools'
@@ -23,13 +23,25 @@ describe('CLI agent help', () => {
         expect(help).toContain('posthog-cli api info <tool_name>')
         expect(help).toContain('SCHEMA DRILL-DOWN RULE')
         expect(help).not.toContain('posthog:exec(')
-        expect(help).toContain('POSTHOG_CLI_EXPERIMENTAL_API')
         // Tool-domain index and query-tool catalog come from the bundled registry.
         expect(help).toContain('query-trends')
     })
 
     it('does not require credentials to build', () => {
         expect(() => buildAgentHelp(getCliTools())).not.toThrow()
+    })
+
+    it('skips unavailable tools without stderr warnings', () => {
+        const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+        try {
+            const toolNames = getCliTools().map((tool) => tool.name)
+
+            expect(toolNames).not.toContain('evaluations-get')
+            expect(stderrWrite).not.toHaveBeenCalled()
+        } finally {
+            stderrWrite.mockRestore()
+        }
     })
 
     it('hides AI-consent tools unless consent is confirmed', () => {
