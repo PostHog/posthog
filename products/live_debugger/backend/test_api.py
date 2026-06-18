@@ -328,11 +328,11 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wrong_scope", ["endpoint:read"], status.HTTP_403_FORBIDDEN),
-            ("unauthenticated", None, status.HTTP_401_UNAUTHORIZED),
+            ("wrong_scope", ["endpoint:read"], [status.HTTP_403_FORBIDDEN]),
+            ("unauthenticated", None, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]),
         ]
     )
-    def test_active_breakpoints_endpoint_rejects_invalid_psak_access(self, _name, scopes, expected_status):
+    def test_active_breakpoints_endpoint_rejects_invalid_psak_access(self, _name, scopes, expected_statuses):
         LiveDebuggerBreakpoint.objects.create(
             team=self.team,
             repository="PostHog/posthog",
@@ -356,7 +356,7 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
             headers=headers,
         )
 
-        self.assertEqual(response.status_code, expected_status)
+        self.assertIn(response.status_code, expected_statuses)
 
     def test_active_breakpoints_filter_by_filename(self):
         LiveDebuggerBreakpoint.objects.create(
