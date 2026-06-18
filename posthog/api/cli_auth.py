@@ -17,6 +17,7 @@ import secrets
 from django.core.cache import cache
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -107,8 +108,14 @@ class DevicePollResponseSerializer(serializers.Serializer):
     personal_api_key = serializers.CharField(required=False, help_text="The API key (only if authorized)")
     label = serializers.CharField(required=False, help_text="Label of the created key")  # type: ignore[assignment]
     project_id = serializers.CharField(required=False, help_text="The project ID (only if authorized)")
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Scopes granted to the created API key (only if authorized)",
+    )
 
 
+@extend_schema(extensions={"x-product": "core"})
 class CLIAuthViewSet(viewsets.ViewSet):
     """
     OAuth2 Device Authorization Flow for CLI authentication
@@ -135,6 +142,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         return []
 
+    @extend_schema(request=None, responses={200: DeviceCodeResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="device-code")
     def device_code(self, request):
         """
@@ -177,6 +185,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         serializer = DeviceCodeResponseSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=DeviceAuthorizationSerializer)
     @action(methods=["POST"], detail=False, url_path="authorize")
     def authorize(self, request):
         """
@@ -285,6 +294,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["personal_api_key"] = api_key_value
         device_data["label"] = label
         device_data["project_id"] = str(project_id)
+        device_data["scopes"] = scopes
         device_data["authorized_at"] = timezone.now().isoformat()
         device_data["user_id"] = user.id
 
@@ -300,6 +310,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(request=DevicePollSerializer, responses={200: DevicePollResponseSerializer})
     @action(methods=["POST"], detail=False, url_path="poll")
     def poll(self, request):
         """
@@ -339,6 +350,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 "personal_api_key": device_data["personal_api_key"],
                 "label": device_data["label"],
                 "project_id": device_data["project_id"],
+                "scopes": device_data.get("scopes", []),
             }
 
             # Clean up - key has been retrieved
