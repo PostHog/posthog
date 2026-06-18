@@ -254,6 +254,24 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[1][3] == 2700
         assert rows[2] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
 
+    def test_pull_requests_view_handles_null_user(self) -> None:
+        # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
+        # JSONExtractString over a NULL Nullable returns NULL, so the builder must ifNull-guard it to
+        # '' — else author_handle/avatar_url come back NULL and the non-null Author contract 500s.
+        # Driven through an inline constant source (nullIf('', '') is a typed NULL) so it runs whether
+        # or not object storage is available.
+        head_json = '{"sha": "sha5"}'
+        base_json = '{"repo": {"full_name": "PostHog/posthog"}}'
+        raw = (
+            "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
+            f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
+            "'2026-01-10 10:00:00' AS created_at, nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+        )
+        rows = self._select(
+            f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"
+        )
+        assert rows[0] == ("", "", 0)
+
     def test_workflow_runs_view_handles_null_pull_requests(self) -> None:
         # The real source lands pull_requests as Nullable(String), so it can be NULL (a run with no
         # PR association). The builder's ifNull(pull_requests, '[]') guard must carry that NULL to

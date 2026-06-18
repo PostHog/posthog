@@ -17,7 +17,7 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -161,7 +161,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                       width: 90,
                       align: 'right',
                       tooltip:
-                          'CI triggers in the PR window: distinct head commits that ran CI. Fork PRs are unattributed.',
+                          'Distinct head commits that triggered CI for this PR (all-time, not windowed). Fork PRs are unattributed.',
                       sorter: (a, b) => a.pushes - b.pushes,
                       render: (_, row) => (
                           <span className="text-xs tabular-nums">{humanFriendlyNumber(row.pushes)}</span>
@@ -190,7 +190,9 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                           row.estimatedCostUsd == null ? (
                               <LemonTag type="muted">pending</LemonTag>
                           ) : (
-                              <span className="text-xs tabular-nums">${humanFriendlyNumber(row.estimatedCostUsd)}</span>
+                              <span className="text-xs tabular-nums">
+                                  {humanFriendlyCurrency(row.estimatedCostUsd)}
+                              </span>
                           ),
                   },
               ] as LemonTableColumns<PullRequestRow>)

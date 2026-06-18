@@ -63,8 +63,10 @@ def build_query(table_name: str) -> str:
                 title,
                 state AS raw_state,
                 coalesce(draft, false) AS is_draft,
-                JSONExtractString(user, 'login') AS author_handle,
-                JSONExtractString(user, 'avatar_url') AS author_avatar_url,
+                -- user is Nullable and NULL for a PR by a deleted GitHub account; JSONExtractString
+                -- over a NULL Nullable returns NULL, which would violate the non-null Author contract.
+                ifNull(JSONExtractString(user, 'login'), '') AS author_handle,
+                ifNull(JSONExtractString(user, 'avatar_url'), '') AS author_avatar_url,
                 splitByChar('/', ifNull(JSONExtractString(base, 'repo', 'full_name'), '')) AS repo_parts,
                 ifNull(labels, '[]') AS labels_json,
                 JSONExtractString(head, 'sha') AS head_sha,

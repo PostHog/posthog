@@ -105,7 +105,8 @@ def _depot_vcpu(label: str) -> int:
     than a trailing-digits regex, which would mis-read those non-Linux versions as vCPUs.
     """
     segments = label.split("-")
-    if len(segments) >= 4 and segments[-1].isdigit():
+    # isdecimal (not isdigit): isdigit accepts unicode digits like superscripts that int() rejects.
+    if len(segments) >= 4 and segments[-1].isdecimal():
         return int(segments[-1])
     return _DEFAULT_DEPOT_VCPU
 
