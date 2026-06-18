@@ -16,6 +16,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
+from products.tasks.backend.logic.services.title_generator import generate_task_title
 
 from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -24,7 +25,6 @@ from .constants import (
 )
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .redis import get_tasks_cache
-from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,

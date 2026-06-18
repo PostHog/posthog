@@ -27,6 +27,22 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
+from products.tasks.backend.logic.services.code_usage_gate import (
+    CodeUsageStatus,
+    _gateway_usage_url,
+    get_posthog_code_usage,
+)
+from products.tasks.backend.logic.services.connection_token import (
+    get_sandbox_jwt_public_key,
+    reset_sandbox_jwt_key_cache,
+)
+from products.tasks.backend.logic.services.staged_artifacts import (
+    RUN_ARTIFACT_TTL_DAYS,
+    build_task_artifact_entry,
+    cache_task_staged_artifact,
+    get_task_staged_artifacts,
+)
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -40,15 +56,6 @@ from products.tasks.backend.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskAutomationSerializer,
 )
-from products.tasks.backend.services.code_usage_gate import CodeUsageStatus, _gateway_usage_url, get_posthog_code_usage
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key, reset_sandbox_jwt_key_cache
-from products.tasks.backend.services.staged_artifacts import (
-    RUN_ARTIFACT_TTL_DAYS,
-    build_task_artifact_entry,
-    cache_task_staged_artifact,
-    get_task_staged_artifacts,
-)
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -6691,7 +6698,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             status=status_value,
         )
 
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -6707,7 +6714,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["limit_type"], "burst")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_cloud_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -6722,7 +6729,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -6737,7 +6744,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_gate.assert_not_called()
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
 
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_over_limit_returns_429(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -6754,7 +6761,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_resume_in_cloud_over_limit_returns_429(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -6781,7 +6788,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         ]
     )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_proceeds_when_not_blocked(self, _name, gate_return, mock_gate, mock_workflow):
         mock_gate.return_value = gate_return
         task = self.create_task()
@@ -6800,8 +6807,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
 class TestGetPosthogCodeUsage(TestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
     def test_parses_rate_limited_usage(self, mock_token, mock_get):
         mock_token.return_value = "tok"
         mock_get.return_value = MagicMock(
@@ -6828,9 +6835,9 @@ class TestGetPosthogCodeUsage(TestCase):
         self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.services.code_usage_gate.OAuthAccessToken")
-    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.OAuthAccessToken")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
     def test_token_cleanup_error_does_not_break_fail_open(self, mock_token, mock_get, mock_oauth_model):
         mock_token.return_value = "tok"
         mock_get.return_value = MagicMock(
@@ -6856,8 +6863,8 @@ class TestGetPosthogCodeUsage(TestCase):
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
     def test_fails_open_on_gateway_error(self, _name, status_code, _unused, mock_token, mock_get):
         mock_token.return_value = "tok"
         if status_code is None:
@@ -6868,7 +6875,7 @@ class TestGetPosthogCodeUsage(TestCase):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
-    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
     def test_fails_open_when_no_gateway_url(self, mock_token):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
         mock_token.assert_not_called()

@@ -44,6 +44,29 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.staged_artifacts import (
+    RUN_ARTIFACT_TTL_DAYS,
+    STAGED_ARTIFACT_TTL_DAYS,
+    build_task_artifact_entry,
+    build_task_staged_artifact_cache_key,
+    build_task_staged_artifact_storage_path,
+    cache_task_staged_artifact,
+    get_safe_artifact_name,
+    get_task_run_artifacts_by_id,
+    get_task_staged_artifacts,
+    tag_task_artifact,
+)
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+    TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+    TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+)
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -118,29 +141,6 @@ from .serializers import (
     TaskSummarySerializer,
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
-)
-from .services.code_usage_gate import cloud_usage_limit_response
-from .services.connection_token import create_sandbox_connection_token
-from .services.staged_artifacts import (
-    RUN_ARTIFACT_TTL_DAYS,
-    STAGED_ARTIFACT_TTL_DAYS,
-    build_task_artifact_entry,
-    build_task_staged_artifact_cache_key,
-    build_task_staged_artifact_storage_path,
-    cache_task_staged_artifact,
-    get_safe_artifact_name,
-    get_task_run_artifacts_by_id,
-    get_task_staged_artifacts,
-    tag_task_artifact,
-)
-from .stream.redis_stream import (
-    TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
-    TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
-    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
-    TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
-    TaskRunRedisStream,
-    TaskRunStreamError,
-    get_task_run_stream_key,
 )
 from .temporal.client import (
     execute_posthog_code_agent_relay_workflow,

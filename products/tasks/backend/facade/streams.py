@@ -6,8 +6,12 @@ app mounts the ingest handler, and Max's sandbox mode reads a run's live stream 
 stream client.
 """
 
-from products.tasks.backend.stream.event_ingest import handle_task_run_event_ingest
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
+from products.tasks.backend.logic.stream.event_ingest import handle_task_run_event_ingest
+from products.tasks.backend.logic.stream.redis_stream import (
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+)
 
 __all__ = [
     "TaskRunRedisStream",

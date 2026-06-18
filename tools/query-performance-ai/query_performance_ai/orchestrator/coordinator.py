@@ -640,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _load_repo_dotenv()
     # Set DJANGO_SETTINGS_MODULE + SANDBOX_PROVIDER before any worker thread
-    # might import `products.tasks.backend.services.sandbox`. Workers also
+    # might import `products.tasks.backend.logic.services.sandbox`. Workers also
     # call this defensively (idempotent), but doing it here means the first
     # `import` from a worker thread doesn't race with the env-var write.
     _ensure_django_setup()

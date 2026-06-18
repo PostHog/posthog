@@ -777,8 +777,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_authorized_prefixes_actor_name(
@@ -811,8 +814,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ]
         assert not post_calls
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_followup_falls_back_to_email_when_no_full_name(
@@ -891,8 +897,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "still starting up" in call_kwargs["text"]
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
     def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token):
         mapping = self._create_mapping()
@@ -929,8 +938,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mapping.latest_actor_slack_user_id == "U_ALICE"
         assert mapping.mentioning_slack_user_id == "U_ALICE"
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
     def test_forwarding_failure_posts_error(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()
@@ -946,8 +958,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "couldn't deliver" in call_kwargs["text"]
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
     def test_timeout_delegates_to_relay_without_posting(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()
@@ -972,8 +987,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         mock_slack_instance.client.reactions_remove.assert_not_called()
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
     def test_connection_error_retries_and_succeeds(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping()

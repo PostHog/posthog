@@ -15,8 +15,9 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
-from .code_workstreams.default_workflow import build_default_bindings
-from .code_workstreams.validation import ValidationDiagnostic, validate_bindings
+from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
+from products.tasks.backend.logic.code_workstreams.validation import ValidationDiagnostic, validate_bindings
+
 from .models import CodeWorkflowConfig, CodeWorkstream, TaskRun
 
 ACTIVE_AGENT_WINDOW = timedelta(minutes=30)

@@ -451,7 +451,7 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
 
 def create_sandbox_connection_token(run_id: str | UUID, user_id: int, distinct_id: str) -> str:
     """Mint a short-lived connection token for talking to a run's live sandbox."""
-    from products.tasks.backend.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         create_sandbox_connection_token as _create,
     )
 
@@ -468,7 +468,7 @@ def send_user_message(
     timeout: int | None = None,
 ):
     """Push a follow-up user message (and/or artifacts) into a run's live sandbox."""
-    from products.tasks.backend.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         send_user_message as _send,
     )
 
@@ -484,7 +484,7 @@ def send_user_message(
 
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
     """Cancel the agent running in a run's live sandbox."""
-    from products.tasks.backend.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         send_cancel as _send_cancel,
     )
 

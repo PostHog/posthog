@@ -6,7 +6,7 @@ result type and errors are framework-free; other products call ``select_reposito
 handle the typed outcomes.
 """
 
-from products.tasks.backend.repo_selection import (
+from products.tasks.backend.logic.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,

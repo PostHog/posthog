@@ -3,7 +3,7 @@ import base64
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,

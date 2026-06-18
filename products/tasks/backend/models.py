@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.services.sandbox import SandboxResources
+    from products.tasks.backend.logic.services.sandbox import SandboxResources
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -41,9 +41,9 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
-from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
@@ -349,7 +349,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -1203,7 +1203,7 @@ class SandboxSnapshot(UUIDModel):
 
     def delete(self, *args, **kwargs):
         if self.external_id:
-            from products.tasks.backend.services.sandbox import Sandbox
+            from products.tasks.backend.logic.services.sandbox import Sandbox
 
             if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:

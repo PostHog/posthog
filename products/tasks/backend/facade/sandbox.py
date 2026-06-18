@@ -7,7 +7,7 @@ cross the boundary as objects, per the wiring pattern. Kept out of ``facade/api.
 heavy docker/modal dependencies stay off the light data-surface import path.
 """
 
-from products.tasks.backend.services.sandbox import (
+from products.tasks.backend.logic.services.sandbox import (
     SandboxBase,
     SandboxClass,
     SandboxConfig,

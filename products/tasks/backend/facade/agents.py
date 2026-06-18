@@ -8,7 +8,7 @@ objects, not data, per the wiring pattern. Heavy by import, so it lives here rat
 ``facade/api.py``.
 """
 
-from products.tasks.backend.services.custom_prompt_internals import (
+from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
@@ -16,9 +16,9 @@ from products.tasks.backend.services.custom_prompt_internals import (
     extract_json_from_text,
     poll_for_turn,
 )
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
-from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.logic.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
+from products.tasks.backend.logic.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 
 __all__ = [
     "ENV_LOCAL_SKILLS_HOST_PATH",

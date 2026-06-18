@@ -12,7 +12,7 @@ import json
 import pytest
 from unittest import mock
 
-from products.tasks.backend.sandbox.images import streamlit_auth_proxy
+from products.tasks.backend.logic.sandbox.images import streamlit_auth_proxy
 
 
 def _make_introspection_response(**overrides):

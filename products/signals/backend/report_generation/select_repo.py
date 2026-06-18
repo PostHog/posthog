@@ -1,6 +1,6 @@
 """Repository selection for Signals reports.
 
-Thin wrapper around `products.tasks.backend.repo_selection.select_repository`.
+Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
