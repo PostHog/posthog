@@ -71,6 +71,21 @@ PostgresErrors = {
     # transient mid-stream drop in the streaming path (`_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) and
     # must stay retryable there.
     "server closed the connection unexpectedly": "Your database closed the connection unexpectedly while connecting. This usually means the host or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel dropped the connection. Check your host, port, and SSL settings.",
+    # Supabase/Supavisor reports a saturated session-mode pooler as
+    # "FATAL: (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to
+    # pool_size: <n>". Every client slot the pooler exposes is in use, so it refuses new connections
+    # until one frees up — a config/capacity condition on the customer's pooler, not a PostHog bug.
+    # Map it to an actionable message so credential validation stops surfacing it as captured error
+    # noise. The volatile pool_size number and the "(EMAXCONNSESSION)" code prefix are excluded from
+    # the match. NB: this is intentionally NOT added to `get_non_retryable_errors` — pooler
+    # saturation is transient (it clears once connections are returned to the pool), so the streaming
+    # path must keep retrying it. See `test_transient_connection_errors_are_retryable`.
+    "max clients reached in session mode": (
+        "Your database's connection pooler has no free client connections "
+        '("max clients reached in session mode"). Raise the pooler\'s client limit (for example '
+        "increase pool_size, or switch it to transaction mode) or reduce the number of concurrent "
+        "connections to your database, then try again."
+    ),
 }
 
 
@@ -270,15 +285,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
-            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
-            # the pooler has *repeatedly* failed to log in to the backend database within its
-            # server_login_retry window (full message: "server login has been failing, cached
-            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
-            # a sustained failure state — unreachable, refusing connections, or rejecting the
-            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
-            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
-            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
-            # excluded.
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '
@@ -286,28 +292,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the pooler's credentials for the database are wrong. Check that the database is "
                 "running and reachable from your pooler, then re-enable the sync."
             ),
-            # Serverless Postgres providers (e.g. Neon) suspend a project's compute once it exhausts
-            # the plan's compute-time quota, and the connection attempt fails at handshake with
-            # "Your account or project has exceeded the compute time quota. Upgrade your plan to
-            # increase limits." The compute stays suspended until the customer upgrades their plan or
-            # the quota resets at the next billing period, so retrying the activity just re-hits the
-            # same wall. Match the stable provider message and exclude the volatile host/IP/port.
             "exceeded the compute time quota": (
                 "Your database provider has suspended the database because the account or project "
                 'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
-            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
-            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
-            # reduction before raising this. The conflict comes from the customer's read replica
-            # applying WAL that removes row versions our long-running read still needs
-            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
-            # condition is sustained, not a transient blip — retrying the whole activity just
-            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
-            # Matched substring excludes the volatile retry count and is distinct from the
-            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
-            "successive SerializationFailure errors. Aborting.": (
+            # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
+            # so it stays retryable. This abort is only raised once those retries are exhausted — by then
+            # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
+            # same wall, so it's non-retryable. Substring excludes the volatile retry count.
+            "kept canceling reads due to conflict with recovery": (
                 "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
                 '("canceling statement due to conflict with recovery"). This happens when the replica must '
                 "apply changes from the primary that remove rows the sync is still reading. Increase "

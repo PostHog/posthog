@@ -61,6 +61,7 @@ import type {
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
+    PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     WriteAgentMdRequestApi,
@@ -1686,18 +1687,22 @@ export const getAgentApplicationsPreviewProxyUrl = (
  * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const agentApplicationsPreviewProxy = async (
     projectId: string,
     id: string,
     rest: string,
     params: AgentApplicationsPreviewProxyParams,
+    previewProxyInvokeRequestApi?: PreviewProxyInvokeRequestApi,
     options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
+): Promise<string> => {
+    return apiMutator<string>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(previewProxyInvokeRequestApi),
     })
 }
 

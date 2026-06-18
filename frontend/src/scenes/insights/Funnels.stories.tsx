@@ -47,7 +47,7 @@ const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElem
     let lastHeight = 0
     await waitFor(
         () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-bar-vertical]')
+            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
             const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
             if (currentHeight === 0 || currentHeight !== lastHeight) {
                 lastHeight = currentHeight
@@ -63,14 +63,14 @@ const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElem
 //     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
 // )
 // FunnelLeftToRight.parameters = {
-//     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+//     testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 // }
 export const FunnelLeftToRightEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
 FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
@@ -78,7 +78,7 @@ export const FunnelLeftToRightBreakdown: Story = createInsightStory(
 )
 FunnelLeftToRightBreakdown.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
+        waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'],
         snapshotBrowsers: [],
     },
 }
@@ -87,34 +87,34 @@ export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
     'edit'
 )
 FunnelLeftToRightBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 FunnelLeftToRightBreakdownEdit.play = waitForFunnelToStabilize
 export const FunnelTopToBottom: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
 )
 FunnelTopToBottom.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
 export const FunnelTopToBottomEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
     'edit'
 )
 FunnelTopToBottomEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
 export const FunnelTopToBottomBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
 )
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     'edit'
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
@@ -142,19 +142,21 @@ FunnelHistoricalTrendsCompare.parameters = {
 export const FunnelTimeToConvert: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
 )
-FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
+FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' } }
 export const FunnelTimeToConvertEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
     'edit'
 )
-FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
+FunnelTimeToConvertEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' },
+}
 
 export const FunnelWithInlineEventsEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'),
     'edit'
 )
 FunnelWithInlineEventsEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
     const expandFiltersButton = await waitFor(
@@ -176,7 +178,7 @@ export const FunnelLeftToRightEditViewports: Story = createInsightStory(
 )
 FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
+        waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'],
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }

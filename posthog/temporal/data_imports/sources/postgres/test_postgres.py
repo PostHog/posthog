@@ -42,6 +42,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
+    _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
@@ -74,8 +75,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _raise_if_setup_connection_broken,
+    _recovery_conflict_abort_error,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _statement_timeout_as_non_retryable,
@@ -411,17 +414,11 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Hit 30 successive SerializationFailure errors. Aborting.",
-            "Exception: Hit 30 successive SerializationFailure errors. Aborting.",
-        ],
-    )
-    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source, error_msg):
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
+        error_msg = str(_recovery_conflict_abort_error(10))
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exhausted recovery-conflict error should be non-retryable: {error_msg}"
+        assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -545,8 +542,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
                 with pytest.raises(Exception) as exc_info:
                     self._call_postgres_source()
 
-        # Exhausting the in-process retries surfaces the message wired into NonRetryableErrors.
-        assert "successive SerializationFailure errors. Aborting." in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "conflict with recovery" in message and "max_standby_streaming_delay" in message
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
         # Each retry reconnects, so connect is called once per attempt.
         assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
 
@@ -770,6 +769,43 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+class TestNextRecoveryConflictChunkSize:
+    @pytest.mark.parametrize(
+        "chunk_size,successive_errors,expected",
+        [
+            # Grace period — don't shrink on a one-off blip.
+            (20_000, 1, 20_000),
+            (20_000, 4, 20_000),
+            # Sustained conflict → reduce.
+            (20_000, 5, int(20_000 / 1.5)),
+            # Never drops below the floor.
+            (120, 5, _MIN_RECOVERY_CONFLICT_CHUNK_SIZE),
+            (_MIN_RECOVERY_CONFLICT_CHUNK_SIZE, 5, _MIN_RECOVERY_CONFLICT_CHUNK_SIZE),
+        ],
+    )
+    def test_chunk_size_reduction(self, chunk_size, successive_errors, expected):
+        assert _next_recovery_conflict_chunk_size(chunk_size, successive_errors) == expected
+
+    def test_converges_to_floor(self):
+        chunk_size = 20_000
+        for _ in range(50):
+            chunk_size = _next_recovery_conflict_chunk_size(chunk_size, 5)
+        assert chunk_size == _MIN_RECOVERY_CONFLICT_CHUNK_SIZE
+
+
+class TestRecoveryConflictAbortError:
+    def test_message_is_actionable(self):
+        message = str(_recovery_conflict_abort_error(10))
+        assert "conflict with recovery" in message
+        assert "max_standby_streaming_delay" in message
+        assert "hot_standby_feedback" in message
+
+    def test_message_is_non_retryable(self):
+        message = str(_recovery_conflict_abort_error(10))
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
 
 
 # Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
@@ -1328,6 +1364,17 @@ class TestValidateCredentialsErrorMapping:
                 "or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel "
                 "dropped the connection. Check your host, port, and SSL settings.",
             ),
+            # Supabase/Supavisor session-mode pooler with no free client slots. The pool_size number
+            # is volatile, so the match is on the stable "max clients reached in session mode" phrase.
+            (
+                'connection failed: connection to server at "52.45.94.125", port 5432 failed: '
+                "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are "
+                "limited to pool_size: 15",
+                "Your database's connection pooler has no free client connections (\"max clients "
+                "reached in session mode\"). Raise the pooler's client limit (for example increase "
+                "pool_size, or switch it to transaction mode) or reduce the number of concurrent "
+                "connections to your database, then try again.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
@@ -1394,6 +1441,77 @@ class TestPostgresSchemaDiscovery:
         assert connect_mock.call_count == 2
         assert set(schemas.keys()) == {"public.users"}
         connection.close.assert_called_once()
+
+    def _drop_on_execute_connection(self, error):
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = error
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection
+
+    def test_get_schemas_retries_pooler_drop_during_discovery_query(self):
+        # The connect can succeed and the pooler then drop the upstream backend on the first
+        # discovery query — Supavisor surfaces this as "(EDBHANDLEREXITED) connection to database
+        # closed" (XX000 InternalError_). The retry must span the discovery queries, not just the
+        # connect, so a fresh connection reruns discovery instead of escaping as captured error noise.
+        drop = psycopg.errors.InternalError_(
+            "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
+        )
+        dropped_connection = self._drop_on_execute_connection(drop)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[dropped_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        # Drop on the first query reconnected and reran discovery — before the fix the retry only
+        # wrapped the connect, so the query-time drop escaped on the first attempt (call_count == 1).
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_does_not_retry_non_drop_error_during_discovery_query(self):
+        # A genuine XX000 internal error that isn't the pooler drop must propagate on the first
+        # discovery attempt — the discovery retry is scoped strictly to transient drops.
+        err = psycopg.errors.InternalError_("XX000: internal error: something went wrong")
+        dropped_connection = self._drop_on_execute_connection(err)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[dropped_connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.InternalError_):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == 1
+        dropped_connection.close.assert_called_once()
 
     def test_get_schemas_does_not_retry_permanent_connect_error(self):
         # A permanent connect failure (bad password) must propagate on the first attempt — the
