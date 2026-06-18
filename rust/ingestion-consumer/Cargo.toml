@@ -8,6 +8,7 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }

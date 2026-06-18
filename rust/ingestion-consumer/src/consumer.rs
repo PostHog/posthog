@@ -219,19 +219,11 @@ impl IngestionConsumer {
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
-        let worker_urls = self.worker_urls.clone();
         let group_id = self.group_id.clone();
 
         let handle = tokio::spawn(async move {
-            Self::process_collected_batch(
-                collected,
-                task_batch_id,
-                dispatcher,
-                transport,
-                worker_urls,
-                group_id,
-            )
-            .await
+            Self::process_collected_batch(collected, task_batch_id, dispatcher, transport, group_id)
+                .await
         });
 
         info!(
@@ -303,7 +295,6 @@ impl IngestionConsumer {
         batch_id: String,
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
-        worker_urls: Vec<String>,
         group_id: String,
     ) -> anyhow::Result<ProcessedBatch> {
         let batch_size = collected.messages.len();
@@ -351,18 +342,19 @@ impl IngestionConsumer {
         for sub_batch in sub_batches {
             let transport = Arc::clone(&transport);
             let dispatcher = Arc::clone(&dispatcher);
-            let url = worker_urls[sub_batch.worker_idx].clone();
+            let worker = sub_batch.worker.clone();
             let bid = batch_id.clone();
-            let worker_idx = sub_batch.worker_idx;
             let routing_keys = sub_batch.routing_keys.clone();
             let message_count = sub_batch.messages.len();
 
             handles.push(tokio::spawn(async move {
-                let result = transport.send_batch(&url, &bid, sub_batch.messages).await;
+                let result = transport
+                    .send_batch(&worker, &bid, sub_batch.messages)
+                    .await;
                 let is_error = result.is_err();
 
-                dispatcher.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
-                dispatcher.record_send_outcome(worker_idx, is_error);
+                dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                dispatcher.record_send_outcome(&worker, is_error);
 
                 result
             }));
