@@ -2,11 +2,11 @@ import { Meta, StoryObj } from '@storybook/react'
 import { ReactNode } from 'react'
 
 import { LineGraphProps } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { SqlLineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlLineGraph'
+import { SqlBarGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBarGraph'
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
-// Renders the quill bar layouts (SqlLineGraph -> TimeSeriesBarChart) in isolation, no insight scene.
+// Renders the quill bar layouts (SqlBarGraph -> TimeSeriesBarChart) in isolation, no insight scene.
 
 const LABELS = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07']
 
@@ -54,7 +54,7 @@ type Story = StoryObj<{}>
 export const Bar: Story = {
     render: () => (
         <ChartStage>
-            <SqlLineGraph
+            <SqlBarGraph
                 {...baseProps}
                 visualizationType={ChartDisplayType.ActionsBar}
                 chartSettings={{ showLegend: true }}
@@ -66,7 +66,7 @@ export const Bar: Story = {
 export const StackedBar: Story = {
     render: () => (
         <ChartStage>
-            <SqlLineGraph
+            <SqlBarGraph
                 {...baseProps}
                 visualizationType={ChartDisplayType.ActionsStackedBar}
                 chartSettings={{ showLegend: true }}
@@ -78,7 +78,7 @@ export const StackedBar: Story = {
 export const PercentStackedBar: Story = {
     render: () => (
         <ChartStage>
-            <SqlLineGraph
+            <SqlBarGraph
                 {...baseProps}
                 visualizationType={ChartDisplayType.ActionsStackedBar}
                 chartSettings={{ showLegend: true, stackBars100: true }}
