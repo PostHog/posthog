@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CULTURE_AMP,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Culture Amp",
             caption="""Connect your Culture Amp account to pull your employee experience data into the PostHog Data warehouse.
 

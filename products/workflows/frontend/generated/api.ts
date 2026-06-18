@@ -31,6 +31,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
+    PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     WorkflowStatsRowApi,
@@ -345,6 +346,24 @@ export const hogFlowsBatchJobsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
+    })
+}
+
+export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/graph/`
+}
+
+export const hogFlowsGraphPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowGraphUpdateApi?: PatchedHogFlowGraphUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowGraphUpdateApi),
     })
 }
 

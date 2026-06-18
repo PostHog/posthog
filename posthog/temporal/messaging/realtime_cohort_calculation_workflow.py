@@ -328,6 +328,11 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         def build_query(cohort_obj):
             realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
             current_members_query = realtime_query.get_query()
+            # Note: restricted_properties is not set here (defaults to None), so the printer
+            # will call get_restricted_properties_for_team and apply any property access-control
+            # rules configured for the team. This is intentionally different from the backfill
+            # path in hogql_compile.py, which bypasses restrictions to match raw-SQL semantics.
+            # Realtime cohort calculation should respect property restrictions.
             hogql_context = HogQLContext(
                 team_id=cohort_obj.team_id,
                 enable_select_queries=True,

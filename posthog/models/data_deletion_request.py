@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -42,9 +43,14 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
+    from posthog.schema import PersonsOnEventsMode
+
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
     from posthog.hogql.parser import parse_expr
+
+    from posthog.models.team import Team
 
     try:
         parse_expr(predicate)
@@ -61,13 +67,83 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
     # references for the outer expression so the fragment splices into both the
     # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    #
+    # Resolve the team's modifiers (``propertyGroupsMode`` et al.) so the predicate compiles
+    # like a regular HogQL query. Without them the property-group optimizer is off, and a typed
+    # property comparison such as ``person.properties.isEnterprise = 'yes'`` falls back to a
+    # coerced JSONExtract that casts the value to Bool — turning the stored string into NULL so
+    # the predicate silently matches nothing. With them it becomes the index-eligible
+    # ``person_properties_map_custom['isEnterprise'] = 'yes'`` map read.
+    #
+    # Force on-events person resolution regardless of the team's general query default: the
+    # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
+    # ``person.properties`` must read the on-events ``person_properties`` column — a joined
+    # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
+    # not exist in either splice site.
+    try:
+        team = Team.objects.get(id=obj.team_id)
+    except Team.DoesNotExist as exc:
+        raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
+    modifiers = create_default_modifiers_for_team(team)
+    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    context = HogQLContext(
+        team_id=obj.team_id,
+        team=team,
+        modifiers=modifiers,
+        within_non_hogql_query=True,
+        enable_select_queries=True,
+    )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
+    except ImportError:
+        # A failed import means the runtime environment is broken (e.g. a Dagster worker that
+        # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.
+        # Let it propagate as-is rather than masquerading as a predicate validation error.
+        raise
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
     return sql, dict(context.values)
+
+
+# Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
+# recompiles it on every stats/preview render, so cache the result in the shared Django cache
+# (Redis). Keyed by request id and guarded by the predicate text it was compiled from, so a
+# changed predicate never serves a stale fragment even if explicit invalidation is missed. The
+# destructive Dagster deletion path deliberately calls ``compile_hogql_predicate`` directly
+# (never this) so the actual mutation is always built from a freshly compiled predicate.
+_COMPILED_PREDICATE_CACHE_PREFIX = "data_deletion:compiled_predicate:"
+_COMPILED_PREDICATE_CACHE_TTL = 60 * 60 * 24  # 1 day; admin-only, a brief staleness window is fine
+
+
+def _compiled_predicate_cache_key(request_id: object) -> str:
+    return f"{_COMPILED_PREDICATE_CACHE_PREFIX}{request_id}"
+
+
+def cached_compile_hogql_predicate(obj) -> tuple[str, dict]:
+    """Cache-backed ``compile_hogql_predicate`` for the Django admin's stats/preview rendering.
+
+    Only the informational admin path should use this. The Dagster deletion job compiles fresh via
+    ``compile_hogql_predicate`` so the mutation is never built from a stale fragment.
+    """
+    predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
+    if not predicate:
+        return "", {}
+    request_id = getattr(obj, "pk", None) or getattr(obj, "request_id", None)
+    if request_id is None:
+        return compile_hogql_predicate(obj)
+    key = _compiled_predicate_cache_key(request_id)
+    cached = cache.get(key)
+    if cached is not None and cached.get("source") == predicate:
+        return cached["sql"], cached["params"]
+    sql, params = compile_hogql_predicate(obj)
+    cache.set(key, {"source": predicate, "sql": sql, "params": params}, _COMPILED_PREDICATE_CACHE_TTL)
+    return sql, params
+
+
+def invalidate_compiled_predicate_cache(request_id: object) -> None:
+    """Drop the cached compiled predicate. Called when a request's deletion criteria change."""
+    cache.delete(_compiled_predicate_cache_key(request_id))
 
 
 def event_match_sql_fragment(obj) -> str:
@@ -290,14 +366,26 @@ class DataDeletionRequest(UUIDModel):
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
 
+    # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
+    # clean() can reject retargeting an existing request at a different team. Not a model field.
+    _loaded_team_id: int | None = None
+
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_team_id = instance.team_id
+        return instance
+
     def clean(self) -> None:
         super().clean()
+        if self._loaded_team_id is not None and self.team_id != self._loaded_team_id:
+            raise ValidationError({"team_id": "team_id cannot be changed after the request is created."})
         if self.request_type == RequestType.EVENT_REMOVAL:
             self._clean_event_removal()
         elif self.request_type == RequestType.PROPERTY_REMOVAL:

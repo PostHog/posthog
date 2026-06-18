@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -33,6 +34,7 @@ class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WORK_OS,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
             releaseStatus="alpha",
             caption="""Enter your WorkOS API key to sync your WorkOS data into the PostHog Data warehouse.

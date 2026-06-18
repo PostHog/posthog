@@ -49,6 +49,10 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    # Aliases for the ClickHouse names — these map to the same nullable cast as toFloat
+    # (accurateCastOrNull returns NULL on unparseable input, matching toFloat64OrNull semantics).
+    "toFloatOrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toFloat64OrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
     "toFloatOrDefault": HogQLFunctionMeta(
         # ClickHouse's toFloat64OrDefault requires the default value to already be

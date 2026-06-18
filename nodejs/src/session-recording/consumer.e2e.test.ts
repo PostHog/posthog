@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { waitForExpect } from '../../tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '../../tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig, overrideWithEnv } from '../config/config'
@@ -1009,7 +1009,7 @@ describe('Session Recording Consumer Integration', () => {
             )
         }
 
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         await waitForSessionReplayEventsConsumer(clickhouse)
 

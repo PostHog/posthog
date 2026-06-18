@@ -777,7 +777,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             assert stats.materialized_property_usage["json_subcolumn"] >= 1
             assert stats.materialized_property_usage["materialized_column"] == 0
         else:
-            assert stats.materialized_range_rewrite["fired_compare"] >= 1
+            # The column is nullable, so the bare comparison is guarded by isNotNull(col): a "fired_if_null" outcome.
+            assert stats.materialized_range_rewrite["fired_if_null"] >= 1
             assert stats.materialized_property_usage["materialized_column"] >= 1
 
     def test_observability_records_json_property_usage(self) -> None:

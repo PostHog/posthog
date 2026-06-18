@@ -9,7 +9,13 @@
 import * as zod from 'zod'
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
+ *
+ * Synthetics have no DB row, so we compute each one's position in the merged
+ * sort and split the requested page between synthetics and a DB queryset slice.
+ * The merge/rank/sort is all in-memory, so each phase is wrapped in a span and
+ * the input sizes are recorded as span attributes — a slow response on a team
+ * with many playlists then shows up as a wide span against a large db_count.
  */
 export const SessionRecordingPlaylistsListParams = /* @__PURE__ */ zod.object({
     project_id: zod

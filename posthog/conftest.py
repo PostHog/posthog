@@ -13,6 +13,11 @@ from posthog.test.base import (
     run_clickhouse_statement_in_parallel,
 )
 
+try:
+    from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+    apply_quarantine_markers = None
+
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
@@ -561,3 +566,8 @@ def _runs_on_internal_pr() -> bool:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if apply_quarantine_markers is not None:
+        apply_quarantine_markers(items)

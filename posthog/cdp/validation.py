@@ -37,6 +37,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogGetAccount")
 
 
 # Globals that the realtime transformer actually populates at runtime.

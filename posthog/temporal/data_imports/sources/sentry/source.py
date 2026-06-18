@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SENTRY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sentry",
             iconPath="/static/services/sentry.png",
             caption="""Enter a Sentry auth token and your organization slug to sync Sentry organization, project, issue, and monitor datasets.

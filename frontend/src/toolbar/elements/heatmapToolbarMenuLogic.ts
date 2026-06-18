@@ -6,9 +6,9 @@ import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { elementToSelector } from 'lib/actionUtils'
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { elementToSelector } from 'lib/utils/actions'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'

@@ -8,6 +8,7 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
 
@@ -139,6 +140,7 @@ def _prepare_slack_message(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
+    integration: Integration | None = None,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -192,26 +194,28 @@ def _prepare_slack_message(
             }
         )
 
+    action_elements: list[dict] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View in PostHog"},
+            "url": f"{resource_info.url}?{utm_tags}",
+        },
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Manage Subscription"},
+            "url": f"{subscription.url}?{utm_tags}",
+        },
+    ]
+
     blocks.extend(
         [
             {"type": "divider"},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "View in PostHog"},
-                        "url": f"{resource_info.url}?{utm_tags}",
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Manage Subscription"},
-                        "url": f"{subscription.url}?{utm_tags}",
-                    },
-                ],
-            },
+            {"type": "actions", "elements": action_elements},
         ]
     )
+    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
+        blocks.append(explore_hint)
 
     # Prepare additional messages for thread
     thread_messages = []
@@ -249,7 +253,13 @@ def send_slack_message_with_integration(
     is_new_subscription: bool = False,
 ) -> None:
     """Send Slack message using provided integration (sync version)."""
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    message_data = _prepare_slack_message(
+        subscription,
+        assets,
+        total_asset_count,
+        is_new_subscription,
+        integration=integration,
+    )
     slack_integration = SlackIntegration(integration)
 
     # Send main message
@@ -378,5 +388,6 @@ async def send_slack_message_with_integration_async(
         is_new_subscription,
         change_summary=change_summary,
         summary_skipped_over_budget=summary_skipped_over_budget,
+        integration=integration,
     )
     return await deliver_slack_message_data(integration, subscription, message_data)

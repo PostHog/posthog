@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BREX,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Brex",
             caption="""Enter your Brex API user token to pull your Brex data into the PostHog Data warehouse.
 

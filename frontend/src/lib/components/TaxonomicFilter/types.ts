@@ -377,6 +377,9 @@ export interface ListStorage {
     expandedCount?: number
     queryChanged?: boolean
     first?: boolean
+    // Wall-clock duration of the remote fetch that produced this page, in ms.
+    // Only set for server-backed loads; absent for local/empty storage.
+    loadDurationMs?: number
 }
 
 export interface LoaderOptions {

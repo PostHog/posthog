@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -110,6 +111,7 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RECURLY,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Recurly",
             caption=(
                 "Connect your Recurly site using a **private API key**. Create one in Recurly under "
