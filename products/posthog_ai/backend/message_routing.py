@@ -35,11 +35,14 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
+from products.tasks.backend.constants import INITIAL_PERMISSION_MODE_CHOICES, InitialPermissionMode
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.warm import SandboxWarmer
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_INITIAL_PERMISSION_MODE: InitialPermissionMode = "auto"
 
 
 class SandboxRouteResult(BaseModel):
@@ -102,11 +105,12 @@ class SandboxSession(BaseSandboxService):
     def open(
         self, data: Mapping[str, Any], *, resumed_context: str | None = None, convert_to_acp: bool = False
     ) -> SandboxRouteResult | None:
+        initial_permission_mode = self._initial_permission_mode(data.get("initial_permission_mode"))
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
             # No message — warm intent: boot a Run that idles awaiting the first `user_message`.
             # Returns the warm handle, or None when the pool is full and nothing was provisioned.
-            return self._warm(trace_id=data.get("trace_id"))
+            return self._warm(trace_id=data.get("trace_id"), initial_permission_mode=initial_permission_mode)
 
         trace_id = data.get("trace_id")
         attached_context = self._validate_attached_context(data.get("attached_context"))
@@ -118,6 +122,7 @@ class SandboxSession(BaseSandboxService):
                 content=content,
                 trace_id=trace_id,
                 attached_context=attached_context,
+                initial_permission_mode=initial_permission_mode,
                 resumed_context=resumed_context,
                 convert_to_acp=convert_to_acp,
             )
@@ -147,9 +152,17 @@ class SandboxSession(BaseSandboxService):
             wrapped=wrapped,
             trace_id=trace_id,
             attached_context=attached_context,
+            initial_permission_mode=initial_permission_mode,
         )
 
-    def _warm(self, *, trace_id: str | None) -> SandboxRouteResult | None:
+    def _initial_permission_mode(self, value: Any) -> InitialPermissionMode:
+        if isinstance(value, str) and value in INITIAL_PERMISSION_MODE_CHOICES:
+            return cast(InitialPermissionMode, value)
+        return DEFAULT_INITIAL_PERMISSION_MODE
+
+    def _warm(
+        self, *, trace_id: str | None, initial_permission_mode: InitialPermissionMode
+    ) -> SandboxRouteResult | None:
         """Boot a sandbox Run ahead of the first message (the message-less `open`).
 
         Ensures the conversation's Task exists under the row lock (so two tabs can't create two
@@ -190,7 +203,9 @@ class SandboxSession(BaseSandboxService):
         # dispatches the workflow on commit; it is idempotent (an existing non-terminal Run is returned
         # as-is). `systemPrompt` is the one PostHog AI-specific Run-state key the generic warmer can't know.
         try:
-            result = SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
+            result = SandboxWarmer(task, user=self.user).warm(
+                extra_state={"systemPrompt": system_prompt, "initial_permission_mode": initial_permission_mode}
+            )
         except exceptions.Throttled:
             # Warm-pool cap reached between the pre-check and the lock — best-effort no-op (no handle).
             logger.info(
@@ -214,6 +229,7 @@ class SandboxSession(BaseSandboxService):
         content: str,
         trace_id: str | None,
         attached_context: list[AttachedContext],
+        initial_permission_mode: InitialPermissionMode,
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
     ) -> SandboxRouteResult:
@@ -252,7 +268,7 @@ class SandboxSession(BaseSandboxService):
         ph_state = PostHogAIRunState(
             system_prompt=system_prompt,
             attached_context=attached_context,
-            initial_permission_mode="default",
+            initial_permission_mode=initial_permission_mode,
             pending_user_message=wrapped,
         )
         run_state: dict[str, Any] = dict(task_run.state or {})
@@ -375,6 +391,7 @@ class SandboxSession(BaseSandboxService):
         wrapped: str,
         trace_id: str | None,
         attached_context: list[AttachedContext],
+        initial_permission_mode: InitialPermissionMode,
     ) -> SandboxRouteResult:
         """Follow-up after the current Run reached a terminal status.
 
@@ -410,7 +427,7 @@ class SandboxSession(BaseSandboxService):
                 "systemPrompt": system_prompt,
                 # The full, undeduped list — survives for the life of the new Run.
                 "attached_context": attached_context,
-                "initial_permission_mode": "default",
+                "initial_permission_mode": initial_permission_mode,
             }
             # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
             snapshot_external_id = (run.state or {}).get("snapshot_external_id")
