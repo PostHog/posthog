@@ -454,7 +454,10 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
-                    !embedded && 'border rounded bg-surface-primary'
+                    !embedded && 'border rounded bg-surface-primary',
+                    // Collapse the flex-grow chart container when it has nothing to render (e.g. a
+                    // detailed-results-only tile), so the table sits at the top instead of the bottom.
+                    'empty:hidden'
                 )}
                 data-attr="insights-graph"
             >
