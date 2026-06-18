@@ -49,3 +49,27 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     "pull_requests": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "repository": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
+
+# Contract for the incoming ``github_workflow_jobs`` warehouse source (job-level CI: queue
+# time, per-job duration, runner tier, retries) — the substrate per-PR Depot cost wires to.
+# The source must land exactly this shape; ``run_id`` joins back to ``github_workflow_runs``
+# for per-PR attribution, ``labels`` carries the runner tier the cost model parses. Same
+# Nullable/string discipline as above — timestamps are strings, ``labels``/``steps`` are JSON.
+WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "run_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "run_attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "workflow_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "status": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "conclusion": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "head_sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "head_branch": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "labels": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "runner_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "runner_group_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "started_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "completed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}

@@ -156,7 +156,8 @@ Vertical slices, each independently mergeable. The near-term path:
 2. `github_workflow_runs` warehouse source — **done**.
 3. **curated read layer + named endpoints** (`ci_cards` / `pull_requests` / `workflow_health` / `pr_lifecycle`), run privately — no global registration — plus the in-product skill.
 4. read-only UI scene on those endpoints (PR list + cards + workflow health).
-5. destination: GitHub webhooks → events (PR as group type) — unlocks the deferred columns (§9).
+5. job-level CI: the `github_workflow_jobs` warehouse source (webhook stream + bounded backfill poll) — unlocks per-PR Depot **cost**, queue time, and re-run cost (§9).
+6. lifecycle events (PR as group type) — transition timing, reviews/approvals, deploys/DORA — the deferred destination the snapshots can't hold (§9).
 
 The earlier explorations — three bespoke `*_report` RPC tools, then a generic `query` / `execute_sql` surface over globally-registered views — are **superseded** by named typed endpoints that run the curated builders privately. The named endpoints serve both MCP and the UI, keep domain rules defined once, and (unlike registered views) leave the product isolated and off the per-query hot path. See §7 for why.
 
@@ -200,11 +201,18 @@ Available now (warehouse snapshots, read via the curated query builders):
 - `github_pull_requests` — PR snapshot: number, title, author, state, created_at, merged_at, closed_at, draft flag, base/head refs, **labels and `base.repo.full_name` in the raw JSON** (mapped in the read layer, not new ingestion). Current state only — transitions are overwritten on update.
 - `github_workflow_runs` — CI runs: workflow name, status, conclusion, run_started_at, updated_at, head SHA, **`run_attempt` and the `pull_requests` association** (the per-PR push / re-run rollup keys on these). Each run is immutable, so durations and their trends are precise.
 
-These bound v1 to coarse PR timing (no transition history) and workflow-level CI (no per-check detail).
+Landing (the cost substrate, via a new warehouse source):
+
+- `github_workflow_jobs` — per-job CI: `run_id` (joins back to `github_workflow_runs` for per-PR attribution), `run_attempt`, `name`, `workflow_name`, `status`, `conclusion`, `head_sha`, `head_branch`, `labels` (runner tier → cost), `runner_name`, `runner_group_name`, `created_at` / `started_at` / `completed_at` (queue + duration), nested `steps`. Each job is immutable, so per-job duration, queue wait, retries, and cost are precise. The locked column/type contract is `source_schema.py:WORKFLOW_JOBS_COLUMNS` — the source must land exactly that shape (string timestamps, Nullable JSON) or the curated builders 500 on real data (§7). It lands in the **warehouse**, not events: a steady-state **webhook stream** plus a **bounded-lookback backfill poll**. An unbounded continuous poll is rejected — one `/jobs` call per run is infeasible at this repo's run volume — so backfill is window-limited and the webhook carries steady state.
+
+These bound v1 to coarse PR timing (no transition history); per-check/job CI arrives with `github_workflow_jobs`.
 
 **Freshness caveat:** `github_workflow_runs` syncs on a `created_at` watermark and does not refresh the conclusion of a run that completes after newer runs land — so a PR's "failing / running" CI status can be stale until the `workflow_run` webhook ships. The read layer should surface the run's `status` honestly rather than imply a settled conclusion.
 
-Beyond v1 the product needs lifecycle data the snapshots can't hold: PR state transitions (draft↔ready), reviews and approvals, per-check/job CI, and deploys. The likely path is **GitHub webhooks → PostHog events, with the PR as a group type** — one mechanism that delivers all of these as immutable timestamped events, while the warehouse snapshots stay as the current-state/backfill layer. PostHog already runs a GitHub App webhook receiver, so this is an analytics handler on existing infra, not new infra. When it lands, the deferred UI columns (time-in-review, reviewers/approvals, per-check, DORA) become available on the same read layer. A per-primitive warehouse-source poll is the heavier alternative and still can't recover transition timing, so it's not the plan. See README → "v1 vs the destination".
+Two distinct future needs, with two distinct substrates — don't conflate them:
+
+- **Job-level CI (cost / queue / retry / runner) → the warehouse**, via the `github_workflow_jobs` source above. Jobs are immutable, so the warehouse is the right home: a webhook stream for steady state plus a bounded backfill poll. This is the plan for cost and it is landing now; the read layer wires `estimated_cost_usd` from its typed-null scaffold to a real figure once the table is populated. What was rejected is an **unbounded continuous poll** (one `/jobs` call per run, infeasible at this repo's volume) — not the warehouse as a destination.
+- **Lifecycle data the snapshots genuinely can't hold** — PR state transitions (draft↔ready), reviews and approvals, deploys, DORA — needs immutable timestamped **events** (GitHub webhooks → PostHog events, PR as group type). No warehouse snapshot or poll can recover transition timing, so this is the *only* thing the events destination is for, and it stays deferred until prioritized. When it lands, the deferred UI columns (time-in-review, reviewers/approvals, DORA) open up on the same read layer. See README → "v1 vs the destination".
 
 ## 10. Reference reading
 
