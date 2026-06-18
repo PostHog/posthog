@@ -705,3 +705,55 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
         is_thread_reply=existing,
         channel_detail=ChannelDetail.TEAMS_BOT_MENTION,
     )
+
+
+def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> dict | None:
+    """Map a Microsoft Graph ``chatMessage`` (from channel ``messages/delta``) to the
+    Bot Framework activity shape that ``create_or_update_teams_ticket`` consumes.
+
+    Returns ``None`` for anything we don't ingest as a top-level support message:
+    non-message types (system events), deletions, replies, empty bodies, and
+    system/bot/app-authored posts (no ``from.user``). The mapped activity uses the
+    canonical ``"<channelId>;messageid=<msgId>"`` conversation id so a later webhook
+    reply on the same thread dedupes onto the same ticket.
+    """
+    # Only real user messages: skip systemEventMessage, typing, etc.
+    if msg.get("messageType") != "message":
+        return None
+    if msg.get("deletedDateTime"):
+        return None
+    # Channel messages/delta returns root messages only; guard defensively in case
+    # a reply ever shows up (reply sync is out of v1 scope).
+    if msg.get("replyToId"):
+        return None
+
+    body = msg.get("body") or {}
+    content = body.get("content") or ""
+    if not content.strip():
+        return None
+
+    # System/bot/app posts (incl. our own confirmation cards) carry from.application
+    # or from.device, never from.user — skip them so we never self-ingest.
+    from_field = msg.get("from") or {}
+    user = from_field.get("user") or {}
+    aad_object_id = user.get("id")
+    if not aad_object_id:
+        return None
+
+    msg_id = msg.get("id")
+    if not msg_id:
+        return None
+
+    return {
+        "id": msg_id,
+        "type": "message",
+        "text": content,
+        "from": {
+            "id": aad_object_id,
+            "aadObjectId": aad_object_id,
+            "name": user.get("displayName") or "",
+        },
+        "conversation": {"id": f"{channel_id};messageid={msg_id}"},
+        "channelData": {"channel": {"id": channel_id}},
+        "serviceUrl": service_url,
+    }

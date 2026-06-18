@@ -595,6 +595,15 @@ class FakePersonHogClient:
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
         return response
 
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: person_pb2.DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse:
+        # The fake does not model personless distinct IDs, so this records the
+        # call for assertions and reports nothing deleted.
+        response = person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0)
+        self.calls.append(_Call("delete_personless_distinct_ids_batch_for_team", request, response))
+        return response
+
     # ── Person split ──────────────────────────────────────────────────
 
     def split_person(
@@ -657,6 +666,36 @@ class FakePersonHogClient:
             )
 
         return person_pb2.SplitPersonResponse(splits=splits)
+
+    # ── Undelete repair ───────────────────────────────────────────────
+
+    def set_person_distinct_id_version_floor(
+        self, request: person_pb2.SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonDistinctIdVersionFloorResponse:
+        self.calls.append(_Call("set_person_distinct_id_version_floor", request))
+
+        person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
+        if person is None:
+            return person_pb2.SetPersonDistinctIdVersionFloorResponse()
+
+        # Guarded bump: never lower the stored version. The person is returned whenever
+        # the distinct_id exists, even if the version is left unchanged.
+        for mapping in self._distinct_ids.get((request.team_id, person.id), []):
+            if mapping.distinct_id == request.distinct_id and mapping.version < request.min_version:
+                mapping.version = request.min_version
+        return person_pb2.SetPersonDistinctIdVersionFloorResponse(person=person)
+
+    def set_person_version_floor(
+        self, request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonVersionFloorResponse:
+        self.calls.append(_Call("set_person_version_floor", request))
+
+        person = self._persons_by_id.get((request.team_id, request.person_id))
+        if person is None or person.version >= request.min_version:
+            return person_pb2.SetPersonVersionFloorResponse(updated=False)
+
+        person.version = request.min_version
+        return person_pb2.SetPersonVersionFloorResponse(updated=True)
 
     # ── Assertion helpers ────────────────────────────────────────────
 
