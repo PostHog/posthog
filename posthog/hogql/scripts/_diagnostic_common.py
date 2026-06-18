@@ -40,16 +40,37 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
+from posthog.hogql.parser import (
+    HogQLParserShadowMismatch,
+    parse_expr,
+    parse_program,
+    parse_select,
+    parse_string_template,
+)
 from posthog.hogql.visitor import clear_locations
+
+
+def _parse_full_template_string(query: str, backend: Any = None) -> Any:
+    """Entry point for the `full_template_string` rule. The `fullTemplateString`
+    grammar strategy emits the `F'…` form (`QUOTE_SINGLE_TEMPLATE_FULL` then the
+    body, no closing quote), but `parse_string_template` takes only the body and
+    re-adds the `F'` itself — so strip the leading `F'`. Mirrors the pytest PBT
+    (`test_parser_grammar_pbt.py`)."""
+    body = query[2:] if query.startswith("F'") else query
+    return parse_string_template(body, backend=backend)
+
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
-# fn / try-catch / return / throw / blocks).
+# fn / try-catch / return / throw / blocks); `full_template_string` is the
+# standalone `F'…` template parser (`parse_string_template`), a separate
+# EOF-terminated grammar entry that inline `f'…` columnExpr templates don't
+# exercise.
 _PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "expr": parse_expr,
     "select": parse_select,
     "program": parse_program,
+    "full_template_string": _parse_full_template_string,
 }
 
 # ---------------------------------------------------------------------------

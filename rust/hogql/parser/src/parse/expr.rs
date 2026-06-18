@@ -806,23 +806,44 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // back; operator continuations like `interval + 1` reach try_alt too.
             //
             // A nested INTERVAL in the value position of an enclosing INTERVAL
-            // (`interval interval '5 day' month`) is special: cpp's ALL(*)
-            // reserves the trailing unit (`month`) for the OUTER interval, so
-            // the inner one never takes the unit-consuming form. Parse it
-            // string-only when a string follows (`interval '5 day'` →
-            // `toIntervalDay(5)`, with a bad string a hard error like cpp's
-            // `ColumnExprIntervalString`), else as a Field / call via the ident
-            // path (`interval - x` → `interval` Field minus `x`; `interval(1)`
-            // → call). The trailing unit then binds to the outer interval.
+            // is two-faced. The STRING form (`interval interval '5 day' month`)
+            // is self-contained — count and unit live inside the string — so
+            // cpp's ALL(*) parses the inner string-only and reserves the
+            // trailing `month` for the OUTER interval (a bad string is a hard
+            // error like cpp's `ColumnExprIntervalString`). The EXPR form is
+            // resolved by which reading lets the WHOLE thing parse: the inner is
+            // a nested `INTERVAL <value> <unit>` only when it leaves a unit for
+            // the outer (`interval interval 0 week week` → inner `INTERVAL 0
+            // WEEK`, outer `WEEK`). Otherwise the inner `interval` is an
+            // identifier and its trailing unit binds to the outer
+            // (`interval interval - x week` → `INTERVAL (interval - x) WEEK`;
+            // `interval interval(1) week` → the call as the value). So probe the
+            // nested form and keep it only when a unit keyword still follows.
             TokenKind::Keyword(Kw::Interval) if interval_value => {
                 if self.peek_next() == TokenKind::String {
                     self.parse_interval_string_only()
                         .map_err(ParseError::into_fatal)
                 } else {
-                    self.parse_ident_lead()
+                    let cp = self.checkpoint();
+                    match self.parse_interval_expr() {
+                        Ok(inner) if self.peek_is_interval_unit() => Ok(inner),
+                        Err(e) if e.fatal => Err(e),
+                        _ => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    }
                 }
             }
-            TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
+            // A HogQLX tag is a valid interval value (`interval <t/> second` →
+            // `INTERVAL (<t/>) SECOND`), but `<` is a pure-infix operator so
+            // `can_start_interval_value` rejects it — admit it explicitly when
+            // the `<` actually begins a tag (not a `<` comparison). The try_alt
+            // below still falls back to the `interval < x` comparison reading
+            // when the tag parse doesn't pan out.
+            TokenKind::Keyword(Kw::Interval)
+                if can_start_interval_value(self.peek_next()) || self.peek_next_starts_hogqlx_tag() =>
+            {
                 if self.peek_next() == TokenKind::String {
                     self.parse_interval_expr().map_err(ParseError::into_fatal)
                 } else {
@@ -1420,6 +1441,27 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             _ => false,
         }
+    }
+
+    /// Is `peek0` one of the eight singular INTERVAL unit *keywords* the
+    /// `interval` grammar rule admits (`SECOND … YEAR`)? Matches exactly what
+    /// `parse_interval_expr`'s unit slot accepts (plurals / quoted idents are
+    /// NOT units), so the nested-interval probe can tell whether a unit still
+    /// remains for an enclosing INTERVAL.
+    fn peek_is_interval_unit(&self) -> bool {
+        matches!(
+            self.peek(),
+            TokenKind::Keyword(
+                Kw::Second
+                    | Kw::Minute
+                    | Kw::Hour
+                    | Kw::Day
+                    | Kw::Week
+                    | Kw::Month
+                    | Kw::Quarter
+                    | Kw::Year
+            )
+        )
     }
 
     /// Is the current token a `WITH` that begins a `WITH (LOCAL)? TIME
