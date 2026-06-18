@@ -8,6 +8,8 @@ import { BigNumber, LineChart, type Series } from './charts'
 import type { TableVisualizerProps } from './types'
 import { formatNumber } from './utils'
 
+const TITLE = 'Query results'
+
 // Query results are truncated client-side; sorting a truncated view would
 // mislead, so columns are non-sortable.
 const MAX_ROWS = 20
@@ -126,7 +128,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     if (format.type === 'single-number' && format.value !== undefined) {
         return (
             <div>
-                <ChartHeader title="Query results" />
+                <ChartHeader title={TITLE} />
                 <BigNumber value={format.value} label={format.label} />
             </div>
         )
@@ -146,7 +148,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         )
         return (
             <div>
-                <ChartHeader title="Query results" />
+                <ChartHeader title={TITLE} />
                 <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
             </div>
         )
@@ -155,7 +157,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
     if (rows.length === 0) {
         return (
             <div>
-                <ChartHeader title="Query results" />
+                <ChartHeader title={TITLE} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
@@ -180,7 +182,7 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
 
     return (
         <div className="flex flex-col gap-2">
-            <ChartHeader title="Query results" />
+            <ChartHeader title={TITLE} />
             <DataTable columns={tableColumns} data={displayRows} />
             {hasMore && (
                 <span className="text-center text-xs text-muted-foreground">

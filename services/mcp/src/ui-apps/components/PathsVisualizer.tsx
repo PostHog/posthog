@@ -7,6 +7,8 @@ import { ChartHeader } from './ChartHeader'
 import type { PathsVisualizerProps } from './types'
 import { formatDuration, formatNumber } from './utils'
 
+const TITLE = 'Paths'
+
 // Edges are sorted by user count and the busiest paths lead, so a truncated
 // view stays meaningful; columns are non-sortable to match.
 const MAX_ROWS = 20
@@ -37,7 +39,7 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
     if (edges.length === 0) {
         return (
             <div>
-                <ChartHeader title="Paths" />
+                <ChartHeader title={TITLE} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
@@ -78,7 +80,7 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
 
     return (
         <div>
-            <ChartHeader title="Paths" />
+            <ChartHeader title={TITLE} />
             <DataTable columns={tableColumns} data={displayRows} className="rounded-lg border" />
             {hasMore && (
                 <span className="mt-2 block text-center text-xs text-muted-foreground">

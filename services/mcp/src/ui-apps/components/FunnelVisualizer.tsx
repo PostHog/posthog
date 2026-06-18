@@ -15,6 +15,8 @@ import { FUNNEL_COLOR, useMcpChartTheme } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
 
+const TITLE = 'Funnel'
+
 const NOOP = (): void => {}
 
 // The web container hides the x-axis and renders its own StepLegend row; this compact UI app instead
@@ -49,7 +51,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
     if (steps.length === 0) {
         return (
             <div>
-                <ChartHeader title="Funnel" />
+                <ChartHeader title={TITLE} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
@@ -62,7 +64,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
 
     return (
         <div data-attr="funnel-steps-bar" className="w-full">
-            <ChartHeader title="Funnel" />
+            <ChartHeader title={TITLE} />
             <div className="flex flex-col h-72 w-full">
                 <BarChart
                     series={series}

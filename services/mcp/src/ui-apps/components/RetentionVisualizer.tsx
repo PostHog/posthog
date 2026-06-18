@@ -13,6 +13,8 @@ import type { RetentionVisualizerProps } from './types'
 
 type ChartMode = 'line' | 'bar'
 
+const TITLE = 'Retention'
+
 const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
@@ -47,7 +49,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
         return (
             <div>
-                <ChartHeader title="Retention" />
+                <ChartHeader title={TITLE} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -60,7 +62,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
 
     return (
         <div>
-            <ChartHeader title="Retention">
+            <ChartHeader title={TITLE}>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </ChartHeader>

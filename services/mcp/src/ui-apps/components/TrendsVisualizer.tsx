@@ -37,6 +37,8 @@ import {
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
 
+const TITLE = 'Trends'
+
 const CHART_TYPE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'area' as const, label: 'Area' },
@@ -77,7 +79,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (!results || results.length === 0) {
         return (
             <div>
-                <ChartHeader title="Trends" />
+                <ChartHeader title={TITLE} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -93,7 +95,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return (
             <div>
-                <ChartHeader title="Trends" />
+                <ChartHeader title={TITLE} />
                 <BigNumber value={total} label={label} />
             </div>
         )
@@ -109,7 +111,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div>
-                <ChartHeader title="Trends" />
+                <ChartHeader title={TITLE} />
                 <div className="flex flex-col w-full h-[400px]">
                     <BarValueChart
                         series={barSeries}
@@ -211,7 +213,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <ChartHeader title="Trends">
+            <ChartHeader title={TITLE}>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
                 {effectiveType !== 'slope' && (
