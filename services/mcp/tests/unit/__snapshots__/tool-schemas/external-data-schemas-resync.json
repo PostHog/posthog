@@ -46,6 +46,7 @@
         "incremental_field_lookback_seconds": {
             "anyOf": [
                 {
+                    "maximum": 5184000,
                     "minimum": 0,
                     "type": "number"
                 },
@@ -53,7 +54,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged."
+            "description": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days)."
         },
         "incremental_field_type": {
             "anyOf": [
