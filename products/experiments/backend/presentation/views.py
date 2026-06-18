@@ -63,6 +63,7 @@ from products.experiments.backend.presentation.serializers import (
 )
 from products.experiments.backend.recalculation import (
     build_job_payload,
+    build_timeseries_cold_start_payload,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
@@ -915,9 +916,14 @@ class EnterpriseExperimentsViewSet(
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
         recalc = get_latest_recalculation(experiment)
-        if recalc is None:
-            return Response({"detail": "No completed recalculation found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        if recalc is not None:
+            return Response(_serialize_recalculation(recalc))
+        # Cold start: no completed run yet. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately. Pure read, no workflow start.
+        fallback = build_timeseries_cold_start_payload(experiment)
+        if fallback is not None:
+            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+        return Response({"detail": "No completed recalculation found"}, status=404)
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
     @action(
