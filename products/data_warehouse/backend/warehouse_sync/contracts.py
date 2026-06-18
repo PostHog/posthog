@@ -3,6 +3,10 @@ from datetime import datetime
 
 from rest_framework import serializers
 
+# Backend-neutral freshness contract. Today only the Dagster event backfill fills it (backend
+# "dagster", initial_backfill null, never "seeding"). The "viaduck" backend, "seeding" state, and
+# the initial_backfill block are kept so a future CDC backend — which routes per tenant and tracks
+# real seeding progress — can populate them without an API or UI change.
 WAREHOUSE_SYNC_STATES = ["seeding", "caught_up", "lagging", "error", "not_started"]
 WAREHOUSE_SYNC_BACKENDS = ["dagster", "viaduck"]
 
