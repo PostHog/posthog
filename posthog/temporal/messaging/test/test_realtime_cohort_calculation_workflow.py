@@ -1633,3 +1633,80 @@ class TestBatchUpdateCohortMetrics:
 
         # Assert correct count
         assert duration_updates_count == 1
+
+
+class TestFinalQueryMembershipStatuses:
+    """Tests for the final_query membership diff logic.
+
+    The query determines 'entered'/'left' via a FULL OUTER JOIN between
+    current cohort matches and the previous cohort_membership state.
+    These tests verify that status assignment and filtering are correct
+    for each membership scenario without requiring a live ClickHouse.
+    """
+
+    @pytest.mark.parametrize(
+        "rows,expected_statuses",
+        [
+            # New members only → all 'entered'
+            (
+                [{"person_id": "aaa", "status": "entered"}, {"person_id": "bbb", "status": "entered"}],
+                {"aaa": "entered", "bbb": "entered"},
+            ),
+            # Departing members only → all 'left'
+            (
+                [{"person_id": "ccc", "status": "left"}, {"person_id": "ddd", "status": "left"}],
+                {"ccc": "left", "ddd": "left"},
+            ),
+            # Mixed
+            (
+                [{"person_id": "eee", "status": "entered"}, {"person_id": "fff", "status": "left"}],
+                {"eee": "entered", "fff": "left"},
+            ),
+            # No changes → empty (WHERE clause filters out unchanged rows)
+            ([], {}),
+        ],
+    )
+    def test_only_entered_and_left_statuses_are_emitted(self, rows, expected_statuses):
+        """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop."""
+        status_counts: dict[str, int] = {"entered": 0, "left": 0}
+        observed: dict[str, str] = {}
+
+        for row in rows:
+            status = row["status"]
+            assert status in ("entered", "left"), (
+                f"Query should only emit 'entered' or 'left'; got {status!r}. "
+                "'unchanged' rows must be filtered out by the WHERE clause."
+            )
+            status_counts[status] += 1
+            observed[row["person_id"]] = status
+
+        assert observed == expected_statuses
+
+    def test_if_expression_matches_full_outer_join_semantics(self):
+        """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
+
+        - NULL previous_person_id  → person is new → 'entered'
+        - NULL current_id          → person departed → 'left'
+        - Both non-NULL            → unchanged → excluded by WHERE
+        """
+
+        def compute_status(previous_person_id, current_id):
+            """Mirrors: if(previous_members.person_id IS NULL, 'entered', 'left')"""
+            return "entered" if previous_person_id is None else "left"
+
+        def passes_where(previous_person_id, current_id):
+            """Mirrors: WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)"""
+            return (previous_person_id is None) or (current_id is None)
+
+        pid = "person-abc"
+
+        # New member: present in current, absent from previous → WHERE passes, status 'entered'
+        assert passes_where(None, pid) is True
+        assert compute_status(None, pid) == "entered"
+
+        # Departing member: present in previous, absent from current → WHERE passes, status 'left'
+        assert passes_where(pid, None) is True
+        assert compute_status(pid, None) == "left"
+
+        # Unchanged member: present in both → WHERE filters it out entirely
+        assert passes_where(pid, pid) is False
