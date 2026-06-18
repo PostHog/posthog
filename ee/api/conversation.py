@@ -58,6 +58,7 @@ from products.posthog_ai.backend.context_wrapper import (
 )
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.constants import INITIAL_PERMISSION_MODE_CHOICES
 from products.tasks.backend.models import Task, TaskRun
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -230,6 +231,14 @@ class SandboxOpenSerializer(serializers.Serializer):
         required=False,
         child=SandboxAttachedContextItemSerializer(),
         help_text="Typed PostHog entities (and free text) attached to this message.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        help_text=(
+            "Initial permission mode for the sandbox agent session. "
+            "Defaults to `auto`, which allows safe tool use while preserving explicit confirmations."
+        ),
     )
 
 
