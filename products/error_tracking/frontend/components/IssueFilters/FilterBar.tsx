@@ -236,9 +236,11 @@ const BarContents = ({
             )}
             {!isInline && <Separator />}
             <div className={cn('flex-1 min-w-0 flex items-center flex-wrap gap-1', !isInline && 'px-1')}>
-                {/* Filter trigger as its own island, sized like the date/sort groups. */}
-                <div className={cn('flex items-center shrink-0', isInline && INLINE_CLUSTER)}>
+                {/* Filter trigger as its own island, sized like the date/sort groups. The mr evens the
+                    gap to the first chip with the gap between islands (4px chip gap + 4px = 8px). */}
+                <div className={cn('flex items-center shrink-0', isInline && [INLINE_CLUSTER, 'mr-1'])}>
                     <TaxonomicFilterMenu
+                        typeToSearch
                         placeholder={
                             showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
                         }

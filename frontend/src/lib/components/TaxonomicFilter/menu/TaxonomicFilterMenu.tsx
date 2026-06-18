@@ -135,6 +135,12 @@ export interface TaxonomicFilterMenuProps {
     comboboxLeadingEntries?: MenuFilterEntry[]
     /** Hide the "Recent" dropdown entry (recents still lead the combobox's All surface). */
     hideRecent?: boolean
+    /**
+     * When the dropdown menu is open, typing a printable character jumps straight into the combobox
+     * search (seeded with that character) and the "New filter…" row hints "or start typing". Opt-in
+     * so the rebuild menu's default keyboard behaviour is unchanged for other consumers.
+     */
+    typeToSearch?: boolean
 }
 
 export interface TriggerState {
@@ -204,6 +210,7 @@ export function TaxonomicFilterMenu({
     extraMenuItems,
     comboboxLeadingEntries,
     hideRecent = false,
+    typeToSearch = false,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
         useTaxonomicFilterContext()
@@ -763,7 +770,22 @@ export function TaxonomicFilterMenu({
                     onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
-            <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuContent
+                align="start"
+                className="min-w-[240px]"
+                // A printable keystroke jumps straight into the combobox search, seeded with it.
+                onKeyDown={
+                    typeToSearch
+                        ? (e) => {
+                              if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                                  e.preventDefault()
+                                  setSearchQuery(e.key)
+                                  openCombobox('all')
+                              }
+                          }
+                        : undefined
+                }
+            >
                 {/* The input-trigger box already does "type to make a new filter",
                     so the explicit "New filter…" row would be redundant there. */}
                 {!useInputTrigger && (
@@ -772,6 +794,7 @@ export function TaxonomicFilterMenu({
                         data-attr="taxonomic-filter-menu-new"
                     >
                         New filter…
+                        {typeToSearch && <span className="ml-1.5 text-tertiary">or start typing</span>}
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
