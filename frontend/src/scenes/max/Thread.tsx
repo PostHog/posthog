@@ -86,6 +86,7 @@ import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import type { McpToolCallMessage } from './maxTypes'
 import { lookupMcpToolRenderer } from './mcpToolRegistry'
+import { AssistantFailureMessage } from './messages/AssistantFailureMessage'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
@@ -221,26 +222,7 @@ function SandboxThread(): JSX.Element {
                     )
                 }
                 if (item.type === 'error') {
-                    if (item.variant === 'crash') {
-                        return (
-                            <MessageTemplate key={item.id} type="ai" boxClassName="border-danger">
-                                <div className="flex flex-col gap-1">
-                                    <span className="text-danger">
-                                        The agent encountered a fatal error and stopped. You can send a new message to
-                                        try again.
-                                    </span>
-                                    {item.errorMessage && (
-                                        <span className="text-xs text-muted">{item.errorMessage}</span>
-                                    )}
-                                </div>
-                            </MessageTemplate>
-                        )
-                    }
-                    return (
-                        <MessageTemplate key={item.id} type="ai" boxClassName="text-danger">
-                            {item.errorMessage}
-                        </MessageTemplate>
-                    )
+                    return <AssistantFailureMessage key={item.id} id={item.id} content={item.errorMessage} />
                 }
                 if (item.type === 'status') {
                     return <SandboxStatusItem key={item.id} item={item} />
@@ -1087,21 +1069,20 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
           })()
         : null
 
+    if (isFailureMessage(message)) {
+        return (
+            <AssistantFailureMessage id={message.id || 'error'} content={message.content} ref={ref} action={action} />
+        )
+    }
+
     return (
         <MessageTemplate
             type="ai"
-            boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+            boxClassName={message.status === 'error' ? 'border-danger' : undefined}
             ref={ref}
             action={action}
         >
-            {message.content ? (
-                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
-            ) : (
-                <MarkdownMessage
-                    content={message.content || '*PostHog AI has failed to generate an answer. Please try again.*'}
-                    id={message.id || 'error'}
-                />
-            )}
+            <MarkdownMessage content={message.content || ''} id={message.id || 'in-progress'} />
         </MessageTemplate>
     )
 })
