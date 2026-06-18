@@ -126,6 +126,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     // Debounce burst typing in the form so we don't fire a request per keypress.
                     await breakpoint(300)
                     const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    breakpoint()
                     return {
                         sampleSize: result.recommended_sample_size,
                         runningTime: result.recommended_running_time_days,
