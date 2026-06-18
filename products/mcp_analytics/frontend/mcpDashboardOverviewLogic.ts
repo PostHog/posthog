@@ -32,7 +32,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
-    countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions,
+    countDistinctIf($session_id, $session_id != '') AS sessions,
     count() AS tool_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
@@ -49,7 +49,7 @@ ORDER BY bucket
 // applies fixed rules over this set; no per-rule SQL.
 const SESSION_ROWS_QUERY = `
 SELECT
-    toString(properties.$session_id) AS session_id,
+    $session_id AS session_id,
     count() AS tool_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
@@ -58,8 +58,7 @@ SELECT
     max(timestamp) AS last_seen
 FROM events
 WHERE event = '$mcp_tool_call'
-    AND properties.$session_id IS NOT NULL
-    AND properties.$session_id != ''
+    AND $session_id != ''
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
@@ -93,7 +92,7 @@ SELECT
     toString(properties.$mcp_client_name) AS client,
     count() AS total_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
-    countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions
+    countDistinctIf($session_id, $session_id != '') AS sessions
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_client_name IS NOT NULL
