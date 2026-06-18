@@ -76,7 +76,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content)),
         ):
-            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
     def test_happy_path_persists_markdown_and_slack(self) -> None:
         self._observation("Users churned at checkout", title="Checkout")
@@ -121,7 +121,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 5)
@@ -154,7 +154,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
             patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         self.assertEqual(result.status, expected)
         run.refresh_from_db()
@@ -220,7 +220,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
         ):
-            _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         human = captured["human"]
         self.assertIn("focus on rage clicks", human)

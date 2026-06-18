@@ -22,6 +22,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     SynthesisStatus,
     SynthesizeGroupSummaryResult,
     UpdateVisionActionRunInputs,
+    ValidateVisionActionInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
 
@@ -140,7 +141,9 @@ class TestEngineActivities(BaseTest):
             action_id = _action(self.team, name="off", enabled=False).id
         else:
             action_id = _action(self.team, name="noflow").id
-        self.assertEqual(act._validate(action_id), case)
+        self.assertEqual(
+            act._validate(ValidateVisionActionInputs(vision_action_id=action_id, team_id=self.team.id)), case
+        )
 
     def test_update_run(self) -> None:
         action = _action(self.team)
@@ -148,7 +151,7 @@ class TestEngineActivities(BaseTest):
         run.save()
         act._update_run(
             UpdateVisionActionRunInputs(
-                run_id=run.id, status=VisionActionRunStatus.FAILED.value, error={"message": "x"}
+                run_id=run.id, team_id=self.team.id, status=VisionActionRunStatus.FAILED.value, error={"message": "x"}
             )
         )
         run.refresh_from_db()
@@ -165,7 +168,7 @@ class TestEngineActivities(BaseTest):
         captured = MagicMock()
         captured.raise_for_status = MagicMock()
         with patch.object(act, "capture_internal_routed", return_value=captured) as mock_capture:
-            act._emit(EmitActionReadyInputs(run_id=run.id))
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
 
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
@@ -278,6 +281,24 @@ async def test_process_synthesis_failure_records_failed_and_reraises() -> None:
 
     # Even on failure the run is still updated to FAILED (the schedule was already advanced at claim).
     assert _final_status(mocks) == VisionActionRunStatus.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_update_run_failure_after_success_is_swallowed() -> None:
+    # Body succeeded (emit happened → Slack delivered); a failed bookkeeping update must NOT flip the
+    # workflow to FAILED — re-running would double-post. The workflow finishes without raising.
+    mocks = _Mocks(
+        results={
+            act.create_vision_action_run_activity: uuid.uuid4(),
+            act.validate_vision_action_activity: None,
+            synthesize_group_summary_activity: SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED),
+        },
+        errors={act.update_vision_action_run_activity: RuntimeError("update boom")},
+    )
+    await _run_process(_process_inputs(), mocks)
+
+    assert act.emit_action_ready_activity in mocks.calls()
+    assert _final_status(mocks) == VisionActionRunStatus.COMPLETED.value
 
 
 @pytest.mark.asyncio

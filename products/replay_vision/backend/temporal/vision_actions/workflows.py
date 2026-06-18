@@ -21,6 +21,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     SynthesisStatus,
     SynthesizeGroupSummaryInputs,
     UpdateVisionActionRunInputs,
+    ValidateVisionActionInputs,
 )
 
 # `activities` + the synthesis activity pull in Django/ee, which the workflow sandbox can't re-import.
@@ -70,7 +71,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
 
             skip_reason = await wf.execute_activity(
                 validate_vision_action_activity,
-                inputs.vision_action_id,
+                ValidateVisionActionInputs(vision_action_id=inputs.vision_action_id, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=_RECORD_RETRY,
             )
@@ -79,7 +80,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
 
             synth = await wf.execute_activity(
                 synthesize_group_summary_activity,
-                SynthesizeGroupSummaryInputs(run_id=run_id),
+                SynthesizeGroupSummaryInputs(run_id=run_id, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_SYNTH_RETRY,
             )
@@ -91,7 +92,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
 
             await wf.execute_activity(
                 emit_action_ready_activity,
-                EmitActionReadyInputs(run_id=run_id),
+                EmitActionReadyInputs(run_id=run_id, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=_EMIT_RETRY,
             )
@@ -107,16 +108,21 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 try:
                     await wf.execute_activity(
                         update_vision_action_run_activity,
-                        UpdateVisionActionRunInputs(run_id=run_id, status=final_status, error=error_info),
+                        UpdateVisionActionRunInputs(
+                            run_id=run_id, team_id=inputs.team_id, status=final_status, error=error_info
+                        ),
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=_RECORD_RETRY,
                     )
                 except Exception:
+                    # If the body already succeeded, the delivery event was emitted (Slack post happened);
+                    # a failed bookkeeping update must not flip the workflow to FAILED — re-running would
+                    # double-post. Log loudly and let the workflow finish; the run row may stay RUNNING
+                    # (cosmetic, a post-MVP reconciler can resolve it). If the body failed, the original
+                    # error still re-raises below — the update failure must not mask it.
                     wf.logger.exception(
                         "vision_action.update_run_failed", vision_action_id=str(inputs.vision_action_id)
                     )
-                    if caught is None:
-                        raise
 
         # Re-raise after finally — Temporal blocks activity scheduling while an exception propagates.
         if caught:

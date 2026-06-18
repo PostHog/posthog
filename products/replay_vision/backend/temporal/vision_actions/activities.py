@@ -26,6 +26,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     EmitActionReadyInputs,
     EvaluateDueVisionActionsInputs,
     UpdateVisionActionRunInputs,
+    ValidateVisionActionInputs,
 )
 
 logger = structlog.get_logger(__name__)
@@ -79,8 +80,9 @@ async def create_vision_action_run_activity(inputs: CreateVisionActionRunInputs)
 
 
 def _create_run(inputs: CreateVisionActionRunInputs) -> UUID:
-    # idempotency_key is unique → get_or_create makes the activity safe to retry.
-    run, _ = VisionActionRun.all_teams.get_or_create(
+    # idempotency_key is unique → get_or_create makes the activity safe to retry. for_team scopes the
+    # lookup; team_id stays in defaults because the filter doesn't propagate into row creation.
+    run, _ = VisionActionRun.objects.for_team(inputs.team_id).get_or_create(
         idempotency_key=inputs.idempotency_key,
         defaults={
             "vision_action_id": inputs.vision_action_id,
@@ -95,13 +97,13 @@ def _create_run(inputs: CreateVisionActionRunInputs) -> UUID:
 
 @activity.defn
 @track_activity()
-async def validate_vision_action_activity(vision_action_id: UUID) -> str | None:
+async def validate_vision_action_activity(inputs: ValidateVisionActionInputs) -> str | None:
     """Return a skip reason if the action shouldn't deliver, else None."""
-    return await database_sync_to_async(_validate, thread_sensitive=False)(vision_action_id)
+    return await database_sync_to_async(_validate, thread_sensitive=False)(inputs)
 
 
-def _validate(vision_action_id: UUID) -> str | None:
-    action = VisionAction.all_teams.filter(pk=vision_action_id).first()
+def _validate(inputs: ValidateVisionActionInputs) -> str | None:
+    action = VisionAction.objects.for_team(inputs.team_id).filter(pk=inputs.vision_action_id).first()
     if action is None:
         return "not_found"
     if not action.enabled:
@@ -119,7 +121,7 @@ async def update_vision_action_run_activity(inputs: UpdateVisionActionRunInputs)
 
 def _update_run(inputs: UpdateVisionActionRunInputs) -> None:
     # .update() bypasses auto_now, so stamp updated_at explicitly.
-    VisionActionRun.all_teams.filter(pk=inputs.run_id).update(
+    VisionActionRun.objects.for_team(inputs.team_id).filter(pk=inputs.run_id).update(
         status=inputs.status, error=inputs.error, updated_at=datetime.now(UTC)
     )
 
@@ -131,7 +133,7 @@ async def emit_action_ready_activity(inputs: EmitActionReadyInputs) -> None:
 
 
 def _emit(inputs: EmitActionReadyInputs) -> None:
-    run = VisionActionRun.all_teams.select_related("vision_action", "team").get(pk=inputs.run_id)
+    run = VisionActionRun.objects.for_team(inputs.team_id).select_related("vision_action", "team").get(pk=inputs.run_id)
     action = run.vision_action
     team = run.team
 
