@@ -6,6 +6,9 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    POSTHOG_AI_DEV_APP_ID,
+    POSTHOG_AI_EU_APP_ID,
+    POSTHOG_AI_US_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
@@ -66,10 +69,13 @@ class TestCheckProductAccess:
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
             ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
-            # posthog_ai allows API keys with any model; OAuth app IDs are configured separately per deployment
+            # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
             ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
             ("posthog_ai", "oauth_access_token", "any-app-id", "claude-sonnet-4-5", False, "not authorized"),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_US_APP_ID, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_EU_APP_ID, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_DEV_APP_ID, "claude-3-opus", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -328,38 +334,20 @@ class TestCheckProductAccess:
         assert error is not None
         assert "not authorized" in error
 
-    @patch(
-        "llm_gateway.products.config.get_settings",
-        return_value=MagicMock(
-            debug=False,
-            posthog_ai_us_app_id="posthog-ai-us-app-id",
-            posthog_ai_eu_app_id="posthog-ai-eu-app-id",
-            posthog_ai_dev_app_id="posthog-ai-dev-app-id",
-        ),
-    )
     @pytest.mark.parametrize(
         "application_id",
         [
-            "posthog-ai-us-app-id",
-            "posthog-ai-eu-app-id",
-            "posthog-ai-dev-app-id",
+            POSTHOG_AI_US_APP_ID,
+            POSTHOG_AI_EU_APP_ID,
+            POSTHOG_AI_DEV_APP_ID,
         ],
     )
-    def test_posthog_ai_allows_configured_oauth_apps(self, mock_get_settings: MagicMock, application_id: str):
+    def test_posthog_ai_allows_oauth_apps(self, application_id: str):
         allowed, error = check_product_access("posthog_ai", "oauth_access_token", application_id, "claude-sonnet-4-5")
         assert allowed is True
         assert error is None
 
-    @patch(
-        "llm_gateway.products.config.get_settings",
-        return_value=MagicMock(
-            debug=False,
-            posthog_ai_us_app_id="posthog-ai-us-app-id",
-            posthog_ai_eu_app_id="posthog-ai-eu-app-id",
-            posthog_ai_dev_app_id="posthog-ai-dev-app-id",
-        ),
-    )
-    def test_posthog_ai_rejects_posthog_code_oauth_app(self, mock_get_settings: MagicMock):
+    def test_posthog_ai_rejects_posthog_code_oauth_app(self):
         allowed, error = check_product_access(
             "posthog_ai", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-5"
         )

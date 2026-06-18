@@ -138,10 +138,6 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
-    posthog_ai_us_app_id: str | None = None
-    posthog_ai_eu_app_id: str | None = None
-    posthog_ai_dev_app_id: str | None = None
-
     # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"

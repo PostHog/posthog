@@ -7,6 +7,7 @@ from posthog.temporal.oauth import (
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
     create_oauth_access_token_for_user,
@@ -147,9 +148,9 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         user = User.objects.create(email="oauth-test@example.com")
         return user, team
 
-    @override_settings(CLOUD_DEPLOYMENT="DEV", POSTHOG_AI_APP_CLIENT_ID_DEV="posthog-ai-dev-client")
-    def test_posthog_ai_application_uses_configured_dev_app(self) -> None:
-        app = self._create_oauth_app("posthog-ai-dev-client", "PostHog AI Dev App")
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_posthog_ai_application_uses_dev_app(self) -> None:
+        app = self._create_oauth_app(POSTHOG_AI_APP_CLIENT_ID_DEV, "PostHog AI Dev App")
         user, team = self._create_user_and_team()
 
         token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
@@ -158,9 +159,9 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
 
-    @override_settings(CLOUD_DEPLOYMENT="DEV", POSTHOG_AI_APP_CLIENT_ID_DEV="")
-    def test_posthog_ai_application_requires_configured_client_id(self) -> None:
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_posthog_ai_application_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 
-        with self.assertRaisesRegex(RuntimeError, "PostHog AI app not configured"):
+        with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")

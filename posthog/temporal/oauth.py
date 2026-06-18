@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import Literal
 
-from django.conf import settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
@@ -12,6 +11,9 @@ from posthog.utils import get_instance_region
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
+POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
+POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
+POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy"
 
 McpScopePreset = Literal["read_only", "full", "signals_scout"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
@@ -148,9 +150,9 @@ def get_posthog_ai_app() -> OAuthApplication:
     region = get_instance_region()
     client_id = _get_client_id_for_region(
         region=region,
-        us=settings.POSTHOG_AI_APP_CLIENT_ID_US,
-        eu=settings.POSTHOG_AI_APP_CLIENT_ID_EU,
-        dev=settings.POSTHOG_AI_APP_CLIENT_ID_DEV,
+        us=POSTHOG_AI_APP_CLIENT_ID_US,
+        eu=POSTHOG_AI_APP_CLIENT_ID_EU,
+        dev=POSTHOG_AI_APP_CLIENT_ID_DEV,
     )
 
     return _get_oauth_app_for_client_id(client_id, "PostHog AI", region)

@@ -32,6 +32,9 @@ TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
 TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
+POSTHOG_AI_US_APP_ID = "019edb18-9cc2-0000-8dac-e5fa0320639b"
+POSTHOG_AI_EU_APP_ID = "019edb1b-1689-0000-670d-913902c44e12"
+POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
 # is the same code regardless of where the task was initiated, so the model
@@ -158,7 +161,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         billable=False,
     ),
     "posthog_ai": ProductConfig(
-        allowed_application_ids=frozenset(),
+        allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
         allowed_models=None,  # any model
         allow_api_keys=True,
         billable=True,
@@ -182,18 +185,6 @@ def resolve_product_alias(product: str) -> str:
 
 def get_product_config(product: str) -> ProductConfig | None:
     return PRODUCTS.get(resolve_product_alias(product))
-
-
-def _posthog_ai_allowed_application_ids(settings: object) -> frozenset[str]:
-    return frozenset(
-        app_id
-        for app_id in (
-            getattr(settings, "posthog_ai_us_app_id", None),
-            getattr(settings, "posthog_ai_eu_app_id", None),
-            getattr(settings, "posthog_ai_dev_app_id", None),
-        )
-        if app_id
-    )
 
 
 def validate_product(product: str) -> str:
@@ -250,11 +241,7 @@ def check_product_access(
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        allowed_application_ids = (
-            _posthog_ai_allowed_application_ids(settings)
-            if resolved_product == "posthog_ai"
-            else config.allowed_application_ids or frozenset()
-        )
+        allowed_application_ids = config.allowed_application_ids or frozenset()
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
