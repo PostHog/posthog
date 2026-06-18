@@ -173,7 +173,7 @@ export class CyclotronV2Worker {
      * janitor / email-consumer promotion pass when a future-scheduled row's
      * `scheduled` enters the window.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` whose
+     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue_v2` whose
      * predicate is `status='available' AND queue_name='email' AND
      * dequeue_seq IS NOT NULL`. Rows with NULL seq (future-scheduled +
      * legacy pre-migration) are not in the index, so the scan never walks

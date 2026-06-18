@@ -10,8 +10,8 @@ import { EMAIL_DEQUEUE_BLOCK_SIZE } from './manager'
  * (default 10s) so a ready-now row always gets its seq at insert, never via
  * promotion.
  *
- * Future rows kept out of the partial index `idx_cyclotron_jobs_email_fair_dequeue`
- * (whose predicate now includes `AND dequeue_seq IS NOT NULL`), so the
+ * Future rows kept out of the partial index `idx_cyclotron_jobs_email_fair_dequeue_v2`
+ * (whose predicate includes `AND dequeue_seq IS NOT NULL`), so the
  * dequeue scan doesn't have to walk past them. Without this, a tenant
  * staging a large onboarding batch would pin the fair dequeue for every
  * subsequent ready row from any other tenant whose seq sorts after the

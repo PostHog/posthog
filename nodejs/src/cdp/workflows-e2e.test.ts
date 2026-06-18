@@ -1560,7 +1560,7 @@ describe('Workflows E2E (email queue)', () => {
     it('NULL-seq email row is invisible to the worker until the janitor promotes it', async () => {
         // End-to-end coverage for the janitor scheduled-email promotion pass:
         //
-        //   1. Tightened partial index `idx_cyclotron_jobs_email_fair_dequeue`
+        //   1. Tightened partial index `idx_cyclotron_jobs_email_fair_dequeue_v2`
         //      excludes `dequeue_seq IS NULL`, so the email worker can't see
         //      a NULL row at all.
         //   2. Janitor's `promoteScheduledEmailJobs` pass assigns a fresh
