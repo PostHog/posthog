@@ -81,7 +81,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
-from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -90,6 +90,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -311,6 +312,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         feature_flags_local_eval_canary_task.s(),
         name="feature flags local-eval canary",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        report_stuck_heatmap_screenshots.s(),
+        name="report stuck heatmap screenshots",
         expires_seconds=5 * 60,
     )
 

@@ -1,12 +1,11 @@
-import json
 from typing import Any
-from urllib.parse import quote
 
 import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 
+from products.customer_analytics.backend.account_urls import build_account_deeplink
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.models import Account
 from products.notifications.backend.facade.api import (
@@ -66,7 +65,8 @@ def notify_managers_of_usage_spike(
 
         title = f"Usage spike: {account.name}"[:TITLE_MAX_LENGTH]
         body = _build_body(spikes, detected_at)[:BODY_MAX_LENGTH]
-        source_url = _build_source_url(account)
+        # Project-relative; the notifications side panel adds the project prefix on navigation.
+        source_url = build_account_deeplink(account_id=str(account.id), tab="usage")
 
         for user_id in manager_user_ids:
             _notify_manager(
@@ -80,23 +80,6 @@ def notify_managers_of_usage_spike(
     except Exception as e:
         capture_exception(e)
         logger.exception("usage_spike.dispatch_failed", spike_id=spike_id)
-
-
-def _build_source_url(account: Account) -> str:
-    # Deep-link straight to the account's expanded row on the Usage tab. Project-relative on purpose:
-    # the notifications side panel adds the project prefix when navigating (same-project push or the
-    # cross-project urls.project(...) wrapper), so a `/project/<id>` prefix here would double up. The
-    # `#open=` hash mirrors kea-router's encoding (JSON.stringify + percent-encoding) so the accounts
-    # list consumes it on load — see AccountsOpenUrlState in accountsLogic.ts. external_id/name let the
-    # list reveal the account when it's off-screen; id drives the expand and scroll.
-    open_state: dict[str, str] = {"id": str(account.id)}
-    if account.external_id:
-        open_state["externalId"] = account.external_id
-    if account.name:
-        open_state["name"] = account.name
-    open_state["tab"] = "usage"
-    encoded = quote(json.dumps(open_state, separators=(",", ":")), safe="")
-    return f"/customer_analytics/accounts#open={encoded}"
 
 
 def _find_account(

@@ -7074,6 +7074,15 @@ class SymbolStatsRow(BaseModel):
         description="`endLine` of the matched symbol's range. Symbol mode only.",
     )
     error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    error_rate_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in error rate (`error_count / count` per window) vs the"
+            " previous period. Null when the previous error rate is 0 — i.e. the"
+            " previous window had no errors or no traffic. This includes a 0→N"
+            " new-error spike, which surfaces as null rather than a delta."
+        ),
+    )
     line: int = Field(
         ...,
         description=(
@@ -7089,6 +7098,14 @@ class SymbolStatsRow(BaseModel):
         description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
     )
     p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p50_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p50 duration vs the previous period (180 = +180%)."
+            " Null when the previous p50 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
     p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
     p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
     p95_duration_pct_change: float | None = Field(
@@ -7101,6 +7118,14 @@ class SymbolStatsRow(BaseModel):
     )
     p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
     p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    p99_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p99 duration vs the previous period (180 = +180%)."
+            " Null when the previous p99 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
     previous: SymbolStatsPeriod = Field(
         ...,
         description=("The same metrics over the immediately-preceding equal-length period."),

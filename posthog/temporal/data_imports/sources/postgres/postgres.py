@@ -14,7 +14,7 @@ from datetime import (
     time as datetime_time,
     timezone,
 )
-from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, TypeVar, cast
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -245,6 +245,34 @@ def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
         raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
+_T = TypeVar("_T")
+
+
+def _retry_on_connection_dropped(
+    operation: Callable[[], _T],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = 5,
+) -> _T:
+    """Run `operation`, retrying transient connection-dropped errors with bounded backoff.
+
+    Permanent errors (auth failures, SSL-required) are re-raised immediately because
+    `_is_connection_dropped_error` only matches transient drops.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
+            if not _is_connection_dropped_error(e):
+                raise
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            logger.debug(f"Connection dropped ({e}). Retrying (attempt {attempt}/{max_attempts})")
+            time.sleep(min(2 * attempt, 30))
+
+
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -261,18 +289,7 @@ def _connect_with_dropped_retry(
     bounded backoff; permanent errors (auth failures, SSL-required) are re-raised
     immediately because `_is_connection_dropped_error` only matches transient drops.
     """
-    attempt = 0
-    while True:
-        try:
-            return connect()
-        except _CONNECTION_DROPPED_ERROR_TYPES as e:
-            if not _is_connection_dropped_error(e):
-                raise
-            attempt += 1
-            if attempt >= max_attempts:
-                raise
-            logger.debug(f"Connection attempt failed ({e}). Retrying (attempt {attempt}/{max_attempts})")
-            time.sleep(min(2 * attempt, 30))
+    return _retry_on_connection_dropped(connect, logger, max_attempts=max_attempts)
 
 
 def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
@@ -929,41 +946,31 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop —
+
+    # Schema discovery opens a fresh connection on its own periodic cadence. A transient drop —
     # "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall, or
-    # SSH-tunnel hiccup, or a Supavisor "(EDBHANDLEREXITED)" pooler drop — is transient and recovers
-    # on a retry, exactly like the drops the import read path already retries via
-    # `_connect_with_dropped_retry`. Transaction-mode poolers (Supabase's Supavisor, PgBouncer)
-    # routinely accept the client connection and only drop the upstream backend once the first
-    # query runs, so the drop lands on the discovery query (`_is_duckdb_connection`'s
-    # `SELECT version()`), not the connect — the retry must span both or the blip fails the whole
-    # discovery activity and surfaces as captured error-tracking noise even though the next attempt
-    # would succeed. Permanent errors (auth failures, SSL-required) re-raise immediately because
-    # `_is_connection_dropped_error` only matches transient drops.
-    logger = structlog.get_logger()
-    attempt = 0
-    while True:
-        connection = _connect_with_dropped_retry(
-            lambda: _connect_to_postgres(
-                host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-            ),
-            logger,
+    # SSH-tunnel hiccup, or a Supavisor "DbHandler exited" (EDBHANDLEREXITED) mid-query — is the
+    # same class the import read path already retries via `_connect_with_dropped_retry`.
+    # Transaction-mode poolers (Supabase's Supavisor, PgBouncer) routinely accept the client
+    # connection and only drop the upstream backend once the first query runs, so the drop can land
+    # either on connect or on the first discovery query (e.g. `SELECT version()` in
+    # `_is_duckdb_connection`). Retry the whole connect-and-discover cycle on a fresh connection so
+    # the retry spans both — otherwise the blip fails the discovery activity and surfaces as
+    # captured error-tracking noise even though the next attempt would succeed. Permanent errors
+    # (auth failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+    # matches transient drops.
+    def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
+        connection = _connect_to_postgres(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
         )
         try:
             return _schemas_from_conn(connection, schema, names)
-        except _CONNECTION_DROPPED_ERROR_TYPES as e:
-            if not _is_connection_dropped_error(e):
-                raise
-            attempt += 1
-            if attempt >= _MAX_SETUP_CONNECTION_DROPPED_RETRIES:
-                raise
-            logger.debug(
-                f"Schema discovery query failed ({e}). "
-                f"Retrying (attempt {attempt}/{_MAX_SETUP_CONNECTION_DROPPED_RETRIES})"
-            )
-            time.sleep(min(2 * attempt, 30))
         finally:
             connection.close()
+
+    return _retry_on_connection_dropped(
+        _connect_and_discover, structlog.get_logger(), max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES
+    )
 
 
 def get_primary_keys_for_schemas(
