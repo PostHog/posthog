@@ -101,6 +101,7 @@ function discoverProviders(): ProviderSpec[] {
             model: posthogAiGatewayModel({
                 specModel: process.env.REAL_INFERENCE_MODEL_ID ?? 'openai/gpt-4.1-mini',
                 baseUrl: process.env.POSTHOG_AI_GATEWAY_URL,
+                apiKey: process.env.POSTHOG_AI_GATEWAY_KEY,
             }),
             apiKey: process.env.POSTHOG_AI_GATEWAY_KEY,
         })
