@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 _DUMMY_CONTEXT = CustomPromptSandboxContext(team_id=1, user_id=1, repository="test/repo")
 _MOCK_RESOLVE_CTX = AsyncMock(return_value=_DUMMY_CONTEXT)
@@ -28,10 +28,10 @@ class TestRunSandboxReview:
     @pytest.mark.asyncio
     async def test_success(self, tmp_path: Path) -> None:
         output_path = tmp_path / "output.json"
-        mock_run = AsyncMock(return_value=('{"result": "ok"}', "full log content"))
+        mock_run = AsyncMock(return_value='{"result": "ok"}')
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
@@ -54,33 +54,12 @@ class TestRunSandboxReview:
         assert call_kwargs["branch"] == "test-branch"
 
     @pytest.mark.asyncio
-    async def test_saves_logs(self, tmp_path: Path) -> None:
-        output_path = tmp_path / "output.json"
-        mock_run = AsyncMock(return_value=('{"result": "ok"}', "line1\nline2\n"))
-
-        with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
-        ):
-            await run_sandbox_review(
-                prompt="p",
-                system_prompt="s",
-                branch="b",
-                output_path=str(output_path),
-                model_to_validate=DummyModel,
-            )
-
-        log_path = tmp_path / "output_logs.txt"
-        assert log_path.exists()
-        assert log_path.read_text() == "line1\nline2\n"
-
-    @pytest.mark.asyncio
     async def test_sandbox_execution_failure(self, tmp_path: Path) -> None:
         output_path = tmp_path / "output.json"
         mock_run = AsyncMock(side_effect=RuntimeError("sandbox crashed"))
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
@@ -97,10 +76,10 @@ class TestRunSandboxReview:
     @pytest.mark.asyncio
     async def test_empty_agent_message(self, tmp_path: Path) -> None:
         output_path = tmp_path / "output.json"
-        mock_run = AsyncMock(return_value=("", "some log"))
+        mock_run = AsyncMock(return_value="")
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
@@ -116,10 +95,10 @@ class TestRunSandboxReview:
     @pytest.mark.asyncio
     async def test_invalid_json_in_response(self, tmp_path: Path) -> None:
         output_path = tmp_path / "output.json"
-        mock_run = AsyncMock(return_value=("not valid json at all", "log"))
+        mock_run = AsyncMock(return_value="not valid json at all")
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
@@ -140,10 +119,10 @@ class TestRunSandboxReview:
     async def test_validation_failure(self, tmp_path: Path) -> None:
         output_path = tmp_path / "output.json"
         # Valid JSON but doesn't match DummyModel (missing required field)
-        mock_run = AsyncMock(return_value=('{"wrong_field": "value"}', "log"))
+        mock_run = AsyncMock(return_value='{"wrong_field": "value"}')
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", mock_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
@@ -165,16 +144,16 @@ class TestSemaphore:
         concurrent_count = 0
         max_concurrent_seen = 0
 
-        async def tracked_run(**kwargs: Any) -> tuple[str, str]:
+        async def tracked_run(**kwargs: Any) -> str:
             nonlocal concurrent_count, max_concurrent_seen
             concurrent_count += 1
             max_concurrent_seen = max(max_concurrent_seen, concurrent_count)
             await asyncio.sleep(0.05)
             concurrent_count -= 1
-            return '{"result": "ok"}', "log"
+            return '{"result": "ok"}'
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", side_effect=tracked_run),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=tracked_run),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(2)),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
@@ -199,15 +178,15 @@ class TestSemaphore:
     async def test_semaphore_releases_on_error(self, tmp_path: Path) -> None:
         call_count = 0
 
-        async def failing_then_succeeding(**kwargs: Any) -> tuple[str, str]:
+        async def failing_then_succeeding(**kwargs: Any) -> str:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise RuntimeError("boom")
-            return '{"result": "ok"}', "log"
+            return '{"result": "ok"}'
 
         with (
-            patch(f"{_EXECUTOR_PREFIX}.run_prompt", side_effect=failing_then_succeeding),
+            patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=failing_then_succeeding),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(1)),
             patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
         ):
