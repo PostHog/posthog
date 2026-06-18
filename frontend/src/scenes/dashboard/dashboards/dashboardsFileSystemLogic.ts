@@ -56,6 +56,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         pasteIntoFolder: (folder: string) => ({ folder }),
         renameDashboard: (dashboardId: number, name: string) => ({ dashboardId, name }),
         deleteDashboardWithConfirm: (dashboardId: number, name: string) => ({ dashboardId, name }),
+        startRenaming: (dashboardId: number) => ({ dashboardId }),
+        stopRenaming: true,
     }),
     loaders({
         dashboardFileSystemEntries: [
@@ -87,6 +89,14 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 cutDashboard: (_, { dashboardId }) => ({ mode: 'cut', dashboardId }),
                 copyDashboard: (_, { dashboardId }) => ({ mode: 'copy', dashboardId }),
                 clearClipboard: () => null,
+            },
+        ],
+        renamingDashboardId: [
+            null as number | null,
+            {
+                startRenaming: (_, { dashboardId }) => dashboardId,
+                stopRenaming: () => null,
+                renameDashboard: () => null,
             },
         ],
     }),
@@ -136,7 +146,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         },
         renameDashboard: ({ dashboardId, name }) => {
             const trimmed = name.trim()
-            if (trimmed) {
+            const current = values.dashboards.find((dashboard) => dashboard.id === dashboardId)
+            if (trimmed && trimmed !== current?.name) {
                 actions.updateDashboard({ id: dashboardId, name: trimmed, allowUndo: true })
             }
         },

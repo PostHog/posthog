@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronRight, IconDashboard, IconFolder } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
@@ -8,17 +9,63 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType } from '~/types'
 
+import { DashboardCardMenu } from './DashboardCardMenu'
 import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { folderLabel } from './dashboardsFileSystemUtils'
 
-// Finder arm (variant=finder): folder-first navigation. Opens at the dashboards root showing top-level
-// folders; click a folder card to drill in, a breadcrumb crumb to climb back, or drag a dashboard onto a
-// subfolder to file it. Reuses the same FileSystem folder structure as the grid arm and the sidebar tree.
+function FinderDashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.Element {
+    const { renamingDashboardId } = useValues(dashboardsFileSystemLogic)
+    const { renameDashboard, stopRenaming } = useActions(dashboardsFileSystemLogic)
+
+    if (renamingDashboardId === dashboard.id) {
+        return (
+            <LemonCard className="flex flex-col gap-1 h-full">
+                <IconDashboard className="text-2xl text-muted" />
+                <input
+                    autoFocus
+                    defaultValue={dashboard.name || ''}
+                    aria-label="Rename dashboard"
+                    className="w-full bg-transparent border-b border-primary"
+                    onBlur={(e) => renameDashboard(dashboard.id, e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            renameDashboard(dashboard.id, e.currentTarget.value)
+                        } else if (e.key === 'Escape') {
+                            e.currentTarget.value = dashboard.name || ''
+                            stopRenaming()
+                        }
+                    }}
+                />
+            </LemonCard>
+        )
+    }
+
+    return (
+        <DraggableDashboard dashboardId={dashboard.id}>
+            <div className="relative">
+                <Link to={urls.dashboard(dashboard.id)} data-attr="dashboards-finder-card">
+                    <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
+                        <IconDashboard className="text-2xl text-muted" />
+                        <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
+                    </LemonCard>
+                </Link>
+                <div className="absolute top-1 right-1">
+                    <DashboardCardMenu dashboardId={dashboard.id} dashboardName={dashboard.name || ''} />
+                </div>
+            </div>
+        </DraggableDashboard>
+    )
+}
+
+// Finder arm (variant=finder): folder-first navigation + organizing. Drill into folders via the breadcrumb,
+// drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete) plus the
+// clipboard paste affordance. Reuses the same FileSystem folder structure as the grid arm and sidebar tree.
 export function DashboardsFinder(): JSX.Element {
-    const { currentFolderContents, breadcrumb } = useValues(dashboardsFileSystemLogic)
-    const { navigateToFolder, moveDashboardToFolder } = useActions(dashboardsFileSystemLogic)
+    const { currentFolderContents, breadcrumb, currentFolder, clipboard } = useValues(dashboardsFileSystemLogic)
+    const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     const isEmpty = currentFolderContents.subfolders.length === 0 && currentFolderContents.dashboards.length === 0
@@ -29,15 +76,26 @@ export function DashboardsFinder(): JSX.Element {
     return (
         <DashboardsDndContext onMove={moveDashboardToFolder}>
             <div className="flex flex-col gap-4" data-attr="dashboards-finder">
-                <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
-                    {breadcrumb.map((crumb, index) => (
-                        <span key={crumb.path} className="flex items-center gap-1">
-                            {index > 0 ? <IconChevronRight className="text-muted" /> : null}
-                            <button type="button" className="font-medium" onClick={() => navigateToFolder(crumb.path)}>
-                                {crumb.label}
-                            </button>
-                        </span>
-                    ))}
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
+                        {breadcrumb.map((crumb, index) => (
+                            <span key={crumb.path} className="flex items-center gap-1">
+                                {index > 0 ? <IconChevronRight className="text-muted" /> : null}
+                                <button
+                                    type="button"
+                                    className="font-medium"
+                                    onClick={() => navigateToFolder(crumb.path)}
+                                >
+                                    {crumb.label}
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                    {clipboard ? (
+                        <LemonButton type="secondary" size="small" onClick={() => pasteIntoFolder(currentFolder)}>
+                            Paste into this folder
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
                     {currentFolderContents.subfolders.map((folder) => (
@@ -56,14 +114,7 @@ export function DashboardsFinder(): JSX.Element {
                         </DroppableFolder>
                     ))}
                     {currentFolderContents.dashboards.map((dashboard) => (
-                        <DraggableDashboard key={dashboard.id} dashboardId={dashboard.id}>
-                            <Link to={urls.dashboard(dashboard.id)} data-attr="dashboards-finder-card">
-                                <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
-                                    <IconDashboard className="text-2xl text-muted" />
-                                    <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
-                                </LemonCard>
-                            </Link>
-                        </DraggableDashboard>
+                        <FinderDashboardCard key={dashboard.id} dashboard={dashboard} />
                     ))}
                 </div>
             </div>
