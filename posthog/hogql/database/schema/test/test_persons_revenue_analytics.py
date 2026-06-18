@@ -422,7 +422,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 dateRange=DateRange(date_from="all", date_to=None),
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
             )
-            tqr = TrendsQueryRunner(team=self.team, query=query)
+            tqr = TrendsQueryRunner(team=self.team, query=query, user=self.user)
             results = tqr.calculate().results
 
         assert results[0]["breakdown_value"] == ["350.42"]
@@ -459,7 +459,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
                 dateRange=DateRange(date_from="all", date_to=None),
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
             )
-            tqr = TrendsQueryRunner(team=self.team, query=query)
+            tqr = TrendsQueryRunner(team=self.team, query=query, user=self.user)
             results = tqr.calculate().results
 
         assert results[0]["breakdown_value"] == ["350.42"]
