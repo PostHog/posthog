@@ -26,18 +26,17 @@ describe('posthogAiGatewayModel', () => {
         expect(model.provider).toBe('posthog-ai-gateway')
     })
 
-    it('strips /v1 for the anthropic-messages shape and keeps it for openai', () => {
-        const anthropic = posthogAiGatewayModel({
-            specModel: 'anthropic/claude-sonnet-4-6',
+    // anthropic-messages: the SDK appends `/v1/messages`, so the trailing `/v1`
+    // is stripped. openai shapes append their own suffix, so `/v1` is kept.
+    it.each([
+        ['anthropic/claude-sonnet-4-6', 'https://ai-gateway.example.com'],
+        ['openai/gpt-4o', 'https://ai-gateway.example.com/v1'],
+    ])('resolves baseUrl for %s', (specModel, expectedBaseUrl) => {
+        const model = posthogAiGatewayModel({
+            specModel,
             baseUrl: 'https://ai-gateway.example.com/v1',
             apiKey: 'phs_test-key',
         })
-        const openai = posthogAiGatewayModel({
-            specModel: 'openai/gpt-4o',
-            baseUrl: 'https://ai-gateway.example.com/v1',
-            apiKey: 'phs_test-key',
-        })
-        expect(anthropic.baseUrl).toBe('https://ai-gateway.example.com')
-        expect(openai.baseUrl).toBe('https://ai-gateway.example.com/v1')
+        expect(model.baseUrl).toBe(expectedBaseUrl)
     })
 })
