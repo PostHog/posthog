@@ -344,6 +344,8 @@ function classifyToolError(error: unknown, toolName: string): void {
         const apiError = findRecoverableApiError(error)
         if (apiError instanceof PostHogValidationError) {
             toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
+        } else if (apiError instanceof PostHogApiError && apiError.status === 429) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'rate_limited' })
         } else if (apiError instanceof PostHogApiError && apiError.status >= 500) {
             toolErrorsTotal.inc({ tool: toolName, error_type: 'api_5xx' })
         } else if (apiError instanceof PostHogApiError) {

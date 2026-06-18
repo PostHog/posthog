@@ -825,6 +825,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.hasWebhookSchemas,
                 (_, props) => props.onComplete,
                 s.returnConfig,
+                s.sourceId,
             ],
             (
                 currentStep,
@@ -832,7 +833,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 isDirectQueryMode,
                 hasWebhookSchemas,
                 onComplete,
-                returnConfig
+                returnConfig,
+                sourceId
             ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
@@ -860,6 +862,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                     if (returnConfig) {
                         return `Return to ${returnConfig.returnLabel}`
+                    }
+                    if (sourceId) {
+                        return 'Go to source'
                     }
                     return 'Return to sources'
                 }
@@ -1255,8 +1260,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             const returnUrl = values.returnConfig?.returnUrl
+            const sourceUrl = values.sourceId ? urls.dataWarehouseSource(values.sourceId, 'schemas') : undefined
             actions.cancelWizard()
-            router.actions.push(returnUrl ?? urls.sources())
+            // Prefer an explicit caller-provided return URL, then drop the user on the
+            // source they just created, falling back to the sources list.
+            router.actions.push(returnUrl ?? sourceUrl ?? urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()

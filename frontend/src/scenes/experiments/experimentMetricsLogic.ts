@@ -193,7 +193,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 total: recalc?.total_metrics ?? 0,
             }),
         ],
-        lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.completed_at ?? null],
+        lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
     }),
     listeners(({ actions, values, props, cache }) => {
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
