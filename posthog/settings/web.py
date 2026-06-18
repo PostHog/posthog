@@ -92,6 +92,7 @@ PRODUCTS_APPS = [
     "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
     "products.replay.backend.apps.ReplayConfig",
     "products.cohorts.backend.apps.CohortsConfig",
+    "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
 ]
 
