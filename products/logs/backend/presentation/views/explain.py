@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
+from django.apps import apps
 from django.core.cache import cache
 from django.template import Context, Engine
 
@@ -154,9 +155,11 @@ class ExplainResponseSerializer(serializers.Serializer):
 
 def load_prompt_template(template_name: str, context: dict) -> str:
     """Load and render a Django template file for prompts."""
-    templates_dir = Path(__file__).parent / "prompts"
+    # Anchor on the app dir, not __file__, so prompts resolve regardless of where
+    # this module lives (it moves under presentation/views during isolation).
+    templates_dir = Path(apps.get_app_config("logs").path) / "templates"
     engine = Engine(dirs=[str(templates_dir)])
-    template = engine.get_template(template_name)
+    template = engine.get_template(f"logs/{template_name}")
     return template.render(Context(context, autoescape=False))
 
 

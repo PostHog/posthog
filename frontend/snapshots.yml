@@ -4733,13 +4733,13 @@ snapshots:
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
     scenes-app-dashboards--access-control-dashboard--dark:
-        hash: v1.k794b7964.f0246c64fd40a892d19450a37fdb3f12ff7c1167c553a809dba65200a9635347.p3Q0m7OSmNDRDjl_xRq5FEBLPRP_NbviSTmngKbb568
+        hash: v1.k794b7964.5a2070ced40d9a7283b60d208aef3315f684f2586db52f79337f82ca4f80ae49.eOeTlC4JZNhfDx_aXctKeV6HL1TQKugnpDyf1l-NFX0
     scenes-app-dashboards--access-control-dashboard--light:
-        hash: v1.k794b7964.99949a6672c0e8427045e95677c5c7872494c7e5341e979c9146af4c423959ea.iBVwcBrA4JVwNZYFOdTsN5w-id81xZJ25uKiHdo2Vpc
+        hash: v1.k794b7964.8750e411634aabaec37428088a6c2ff338b30103628b3358ec1aa9303e7bc6a4.QHf7vvPUacMgAWbJiWSEEWZ5xEhNe-apEwxD59eg29o
     scenes-app-dashboards--edit--dark:
-        hash: v1.k794b7964.c50ed8b3d4e8f05379de3a7b9aa750f954cc76e90f125a5a1e3a7873808442bd.7ASSpy1GLBsieparaxbQnbnnxIjryLBUVwXArMcbaSo
+        hash: v1.k794b7964.9f5c9d9b55e8ee6701b1492cc80840f5c385d6a2b566e857dafd4616d0e03520.qT8LsD9-4a-wmd4KCQmG0l5q6pLsOJwuXw98Rq18_N8
     scenes-app-dashboards--edit--light:
-        hash: v1.k794b7964.2f0ef7ae3cd8daa761598ade2c438c61f9dc4494992d85de0dbbbbe67b024960.l-9-bBOQOXiBOscFLMZf3cwMg5ZSXVV6_eXSsVzmyco
+        hash: v1.k794b7964.3b2874181e936c6709d7c67db69bba087f600c2bd33835bce8e0e3a73964e948.pJ537ZFActzJzjSYe4aRQKCKH1DFgA32qSl7v9VUWIQ
     scenes-app-dashboards--erroring--dark:
         hash: v1.k794b7964.a356bf2ce40e53018919ebc890579c0ad6e493385f546d26b1f70471bf99f726.UER3Vv5UUZ1POzJv4_TuxrLBcLfLa8WTZ_hyUX9t72s
     scenes-app-dashboards--erroring--light:
@@ -4761,9 +4761,9 @@ snapshots:
     scenes-app-dashboards--not-found--light:
         hash: v1.k794b7964.1ce58559d0a7f0fdec75dc0cd2230c29bf6dcc25cb275a8eccd9a5c2a0a928b6.j9xKwNlmX3cJs2iIEJw1NuA6vMsMRIvFsNdfSYwmYN4
     scenes-app-dashboards--view-only-dashboard--dark:
-        hash: v1.k794b7964.3db6aee04e6438e793845be191d6350e24d7a35e85db216c75241f1b4f828b1d.94AM8pD_Y6CL-zQ8rZzgTJzPhTdSxbsqFpdb4dIIQAY
+        hash: v1.k794b7964.21152e91717a6fc5140d8f3aa7a814ba91e1cc23fb0bbfdbeb84a23cb175a562.Nm0X90U2YpPaxYuelhuNFzaQ3mixWrNcL8mcKbwHPXk
     scenes-app-dashboards--view-only-dashboard--light:
-        hash: v1.k794b7964.7338ceaefeb3311cab11d9c1cc928625ba35fca2ff4758ab6239eae22533cc12.fItm-tytYs97B3SLGKLqjTRMC4Hg4WFRKfQCVgIFJaM
+        hash: v1.k794b7964.1375536ea1ec87463a36ff8387073e3502d5127e68837fee3474b11d52684155.BobnrxAcdpL_nNICNKf2aqg_CXhq38fCWTgceozBTcY
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--dark:
         hash: v1.k794b7964.9e274692c8e4c207d502de8e74ecb4ad848c351a69dc19185ddc3d52616e9c6f.JXi4RnJ4pej3Q4xhfMDQUlzqxMhz31nwrjmt1U-Fwbo
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--light:
@@ -5641,21 +5641,21 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
         hash: v1.k794b7964.4ebf2f848b10c8b2859630215a9be1ff91fb825fc334005207556310261d3a5c.UcqJY3dqyJNbi3x7oYaZ2rEu95LAEdbGmMyEpI-Wlgc
     scenes-app-mcp-analytics--dashboard--dark:
-        hash: v1.k794b7964.83c70580c95196511976b284e12102c4fc4b60bfe0c4b5b84ede14177c0f0fc1.ghImisZOBWjSVAnytJWdTHks5jIe2jn032_4NF_-g-c
+        hash: v1.k794b7964.ce73116b61c51cdf515f7c449614e819605543194fc8194e3777cdd3fe37e847.V5cyDORCjiV-nUz1h65KpHKbywxm0u-TRuq7W3vJSrY
     scenes-app-mcp-analytics--dashboard--light:
-        hash: v1.k794b7964.c64d5d43c4eaa79d3008e9dd40857d9bee879832e68a8f8e9464657ff670773f.yKxStICPwIMCMEnf_zQhK0BuXu5BIxaUKmgPYHAEzYo
+        hash: v1.k794b7964.ca0753eb512b0d9ccef0d4c4ff92aadcea3b6df1be5651501038556443e5e914.yj6GSJwiP_mA_Eq426rKSfymYSgYCQVBqsnB5hLWwKQ
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.277463ad445565d14f2549a063a4f8c0c23a81af419bfafc9eefc65577fb0834.woelvjefGWPDW4Acae_sP2fA7YidrA7tkhfvC8u_AQ4
     scenes-app-mcp-analytics--sessions--light:
         hash: v1.k794b7964.bbe32ae76ef1ed9053d24d860933bc0bf1cca54ed3f601effaf515b8d9a6cd21.saYknnP-f1-BwcwRczq_p6CgUmnH8cmE8YJ_9XpN2Pk
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--dark:
-        hash: v1.k794b7964.695d298349258e60b3b8f0c8775e1554ffd9ad3a3b9d4d750df124550bf65c51.cpBNQ-OwnkymJacZsj27ScYkVTr_36Yb8Z27xINlTN8
+        hash: v1.k794b7964.921f819d1e55f6b1df74b8d4990bba635aa6f7db8ab7a75a232009bbac5f2e43.qy4SEtXqEIFBeEw5gzgTLCCbKUL61bV7pvuMq_cdTzA
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--light:
-        hash: v1.k794b7964.3dfc5ce2265a673956f3eab4e61f354d521843fa67e204a55b00d9a477059dff.5usCphh504ZrBw5hriydx544vV8-RLHdGmrR-lJipNU
+        hash: v1.k794b7964.5d9dd4393c052649a915d9fc01f0f07234778e6f07f876a2fb912692b967788e.xDH1R5rcnjKd-BMTqKjYRI3ILq3GIZKLCfvQCkBA6gE
     scenes-app-mcp-analytics-dashboard-cards--daily-tool-breakdown--dark:
-        hash: v1.k794b7964.830c208da94ba09d6c4ebbf829d48e8d8647ac7e6f10005d0ece25d8b1452826.H6z3crTfy2qeI7IGNmP1sVidoSC2oOUayUHiftQFGK4
+        hash: v1.k794b7964.236335937faad628b44dd754d4ce16dd3420dfc7a6d490441aadd4d4c7617477.MSc20kR_NgLKYepX3fzKiFeTN7RWZBJrLsiUG6gXePI
     scenes-app-mcp-analytics-dashboard-cards--daily-tool-breakdown--light:
-        hash: v1.k794b7964.08616349eeae04cabd327dde6ab1cf6bd40a19a609f175554044ac2c0bceb271.qccwqFpHII7zSOEe3-1rqQpODEHCZ4B5uOyojP6oO9Y
+        hash: v1.k794b7964.2310b7364e5f258ea2a43fa99bb9de186017c80b5ab3861419426edbc128acb9.yt5bPk2SSqYNpVVzhYToDVQfoOq_hkz7Ee1dZbk5pQo
     scenes-app-mcp-analytics-dashboard-cards--error-rate-by-tool--dark:
         hash: v1.k794b7964.6d0c0cd5cbb382903fee3b31192a515c1aeaf19d17ef3626f300815b1d0ce3aa.czfgUIwTwO7B3tJ874cZj9pvjWCdKI9wQLAkIl5LIhU
     scenes-app-mcp-analytics-dashboard-cards--error-rate-by-tool--light:

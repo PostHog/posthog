@@ -9,7 +9,7 @@ retention window. That's slow-moving data, daily cadence is fine.
 from celery import shared_task
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, name="products.logs.backend.tasks.logs_alert_events_cleanup_task")
 def logs_alert_events_cleanup_task() -> None:
     from products.logs.backend.models import LogsAlertEvent
 

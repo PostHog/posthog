@@ -18,10 +18,9 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
-
-MCP_TOOL_CALL_EVENT = "$mcp_tool_call"
 
 # How long a snapshot may sit in COMPUTING before we assume the task died and
 # auto-recover. Generous because a real recompute completes in well under a
@@ -151,7 +150,7 @@ def list_mcp_sessions(
     search: str = "",
     order_by: str = "",
 ) -> contracts.MCPSessionsPage:
-    """List a page of MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
+    """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
     One row per $session_id over the last 24h of $mcp_tool_call events, grouped in ClickHouse and
     scoped to the team so the events sort key prunes the scan. Over-fetches one row
