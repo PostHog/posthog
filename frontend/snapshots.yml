@@ -1669,9 +1669,9 @@ snapshots:
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.b210ce352a085f9ed57aed4675cc78d23db5d2312f276ec790040b2ce27e293a.duU6Lgj4ID4h_Qo76s2bErUZYu2IuRIHoy4D7_tCGT4
     dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.a1da2fa996d731f6e7397cb834ba6b08e9272cc641fa42b7281106b8b7d64c81.Gpun-k8Y3gVnXQnDOhFSzgkmM3br2G73KKTtWmOOIAE
+        hash: v1.k794b7964.afac6daacd209c9756ac18f4d550450c28cd0796ab3e0d2f81f8730e033132ea.o1IvcXj0C0otWKihcqxykKFKG0OUxCWvqNq6IJJMCjI
     dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.a6d429113c47ea7ac2a71ceef5cce7e38ac782b6d573cc0d7eab657d1c122b10.fuAwCLFT-OPDnLrhTbH6tcKEZbR-5XUiv-PnTt9fUak
+        hash: v1.k794b7964.f32b343aa7fcaabf6767b6c533d85b40f8b7a3cc1b9d80fe7d2253859a890ad5.VQg2i7X9FGt-fh-vmxr027ufi0Bnkg7BmQAhOtTXqgs
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.97188569bbab124430a6a0c91f746f8d119a7ecbeb0e116c50366aa6294a12e9.CIJBmnHIDHMFKDdJNupis99nTg4U_k0843VdEctiQvc
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -1717,9 +1717,9 @@ snapshots:
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
         hash: v1.k794b7964.af604b406115bf252f107bd8599029b5e34b473e76cac0c368f12228895186ed.xLjKRF0exewyVhp-Zz52PwMmAJbqO6trsSNRtXbzIEY
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--default--dark:
-        hash: v1.k794b7964.e25eaef2234e9ed84db9b1b57bc50f1bed03f128bb1b0127c6884405e2fe50c7.YBac7PIKuFBDwRtnI0zQz-vtIsOdowRuAtnwZvBVg7s
+        hash: v1.k794b7964.d56ccde2f2f8f72e0eeee906c3d9d2306c7b918a1c704ac9ac23452f5b34f76a.6NwRVRYYYoZrS9gx5x_wv2Gdip1QPI9jMgTquwIAyAM
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--default--light:
-        hash: v1.k794b7964.ea210d91e743b016718cf2f65fec85a10d71c69d55354d7d9b8af54fb5e1ab65.u9QBcO13s-Bi6Jf_AtNQ5ou2xZGQyLTBf-q3xJizlzg
+        hash: v1.k794b7964.63f5461de272f4bf3d80b171f501dd3a53ac6a6aaab1ff2a604c8b2aad92bfca.IhzS6dkq7b8GUJiggLOi3qODNAFr0hOzQ5RpLSmy5ak
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--loading--dark:
         hash: v1.k794b7964.879fe4b3a1e34deb4c156e61c9b4f6dc67167ea68907835a986a8ef4873c987a.N1KElSIU_TgDom6aXCR3ZwrSUvjt0t6l49goFfwMoUs
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--loading--light:
@@ -1729,9 +1729,9 @@ snapshots:
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--not-configured--light:
         hash: v1.k794b7964.23d27257841a7d79a91e42ea03a1fa70a3654c70c32982dbe4bfef3ce2892a75.4DTjVKlJIQO6fsarI2l0BzXnIgK5LvDfji0nkOe591Q
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--tile-filters-read-only--dark:
-        hash: v1.k794b7964.8deec0a065e0cb3259dc51ab0582e265e487b44f9bd8b6c104a063ab5de7827e.wlb8-VGtyZpd704h9HL_qTEF09vwi_uXCrMUCxXbGH0
+        hash: v1.k794b7964.5138796491d335a71e834a58ced475838270336f92cb04b75749d87338940296.ZNrsJ1MU8FK4X88UNfuky096h8jSp2-LQ7phuYO8STI
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results--tile-filters-read-only--light:
-        hash: v1.k794b7964.1d4ea040dfd09cbcdf18eac89a2bac0b25d3da8ed241f8baa17ad062014c09b3.oa1GbgxCoOIrjF74LE373GT-JNhekkLoSrGoBgCpfZY
+        hash: v1.k794b7964.62c915b54c7c1ed15808356c8f2a08bb16bfc4403e5d05e692e0c7655c45b745.jgVii_9bjPj0x9BGHCP1_so5xRkzhhCWsIfD9hJ_Ohs
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results-widget-settings--default--dark:
         hash: v1.k794b7964.2dfdb4d48acafac3ba1af8c7bfceafc485886ae6ceb7bfe48996a5fb660179bf.dRGhPGstCK6T_H45ICVMzGPypYcOQNhkVgPP1ErE0-o
     dashboards-dashboard-widgets-widget-types-experiments-experiment-results-widget-settings--default--light:
