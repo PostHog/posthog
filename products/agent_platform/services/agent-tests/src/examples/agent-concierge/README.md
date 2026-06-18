@@ -35,20 +35,12 @@ behaviour, diagnoses root causes, and for each concrete fix branches
 a **draft** revision with the change applied (validated, never frozen
 or promoted — drafts are proposals a human reviews). The findings
 land as a structured report in memory (`reports/fleet-audit/{date}.md`
-
-- `latest.md`) and a condensed digest is optionally posted to the
-  team's configured Slack channel.
+plus `latest.md`), which is the deliverable of the sweep.
 
 The run is deliberately read-and-propose: the skill forbids
 freeze / promote / archive / delete, leaving the validated drafts for
 the user to review and promote themselves. See
 [`skills/auditing-the-fleet/SKILL.md`](skills/auditing-the-fleet/SKILL.md).
-
-**Operator config.** Slack delivery is opt-in: set
-`config/fleet-audit.md` in the agent's memory with a
-`slack_channel: C0XXXXXXX` line and set the agent's `SLACK_BOT_TOKEN`
-secret. Without a channel the audit skips the post silently — the
-memory report is the source of truth regardless.
 
 For each mode, the concierge calls the same `agent-applications-*`
 native tools that the authoring AI uses,
@@ -87,7 +79,7 @@ agent-concierge/
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation.                                     |
 | Native (telemetry) | `@posthog/query`                                                                                                         | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence — see `querying-ai-observability`. |
-| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of a fleet audit — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).                                                                     |
+| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`                                                | Durable output of a fleet audit — persist the report to memory.                                                                                                                                          |
 | Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console.                                                                                                                |
 
 ## Auth model
