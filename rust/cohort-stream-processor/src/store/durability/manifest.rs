@@ -60,7 +60,6 @@ impl OffsetManifest {
                     per_partition.insert(partition, offset);
                 }
             }
-            // Record the topic even when empty; an empty inner map is inert on restore.
             topics.insert((*topic).to_string(), per_partition);
         }
         Self {
@@ -148,9 +147,8 @@ mod tests {
 
     #[test]
     fn capture_uses_committed_not_committable() {
-        // Advance the processed position well ahead, then commit a strictly lower value. `capture`
-        // must record the committed (durable) offset, never the processed one — recording processed
-        // could seek past un-fsynced state on restore and silently skip events.
+        // `capture` must record the committed (durable) offset, not the processed one — recording
+        // processed could seek past un-fsynced state on restore and silently skip events.
         let tracker = OffsetTracker::new();
         let partition = 5;
         tracker.mark_dispatched(partition, 1000);
@@ -158,7 +156,6 @@ mod tests {
             tracker.mark_processed(partition, 1000),
             MarkOutcome::WithinDispatch,
         );
-        // Committed lags processed (the un-fsynced tail Kafka will replay).
         tracker.mark_committed(partition, 400);
 
         let manifest = capture_one(&[partition], "cohort_stream_events", &tracker);
@@ -171,8 +168,6 @@ mod tests {
 
     #[test]
     fn capture_omits_an_absent_follower() {
-        // A tracker that has never seen any owned partition (idle follower) contributes an empty inner
-        // map — no partition is recorded, so there is nothing to seek on restore.
         let owned = [0, 1, 2];
         let idle = OffsetTracker::new();
         let manifest = capture_one(&owned, "person_merge_events", &idle);
@@ -191,8 +186,6 @@ mod tests {
 
     #[test]
     fn capture_records_present_follower_offsets() {
-        // Distinct offsets per tracker/partition so a cross-wired capture (reading the wrong tracker)
-        // would surface.
         let owned = [3, 7];
         let merge = OffsetTracker::new();
         let transfer = OffsetTracker::new();
@@ -230,15 +223,13 @@ mod tests {
 
     #[test]
     fn capture_records_only_owned_partitions() {
-        // A tracker may carry committed offsets for partitions this pod no longer owns; capture is
-        // filtered to `owned`, so an unowned-but-committed partition never lands in the manifest.
+        // Partitions committed in the tracker but not in `owned` must not appear in the manifest.
         let tracker = OffsetTracker::new();
         for partition in [0, 1, 9] {
             tracker.mark_dispatched(partition, 50);
             let _ = tracker.mark_processed(partition, 50);
             tracker.mark_committed(partition, 50);
         }
-        // Own only 0 and 1; 9 is committed in the tracker but unowned.
         let manifest = capture_one(&[0, 1], "cohort_stream_events", &tracker);
         let inner = manifest.topics.get("cohort_stream_events").unwrap();
         assert_eq!(inner.len(), 2);
@@ -273,8 +264,6 @@ mod tests {
     #[test]
     fn a_version_mismatch_fails_to_decode() {
         let dir = TempDir::new().unwrap();
-        // Hand-write a manifest with a future version; load must reject it rather than silently
-        // accept a shape it does not understand.
         let json = serde_json::json!({
             "version": MANIFEST_VERSION + 1,
             "captured_at": Utc::now(),

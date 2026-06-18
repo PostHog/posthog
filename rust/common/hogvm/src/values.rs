@@ -397,11 +397,9 @@ fn bool_to_num(b: bool) -> Num {
 }
 
 /// String→bool coercion for the ordering path, matching Python's `unify_comparison_types`:
-/// `"true"`/`"false"` (any case) map literally and every other non-empty string is truthy
-/// (`bool(s)`), with the empty string falsy. NOTE: the `Eq` path's [`HogLiteral::coerce_types`]
-/// still uses the narrower `== "true"` rule, so `true == "yes"` and `true > "yes"` disagree — a
-/// residual, off-the-cohort-path divergence (cohort leaves compare number-vs-string, not
-/// bool-vs-string).
+/// `"true"`/`"false"` (any case) map literally, every other non-empty string is truthy (`bool(s)`),
+/// empty string is falsy. NOTE: the `Eq` path's [`HogLiteral::coerce_types`] uses the narrower
+/// `== "true"` rule, so `true == "yes"` and `true > "yes"` disagree.
 fn str_is_true(s: &str) -> bool {
     match s.to_lowercase().as_str() {
         "true" => true,
@@ -410,7 +408,6 @@ fn str_is_true(s: &str) -> bool {
     }
 }
 
-/// Lexicographic ordering of two strings. Only ordering ops reach here; other variants → `false`.
 fn string_order(op: NumOp, a: &str, b: &str) -> bool {
     let ord = a.cmp(b);
     match op {

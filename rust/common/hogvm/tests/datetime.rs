@@ -16,7 +16,6 @@ const OP_RETURN: i64 = 38;
 
 fn run(bytecode: Vec<Value>) -> Value {
     let program = Program::new(bytecode).expect("valid program");
-    // Temporal ordering/equality is opt-in; this corpus asserts that coercing path.
     let ctx = ExecutionContext::with_defaults(program)
         .with_globals(json!({}))
         .with_coercing_comparisons();

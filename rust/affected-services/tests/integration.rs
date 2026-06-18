@@ -111,8 +111,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
-        // Cohort streaming services are not yet wired for production image builds (no Depot
-        // project / chart). Move to .github/rust-images.yml when they ship for deploy.
+        // Not yet in .github/rust-images.yml — no production Depot/chart image build.
         "cohort-event-shuffler",
         "cohort-stream-processor",
     ]

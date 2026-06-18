@@ -1,16 +1,14 @@
 //! HogVM regression goldens for the supported cohort bytecode surface. Each fixture's
-//! `expected_result` is a committed oracle snapshot — the value the Python
-//! `common/hogvm/python/execute.py::execute_bytecode` runtime produced when the fixture was
-//! authored — and the test asserts the Rust executor still agrees with that snapshot. This guards
-//! Rust against regression; it does NOT re-run Python/Node in CI, so on its own it is not a live
-//! three-way parity proof (a mis-transcribed `expected_result` would enshrine a wrong answer). The
-//! optional shared corpus (`../common/hogvm/__tests__/cohort_bytecode`) is not committed yet, so
-//! today only the in-crate fixtures run.
+//! `expected_result` is a committed oracle snapshot from the Python
+//! `common/hogvm/python/execute.py::execute_bytecode` runtime. The test asserts the Rust executor
+//! agrees; it does NOT re-run Python/Node in CI, so a mis-transcribed `expected_result` would
+//! enshrine a wrong answer. An optional shared corpus at
+//! `../common/hogvm/__tests__/cohort_bytecode` is also loaded when present.
 //!
-//! Provenance caveat: the temporal fixtures (`toDateTime`/`toDate` ordering) are a Rust-vs-ClickHouse
-//! oracle, NOT a Python one — the reference Python/TS VMs can't order Hog temporals (they return
-//! `false`), so their `expected_result` is the ClickHouse/instant-ordering answer the Rust VM
-//! deliberately matches; see `rust/common/hogvm/tests/datetime.rs`.
+//! Provenance note: the temporal fixtures (`toDateTime`/`toDate` ordering) are a Rust-vs-ClickHouse
+//! oracle, not a Python one — the reference Python/TS VMs return `false` for Hog temporal ordering,
+//! so `expected_result` reflects the ClickHouse/instant-ordering answer the Rust VM deliberately
+//! matches; see `rust/common/hogvm/tests/datetime.rs`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,8 +16,7 @@ use std::path::{Path, PathBuf};
 use cohort_stream_processor::hogvm::{evaluate_detailed, EvalOutcome};
 use serde_json::Value;
 
-/// A missing directory yields no fixtures (the optional shared corpus); any other read/parse
-/// failure panics with the offending path.
+/// A missing directory yields no fixtures (optional corpus); any other read/parse failure panics.
 fn fixtures_in(dir: &Path) -> Vec<(PathBuf, Value)> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
@@ -34,8 +31,7 @@ fn fixtures_in(dir: &Path) -> Vec<(PathBuf, Value)> {
             (path, value)
         })
         .collect();
-    // Deterministic order so a failure points at the same fixture across runs.
-    fixtures.sort_by(|(a, _), (b, _)| a.cmp(b));
+    fixtures.sort_by(|(a, _), (b, _)| a.cmp(b)); // deterministic order for reproducible failures
     fixtures
 }
 
@@ -53,7 +49,7 @@ fn all_fixtures() -> Vec<(PathBuf, Value)> {
 
 #[test]
 fn in_crate_fixtures_are_present() {
-    // Guard against an empty run (fixtures not committed) silently passing.
+    // Guard against an empty in-crate fixture directory silently passing.
     assert!(
         !fixtures_in(&in_crate_dir()).is_empty(),
         "no in-crate parity fixtures in {:?}",
@@ -69,12 +65,11 @@ fn rust_executor_matches_python_oracle() {
             .as_array()
             .unwrap_or_else(|| panic!("fixture {path:?} `bytecode` must be an array"));
         let globals = fixture["globals"].clone();
-        // Coerce expected as the executor does (`unwrap_or(false)`, mirroring Node's `?? false`).
+        // `unwrap_or(false)` mirrors the Node `?? false` coercion.
         let expected = fixture["expected_result"].as_bool().unwrap_or(false);
 
         let actual = match evaluate_detailed(bytecode, globals) {
             EvalOutcome::Matched(matched) => matched,
-            // An unsupported native sneaking into the corpus surfaces here rather than silently.
             other => panic!("fixture `{name}` ({path:?}) did not evaluate cleanly: {other:?}"),
         };
 

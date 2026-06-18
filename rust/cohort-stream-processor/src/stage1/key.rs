@@ -1,7 +1,7 @@
 //! `LeafStateKey` derivation and `Stage1Key`.
 //!
-//! `conditionHash` encodes only the event matcher, so two leaves with different windows collide
-//! on it. State is keyed by a [`LeafStateKey`] hashing the full predicate configuration.
+//! `conditionHash` encodes only the event matcher, so two leaves with different windows can share
+//! the same hash. State is keyed by a [`LeafStateKey`] that hashes the full predicate configuration.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

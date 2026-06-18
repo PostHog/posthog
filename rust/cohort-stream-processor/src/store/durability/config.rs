@@ -80,8 +80,6 @@ pub struct DurabilityConfig {
 impl Default for DurabilityConfig {
     fn default() -> Self {
         Self {
-            // Production and local-dev override these via top-level config or env; applied as-is only
-            // in unit tests and CI.
             local_checkpoint_dir: "./checkpoints".to_string(),
             s3_bucket: String::new(),
             s3_key_prefix: "cohort-stream-checkpoints".to_string(),

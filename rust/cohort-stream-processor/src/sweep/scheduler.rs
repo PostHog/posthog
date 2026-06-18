@@ -144,7 +144,7 @@ mod tests {
         let interval = Duration::from_secs(30);
 
         let handle = tokio::spawn(run_sweep_loop(sweeper, interval, "test", cancel.clone()));
-        tokio::task::yield_now().await; // immediate first tick
+        tokio::task::yield_now().await;
         assert_eq!(count.load(Ordering::SeqCst), 1);
 
         cancel.cancel();

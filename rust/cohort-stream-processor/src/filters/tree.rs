@@ -10,7 +10,6 @@ use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StateVariant;
 
-/// Cohort behavioral predicate types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BehavioralValue {
@@ -37,12 +36,10 @@ impl BehavioralValue {
         }
     }
 
-    /// Whether this value produces realtime bytecode.
     pub fn contributes_bytecode(self) -> bool {
         matches!(self, Self::PerformedEvent | Self::PerformedEventMultiple)
     }
 
-    /// Parse a wire string, or `None` for an unrecognized string.
     pub fn from_wire(s: &str) -> Option<Self> {
         let value = match s {
             "performed_event" => Self::PerformedEvent,
@@ -78,14 +75,12 @@ pub struct BehavioralLeafConfig {
 }
 
 impl BehavioralLeafConfig {
-    /// Derive and cache the [`LeafStateKey`].
     #[must_use]
     pub fn with_state_key(mut self) -> Self {
         self.leaf_state_key = LeafStateKey::for_behavioral(&self);
         self
     }
 
-    /// Record the leaf's resolved [`StateVariant`].
     #[must_use]
     pub fn with_state_variant(mut self, variant: StateVariant) -> Self {
         self.state_variant = Some(variant);
@@ -93,7 +88,6 @@ impl BehavioralLeafConfig {
     }
 }
 
-/// A person-property leaf.
 #[derive(Debug, Clone)]
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
@@ -103,14 +97,12 @@ pub struct PersonLeafConfig {
     pub negated: bool,
 }
 
-/// A reference to another cohort.
 #[derive(Debug, Clone)]
 pub struct CohortRefLeafConfig {
     pub referenced_cohort_id: CohortId,
     pub negation: bool,
 }
 
-/// A classified, kept leaf in the filter tree.
 #[derive(Debug, Clone)]
 pub enum CohortLeaf {
     PersonProperty(PersonLeafConfig),
@@ -155,14 +147,12 @@ impl CohortLeaf {
     }
 }
 
-/// Boolean combinator for a property group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoolOp {
     And,
     Or,
 }
 
-/// A node in a cohort's filter tree: either a boolean group or a leaf.
 #[derive(Debug, Clone)]
 pub enum FilterNode {
     Group {
@@ -172,7 +162,7 @@ pub enum FilterNode {
     Leaf(CohortLeaf),
 }
 
-/// A parsed cohort filter tree, retained for Stage 2 re-walk.
+/// Retained for the Stage 2 re-walk after event dispatch.
 #[derive(Debug, Clone)]
 pub struct CohortTree {
     pub cohort_id: CohortId,
@@ -182,7 +172,6 @@ pub struct CohortTree {
 
 /// Receives the indexable side effects of a parse.
 pub trait LeafSink {
-    /// Records a kept, state-keyed leaf.
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
@@ -193,7 +182,6 @@ pub trait LeafSink {
 
     fn record_cohort_ref(&mut self, cohort_id: CohortId);
 
-    /// A dropped leaf.
     fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason);
 }
 

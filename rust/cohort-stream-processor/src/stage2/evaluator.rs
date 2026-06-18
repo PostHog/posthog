@@ -116,7 +116,6 @@ mod tests {
         }))
     }
 
-    /// An empty cohort-reference map for ref-free trees.
     fn no_refs() -> HashMap<CohortId, bool> {
         HashMap::new()
     }

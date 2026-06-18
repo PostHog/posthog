@@ -57,7 +57,7 @@ pub enum Stage1State {
         /// Most recent matching event time (epoch ms), `max`-folded across events.
         last_event_at_ms: i64,
         /// Earliest time (epoch ms) the oldest non-zero bucket leaves the window — its eviction
-        /// deadline. Computed and stored but not yet read; the event path never reads a wall clock.
+        /// deadline. The event path never reads a wall clock.
         earliest_eviction_at_ms: i64,
     },
     /// `performed_event_multiple` over a window exceeding 180 days, stored as sparse run-length
@@ -362,8 +362,9 @@ mod tests {
 
     #[test]
     fn old_scalar_format_fails_to_decode_rather_than_silently_defaulting() {
-        // The old scalar offset format must fail-decode, not silently default `applied_offsets` to
-        // empty (which would drop high-water marks and re-open double-count windows).
+        // The scalar offset format (`last_applied_partition`/`last_applied_offset`) must fail-decode,
+        // not silently default `applied_offsets` to empty (which would drop high-water marks and
+        // re-open double-count windows).
         let old = serde_json::json!({
             "state": {
                 "v": "BehavioralSingle",

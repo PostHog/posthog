@@ -89,7 +89,6 @@ impl PartitionMirror for FollowerSet {
     }
 }
 
-/// Build the TPL for a follower `incremental_assign`: every partition at [`Offset::Stored`].
 pub(crate) fn stored_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     for &partition in partitions {
@@ -100,7 +99,6 @@ pub(crate) fn stored_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList 
     tpl
 }
 
-/// Build the TPL for a follower `incremental_unassign`.
 pub(crate) fn bare_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     for &partition in partitions {

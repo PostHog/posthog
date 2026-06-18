@@ -78,7 +78,6 @@ fn explicit_behavioral_leaf() -> Value {
     explicit_behavioral_leaf_range("2026-01-01 00:00:00.000000", "2026-12-31T00:00:00")
 }
 
-/// A `performed_event` leaf over an arbitrary explicit `[from, to]` date range.
 fn explicit_behavioral_leaf_range(from: &str, to: &str) -> Value {
     json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -118,7 +117,6 @@ fn build_team_filters(leaves: Vec<Value>) -> TeamFilters {
     build_team_filters_multi(vec![(CohortId(1), leaves)])
 }
 
-/// Freeze several cohorts for the team in one catalog.
 fn build_team_filters_multi(cohorts: Vec<(CohortId, Vec<Value>)>) -> TeamFilters {
     let mut builder = TeamFiltersBuilder::default();
     for (id, leaves) in cohorts {
@@ -213,7 +211,7 @@ fn day_of(ts: &str) -> i32 {
     day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC)
 }
 
-/// The person's `cf_person_index` leaf-state set — the leaves the merge drain (M3) would enumerate.
+/// The person's `cf_person_index` leaf-state set — the leaves the merge drain would enumerate.
 fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
     store
         .get_person_index(&PersonIndexKey {
@@ -1334,8 +1332,8 @@ async fn sweep_dormant_person_left_is_emitted() {
     );
 
     // Alice enters and goes dormant — no event of hers ever drives a recompose again. Bob stays
-    // active, superseding his own deadline past the sweep. Only the sweep can emit alice's Left:
-    // before this slice it was never emitted (the staleness invariant's churned-person case).
+    // active, superseding his own deadline past the sweep. Only the sweep can emit alice's Left
+    // (the staleness invariant for a churned-then-dormant person).
     let alice = person(1);
     let bob = person(2);
     let t0 = "2026-05-20 10:00:00.000000";

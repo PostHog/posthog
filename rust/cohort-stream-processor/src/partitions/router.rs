@@ -252,7 +252,6 @@ mod tests {
         assert_eq!(tags(&rx5.recv().await.unwrap()), vec![1, 3]);
         assert_eq!(tags(&rx6.recv().await.unwrap()), vec![2]);
 
-        // A second route appends behind the first (FIFO per channel).
         assert!(router.route_batch(vec![(5, event(4))]).await.is_empty());
         assert_eq!(tags(&rx5.recv().await.unwrap()), vec![4]);
     }

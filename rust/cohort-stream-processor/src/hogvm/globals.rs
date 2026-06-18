@@ -16,7 +16,6 @@ pub struct GlobalsError {
     pub source: serde_json::Error,
 }
 
-/// Build the behavioral globals dict with all top-level keys the VM expects.
 pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
     let person_properties =
@@ -59,7 +58,6 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     }))
 }
 
-/// Build the person-property globals dict (`person` + `project`).
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
@@ -70,7 +68,7 @@ pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value,
     }))
 }
 
-/// Parse a raw JSON payload: `None` or empty string yields `{}`.
+/// Parse a raw JSON payload, treating `None` or empty string as `{}`.
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
@@ -81,7 +79,7 @@ fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, 
     })
 }
 
-/// `event.elements_chain ?? properties['$elements_chain']`, falling back to `null`.
+/// `event.elements_chain ?? properties['$elements_chain'] ?? null`
 fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     match &event.elements_chain {
         Some(chain) => Value::String(chain.clone()),
@@ -92,7 +90,8 @@ fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     }
 }
 
-/// Normalize a ClickHouse-format timestamp to ISO 8601. RFC 3339 passes through unchanged.
+/// Normalize a ClickHouse `"YYYY-MM-DD HH:MM:SS.ffffff"` timestamp to ISO 8601. RFC 3339 input
+/// passes through unchanged.
 fn normalize_timestamp(raw: &str) -> String {
     if DateTime::parse_from_rfc3339(raw).is_ok() {
         return raw.to_string();
@@ -276,7 +275,6 @@ mod tests {
         let globals = build_behavioral_globals(&e).unwrap();
         assert_eq!(globals["elements_chain"], json!("from-props"));
 
-        // Neither present → null (the key still exists).
         e.properties = Some("{}".to_string());
         let globals = build_behavioral_globals(&e).unwrap();
         assert_eq!(globals["elements_chain"], Value::Null);

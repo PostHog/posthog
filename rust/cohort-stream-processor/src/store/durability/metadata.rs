@@ -43,9 +43,9 @@ fn format_store_path(base_path: &Path, topic: &str, partition: i32) -> PathBuf {
 /// Filename of the checkpoint metadata JSON file. Used in remote checkpoint attempt directories (S3)
 /// and in local store directories (see `write_to_dir` / `load_from_dir`).
 pub const METADATA_FILENAME: &str = "metadata.json";
-// hour-scoped prefix of TIMESTAMP_FORMAT used to pull a recent window of meta files from remote storage
+/// Hour-scoped prefix format used to filter the S3 listing window.
 pub const DATE_PLUS_HOURS_ONLY_FORMAT: &str = "%Y-%m-%d-%H";
-// checkpoint_id value: human-readable path element populated from attempt_timestamp
+/// Checkpoint ID format: human-readable S3 path element derived from `attempt_timestamp`.
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%SZ";
 
 /// Metadata about a checkpoint. Can be written to and loaded from a local store directory via
@@ -76,7 +76,6 @@ pub struct CheckpointMetadata {
 }
 
 impl CheckpointMetadata {
-    /// Create new metadata representing a single checkpoint attempt
     pub fn new(
         topic: String,
         partition: i32,
@@ -98,7 +97,6 @@ impl CheckpointMetadata {
         }
     }
 
-    /// Generate a checkpoint ID from the supplied timestamp
     pub fn generate_id(attempt_timestamp: DateTime<Utc>) -> String {
         attempt_timestamp.format(TIMESTAMP_FORMAT).to_string()
     }
@@ -109,7 +107,6 @@ impl CheckpointMetadata {
         Ok(metadata)
     }
 
-    /// Load metadata.json from the given directory.
     pub async fn load_from_dir(dir: &Path) -> Result<Self> {
         let path = dir.join(METADATA_FILENAME);
         let json = tokio::fs::read_to_string(&path)
@@ -120,17 +117,13 @@ impl CheckpointMetadata {
         Ok(metadata)
     }
 
-    /// Write metadata.json atomically into the given directory.
-    ///
-    /// Writes to a temporary file first, then renames to the final path. This prevents torn reads if
-    /// another task reads metadata.json concurrently.
+    /// Write metadata.json atomically (tmp file + rename) to prevent torn reads.
     pub async fn write_to_dir(&mut self, dir: &Path) -> Result<()> {
         self.updated_at = Utc::now();
         let json = self.to_json().context("In write_to_dir")?;
         let path = dir.join(METADATA_FILENAME);
         let tmp_path = dir.join(".metadata.json.tmp");
         if let Err(e) = tokio::fs::write(&tmp_path, json).await {
-            // Clean up partial tmp file on write failure
             drop(tokio::fs::remove_file(&tmp_path).await);
             return Err(e)
                 .with_context(|| format!("Failed to write temp metadata to: {tmp_path:?}"));
@@ -142,26 +135,20 @@ impl CheckpointMetadata {
         Ok(())
     }
 
-    /// Append another CheckpointFile to the files list
     pub fn track_file(&mut self, remote_filepath: String, checksum: String) {
         self.files
             .push(CheckpointFile::new(remote_filepath, checksum));
     }
 
-    /// Generate attempt-scoped path elements for this checkpoint, not including app-level bucket
-    /// namespace or local base path. Result is of the form: `<topic>/<partition>/<checkpoint_id>`
+    /// Returns `<topic>/<partition>/<checkpoint_id>`, excluding bucket namespace and local base path.
     pub fn get_attempt_path(&self) -> String {
         format!("{}/{}/{}", self.topic, self.partition, self.id)
     }
 
-    /// Produce a path under the supplied base directory for the local RocksDB store.
-    /// Example: `<local_store_base_path>/<topic>/<partition>`
     pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
         format_store_path(local_store_base_path, &self.topic, self.partition)
     }
 
-    /// Get relative path to metadata file for this checkpoint attempt, not including remote bucket
-    /// namespace or local base path
     pub fn get_metadata_filepath(&self) -> String {
         format!("{}/{}", self.get_attempt_path(), METADATA_FILENAME)
     }
@@ -171,20 +158,16 @@ impl CheckpointMetadata {
     }
 }
 
-/// Information about a checkpoint stored in S3
 #[derive(Debug, Clone)]
 pub struct CheckpointInfo {
-    /// Checkpoint metadata
     pub metadata: CheckpointMetadata,
-    /// App-level S3 bucket namespace under which all checkpoint attempts are stored remotely
+    /// App-level S3 bucket namespace for all checkpoint attempts.
     pub s3_key_prefix: String,
-    /// Optional hash prefix for object file keys only (never for metadata.json)
+    /// When `Some`, object file keys include this prefix; metadata.json keys never do.
     pub hash_prefix: Option<String>,
 }
 
 impl CheckpointInfo {
-    /// New checkpoint info. `hash_prefix`: when `Some`, `get_file_key()` uses a hashed path for object
-    /// files; `get_metadata_key()` never does.
     pub fn new(
         metadata: CheckpointMetadata,
         s3_key_prefix: String,
@@ -197,8 +180,6 @@ impl CheckpointInfo {
         }
     }
 
-    /// Fully-qualified remote path for metadata.json.
-    /// When `hash_prefix` is present, metadata lives alongside object files under the hashed path.
     pub fn get_metadata_key(&self) -> String {
         match &self.hash_prefix {
             Some(h) => format!(
@@ -215,9 +196,8 @@ impl CheckpointInfo {
         }
     }
 
-    /// Fully-qualified remote path for a file in this attempt (`relative_file_path` = filename only).
-    /// When `hash_prefix` is `Some`, path includes it (object files only; metadata.json never).
-    /// `metadata.files` entries from prior attempts already have full paths; use as-is for import.
+    /// Fully-qualified remote path for a file in this attempt (`relative_file_path` is filename only).
+    /// Files from prior attempts already carry their full remote path and should not go through this.
     pub fn get_file_key(&self, relative_file_path: &str) -> String {
         match &self.hash_prefix {
             Some(h) => format!(
@@ -231,8 +211,6 @@ impl CheckpointInfo {
         }
     }
 
-    /// The fully qualified remote base path for this checkpoint attempt.
-    /// Includes hash prefix when present, matching `get_metadata_key()` and `get_file_key()`.
     pub fn get_remote_attempt_path(&self) -> String {
         match &self.hash_prefix {
             Some(h) => format!(
@@ -546,7 +524,6 @@ mod tests {
         let id = CheckpointMetadata::generate_id(attempt_timestamp);
         let expected_id = attempt_timestamp.format(TIMESTAMP_FORMAT).to_string();
 
-        // Should be in format YYYY-MM-DDTHH-MM-SSZ
         assert!(id.contains('T'));
         assert!(id.ends_with('Z'));
         assert!(id.len() > 15);
@@ -585,7 +562,6 @@ mod tests {
 
         let base_path = Path::new("/data/stores");
         let store_path = metadata.get_store_path(base_path);
-        // Slashes are replaced with underscores to keep a two-level directory structure
         assert_eq!(store_path, PathBuf::from("/data/stores/org_team_events/0"));
     }
 }

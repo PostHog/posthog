@@ -89,7 +89,6 @@ pub struct CascadeConfig {
 }
 
 impl Default for CascadeConfig {
-    /// Gate off, production caps.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -99,7 +98,6 @@ impl Default for CascadeConfig {
     }
 }
 
-/// Merge-protocol dependencies shared across all workers and the dispatcher.
 pub struct MergeWorkerDeps {
     pub transfer_sink: Arc<dyn TransferSink>,
     pub stream_event_sink: Arc<dyn StreamEventSink>,
@@ -119,7 +117,6 @@ pub struct MergeWorkerDeps {
 }
 
 impl MergeWorkerDeps {
-    /// Deps wired to in-memory capture sinks and fresh trackers for tests.
     pub fn capture() -> Arc<Self> {
         Arc::new(Self {
             transfer_sink: Arc::new(CaptureTransferSink::new()),
@@ -136,7 +133,6 @@ impl MergeWorkerDeps {
     }
 }
 
-/// Drain one merge event on P_old's worker and settle its offset.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_merge(
     partition_id: u16,
@@ -253,7 +249,6 @@ pub(crate) async fn handle_merge(
     }
 }
 
-/// Apply one state transfer on P_new's worker and settle its offset.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_apply(
     partition_id: u16,
@@ -367,7 +362,6 @@ async fn forward_transfer(
     mark_processed(&merge.transfer_tracker, partition_id, offset);
 }
 
-/// Max entries to re-produce per redrive tick.
 const REDRIVE_MAX_ATTEMPTS_PER_TICK: usize = 8;
 
 /// Cap on the pending-transfer scan: a small multiple of the per-tick attempt cap, so the redrive has
@@ -1000,13 +994,9 @@ mod tests {
         );
     }
 
-    /// The D8 residual: a store-error hold must be **sticky** so a later success on the same partition
-    /// cannot leapfrog the failed message. This drives the real offset-accounting wrappers both arms
-    /// call — `hold` (the exact call the apply/drain store-error arms now make at the failed offset
-    /// `K`) and `mark_processed` (the call a later `Applied`/`AlreadyApplied` transfer makes at the
-    /// next offset). Before the fix the arm skipped the mark and `mark_processed` was a monotonic max,
-    /// so the later success advanced committable to `K' + 1` and the held message was never
-    /// redelivered; the load-bearing assertion below fails in that world.
+    /// A store-error hold must be sticky: a later success on the same partition must not leapfrog
+    /// the held offset. `hold` pins `K` (the failed offset) and a subsequent `mark_processed` at
+    /// `K' > K` must leave committable at `K`, not advance it.
     #[test]
     fn an_apply_store_error_hold_is_not_leapfrogged_by_a_later_successful_transfer() {
         const P: u16 = 6;

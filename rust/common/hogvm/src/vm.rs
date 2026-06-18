@@ -727,7 +727,7 @@ impl<'a> HogVM<'a> {
     /// top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         if !self.context.coerce_comparisons {
-            // Legacy/reference path (master): both operands must be `Number` or this errors.
+            // Legacy/reference path: both operands must be `Number` or this errors.
             let (a, b): (Num, Num) = (self.pop_stack_as()?, self.pop_stack_as()?);
             return self.push_stack(Num::binary_op(op, &a, &b)?);
         }

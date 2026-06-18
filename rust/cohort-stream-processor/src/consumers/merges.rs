@@ -38,7 +38,8 @@ pub struct ConsumedMerge {
 }
 
 /// One state transfer consumed from `cohort_merge_state_transfer`, paired with its commit
-/// coordinates. Replay idempotence is keyed by the transfer's source merge-message coordinates.
+/// coordinates. Replay idempotence is keyed by the transfer's source merge-message coordinates
+/// (`source_partition` + `source_offset`).
 #[derive(Debug)]
 pub struct ConsumedTransfer {
     pub transfer: MergeStateTransfer,
@@ -46,8 +47,8 @@ pub struct ConsumedTransfer {
     pub offset: i64,
 }
 
-/// One cohort flip consumed from `cohort_cascade_events`, paired with its commit coordinates. Replay
-/// idempotence is the handler's own bit-flip check (no `cf_stage2` offset field).
+/// One cohort flip consumed from `cohort_cascade_events`, paired with its commit coordinates.
+/// Replay idempotence is the handler's own bit-flip check (no stored offset field).
 #[derive(Debug)]
 pub struct ConsumedCascade {
     pub message: CascadeMessage,
@@ -64,8 +65,7 @@ pub trait FollowerRoute: Send + Sync + 'static {
     const DESERIALIZE_ERRORS_TOTAL: &'static str;
     const CONSUME_BATCH_SIZE: &'static str;
 
-    /// This route's commit tracker within the worker deps. The route selects it so the merge route
-    /// can never accidentally commit on the transfer tracker or vice versa.
+    /// The route-specific commit tracker. Each route selects its own so commits never cross topics.
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker>;
 
     /// Decode one payload into its consumed envelope.
@@ -79,8 +79,7 @@ pub trait FollowerRoute: Send + Sync + 'static {
     async fn dispatch(dispatcher: &EventDispatcher, batch: Vec<Self::Consumed>);
 }
 
-/// The `KAFKA_PERSON_MERGE_EVENTS` route: P_old-keyed merge triggers into
-/// [`EventDispatcher::dispatch_merges`].
+/// P_old-keyed merge triggers into [`EventDispatcher::dispatch_merges`].
 pub struct MergeRoute;
 
 #[async_trait]
@@ -112,8 +111,7 @@ impl FollowerRoute for MergeRoute {
     }
 }
 
-/// The `cohort_merge_state_transfer` route: P_new-keyed packaged drains into
-/// [`EventDispatcher::dispatch_transfers`].
+/// P_new-keyed packaged drains into [`EventDispatcher::dispatch_transfers`].
 pub struct TransferRoute;
 
 #[async_trait]
@@ -145,8 +143,7 @@ impl FollowerRoute for TransferRoute {
     }
 }
 
-/// The `cohort_cascade_events` route: `(team, person)`-keyed cohort flips into
-/// [`EventDispatcher::dispatch_cascade`].
+/// `(team, person)`-keyed cohort flips into [`EventDispatcher::dispatch_cascade`].
 pub struct CascadeRoute;
 
 #[async_trait]
@@ -178,7 +175,6 @@ impl FollowerRoute for CascadeRoute {
     }
 }
 
-/// A follower-topic group consumer: consume, route, commit. One per merge-protocol topic.
 pub struct FollowerConsumer<R: FollowerRoute> {
     consumer: Arc<StreamConsumer>,
     topic: String,
@@ -212,13 +208,10 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         }
     }
 
-    /// The route-selected commit tracker.
     fn tracker(&self) -> &Arc<OffsetTracker> {
         R::tracker(self.dispatcher.merge_deps())
     }
 
-    /// Run until the lifecycle handle signals shutdown. The commit is deadline-driven (not a
-    /// `select!` arm) to avoid cancelling an in-flight `consume_batch`.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "follower consume loop starting");
@@ -250,8 +243,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
             }
         }
 
-        // Final sync commit. No worker drain precedes this — that belongs to the events consumer's
-        // shutdown, which may still be marking offsets after this commit runs.
+        // Final sync commit runs before the events consumer's shutdown; workers may still be marking
+        // offsets at this point, but follower offsets are independent.
         fsync_then_commit(
             self.dispatcher.store(),
             &self.consumer,
@@ -263,7 +256,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         info!(topic = %self.topic, "follower consume loop stopped");
     }
 
-    /// Record metrics, dispatch the batch, and heartbeat.
     async fn handle_outcome(&self, outcome: FollowerOutcome<R::Consumed>) {
         histogram!(R::CONSUME_BATCH_SIZE).record(outcome.messages.len() as f64);
         if !outcome.messages.is_empty() {
@@ -282,7 +274,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         }
     }
 
-    /// Accumulate up to `recv_batch_size` decoded messages within `recv_batch_timeout`.
     async fn consume_batch(&self) -> FollowerOutcome<R::Consumed> {
         let mut outcome = FollowerOutcome {
             messages: Vec::with_capacity(self.recv_batch_size),
@@ -331,7 +322,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         outcome
     }
 
-    /// Committable offsets restricted to partitions the events consumer still owns.
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
         restrict_to_owned(
             self.tracker().committable_offsets(),
@@ -346,7 +336,6 @@ struct FollowerOutcome<T> {
     transport_error: bool,
 }
 
-/// Keep only the offsets of still-owned partitions.
 fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
     let owned: HashSet<i32> = owned.iter().copied().collect();
     offsets

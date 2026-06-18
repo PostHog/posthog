@@ -164,7 +164,6 @@ mod tests {
                 should_evict,
                 "deadline {deadline} vs due_before {due_before}",
             );
-            // Whatever the outcome, the structure stays consistent.
             assert_eq!(queue.len(), if should_evict { 0 } else { 1 });
         }
     }
@@ -180,7 +179,6 @@ mod tests {
         assert_eq!(queue.pop_due(101), None);
         assert_eq!(queue.len(), 1);
 
-        // Due at the later deadline, exactly once.
         assert_eq!(queue.pop_due(501), Some(("k", 500)));
         assert_eq!(queue.len(), 0);
         assert_eq!(queue.pop_due(501), None);
@@ -288,19 +286,15 @@ mod tests {
         queue.schedule("a", 500);
         assert_eq!(queue.peek_next_deadline(), Some(500));
 
-        // A sooner key moves it earlier.
         queue.schedule("b", 200);
         assert_eq!(queue.peek_next_deadline(), Some(200));
 
-        // Rescheduling the soonest later defers it; the next-soonest takes over.
         queue.schedule("b", 900);
         assert_eq!(queue.peek_next_deadline(), Some(500));
 
-        // Cancelling the soonest advances to the next.
         queue.cancel(&"a");
         assert_eq!(queue.peek_next_deadline(), Some(900));
 
-        // Popping the last leaves it empty.
         assert_eq!(queue.pop_due(1_000), Some(("b", 900)));
         assert_eq!(queue.peek_next_deadline(), None);
     }
@@ -326,7 +320,6 @@ mod tests {
         queue.schedule("b", 200);
         queue.schedule("c", 300);
 
-        // Only `a` and `b` are due before 250.
         let drained = drain(&mut queue, 250);
         assert_eq!(drained, vec![("a", 100), ("b", 200)]);
         assert_eq!(queue.len(), 1);

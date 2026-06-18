@@ -431,7 +431,6 @@ mod tests {
         }
     }
 
-    /// Seed a one-key `cf_stage1` slice for `partition` and return whether it is present.
     fn seed_and_present(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
         seed_slice(dispatcher, partition);
         present_probe(dispatcher, partition)

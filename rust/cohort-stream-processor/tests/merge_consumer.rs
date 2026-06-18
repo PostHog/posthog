@@ -82,8 +82,8 @@ fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// Two single-leaf cohorts sharing one `$pageview` matcher: cohort 1 is a `performed_event` single,
-/// cohort 2 a `performed_event_multiple gte 2` daily (bucket counts make a double-apply observable).
+/// Cohort 1: `performed_event` single. Cohort 2: `performed_event_multiple gte 2` daily.
+/// Both share one `$pageview` conditionHash; daily bucket counts make a double-apply observable.
 fn merge_catalog() -> CatalogHandle {
     let single = json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -199,7 +199,7 @@ async fn with_topics_cleanup<F: Future<Output = ()>>(topics: &[&str], body: F) {
     }
 }
 
-/// The `murmur2_random` partitioner must match production for keyed co-partitioning.
+/// `murmur2_random` is required so keyed produces co-partition with `partition_of`.
 fn producer_kafka_config() -> KafkaConfig {
     KafkaConfig {
         kafka_hosts: bootstrap_servers(),
@@ -265,8 +265,7 @@ fn group_verifier(group: &str) -> StreamConsumer {
         .expect("create group verifier")
 }
 
-/// Sum of committed offsets across all partitions; for a fresh topic this equals the messages
-/// consumed (committed == next-offset-to-consume).
+/// Sum of committed offsets across all partitions (committed == next-offset-to-consume on a fresh topic).
 fn committed_sum(consumer: &StreamConsumer, topic: &str) -> i64 {
     let mut tpl = TopicPartitionList::new();
     for partition in 0..NUM_PARTITIONS {
@@ -284,7 +283,6 @@ fn committed_sum(consumer: &StreamConsumer, topic: &str) -> i64 {
         .sum()
 }
 
-/// Total messages on `topic` across all partitions, from the broker's watermarks.
 fn topic_message_count(topic: &str) -> i64 {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -301,8 +299,8 @@ fn topic_message_count(topic: &str) -> i64 {
         .sum()
 }
 
-/// Read every message on `topic` (up to `expected`, all partitions from the beginning), returning
-/// `(partition, payload)` pairs. Assigned explicitly — no group join, no commit.
+/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
+/// join, no commit — so committed offsets the test asserts on are never perturbed.
 async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -327,7 +325,7 @@ async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i
                 }
             }
             Ok(Err(err)) => panic!("scan verifier recv error: {err}"),
-            Err(_) => {} // poll tick elapsed with no message; re-check the deadline
+            Err(_) => {}
         }
     }
     messages
@@ -348,7 +346,6 @@ fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
 
-/// Allocates distinct persons, filtered by the partition they hash to.
 struct PersonAlloc(u128);
 
 impl PersonAlloc {
@@ -378,7 +375,6 @@ impl PersonAlloc {
     }
 }
 
-/// A serialized `CohortStreamEvent` envelope, byte-for-byte what the shuffler emits.
 fn envelope(person: Uuid, ts: &str, source_offset: i64) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "team_id": TEAM,
@@ -396,7 +392,6 @@ fn envelope(person: Uuid, ts: &str, source_offset: i64) -> Vec<u8> {
     .expect("serialize envelope")
 }
 
-/// Produce one `$pageview` for `person`, asserting it lands on the expected partition.
 async fn produce_event(
     producer: &FutureProducer,
     topic: &str,
@@ -430,7 +425,6 @@ fn merge_event(old: Uuid, new: Uuid) -> PersonMergeEvent {
     }
 }
 
-/// Produce one merge trigger keyed by P_old, asserting it lands on P_old's partition.
 async fn produce_merge(producer: &FutureProducer, topic: &str, event: &PersonMergeEvent) {
     let key = merge_partition_key(TeamId(event.team_id), &event.old_person_uuid);
     let payload = event.encode();
@@ -575,8 +569,6 @@ impl Instance {
     }
 }
 
-/// One full processor instance wired like `main.rs`: events consumer, two follower consumers, real
-/// Kafka sinks for transfer and re-key. No sweep or redrive loop.
 async fn spawn_instance(
     topics: &Topics,
     groups: &Groups,
@@ -742,7 +734,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
             spread.len(),
         );
 
-        // Transfer sink: keyed by P_new, verified by consuming the topic.
+        // Transfer sink: keyed by P_new; verify each message lands on partition_of(P_new).
         let transfer_sink =
             KafkaTransferSink::new(&producer_kafka_config(), transfer_topic.clone())
                 .await
@@ -778,7 +770,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
             );
         }
 
-        // Re-key sink: keyed by the (already rewritten) target person.
+        // Re-key sink: keyed by the rewritten target person.
         let event_sink = KafkaStreamEventSink::new(&producer_kafka_config(), events_topic.clone())
             .await
             .expect("create re-key sink");
@@ -864,7 +856,6 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
         let mut alloc = PersonAlloc::new();
         let (p_old, p_new) = alloc.cross_partition_pair();
 
-        // Seed P_old: two pageviews.
         let producer = murmur2_producer();
         produce_event(&producer, &topics.events, p_old, TS, 0).await;
         produce_event(&producer, &topics.events, p_old, TS, 1).await;
@@ -913,7 +904,6 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
             "single + daily leaves transfer whole"
         );
 
-        // Merged state lives on P_new's slice; P_old is drained and tombstoned.
         assert_eq!(
             single_matches(&instance.store, single_lsk, p_new),
             Some(true)
@@ -925,7 +915,7 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
             tombstone_for(&instance.store, p_old).expect("tombstone written on P_old's slice");
         assert_eq!(tombstone.new_person, p_new);
 
-        // The drain emits no Left for P_old — only the Entered changes from seeding and apply.
+        // The drain emits no Left for P_old.
         assert_eq!(
             topic_message_count(&shadow_topic),
             4,
@@ -1088,7 +1078,6 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
         let mut alloc = PersonAlloc::new();
         let (p_old, p_new) = alloc.cross_partition_pair();
 
-        // Complete the merge first so the tombstone is durable on P_old's slice.
         let producer = murmur2_producer();
         produce_event(&producer, &topics.events, p_old, TS, 0).await;
         produce_event(&producer, &topics.events, p_old, TS, 1).await;
@@ -1104,7 +1093,6 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
         })
         .await;
 
-        // The straggler: a third P_old event, after the merge.
         produce_event(&producer, &topics.events, p_old, TS_LATER, 100).await;
         wait_for(
             "the straggler to fold into P_new",
@@ -1163,8 +1151,8 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
     .await;
 }
 
-/// Re-assign at `Offset::Stored` resumes from the committed offset, not the in-session fetch
-/// position.
+/// `incremental_unassign` + `incremental_assign(Offset::Stored)` rewinds to the committed offset,
+/// not the in-session fetch position.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn follower_re_establishes_consumption_from_the_committed_offset() {
@@ -1173,7 +1161,7 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
     with_topics_cleanup(&[&topic], async {
         create_topic(&topic, NUM_PARTITIONS).await;
 
-        // Five merge payloads pinned to partition 0 (explicit partition: placement is not under test).
+        // Pin to partition 0 explicitly; partitioning itself is not the thing under test.
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", bootstrap_servers())
             .set("message.timeout.ms", "10000")
@@ -1205,7 +1193,7 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             tpl
         };
 
-        // First acquire: no committed offset yet, so Stored falls back to the hard-coded earliest.
+        // First acquire: no committed offset yet → Stored falls back to earliest.
         consumer
             .incremental_assign(&stored(&topic))
             .expect("incremental_assign");
@@ -1223,7 +1211,7 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             "earliest fallback replays from 0"
         );
 
-        // Commit offset 3 (processed through offset 2). The fetch position is already at 5.
+        // Commit offset 3 (processed through 2). Fetch position is already at 5.
         let mut commit_tpl = TopicPartitionList::new();
         commit_tpl
             .add_partition_offset(&topic, 0, Offset::Offset(3))
@@ -1232,7 +1220,7 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             .commit(&commit_tpl, CommitMode::Sync)
             .expect("commit");
 
-        // Revoke→re-acquire, as the mirror drives it: unassign, then re-assign at Stored.
+        // Revoke → re-acquire (mirrors the assignment-mirror protocol): unassign then re-assign at Stored.
         let mut bare = TopicPartitionList::new();
         bare.add_partition(&topic, 0);
         consumer
@@ -1341,7 +1329,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         )
         .await;
 
-        // Settle: a disjoint full split, stable across a re-check.
+        // Wait for a stable, disjoint full split.
         let (a_owned, b_owned) = {
             let deadline = Duration::from_secs(60);
             let start = Instant::now();
@@ -1367,7 +1355,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             }
         };
 
-        // Batch 2: two directed cross-instance pairs (A→B and B→A), plus generic pairs.
+        // Batch 2: directed pairs (A→B, B→A) plus generic pairs to cover both transfer directions.
         let pair_ab = (
             alloc.next_on(|p| a_owned.contains(&(p as i32))),
             alloc.next_on(|p| b_owned.contains(&(p as i32))),
@@ -1419,7 +1407,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             || committed_sum(&merge_verifier, &topics.merges) == total_merges,
         )
         .await;
-        // Batch 2 transfers are deterministic; batch 1 may have empty re-drains after migration.
+        // Batch 1 may produce empty re-drains after migration; batch 2 transfers are deterministic.
         let total_transfers = topic_message_count(&topics.transfers);
         let transfer_pairs: HashSet<(Uuid, Uuid)> = consume_all(
             &topics.transfers,
@@ -1446,7 +1434,6 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         )
         .await;
 
-        // Every batch-2 merge completed exactly once, on exactly one side of the split.
         for (p_old, p_new) in &batch2 {
             let totals = [
                 daily_total(&a.store, daily_lsk, *p_new),
@@ -1477,7 +1464,6 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             assert_eq!(tombstone.new_person, *p_new);
         }
 
-        // The two directed pairs prove both cross-instance transfer directions.
         assert_eq!(
             daily_total(&b.store, daily_lsk, pair_ab.1),
             Some(2),
@@ -1489,7 +1475,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             "the B-drained transfer applied on A",
         );
 
-        // Batch 1 raced the migration, but a surviving count must be exact (no double-apply).
+        // Batch 1 raced the migration; any surviving count must be exact (no double-apply).
         for (_, p_new) in &batch1 {
             for store in [&a.store, &b.store] {
                 if let Some(total) = daily_total(store, daily_lsk, *p_new) {

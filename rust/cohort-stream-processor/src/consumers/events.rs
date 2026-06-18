@@ -114,19 +114,15 @@ pub struct EventDispatcher {
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     merge: Arc<MergeWorkerDeps>,
-    /// Set by [`shutdown`](Self::shutdown), consulted by every dispatch entry point and
-    /// [`ensure_worker`](Self::ensure_worker). Prevents post-shutdown worker registration that would
-    /// hang the join. The structural guarantee is the router's terminal closed state, which refuses
-    /// registration after `clear()`.
+    /// Prevents post-shutdown worker registration that would hang the join. The structural guarantee
+    /// is the router's terminal closed state, which refuses registration after `clear()`.
     draining: AtomicBool,
-    /// Crash-restart durability gate. Set once at startup before any worker spawns. When on, workers
-    /// rebuild their `EvictionQueue` on spawn and the boot / rebalance-assign paths reclaim stale
-    /// on-disk slices.
+    /// When set, workers rebuild their `EvictionQueue` on spawn and boot/assign paths reclaim stale
+    /// on-disk slices. Set once at startup before any worker spawns.
     durable_restore: AtomicBool,
-    /// Settled boot assignment, recorded once. The assign path consults it and reclaims only
-    /// partitions that move in *after* boot, never the ones the boot sweep keeps. `OnceLock` is
-    /// `Sync`; the only race (get sees `None` before set) resolves to "skip", so a boot partition is
-    /// never wiped.
+    /// Settled boot assignment, recorded once. The assign path reclaims only partitions that move in
+    /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
+    /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
 }
 
@@ -154,8 +150,7 @@ impl EventDispatcher {
         }
     }
 
-    /// Turn on crash-restart durability. Called once at startup before the consumer begins, so the
-    /// `tokio::spawn` of the consume loop establishes the happens-before for every worker's read.
+    /// Enable crash-restart durability. Must be called before any worker spawns.
     pub fn enable_durable_restore(&self) {
         self.durable_restore.store(true, Ordering::SeqCst);
     }
@@ -164,17 +159,15 @@ impl EventDispatcher {
         self.durable_restore.load(Ordering::SeqCst)
     }
 
-    /// The shared state store, so the consume loops can fsync its WAL before each commit.
     pub(crate) fn store(&self) -> &CohortStore {
         &self.store
     }
 
-    /// Route a consumed batch to its per-partition workers, lazily spawning a worker per
-    /// first-seen partition.
+    /// Route a consumed batch to per-partition workers, lazily spawning on first delivery.
     ///
-    /// Offsets are marked by the worker after producing, not here. The dispatch ceiling
-    /// (`mark_dispatched`) is raised before routing so a `RouteError` leaves the offset uncommittable
-    /// and Kafka replays it. Events for unowned partitions are dropped before any ceiling bump.
+    /// The dispatch ceiling is raised before routing so a `RouteError` leaves the offset
+    /// uncommittable and Kafka replays it. Events for unowned partitions are dropped before any
+    /// ceiling bump.
     pub async fn dispatch(&self, batch: Vec<ConsumedEvent>) {
         if batch.is_empty() {
             return;
@@ -197,8 +190,8 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(stats.dispatched);
     }
 
-    /// Route a consumed `person_merge_events` batch to per-partition workers, ceiling marked on the
-    /// merge tracker. Spawns workers (unlike sweep) because merges are durable external input.
+    /// Route a consumed `person_merge_events` batch to per-partition workers, ceiling on the merge
+    /// tracker. Spawns workers (unlike sweep) because merges are durable external input.
     pub async fn dispatch_merges(&self, batch: Vec<ConsumedMerge>) {
         if batch.is_empty() {
             return;
@@ -222,8 +215,8 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
-    /// Route a consumed `cohort_merge_state_transfer` batch to per-partition workers, ceiling marked
-    /// on the transfer tracker. Spawns workers because a dropped transfer is unrecoverable.
+    /// Route a consumed `cohort_merge_state_transfer` batch to per-partition workers, ceiling on the
+    /// transfer tracker. Spawns workers because a dropped transfer is unrecoverable.
     pub async fn dispatch_transfers(&self, batch: Vec<ConsumedTransfer>) {
         if batch.is_empty() {
             return;
@@ -247,9 +240,8 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
-    /// Route a consumed `cohort_cascade_events` batch to per-partition workers, ceiling marked on the
-    /// cascade tracker. Spawns workers (like merges/transfers) because a dropped cascade silently
-    /// fails to propagate a referrer flip.
+    /// Route a consumed `cohort_cascade_events` batch to per-partition workers, ceiling on the
+    /// cascade tracker. Spawns workers because a dropped cascade silently fails to propagate a flip.
     pub async fn dispatch_cascade(&self, batch: Vec<ConsumedCascade>) {
         if batch.is_empty() {
             return;
@@ -273,8 +265,6 @@ impl EventDispatcher {
         counter!(COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
-    /// Shared skeleton: draining gate → owned gate → ensure_worker → dispatch ceiling → route.
-    /// Route errors are counted here; per-topic skip counters come from the returned stats.
     async fn dispatch_to_workers(
         &self,
         items: Vec<(i32, i64, ShuffleMessage)>,
@@ -297,8 +287,7 @@ impl EventDispatcher {
                 continue;
             }
             self.ensure_worker(partition);
-            // Next-offset-to-consume convention.
-            tracker.mark_dispatched(partition, offset + 1);
+            tracker.mark_dispatched(partition, offset + 1); // next-to-consume convention
             messages.push((partition, message));
         }
         stats.dispatched = messages.len() as u64;
@@ -316,7 +305,7 @@ impl EventDispatcher {
         match self.workers.entry(partition) {
             Entry::Occupied(_) => {}
             Entry::Vacant(slot) => {
-                // Nothing in this arm may `.await` — the DashMap shard guard is held.
+                // No `.await` in this arm — the DashMap shard guard is held.
                 if !self.owned.contains(&partition) {
                     return;
                 }
@@ -366,30 +355,26 @@ impl EventDispatcher {
         self.owned.iter().map(|entry| *entry).collect()
     }
 
-    /// The merge-protocol deps shared with every worker.
     pub(crate) fn merge_deps(&self) -> &MergeWorkerDeps {
         &self.merge
     }
 
-    /// Route a [`ShuffleMessage::Sweep`] to every owned partition's worker. Routes through the
-    /// router directly (no worker spawn) so a revoked partition is never resurrected.
+    /// Route a sweep tick to every owned partition's worker without spawning, so a revoked partition
+    /// is never resurrected.
     pub async fn route_sweep(&self, due_before_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::Sweep { due_before_ms })
             .await;
     }
 
-    /// Route a [`ShuffleMessage::RedrivePendingTransfers`] tick to every owned partition's worker,
-    /// so each re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
-    /// Same no-spawn posture as [`route_sweep`](Self::route_sweep).
+    /// Route a redrive tick to every owned partition's worker without spawning; each worker
+    /// re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
     pub async fn route_redrive(&self) {
         self.route_to_owned(|| ShuffleMessage::RedrivePendingTransfers)
             .await;
     }
 
-    /// Route a [`ShuffleMessage::MergeCfGc`] tick to every owned partition's worker, so each
-    /// garbage-collects expired merge markers/tombstones. The cutoffs are computed by the sweeper and
-    /// passed through verbatim, keeping the worker clock-free. Same no-spawn posture as
-    /// [`route_sweep`](Self::route_sweep) — a GC tick must never resurrect a revoked partition.
+    /// Route a merge-GC tick to every owned partition's worker without spawning. Cutoffs are
+    /// computed by the sweeper and passed verbatim, keeping workers clock-free.
     pub async fn route_merge_gc(&self, marker_cutoff_ms: i64, tombstone_cutoff_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::MergeCfGc {
             marker_cutoff_ms,
@@ -398,7 +383,6 @@ impl EventDispatcher {
         .await;
     }
 
-    /// Shared skeleton for time-driven ticks: draining gate → owned snapshot → route (no spawn).
     async fn route_to_owned(&self, make_message: impl Fn() -> ShuffleMessage) {
         if self.draining.load(Ordering::SeqCst) {
             return;
@@ -417,14 +401,13 @@ impl EventDispatcher {
         }
     }
 
-    /// Record a newly-assigned partition. The worker spawns lazily on the first message.
     pub fn assign_partition(&self, partition: i32) {
         self.owned.insert(partition);
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
 
     /// Synchronous half of a revoke: mark the partition un-owned. The worker channel is left intact
-    /// so a rapid revoke-then-reassign preserves it; teardown is decided in the async drain.
+    /// for rapid revoke-then-reassign; teardown is decided in the async drain.
     pub fn revoke_partition_sync(&self, partition: i32) {
         self.owned.remove(&partition);
         counter!(PARTITIONS_REVOKED_TOTAL).increment(1);
@@ -451,8 +434,8 @@ impl EventDispatcher {
             histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
         }
 
-        // Re-acquired during the join — skip cleanup.
         if self.owned.contains(&partition) {
+            // re-acquired during the join — skip cleanup
             counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "post_join").increment(1);
             debug!(
                 partition,
@@ -461,20 +444,17 @@ impl EventDispatcher {
             return;
         }
 
-        // Drop offset entries for all co-partitioned trackers.
         self.tracker.forget_partition(partition);
         self.merge.merge_tracker.forget_partition(partition);
         self.merge.transfer_tracker.forget_partition(partition);
         self.merge.cascade_tracker.forget_partition(partition);
 
-        // Reset the per-partition gauges so they don't linger after the partition is wiped. The
-        // held-offset gauges in particular are alerted on a sustained non-zero level — without this
-        // reset, a hold that cleared on revoke would keep the alert firing for the stale label.
+        // Reset per-partition gauges. Held-offset gauges in particular are alerted on a sustained
+        // non-zero level — without this, a hold that cleared on revoke would keep the alert firing.
         gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
 
-        // Delete the on-disk state slice for this partition.
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
                 partition,
@@ -490,16 +470,15 @@ impl EventDispatcher {
         }
     }
 
-    /// Delete a moving-in partition's stale on-disk slice (another pod may have advanced it while
-    /// unowned here) so the worker cold-rebuilds from the committed offset. Skipped when a live worker
-    /// already owns the partition (its slice is current), and for any partition in the boot snapshot
-    /// (the boot sweep already kept and reopened it) — only genuine post-boot move-ins are reclaimed.
+    /// Delete a moving-in partition's stale on-disk slice so the worker cold-rebuilds from the
+    /// committed offset. Skipped for live workers (slice is current) and for any partition in the
+    /// boot snapshot (boot sweep already kept it) — only genuine post-boot move-ins are reclaimed.
     pub(crate) fn reclaim_stale_partition_on_assign(&self, partition: i32) {
         if self.workers.contains_key(&partition) {
             return;
         }
         match self.boot_assignment.get() {
-            // Pre-boot: the sweep hasn't recorded the snapshot yet and is the authority — never wipe.
+            // Pre-boot: the sweep is the authority — never wipe.
             None => return,
             Some(boot) if boot.contains(&partition) => return,
             Some(_) => {}
@@ -520,10 +499,9 @@ impl EventDispatcher {
         }
     }
 
-    /// Delete on-disk slices for partitions in `0..partition_count` this pod is not assigned: they
-    /// moved away while down (a static reclaim returns the same set, so those are kept and reopened).
-    /// `assignment` must be the settled assignment — an empty set means the caller must wait, never
-    /// sweep, or this would delete everything.
+    /// Delete on-disk slices for partitions in `0..partition_count` not in `assignment`: they
+    /// moved away while this pod was down. `assignment` must be the settled (non-empty) assignment
+    /// — an empty set would delete all slices.
     pub(crate) fn reclaim_unassigned_partitions_on_boot(
         &self,
         assignment: &std::collections::HashSet<i32>,
@@ -554,9 +532,8 @@ impl EventDispatcher {
         );
     }
 
-    /// Record the boot assignment snapshot, then run the boot staleness sweep. Recording it first
-    /// makes the assign path defer to the boot decision: keep every assigned partition, reclaim only
-    /// post-boot move-ins.
+    /// Record the boot assignment snapshot, then sweep stale on-disk slices. Recording first makes
+    /// the assign path defer to the boot decision and reclaim only post-boot move-ins.
     pub(crate) fn reconcile_boot_assignment(
         &self,
         assignment: &HashSet<i32>,
@@ -569,18 +546,12 @@ impl EventDispatcher {
     }
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
-    /// worker-free. An idle partition never spawns a worker, so the periodic redrive (which routes
-    /// through the worker) never fires for it and the stranded transfer would sit in the outbox
-    /// forever; this scans the outbox directly and re-produces it.
+    /// without spawning workers. An idle partition never spawns a worker, so the periodic redrive
+    /// never fires for it; this scans the outbox directly and re-produces it.
     ///
-    /// Produce + clear only — no `mark_processed`: the merge offset was committed-past in the prior
-    /// tenure, and a fresh tenure starts at `dispatched_offset == 0`, so marking would clamp to 0 and
-    /// trip a spurious `CappedAheadOfDispatch`. A produce failure leaves the entry for the periodic
-    /// redrive; best-effort throughout (a scan or clear-after-ack error is logged and the boot
-    /// continues).
-    ///
-    /// Must run after the boot staleness reconcile (unowned slices already wiped); iterating
-    /// `assignment` then guarantees it only touches owned partitions.
+    /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
+    /// so marking would clamp to 0 and trip `CappedAheadOfDispatch`. A produce failure leaves the
+    /// entry for the periodic redrive. Must run after the boot staleness reconcile.
     pub async fn eager_redrive_pending_transfers_on_boot(&self, assignment: &HashSet<i32>) {
         for &partition in assignment {
             let Some(store_partition) = partition_to_store_id(partition) else {
@@ -626,7 +597,6 @@ impl EventDispatcher {
                 };
                 let team_id = pending.transfer.team_id;
                 let old_person = pending.transfer.old_person_uuid;
-                // Produce + clear only; no `mark_processed` (would clamp to dispatched_offset==0).
                 let acks = self
                     .merge
                     .transfer_sink
@@ -674,7 +644,6 @@ impl EventDispatcher {
         self.tracker.as_ref()
     }
 
-    /// Processed offsets restricted to still-owned partitions.
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
         self.tracker
             .committable_offsets()
@@ -683,8 +652,7 @@ impl EventDispatcher {
             .collect()
     }
 
-    /// Stop feeding workers and drain them. Sets `draining`, closes the router (terminally), joins
-    /// all workers, and returns the tracker for the caller's final sync commit.
+    /// Drain all workers and return the tracker for the caller's final sync commit.
     async fn shutdown(&self) -> Arc<OffsetTracker> {
         self.draining.store(true, Ordering::SeqCst);
         self.router.clear();
@@ -706,15 +674,12 @@ struct DispatchStats {
     not_owned_skipped: u64,
 }
 
-/// Map a Kafka partition (`i32`) to the store's `u16` partition id, returning `None` for
-/// out-of-range values.
 fn partition_to_store_id(partition: i32) -> Option<u16> {
     u16::try_from(partition).ok()
 }
 
-/// Whether the boot assignment has settled: the same non-empty set seen on two consecutive polls.
-/// Empty means the join hasn't landed (sweeping on it would wipe everything); a set differing from the
-/// previous poll re-baselines, so a cooperative-incremental assign settles before the sweep runs.
+/// Returns `true` once the same non-empty assignment is seen on two consecutive polls. An empty or
+/// changing assignment is not yet settled; a cooperative-incremental assign re-baselines until stable.
 fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<i32>>) -> bool {
     if assignment.is_empty() {
         return false;
@@ -728,8 +693,8 @@ fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<
 
 /// The `cohort_stream_events` group consumer: consume, route, commit.
 ///
-/// Uses a raw `StreamConsumer` with manual commit because the per-partition [`OffsetTracker`]
-/// commits a `TopicPartitionList` the `common-kafka` wrapper can't express.
+/// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
+/// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
 pub struct CohortStreamEventsConsumer {
     consumer: StreamConsumer<CohortConsumerContext>,
     topic: String,
@@ -738,13 +703,12 @@ pub struct CohortStreamEventsConsumer {
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
-    /// Partition count of `cohort_stream_events`, used by the durable-restart boot staleness sweep.
+    /// Partition count of `cohort_stream_events`, used by the boot staleness sweep.
     events_partitions: usize,
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
-    /// Offset manifest from a disaster restore (PVC/S3). `Some` only on the disaster paths. When set,
-    /// the consume loop runs a one-shot [`run_restore_seek`](Self::run_restore_seek) of the events
-    /// topic to the manifest positions once the boot assignment settles, then leaves it.
+    /// Offset manifest from a disaster restore. When set, the consume loop runs a one-shot seek of
+    /// the events topic to the manifest positions once the boot assignment settles.
     restore_manifest: Option<OffsetManifest>,
 }
 
@@ -776,19 +740,16 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Run until the lifecycle handle signals shutdown. The commit is deadline-driven (not a
-    /// `select!` arm) to avoid cancelling an in-flight `consume_batch` and dropping buffered events.
+    /// Run until the lifecycle handle signals shutdown. Commit is deadline-driven, not a `select!`
+    /// arm, to avoid cancelling an in-flight `consume_batch` and dropping buffered events.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
-        // One-shot boot staleness sweep; pre-marked done when the gate is off so that path is unchanged.
+        // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
-        // One-shot eager pending-transfer redrive; pre-marked done when the gate is off so that path
-        // never runs. Fires after the staleness sweep settles, so it only touches owned partitions.
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
-        // One-shot restore seek; pre-marked done when there is no manifest, so the default path never seeks.
         let mut restore_seek_done = self.restore_manifest.is_none();
         let mut prev_assignment: Option<HashSet<i32>> = None;
 
@@ -804,9 +765,8 @@ impl CohortStreamEventsConsumer {
                     if !boot_sweep_done {
                         boot_sweep_done = self.run_boot_staleness_sweep(&mut prev_assignment);
                     }
-                    // Once the boot assignment has settled, re-produce stranded transfers for the owned
-                    // partitions. Skip dispatching this in-hand batch (the next poll re-fetches) so the
-                    // boot recovery completes before any fold work.
+                    // Redrive after the boot sweep settles. Skip dispatching this batch so boot
+                    // recovery completes before any fold work.
                     if !eager_redrive_done && boot_sweep_done {
                         let owned: HashSet<i32> =
                             self.dispatcher.owned_partitions().into_iter().collect();
@@ -816,12 +776,10 @@ impl CohortStreamEventsConsumer {
                         eager_redrive_done = true;
                         continue;
                     }
-                    // Once the boot assignment has settled, seek the owned events partitions to their
-                    // committed manifest positions. Skip dispatching this in-hand pre-seek batch (the
-                    // next poll fetches from the seek point) so no ahead-of-seek event is folded first.
+                    // Seek after the boot sweep settles. Skip dispatching the pre-seek batch so no
+                    // ahead-of-seek event is folded first. Fail-stop: retry without dispatching on
+                    // failure; never fold from the broker-stored offset.
                     if !restore_seek_done && boot_sweep_done {
-                        // Fail-stop: mark done only once the seek fully succeeds; on failure retry on the
-                        // next poll without dispatching, never folding from the broker offset.
                         restore_seek_done = self.run_restore_seek();
                         continue;
                     }
@@ -855,8 +813,7 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Reconcile the boot snapshot once the assignment has settled (see [`boot_assignment_settled`]).
-    /// Returns `true` when it reconciled, `false` while still empty or unsettled, so the caller retries.
+    /// Returns `true` once the boot snapshot is reconciled, `false` while the assignment is unsettled.
     fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
         let assignment = self.assigned_partitions();
         if !boot_assignment_settled(&assignment, prev) {
@@ -867,18 +824,10 @@ impl CohortStreamEventsConsumer {
         true
     }
 
-    /// Seek the owned events partitions to the manifest's committed offsets. A no-op unless
-    /// [`restore_manifest`](Self::restore_manifest) is `Some`. The committed offset is the next
-    /// position to consume, so seeking `Offset::Offset(N)` reproduces the resume position exactly with
-    /// no off-by-one.
-    ///
-    /// Fail-stop: returns `true` only once every targeted partition is sought (or there was nothing to
-    /// seek); returns `false` on any failure so the caller retries without dispatching. On failure it
-    /// does *not* resume from the broker-stored offset — that sits ahead of the restored checkpoint
-    /// state, so dispatching from there would silently skip events. A persistent failure stalls and
-    /// surfaces as `cohort_stream_events` lag: a visible stall, never silent loss. `seek_partitions`
-    /// reports per-partition failures inside the returned list, so both the top-level `Err` and each
-    /// element's `error` are checked.
+    /// Seek the owned events partitions to the manifest's committed offsets. A no-op when
+    /// `restore_manifest` is `None`. Returns `true` only once every targeted partition is sought;
+    /// `false` on any failure so the caller retries without dispatching. A persistent failure stalls
+    /// and surfaces as consumer lag, never silent event loss.
     fn run_restore_seek(&self) -> bool {
         let Some(manifest) = self.restore_manifest.as_ref() else {
             return true;
@@ -930,7 +879,6 @@ impl CohortStreamEventsConsumer {
         true
     }
 
-    /// This consumer's currently-assigned partitions for the events topic, as a set.
     fn assigned_partitions(&self) -> HashSet<i32> {
         match self.consumer.assignment() {
             Ok(tpl) => tpl
@@ -945,8 +893,6 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Record metrics, dispatch the batch, and heartbeat. A transport error suppresses the
-    /// heartbeat and backs off.
     async fn handle_outcome(&self, outcome: ConsumeOutcome) {
         histogram!(COHORT_STREAM_CONSUME_BATCH_SIZE).record(outcome.events.len() as f64);
         if !outcome.events.is_empty() {
@@ -968,7 +914,6 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Accumulate up to `recv_batch_size` deserialized events within `recv_batch_timeout`.
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),
@@ -1027,10 +972,9 @@ struct ConsumeOutcome {
     transport_error: bool,
 }
 
-/// Build the events-topic seek list for a disaster restore: each owned partition that carries a
-/// committed offset in `manifest`, at `Offset::Offset(next_offset)` (the next-to-consume convention).
-/// Returns the TPL plus the `(partition, offset)` pairs for logging, or `None` when no owned partition
-/// has a manifest offset.
+/// Build the seek list for a disaster restore: owned partitions with a committed offset in
+/// `manifest`, at `Offset::Offset(next_offset)` (next-to-consume convention). Returns the TPL and
+/// logged pairs, or `None` when no owned partition has a manifest offset.
 fn restore_seek_tpl(
     topic: &str,
     owned: &[i32],
@@ -1051,7 +995,6 @@ fn restore_seek_tpl(
     (tpl.count() > 0).then_some((tpl, sought))
 }
 
-/// Turn a `partition -> next-offset` snapshot into a `TopicPartitionList` for Kafka commit.
 pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     for (&partition, &next_offset) in offsets {
@@ -1062,8 +1005,6 @@ pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> Topi
     tpl
 }
 
-/// Commit the given processed offsets and record what was acked. Used by both the events and
-/// follower consumers.
 pub(crate) fn commit_offsets<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
     tracker: &OffsetTracker,
@@ -1089,9 +1030,8 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
     }
 }
 
-/// fsync the store's WAL, then commit the offsets — upholding `committed <= durable`. Unconditional
-/// (not gated by durable restore) so reopen-live is safe whenever the gate is flipped, with no window
-/// where a committed offset outruns the durable state. A fsync error skips the commit (fail-stop).
+/// fsync the store's WAL before committing offsets, upholding `committed <= durable`. Unconditional
+/// so reopen-live is safe whenever the durability gate is flipped. A fsync error skips the commit.
 pub(crate) fn fsync_then_commit<C: ConsumerContext>(
     store: &CohortStore,
     consumer: &StreamConsumer<C>,
@@ -1104,8 +1044,7 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
         return;
     }
     if store.flush_wal_sync().is_err() {
-        // Skip the commit so `committed` never outruns `durable` (the store counted the error).
-        return;
+        return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
     commit_offsets(consumer, tracker, offsets, topic, mode);
 }
@@ -1278,8 +1217,6 @@ mod tests {
         assert_eq!(tpl.count(), 0);
     }
 
-    /// Build an `OffsetManifest` for the given committed offsets via the real `capture` path, so the
-    /// test exercises the production committed-offset convention.
     fn manifest_for(topic: &str, committed: &[(i32, i64)]) -> OffsetManifest {
         let tracker = OffsetTracker::new();
         let owned: Vec<i32> = committed.iter().map(|(p, _)| *p).collect();
@@ -1343,7 +1280,6 @@ mod tests {
         (dir, store)
     }
 
-    /// A team with one `performed_event` leaf on `$pageview` (7d).
     fn behavioral_catalog() -> Arc<CatalogHandle> {
         let behavioral_leaf = json!({
             "type": "behavioral",
@@ -1370,7 +1306,6 @@ mod tests {
         dispatcher_and_sink(store, catalog).0
     }
 
-    /// Like [`dispatcher_with`] but also returns the capture sink for assertions.
     fn dispatcher_and_sink(
         store: &CohortStore,
         catalog: Arc<CatalogHandle>,
@@ -1384,7 +1319,6 @@ mod tests {
         (dispatcher, sink)
     }
 
-    /// Full test wiring: dispatcher + membership capture + transfer capture + merge deps.
     fn dispatcher_full(
         store: &CohortStore,
         catalog: Arc<CatalogHandle>,
@@ -1422,7 +1356,6 @@ mod tests {
         (dispatcher, sink, transfer_sink, merge)
     }
 
-    /// The behavioral leaf's `LeafStateKey`, read through the catalog.
     fn behavioral_lsk(catalog: &CatalogHandle) -> LeafStateKey {
         let snapshot = catalog.load();
         let team = snapshot.team(TeamId(TEAM)).expect("team in catalog");
@@ -1481,7 +1414,6 @@ mod tests {
             .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
     }
 
-    /// Write a one-key `cf_stage1` slice for `partition`, so a reclaim can be observed deleting it.
     fn seed_slice(store: &CohortStore, partition: u16, lsk: LeafStateKey) {
         store
             .write_batch(|b| {
@@ -1498,7 +1430,6 @@ mod tests {
             .unwrap();
     }
 
-    /// Raw presence of the seeded `cf_stage1` key (no decode — the value is opaque test bytes).
     fn slice_present(store: &CohortStore, partition: u16, lsk: LeafStateKey) -> bool {
         store
             .get_stage1(&Stage1Key {
@@ -1520,8 +1451,7 @@ mod tests {
         seed_slice(&store, 5, lsk);
         seed_slice(&store, 6, lsk);
 
-        // Snapshot excludes 5 (so it is a move-in); `partition_count` 5 keeps the boot wipe's `0..5`
-        // range off 5 and 6, so the only deletion below is the assign-path reclaim.
+        // Boot snapshot excludes 5 (move-in); partition_count 5 keeps the boot wipe off 5 and 6.
         dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
 
         dispatcher.reclaim_stale_partition_on_assign(5);
@@ -1530,7 +1460,6 @@ mod tests {
             "a moving-in partition with no worker has its stale slice deleted",
         );
 
-        // Partition 6 has a live worker (continuous ownership), so its slice is kept.
         dispatcher.assign_partition(6);
         dispatcher.ensure_worker(6);
         dispatcher.reclaim_stale_partition_on_assign(6);
@@ -1568,7 +1497,6 @@ mod tests {
             seed_slice(&store, partition, lsk);
         }
 
-        // Assigned {0, 2}; partition 1 moved away while down.
         let assignment: HashSet<i32> = [0, 2].into_iter().collect();
         dispatcher.reclaim_unassigned_partitions_on_boot(&assignment, 3);
 
@@ -1708,7 +1636,6 @@ mod tests {
 
         dispatcher.revoke_partition_drain(0).await;
 
-        // Drained: person 1's enter was produced before the slice was reclaimed.
         let changes = sink.changes();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].status, MembershipStatus::Entered);
@@ -2126,7 +2053,6 @@ mod tests {
 
     const MERGED_AT: i64 = 1_716_800_000_000;
 
-    /// Like [`behavioral_catalog`] plus a composable cohort `AND(behavioral 7d, behavioral 30d)`.
     fn composable_catalog() -> Arc<CatalogHandle> {
         let behavioral_leaf = |days: i64| {
             json!({
@@ -2160,12 +2086,10 @@ mod tests {
         )])))
     }
 
-    /// An empty catalog — no teams configured.
     fn absent_team_catalog() -> Arc<CatalogHandle> {
         Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([])))
     }
 
-    /// First person at or after `start` hashing to `partition`.
     fn person_hashing_to(partition: u16, start: u128) -> Uuid {
         (start..start + 100_000)
             .map(Uuid::from_u128)
@@ -2173,7 +2097,6 @@ mod tests {
             .expect("some person hashes to the partition")
     }
 
-    /// First person at or after `start` hashing away from `partition`.
     fn person_hashing_away_from(partition: u16, start: u128) -> Uuid {
         (start..start + 100_000)
             .map(Uuid::from_u128)
@@ -2570,7 +2493,7 @@ mod tests {
             transfers.into_iter().next().unwrap()
         };
 
-        // Simulate a crash between the produce ack and the outbox clear.
+        // Simulate a crash between produce ack and outbox clear.
         store
             .write_batch(|batch| {
                 batch.put_pending_transfer(
@@ -2585,7 +2508,6 @@ mod tests {
             })
             .unwrap();
 
-        // Fresh dispatcher: an event spawns the worker, then the tick re-produces copy 2.
         let dispatcher_b = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
@@ -2609,7 +2531,6 @@ mod tests {
             .unwrap()
             .is_none());
 
-        // Apply both copies: the second is AlreadyApplied.
         let target = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as i32;
         let apply_sink = CaptureSink::new();
         let dispatcher_c = EventDispatcher::new(
@@ -2653,7 +2574,6 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
-        // Owned but workerless: routes the tick, never spawns a worker.
         dispatcher.assign_partition(0);
         dispatcher.route_merge_gc(1_000, 500).await;
         assert_eq!(dispatcher.workers.len(), 0, "GC never spawns a worker");
@@ -2663,7 +2583,6 @@ mod tests {
             "no channel registered"
         );
 
-        // Unowned: nothing to route.
         dispatcher.revoke_partition_sync(0);
         dispatcher.route_merge_gc(1_000, 500).await;
     }
@@ -2678,12 +2597,10 @@ mod tests {
         let partition_id = partition as u16;
         dispatcher.assign_partition(partition);
 
-        // An event spawns the worker so the routed GC tick has a live channel to land on.
         dispatcher
             .dispatch(vec![consumed(person(1), partition, 0)])
             .await;
 
-        // Stage one expired and one fresh tombstone directly. Cutoffs: marker 10_000, tombstone 5_000.
         let marker_cutoff = 10_000;
         let tombstone_cutoff = 5_000;
         let expired = TombstoneKey {
@@ -2720,7 +2637,6 @@ mod tests {
         dispatcher
             .route_merge_gc(marker_cutoff, tombstone_cutoff)
             .await;
-        // Shutdown drains the worker, so the routed GC message is fully processed.
         let _tracker = dispatcher.shutdown().await;
 
         assert!(
@@ -3146,8 +3062,6 @@ mod tests {
         );
     }
 
-    /// Stage one `cf_pending_transfers` outbox entry for `partition` directly in the store, returning
-    /// its key and the transfer it carries.
     fn stage_pending(
         store: &CohortStore,
         partition: i32,
@@ -3182,8 +3096,8 @@ mod tests {
         let (key, transfer) = stage_pending(&store, partition, person(1), person(2), 41);
         dispatcher.assign_partition(partition);
 
-        // No dispatch yet, so the merge tracker is at `dispatched_offset == 0` — exactly the state
-        // where `mark_processed` would clamp and trip CappedAheadOfDispatch, which the redrive avoids.
+        // No dispatch yet: dispatched_offset == 0, so mark_processed would clamp and trip
+        // CappedAheadOfDispatch — the eager redrive correctly skips it.
         let owned: HashSet<i32> = [partition].into_iter().collect();
         dispatcher
             .eager_redrive_pending_transfers_on_boot(&owned)

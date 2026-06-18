@@ -86,9 +86,9 @@ fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// Two single-leaf `$pageview` cohorts (single + daily), plus cohort B: a pure cohort-ref to the daily
-/// cohort, frozen with `freeze_with(UTC, true)` so it owns no state-keyed leaf and only a cascade from
-/// the daily cohort can flip it — never its own event.
+/// Cohort 1: `performed_event` single. Cohort 2: `performed_event_multiple gte 2` daily.
+/// Cohort 3: pure cohort-ref to cohort 2, frozen with `freeze_with(UTC, true)` so it owns no
+/// state-keyed leaf and can only flip via cascade from cohort 2.
 fn merge_catalog() -> CatalogHandle {
     let single = json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -203,8 +203,6 @@ async fn delete_topics(topics: &[&str]) {
     }
 }
 
-/// Run a test body, delete `topics` + sweep the S3 prefix whether it passed or panicked, then
-/// re-propagate any panic.
 async fn with_topics_cleanup<F: Future<Output = ()>>(topics: &[&str], config: &Config, body: F) {
     let result = AssertUnwindSafe(body).catch_unwind().await;
     delete_topics(topics).await;
@@ -214,7 +212,7 @@ async fn with_topics_cleanup<F: Future<Output = ()>>(topics: &[&str], config: &C
     }
 }
 
-/// The `murmur2_random` partitioner must match production for keyed co-partitioning.
+/// `murmur2_random` is required so keyed produces co-partition with `partition_of`.
 fn producer_kafka_config() -> KafkaConfig {
     KafkaConfig {
         kafka_hosts: bootstrap_servers(),
@@ -280,8 +278,7 @@ fn group_verifier(group: &str) -> StreamConsumer {
         .expect("create group verifier")
 }
 
-/// Sum of committed offsets across all partitions; for a fresh topic this equals the messages
-/// consumed (committed == next-offset-to-consume).
+/// Sum of committed offsets across all partitions (committed == next-offset-to-consume on a fresh topic).
 fn committed_sum(consumer: &StreamConsumer, topic: &str) -> i64 {
     let mut tpl = TopicPartitionList::new();
     for partition in 0..NUM_PARTITIONS {
@@ -315,9 +312,8 @@ fn topic_message_count(topic: &str) -> i64 {
         .sum()
 }
 
-/// Read up to `expected` messages on `topic` (all partitions from the beginning) as `(partition,
-/// payload)` pairs. Assigned explicitly — no group join, no commit, so it never perturbs the offsets
-/// the test asserts on.
+/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
+/// join, no commit — so committed offsets the test asserts on are never perturbed.
 async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -367,10 +363,8 @@ async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() ->
     }
 }
 
-/// Poll the FULL shadow topic until a change matching `predicate` appears, or `deadline` elapses.
-/// Content-based, not count-based: the target change may not be among the first N messages, so each
-/// poll rescans every message currently on the topic (live watermark). Returns whether it was found
-/// so the caller keeps its own assertion message.
+/// Poll the full shadow topic until a change matching `predicate` appears, or `deadline` elapses.
+/// Each poll rescans the live watermark — the target change may not be in the first N messages.
 async fn wait_for_shadow_change(
     topic: &str,
     deadline: Duration,
@@ -395,7 +389,6 @@ fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
 
-/// Allocates distinct persons, filtered by the partition they hash to.
 struct PersonAlloc(u128);
 
 impl PersonAlloc {
@@ -417,14 +410,14 @@ impl PersonAlloc {
         self.next_on(|_| true)
     }
 
-    /// A `(P_old, P_new)` pair hashing to different partitions — the cross-partition slow path.
+    /// Cross-partition pair: P_old and P_new hash to different partitions.
     fn cross_partition_pair(&mut self) -> (Uuid, Uuid) {
         let old = self.next();
         let new = self.next_on(|p| p != part(old));
         (old, new)
     }
 
-    /// A `(Q_old, Q_new)` pair hashing to the **same** partition — the fast path.
+    /// Same-partition pair: Q_old and Q_new hash to the same partition (fast path).
     fn same_partition_pair(&mut self) -> (Uuid, Uuid) {
         let old = self.next();
         let new = self.next_on(|p| p == part(old));
@@ -432,7 +425,6 @@ impl PersonAlloc {
     }
 }
 
-/// A serialized `CohortStreamEvent` envelope, byte-for-byte what the shuffler emits.
 fn envelope(person: Uuid, ts: &str, source_offset: i64) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "team_id": TEAM,
@@ -626,9 +618,8 @@ struct Instance {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
     tasks: Vec<JoinHandle<()>>,
-    /// Cloned before the originals move into `MergeWorkerDeps` / `EventDispatcher`, so the sweeper
-    /// reads the same trackers the running consumers mutate and the manifest captures the follower
-    /// topics' offsets with content.
+    /// Cloned before the originals move into deps/dispatcher so the sweeper reads the same tracker
+    /// instances the running consumers mutate (manifest captures follower offsets with content).
     events_tracker: Arc<OffsetTracker>,
     merge_tracker: Arc<OffsetTracker>,
     transfer_tracker: Arc<OffsetTracker>,
@@ -647,10 +638,8 @@ impl Instance {
     }
 }
 
-/// One full processor instance: events consumer, three follower consumers (merge/transfer/cascade),
-/// real Kafka sinks, cascade gate on. An optional restore `manifest` is threaded into the events
-/// consumer (restore-seek) and seeds the follower groups. No sweep or redrive loop — the test drives
-/// the checkpoint directly.
+/// An optional restore `manifest` seeds follower group committed offsets before the rebalance worker
+/// assigns, so each `incremental_assign(Offset::Stored)` resolves to the restored position.
 #[allow(clippy::too_many_arguments)]
 async fn spawn_instance(
     topics: &Topics,
@@ -685,8 +674,6 @@ async fn spawn_instance(
             .expect("create membership sink"),
     );
 
-    // Cloned before they move into the deps/dispatcher so the sweeper reads the same trackers the
-    // running consumers mutate.
     let events_tracker = Arc::new(OffsetTracker::new());
     let merge_tracker = Arc::new(OffsetTracker::new());
     let transfer_tracker = Arc::new(OffsetTracker::new());
@@ -742,8 +729,6 @@ async fn spawn_instance(
             .expect("create cascade follower consumer"),
     );
 
-    // Seed each follower group's committed offset before the rebalance worker assigns, so the
-    // follower `incremental_assign` at `Offset::Stored` resolves to the manifest position.
     if let Some(manifest) = manifest.as_ref() {
         commit_follower_offsets_from_manifest(&merges_consumer, &topics.merges, manifest);
         commit_follower_offsets_from_manifest(&transfers_consumer, &topics.transfers, manifest);
@@ -831,9 +816,8 @@ async fn spawn_instance(
     }
 }
 
-/// Seed a follower consumer group's committed offsets from the restore manifest, so its subsequent
-/// `incremental_assign` at [`Offset::Stored`] resolves to the restored position. No-op when the
-/// manifest carries no entries for `topic`.
+/// Seeds a follower group's committed offsets from the manifest so `incremental_assign(Offset::Stored)`
+/// resolves to the restored position. No-op when the manifest has no entries for `topic`.
 fn commit_follower_offsets_from_manifest(
     consumer: &StreamConsumer,
     topic: &str,
@@ -857,10 +841,8 @@ fn commit_follower_offsets_from_manifest(
     }
 }
 
-/// A `Config` for the merge durability e2e. `durable_restore_enabled && cohort_cascade_enabled` is
-/// allowed by `validate_durability_startup` only when `durable_restore_single_pod &&
-/// pod_identity().is_some()`, so the single-pod knobs are set too. Threads every topic/group name
-/// through so the single instance owns all 64 partitions of the per-run-unique topology.
+/// `durable_restore_enabled && cohort_cascade_enabled` requires `durable_restore_single_pod &&
+/// pod_identity().is_some()` to pass `validate_durability_startup`, so those knobs are set too.
 #[allow(clippy::too_many_arguments)]
 fn merge_durability_config(
     store_path: &Path,
@@ -928,9 +910,8 @@ fn merge_durability_config(
     config
 }
 
-/// Delete every S3 object this run wrote on test exit — both the hash-prefixed checkpoint files and
-/// the bare-prefix metadata.json. Best-effort: any error building, listing, or deleting is ignored so
-/// cleanup never fails a passing test.
+/// Deletes all S3 objects written by this run: hash-prefixed checkpoint files and bare-prefix
+/// metadata.json. Best-effort; errors are ignored so cleanup never fails a passing test.
 async fn delete_s3_prefix(config: &Config) {
     use futures::StreamExt;
     use object_store::aws::AmazonS3Builder;
@@ -963,8 +944,7 @@ async fn delete_s3_prefix(config: &Config) {
         Ok(store) => store,
         Err(_) => return,
     };
-    // Checkpoint object files are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json sits at the
-    // bare `<s3_key_prefix>/…` (the hash prefix is applied to files only). Sweep both.
+    // Checkpoint SSTs are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json at the bare prefix.
     let hashed = format!("{}/{}", store_hash_prefix(), d.s3_key_prefix);
     for raw_prefix in [d.s3_key_prefix.as_str(), hashed.as_str()] {
         let prefix = ObjPath::from(raw_prefix);
@@ -977,8 +957,8 @@ async fn delete_s3_prefix(config: &Config) {
     }
 }
 
-/// Drive one checkpoint tick against the live trackers + running dispatcher, uploading to S3. The
-/// upload cadence resolves to 1, so this first tick uploads.
+/// Runs one checkpoint tick against the live trackers + running dispatcher and uploads to S3.
+/// `upload_cadence` resolves to 1 so this first tick always uploads.
 async fn checkpoint_to_s3(
     instance: &Instance,
     config: &Config,
@@ -1009,8 +989,6 @@ async fn checkpoint_to_s3(
     sweeper.run_once().await;
 }
 
-/// Complete one cross-partition merge end-to-end. Returns once the moved state, the tombstone, and
-/// both follower-group commits are durable on `p_new`'s slice.
 #[allow(clippy::too_many_arguments)]
 async fn complete_cross_partition_merge(
     instance: &Instance,
@@ -1073,7 +1051,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         let catalog = merge_catalog();
         let (single_lsk, daily_lsk) = behavioral_lsks(&catalog);
 
-        // === Tenure 1: drive merges through all CFs + the cascade, then checkpoint to S3. ===
+        // Tenure 1: drive merges through all CFs + the cascade, then checkpoint to S3.
         let mut manager = Manager::builder("merge-durability-itest-1")
             .with_trap_signals(false)
             .build();
@@ -1101,17 +1079,15 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
 
         let mut alloc = PersonAlloc::new();
 
-        // Cross-partition merge: exercises drain (cf_merge_drains_applied + tombstone), transfer +
-        // apply (cf_merge_applied), and the apply's cascade flip of B (cf_stage2).
+        // Cross-partition merge: drain (cf_merge_drains_applied + tombstone), transfer + apply
+        // (cf_merge_applied), and the apply's cascade flip of cohort 3 (cf_stage2).
         let (p_old, p_new) = alloc.cross_partition_pair();
         complete_cross_partition_merge(
             &instance, &murmur2_producer(), &topics, &groups, single_lsk, daily_lsk, p_old, p_new, 0,
         )
         .await;
-        // The cascade re-evaluating B (cohort 3) into P_new is NOT among the first shadow messages:
-        // P_old's flips for cohorts 1, 2, and its B cascade land first. So poll the FULL shadow topic
-        // (live watermark, not a fixed prefix) for the specific P_new change rather than reading a
-        // fixed count.
+        // Cohort 3's cascade flip for P_new is not in a predictable position on the shadow topic
+        // (P_old's cohort 1/2 flips land first), so poll the live watermark for the specific change.
         let cascade_into_p_new = wait_for_shadow_change(
             &topics.shadow,
             Duration::from_secs(60),
@@ -1128,7 +1104,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             "the cascade re-evaluated B (cohort 3, a pure ref to cohort 2) into P_new's membership",
         );
 
-        // Same-partition merge: the fast path (one worker, no Kafka transfer).
+        // Same-partition merge: fast path (one worker, no Kafka transfer).
         let (q_old, q_new) = alloc.same_partition_pair();
         assert_eq!(
             part(q_old),
@@ -1155,8 +1131,8 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         )
         .await;
 
-        // Each follower group's committed offset must equal its produced count before the checkpoint,
-        // so the manifest cannot under-record.
+        // Wait until committed offsets equal produced counts before checkpointing, so the manifest
+        // cannot under-record.
         let merge_count = topic_message_count(&topics.merges);
         let transfer_count = topic_message_count(&topics.transfers);
         assert_eq!(merge_count, 2, "two merge triggers on the wire");
@@ -1176,8 +1152,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         )
         .await;
 
-        // Checkpoint while the dispatcher still owns all 64 partitions, so the manifest's follower
-        // maps are non-empty.
+        // Checkpoint while the dispatcher owns all 64 partitions so follower maps are non-empty.
         assert_eq!(
             instance.owned().len(),
             NUM_PARTITIONS as usize,
@@ -1185,16 +1160,15 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         );
         checkpoint_to_s3(&instance, &config, &topics, &checkpoint_dir).await;
 
-        // Release the RocksDB lock before simulating PVC loss.
         shutdown.request_shutdown();
         instance.join().await;
 
-        // === PVC loss: delete both the live store and the local checkpoint dir. ===
+        // Simulate PVC loss: delete the live store and local checkpoint dir.
         std::fs::remove_dir_all(&store_path).expect("remove store_path (simulate PVC loss)");
         std::fs::remove_dir_all(&checkpoint_dir)
             .expect("remove checkpoint_local_dir (simulate PVC loss)");
 
-        // === Tenure 2: restore from S3 + assert the manifest + restored state. ===
+        // Tenure 2: restore from S3, then verify the manifest and restored state.
         let restore = run_boot_restore(&config, &store_path).await;
         assert!(
             matches!(restore.source, RestoreSource::S3),
@@ -1206,8 +1180,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             .clone()
             .expect("an S3 restore yields an offset manifest to seek");
 
-        // The follower manifest maps are non-empty: the merge offset is on P_old's partition, the
-        // transfer offset on P_new's.
+        // Follower manifest maps are non-empty: merge offset on P_old's partition, transfer on P_new's.
         assert!(
             manifest.offset_for(&topics.merges, part(p_old) as i32) >= Some(1),
             "the restored manifest must carry the merge follower's offset on P_old's partition \
@@ -1249,14 +1222,13 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             "same-partition Q_old's tombstone survived the restore",
         );
         assert_eq!(daily_total(&store2, daily_lsk, q_old), None);
-        // B's cf_stage2 bit survived: re-membership is read from the restored store, not recomputed.
+        // cf_stage2 bit survived: membership is read from the restored store, not recomputed on boot.
         assert!(
             stage2_in_cohort(&store2, COHORT_REF, p_new),
             "B's (cohort 3) cf_stage2 membership bit for P_new survived the restore",
         );
 
-        // Drop the read-only store handle before spawning tenure 2, so the consumer reopens it live.
-        drop(store2);
+        drop(store2); // release the read-only handle so the consumer can reopen it live
         let mut manager2 = Manager::builder("merge-durability-itest-2")
             .with_trap_signals(false)
             .build();
@@ -1282,8 +1254,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         )
         .await;
 
-        // A post-restore straggler for P_old must redirect via the restored cf_merge_tombstones —
-        // P_old not rebuilt, P_new not double-counted.
+        // Post-restore straggler for P_old redirects via the restored tombstone; P_old not rebuilt.
         produce_event(&producer, &topics.events, p_old, TS_LATER, 1000).await;
         wait_for(
             "the post-restore straggler to fold into P_new via the restored tombstone",
@@ -1302,15 +1273,13 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             "P_new's single match holds after the straggler",
         );
 
-        // Replaying the original merge is deduped by the restored cf_merge_drains_applied /
-        // cf_merge_applied markers — no second transfer.
+        // Replayed merge is deduped by the restored cf_merge_drains_applied / cf_merge_applied markers.
         produce_merge(&producer, &topics.merges, &merge_event(p_old, p_new)).await;
         let merge_verifier2 = group_verifier(&groups.merges);
         wait_for(
             "the replayed merge to settle (its commit advances) without a second transfer",
             Duration::from_secs(60),
-            // The replay is the 3rd merge on the wire across both tenures.
-            || committed_sum(&merge_verifier2, &topics.merges) >= 3,
+            || committed_sum(&merge_verifier2, &topics.merges) >= 3, // replay is the 3rd merge on wire
         )
         .await;
         assert_eq!(
@@ -1324,9 +1293,8 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             "P_new's count is unchanged by the replayed merge (apply marker dedups it)",
         );
 
-        // Events committed-sum stays exact — the restore-seek neither skips nor re-folds past the
-        // committed position. Four seeds (2 per pair) + one straggler = 5 produced, and the
-        // cross-partition straggler re-keys to P_new, adding one re-key, so the topic holds 6.
+        // Restore-seek neither skips nor re-folds: committed-sum must equal the topic message count.
+        // 4 seeds (2 per pair) + 1 straggler + 1 re-key = 6 events on the wire.
         let events_verifier = group_verifier(&groups.events);
         wait_for(
             "the events committed-sum to reach every produced + re-keyed event",
@@ -1340,10 +1308,9 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             "events resumed exactly at the manifest offset — no skip, no re-fold",
         );
 
-        // Direct membership changes are exact; a cascade-origin change (cohort B) is at-least-once,
-        // bounded [expected, expected + 1]. The cascade produces B's flip before it commits the
-        // cf_stage2 bit, so a restore can re-emit the flip once per pair — but a systematic double
-        // (2× expected) still fails.
+        // Direct changes are exact. Cascade-origin cohort 3 is at-least-once, bounded [1, 2]:
+        // the cascade produces the flip before committing the cf_stage2 bit, so a restore can
+        // re-emit once per pair — but a systematic double is a bug.
         let total_shadow = topic_message_count(&topics.shadow) as usize;
         let changes = shadow_changes(&topics.shadow, total_shadow).await;
 
@@ -1394,7 +1361,6 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
     .await;
 }
 
-/// The stored `cf_stage2` membership bit for `(cohort, person)`, `false` if absent.
 fn stage2_in_cohort(store: &CohortStore, cohort: i32, person: Uuid) -> bool {
     use cohort_stream_processor::stage2::Stage2State;
     use cohort_stream_processor::store::Stage2Key;

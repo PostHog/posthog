@@ -296,7 +296,6 @@ fn evict_compressed(
     })
 }
 
-/// Build the membership transition for an evicted key.
 fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
     LeafTransition {
         team_id: TeamId(key.team_id as i32),

@@ -70,10 +70,8 @@ pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys
 pub const DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL: &str =
     "durable_restore_pending_transfers_recovered_partitions_total";
 
-// === Durability: RocksDB Checkpoint + S3 backup/restore ===
-// Histograms are `_seconds`. Whole-DB checkpoint, so these are per-pod, not per-partition.
-
 /// Wall-clock duration of one whole-DB `Checkpoint::create_checkpoint` (histogram, seconds).
+/// Whole-DB checkpoint, so these are per-pod, not per-partition.
 pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
 /// On-disk size of a freshly-taken checkpoint directory (histogram, bytes).
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
@@ -347,7 +345,6 @@ mod tests {
 
     #[test]
     fn cascade_metric_names_are_stable() {
-        // Pin the wire names: a rename must not silently break dashboards or alerts.
         assert_eq!(CASCADE_DEPTH_OBSERVED, "cascade_depth_observed");
         assert_eq!(CASCADE_DEPTH_EXCEEDED_TOTAL, "cascade_depth_exceeded_total");
         assert_eq!(
@@ -359,7 +356,6 @@ mod tests {
 
     #[test]
     fn durability_metric_names_are_stable() {
-        // Pin the wire names: a rename must not silently break dashboards or alerts.
         assert_eq!(CHECKPOINT_DURATION_SECONDS, "checkpoint_duration_seconds");
         assert_eq!(CHECKPOINT_SIZE_BYTES, "checkpoint_size_bytes");
         assert_eq!(CHECKPOINT_FILE_COUNT, "checkpoint_file_count");
@@ -414,7 +410,6 @@ mod tests {
 
     #[test]
     fn stage2_orphan_gc_metric_names_are_stable() {
-        // Pin the wire names: a rename must not silently break dashboards or alerts.
         assert_eq!(
             STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
             "stage2_orphan_gc_keys_scanned_total",

@@ -95,7 +95,6 @@ pub(crate) fn condition_negation(node: &FilterNode) -> bool {
     }
 }
 
-/// Whether any group in the tree has zero children.
 fn has_empty_group(node: &FilterNode) -> bool {
     match node {
         FilterNode::Leaf(_) => false,
@@ -180,7 +179,6 @@ fn is_resolvable(eligibility: &HashMap<CohortId, CohortEligibility>, target: Coh
     )
 }
 
-/// The [`LeafStateKey`] of a tree that has exactly one state-keyed leaf, or [`None`].
 fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
     enum LeafCount {
         Zero,
@@ -640,8 +638,7 @@ mod tests {
 
     use std::collections::HashSet;
 
-    /// `positive_ref_targets` defaults to the same targets as `ref_targets` (all-positive), so every
-    /// existing test — all of which use non-negated refs — keeps its prior behavior.
+    /// Builds a [`RefGraphAnalysis`] where all ref targets are positive (non-negated).
     fn analysis(
         in_cycle: &[i32],
         refinement_order: &[i32],

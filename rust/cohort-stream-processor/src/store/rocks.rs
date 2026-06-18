@@ -766,7 +766,6 @@ mod tests {
             })
             .unwrap();
 
-        // First page: limit 2, no cursor → the two smallest keys in partition 5.
         let page1 = store
             .scan_merge_cf(Cf::MergeTombstones, 5, None, 2)
             .unwrap();
@@ -781,7 +780,6 @@ mod tests {
             "key-ordered ascending",
         );
 
-        // Second page: resume strictly after the last key from page 1.
         let cursor = page1.last().unwrap().0.clone();
         let page2 = store
             .scan_merge_cf(Cf::MergeTombstones, 5, Some(&cursor), 10)
@@ -863,7 +861,6 @@ mod tests {
             .unwrap();
         store.create_checkpoint(&checkpoint).unwrap();
 
-        // Open the checkpoint directory as a fresh, independent DB: the snapshotted key is present.
         let restored = CohortStore::open(&StoreConfig {
             path: checkpoint,
             wipe_on_start: false,
@@ -876,9 +873,8 @@ mod tests {
         );
     }
 
-    // RocksDB's Checkpoint::create_checkpoint creates the destination dir itself and requires it to
-    // NOT already exist: the parent must exist, the leaf must not. This pins the contract the
-    // checkpoint sweeper violated by pre-creating the leaf (every S3 upload silently skipped).
+    // RocksDB's Checkpoint::create_checkpoint creates the destination dir itself and requires
+    // the leaf to NOT already exist: the parent must exist, the leaf must not.
     #[test]
     fn create_checkpoint_succeeds_when_only_the_parent_exists_and_the_leaf_does_not() {
         let dir = TempDir::new().unwrap();
@@ -892,7 +888,7 @@ mod tests {
             .write_batch(|b| b.put_stage1(&key, b"snapshot"))
             .unwrap();
 
-        // Parent exists (as the sweeper's attempt-parent does), leaf does not — the correct usage.
+        // Parent exists, leaf does not — the correct usage.
         let parent = dir.path().join("attempts");
         std::fs::create_dir_all(&parent).unwrap();
         let checkpoint = parent.join("attempt-0");
@@ -919,7 +915,7 @@ mod tests {
         })
         .unwrap();
 
-        // Pre-create the leaf — the bug that made every checkpoint tick skip the upload.
+        // Pre-create the leaf: RocksDB requires it to not exist.
         let checkpoint = dir.path().join("attempt-0");
         std::fs::create_dir_all(&checkpoint).unwrap();
         let err = store.create_checkpoint(&checkpoint).unwrap_err();
@@ -955,14 +951,12 @@ mod tests {
             })
             .unwrap();
 
-        // No cursor: the two smallest keys in partition 5, value returned raw.
         let page1 = store.scan_stage1(5, None, 2).unwrap();
         assert_eq!(page1.len(), 2);
         assert_eq!(page1[0].0, key(5, 1));
         assert_eq!(page1[0].1, b"v1");
         assert_eq!(page1[1].0, key(5, 2));
 
-        // Resume strictly after page 1's last key.
         let cursor = page1.last().unwrap().0.encode();
         let page2 = store.scan_stage1(5, Some(&cursor), 10).unwrap();
         assert_eq!(page2.len(), 1, "only the remaining partition-5 key");

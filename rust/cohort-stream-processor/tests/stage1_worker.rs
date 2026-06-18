@@ -5,7 +5,7 @@
 //! cover the drain loop and post-commit emission.
 //!
 //! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
-//! the in-crate classifier / catalog tests and `tests/filter_catalog.rs`, not duplicated here.
+//! the in-crate classifier / catalog tests, not duplicated here.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -278,7 +278,6 @@ fn daily_state(state: &Stage1State) -> (&[u32], i32, i64) {
     }
 }
 
-/// The window's matching-event count — the bucket sum the predicate compares.
 fn window_count(state: &Stage1State) -> u32 {
     daily_state(state).0.iter().sum()
 }
@@ -296,7 +295,6 @@ fn compressed_state(state: &Stage1State) -> (&[(i32, u32)], i32, i64) {
     }
 }
 
-/// The compressed window's matching-event count — the entries' count sum.
 fn compressed_count(state: &Stage1State) -> u32 {
     compressed_state(state)
         .0

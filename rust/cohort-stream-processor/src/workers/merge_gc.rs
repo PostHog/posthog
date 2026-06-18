@@ -29,9 +29,9 @@ use crate::store::{BatchBuilder, Cf, CohortStore};
 /// module doc).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum GcCf {
-    /// Phase 1 drain marker (`DrainStamp.drained_at_ms`), evicted below the marker cutoff.
+    /// Drain marker (`DrainStamp.drained_at_ms`), evicted below the marker cutoff.
     DrainsApplied,
-    /// Phase 2 apply marker (`ApplyStamp.applied_at_ms`), evicted below the marker cutoff.
+    /// Apply marker (`ApplyStamp.applied_at_ms`), evicted below the marker cutoff.
     Applied,
     /// Redirect tombstone (`Tombstone.merged_at_ms`), evicted below the (longer) tombstone cutoff.
     Tombstones,
@@ -48,7 +48,6 @@ impl GcCf {
         }
     }
 
-    /// Stable `cf` metric label.
     fn label(self) -> &'static str {
         self.cf().as_str()
     }

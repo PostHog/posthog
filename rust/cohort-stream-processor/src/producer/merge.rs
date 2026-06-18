@@ -107,8 +107,8 @@ fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
 
 const FAIL_ALWAYS: usize = usize::MAX;
 
-/// Shared produce recorder for the `Capture*Sink` test doubles: records items and can fail the next
-/// `n` (or all) produces.
+/// Shared produce recorder for test doubles: records items and can fail the next `n` (or all)
+/// produces.
 #[derive(Debug)]
 pub(crate) struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,

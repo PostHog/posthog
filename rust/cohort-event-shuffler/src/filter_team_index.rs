@@ -43,7 +43,6 @@ impl TeamIndex {
         Self::with_allowlist(TeamAllowlist::All)
     }
 
-    /// The production constructor: gate refreshes to `allowlist`.
     pub fn with_allowlist(allowlist: TeamAllowlist) -> Self {
         Self {
             teams: ArcSwap::from_pointee(HashSet::new()),

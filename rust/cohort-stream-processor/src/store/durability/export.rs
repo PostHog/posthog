@@ -17,7 +17,6 @@ impl CheckpointExporter {
         Self { uploader }
     }
 
-    /// Export a checkpoint using a plan with incremental deduplication.
     pub async fn export_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<()> {
         self.export_checkpoint_with_plan_cancellable(plan, None, None)
             .await
@@ -73,7 +72,6 @@ impl CheckpointExporter {
 
             Err(e) => {
                 let upload_duration = upload_start.elapsed();
-                // A cancellation is recorded in metrics only; the detail was already logged upstream.
                 if e.downcast_ref::<UploadCancelledError>().is_some() {
                     // Metrics labels must be 'static, so map the cause to a fixed string.
                     let cause: &'static str = match cancel_cause {
@@ -115,7 +113,6 @@ mod tests {
         CheckpointInfo, CheckpointMetadata, UploadCancelledError, STORE_PARTITION, STORE_TOPIC,
     };
 
-    /// Mock uploader for testing cancellation detection
     #[derive(Debug)]
     struct MockUploader {
         should_return_cancelled: bool,

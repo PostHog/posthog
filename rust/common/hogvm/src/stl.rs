@@ -66,7 +66,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
-            // On the cohort critical path: emitted by the `null_safe_comparisons=True` wrapper.
+            // Emitted by the `null_safe_comparisons=True` wrapper to guard missing-property leaves.
             "isNull",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "isNull")?;

@@ -8,7 +8,6 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 
-/// Structural facts about a team's cohort-reference graph, computed once at filter freeze.
 #[derive(Debug, Default)]
 pub(crate) struct RefGraphAnalysis {
     /// Cohorts participating in a reference cycle (SCC of size > 1, or self-loop).
@@ -25,7 +24,6 @@ pub(crate) struct RefGraphAnalysis {
     pub positive_ref_targets: HashMap<CohortId, HashSet<CohortId>>,
 }
 
-/// Analyze a team's parsed cohort trees for reference cycles and refinement order.
 pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalysis {
     let mut ref_targets: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
     let mut positive_ref_targets: HashMap<CohortId, HashSet<CohortId>> = HashMap::new();
@@ -122,7 +120,6 @@ mod tests {
     use crate::filters::tree::{BoolOp, CohortRefLeafConfig};
     use crate::filters::TeamId;
 
-    /// A cohort whose only leaves are cohort-references to `refs`.
     fn ref_cohort(id: i32, refs: &[i32]) -> (CohortId, CohortTree) {
         let children = refs
             .iter()
@@ -146,7 +143,6 @@ mod tests {
         )
     }
 
-    /// A cohort whose leaves are cohort-references to `(target, negation)` pairs.
     fn ref_cohort_negated(id: i32, refs: &[(i32, bool)]) -> (CohortId, CohortTree) {
         let children = refs
             .iter()
@@ -226,7 +222,6 @@ mod tests {
         let analysis = analyze(&catalog(vec![ref_cohort(1, &[99])]));
         assert_eq!(analysis.ref_targets[&CohortId(1)], vec![CohortId(99)]);
         assert!(analysis.in_cycle.is_empty());
-        // The placeholder is never itself ref-bearing.
         assert!(!analysis.ref_targets.contains_key(&CohortId(99)));
     }
 

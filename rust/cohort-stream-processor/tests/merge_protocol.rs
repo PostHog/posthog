@@ -51,7 +51,6 @@ fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
 }
 
-/// A `performed_event` single leaf (7d).
 fn single_leaf() -> Value {
     json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -60,7 +59,7 @@ fn single_leaf() -> Value {
     })
 }
 
-/// A `performed_event_multiple gte 2` daily leaf (7d) — shares the matcher with the single leaf.
+/// `performed_event_multiple gte 2` daily leaf (7d) — shares the conditionHash with `single_leaf`.
 fn daily_leaf() -> Value {
     json!({
         "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
@@ -69,7 +68,7 @@ fn daily_leaf() -> Value {
     })
 }
 
-/// A `performed_event_multiple gte 2` compressed leaf (365d) — over-180-day window.
+/// `performed_event_multiple gte 2` compressed leaf (365d) — over-180-day window uses compressed storage.
 fn compressed_leaf() -> Value {
     json!({
         "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
@@ -90,8 +89,8 @@ fn cohort(values: Vec<Value>) -> Value {
     json!({ "properties": { "type": "AND", "values": values } })
 }
 
-/// Single-leaf cohorts for each behavioral variant, plus a composable `AND(daily, person)` cohort so
-/// the apply transitions fan into Stage 2.
+/// Cohorts 1–3: one single-leaf each (single/daily/compressed); cohort 4: `AND(daily, person)` so
+/// apply transitions can fan into Stage 2 composition.
 fn build_filters() -> TeamFilters {
     let mut builder = TeamFiltersBuilder::default();
     builder
@@ -145,7 +144,6 @@ fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
 
-/// A person whose merge partition equals `target`.
 fn person_on(target: u16) -> Uuid {
     (1u128..)
         .map(Uuid::from_u128)
@@ -153,7 +151,6 @@ fn person_on(target: u16) -> Uuid {
         .unwrap()
 }
 
-/// A person whose merge partition differs from `avoid`.
 fn person_not_on(avoid: u16) -> Uuid {
     (1u128..)
         .map(Uuid::from_u128)
@@ -161,8 +158,7 @@ fn person_not_on(avoid: u16) -> Uuid {
         .unwrap()
 }
 
-/// Three persons `(A, B, C)` on three pairwise-distinct partitions, so every hop of a chain
-/// `A → B → C` is cross-partition.
+/// Three persons on pairwise-distinct partitions so every hop of `A → B → C` is cross-partition.
 fn chain_persons() -> (Uuid, Uuid, Uuid) {
     let a = Uuid::from_u128(0xA);
     let a_part = part(a);
@@ -175,8 +171,7 @@ fn chain_persons() -> (Uuid, Uuid, Uuid) {
     (a, b, c)
 }
 
-/// Resolve the `LeafStateKey` for a behavioral variant: all three leaves share `BEHAVIORAL_HASH` but
-/// get distinct keys by window/value, so look them up by their resolved `StateVariant`.
+/// All three behavioral leaves share `BEHAVIORAL_HASH` but differ by `StateVariant`.
 fn lsk_of(filters: &TeamFilters, variant: StateVariant) -> LeafStateKey {
     filters.by_condition_to_lsk[&BEHAVIORAL_HASH]
         .iter()
@@ -203,7 +198,6 @@ fn leaf_state(
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
 
-/// Fold a `$pageview` for `person` at `partition_id`, writing all three behavioral leaves' state.
 fn fold_pageview(
     store: &CohortStore,
     filters: &TeamFilters,
@@ -221,7 +215,6 @@ fn fold_pageview(
     .unwrap();
 }
 
-/// The three behavioral leaf states for `person` at `partition_id`.
 fn behavioral_states(
     store: &CohortStore,
     filters: &TeamFilters,
@@ -260,7 +253,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
     let store = temp_store_in(&dir);
     let filters = build_filters();
 
-    // P_old and P_new on different partitions (the ~98.4% case).
     let p_old = Uuid::from_u128(0xA11CE);
     let p_old_part = part(p_old);
     let p_new = person_not_on(p_old_part);
@@ -270,12 +262,9 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         "test requires a cross-partition pair"
     );
 
-    // P_old: one $pageview (single=match, daily=1, compressed=1). P_new: one $pageview on a different
-    // upstream partition so the oracle below folds both.
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    // Drain P_old → cross-partition slow path.
     let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let drained = handle_merge_event(
         p_old_part,
@@ -291,7 +280,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         other => panic!("expected a cross-partition Drained, got {other:?}"),
     };
 
-    // P_old's state is gone and a tombstone points at P_new.
     let (s, d, c) = behavioral_states(&store, &filters, p_old_part, p_old);
     assert!(
         s.is_none() && d.is_none() && c.is_none(),
@@ -306,7 +294,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         .unwrap()
         .is_some());
 
-    // Apply on P_new's worker.
     let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let applied = handle_transfer(
         p_new_part,
@@ -322,7 +309,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         "the transfer applied"
     );
 
-    // The merged P_new state: single still a match; daily/compressed summed to 2 (gte 2 → member).
+    // Merged state: daily/compressed sum to 2 (gte 2 → member).
     let (single, daily, compressed) = behavioral_states(&store, &filters, p_new_part, p_new);
     assert!(matches!(
         single,
@@ -338,7 +325,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
     );
     assert_eq!(compressed_sum(&compressed.clone().unwrap()), 2);
 
-    // Oracle: a fresh person that received BOTH events from the start, keyed to P_new's partition.
+    // Oracle: a person that received both events from the start, keyed to P_new's partition.
     let oracle = Uuid::from_u128(0xABCDE);
     fold_pageview(&store, &filters, p_new_part, oracle, 10, 0);
     fold_pageview(&store, &filters, p_new_part, oracle, 20, 0);
@@ -353,8 +340,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         "compressed state matches the oracle"
     );
 
-    // Idempotence: replay the drain (AlreadyDrained — P_old already drained) and the transfer
-    // (AlreadyApplied) — no double-count.
     let replay_drain = handle_merge_event(
         p_old_part,
         &store,
@@ -400,8 +385,6 @@ fn compressed_sum(state: &Stage1State) -> u32 {
     }
 }
 
-/// Seed a cross-partition `(P_old, P_new)` pair (one `$pageview` each), drain P_old, and return the
-/// staged transfer alongside everything an apply-dedup test needs.
 fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeStateTransfer) {
     let store = temp_store_in(dir);
     let filters = build_filters();
@@ -431,8 +414,7 @@ fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeS
     (store, filters, p_new_part, p_new, transfer)
 }
 
-/// Each transfer copy lands at fresh transfer-topic coordinates, so the apply dedup must key by the
-/// source merge message's coordinates.
+/// Apply dedup keys on the source merge coordinates, not the transfer-topic coordinates.
 #[test]
 fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() {
     let dir = TempDir::new().unwrap();
@@ -458,7 +440,6 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
         "the same merge under different transfer coords dedups by source coords"
     );
 
-    // The merged state itself is unchanged — the duplicate never re-ran the bucket merge.
     let (single, daily, compressed) = behavioral_states(&store, &filters, p_new_part, p_new);
     assert!(matches!(
         single,
@@ -479,9 +460,8 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
     );
 }
 
-/// A re-drain after a drain-marker wipe can capture straggler-rebuilt P_old state in a second
-/// transfer with the same source coordinates but different payload. The dedup drops it. This pins
-/// the drop as intended behavior.
+/// A re-drain with the same source coordinates but different payload (e.g. rebuilt state) is dropped.
+/// The dedup keys on source coords, not payload content.
 #[test]
 fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
     let dir = TempDir::new().unwrap();
@@ -492,7 +472,6 @@ fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
         handle_transfer(p_new_part, &store, &filters, &transfer, (5, 7), &mut queue).unwrap();
     assert!(matches!(first, ApplyOutcome::Applied { .. }));
 
-    // The re-drain repackaged different state for the same merge (same source coordinates).
     let mut redrained = transfer.clone();
     for leaf in &mut redrained.leaves {
         if let Stage1State::BehavioralDailyBuckets { buckets, .. } = &mut leaf.record.state {
@@ -532,7 +511,6 @@ fn fast_path_equals_the_cross_partition_result() {
     let store = temp_store_in(&dir);
     let filters = build_filters();
 
-    // Same-partition pair: P_old and P_new collide (the ~1.6% fast path).
     let p_old = Uuid::from_u128(0xFA57);
     let p_old_part = part(p_old);
     let p_new = person_on(p_old_part);
@@ -555,7 +533,6 @@ fn fast_path_equals_the_cross_partition_result() {
         "same partition → fast path"
     );
 
-    // P_old gone; P_new merged in one shot.
     let (s, d, c) = behavioral_states(&store, &filters, p_old_part, p_old);
     assert!(s.is_none() && d.is_none() && c.is_none());
     let (single, daily, compressed) = behavioral_states(&store, &filters, p_old_part, p_new);
@@ -580,7 +557,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
     let p_new = person_not_on(p_old_part);
     let p_new_part = part(p_new);
 
-    // Drain, then drop the store handle (simulating a crash before the transfer was produced).
+    // Simulate a crash between drain and produce: drain, then drop the store.
     {
         let store = temp_store_in(&dir);
         fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
@@ -599,7 +576,6 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
         store.flush().unwrap();
     }
 
-    // Reopen without wiping: the pending transfer is recovered from the scan.
     let store = temp_store_in(&dir);
     let recovered = store
         .scan_pending_transfers(p_old_part, usize::MAX)
@@ -665,8 +641,7 @@ fn apply_transitions_compose_into_stage2() {
     let p_new = person_not_on(p_old_part);
     let p_new_part = part(p_new);
 
-    // Both have a matching $pageview (with the person-property email), so the daily leaf merges to
-    // count 2 (a flip) and the person leaf is already true → the composable AND(daily, person) enters.
+    // After merge: daily sum = 2 (a flip on gte 2), person leaf already true → AND(daily, person) enters.
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
@@ -717,8 +692,8 @@ fn apply_transitions_compose_into_stage2() {
     );
 }
 
-/// A duplicate merge event at new coordinates re-drains the already-empty P_old. The empty re-drain
-/// must NOT overwrite a still-pending transfer with its empty payload.
+/// An empty re-drain (P_old already drained, different source coords) must not overwrite a still-pending
+/// transfer that has not yet been applied.
 #[test]
 fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
     let dir = TempDir::new().unwrap();
@@ -744,7 +719,7 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
         (5, 100),
     );
 
-    // Duplicate merge at fresh coordinates → drain marker misses → re-drain.
+    // Different source coords → drain marker misses → re-drain (empty, P_old already gone).
     let mut queue = EvictionQueue::<Stage1Key>::new();
     let redrain = handle_merge_event(
         p_old_part,
@@ -779,10 +754,9 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
     );
 }
 
-/// End-to-end retention: a cross-partition drain + apply writes a drain marker + tombstone on P_old's
-/// partition and an apply marker on P_new's. While still in retention (cutoff < merged_at) the GC is
-/// a no-op and the markers keep deduping replays; once the cutoff advances past merged_at the GC
-/// reclaims all three, and a replayed merge/transfer then re-runs (the dedup window has closed).
+/// GC is a no-op while `cutoff < merged_at`; once the cutoff passes, it reclaims the drain marker,
+/// apply marker, and tombstone. A replay after reclaim re-runs (dedup window closed), confirmed by
+/// getting `Drained` with an empty transfer rather than `AlreadyDrained`.
 #[test]
 fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage() {
     let dir = TempDir::new().unwrap();
@@ -801,7 +775,6 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    // Drain (coords (5, 100)) + apply (transfer coords (5, 7)). All three CF entries carry MERGED_AT.
     let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let transfer = match handle_merge_event(
         p_old_part,
@@ -853,7 +826,7 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
     assert!(store.get_merge_applied(&applied_key).unwrap().is_some());
     assert!(store.get_tombstone(&tombstone_key).unwrap().is_some());
 
-    // (a) In retention: cutoffs strictly before merged_at → GC deletes nothing on either partition.
+    // (a) In-retention: cutoffs before merged_at → GC is a no-op.
     let mut old_cursor = MergeGcCursor::default();
     let mut new_cursor = MergeGcCursor::default();
     let in_retention = MERGED_AT - 1;
@@ -887,8 +860,8 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         "in-retention tombstone survives",
     );
 
-    // The surviving markers still dedupe a replay: re-drain at the SAME coords short-circuits, and
-    // the duplicate transfer (fresh transfer coords, same source coords) is AlreadyApplied.
+    // In-retention markers still dedup: same-coords re-drain short-circuits, same-source-coords
+    // transfer at fresh transfer coords is AlreadyApplied.
     assert_eq!(
         handle_merge_event(
             p_old_part,
@@ -916,7 +889,7 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         "the in-retention apply marker still dedupes the replayed transfer",
     );
 
-    // (b) Out of retention: cutoffs strictly after merged_at → GC reclaims all three.
+    // (b) Out-of-retention: cutoffs after merged_at → GC reclaims all three.
     let out_of_retention = MERGED_AT + 1;
     handle_merge_gc(
         p_old_part,
@@ -948,9 +921,6 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         "out-of-retention tombstone reclaimed",
     );
 
-    // With the drain marker gone, a replay at the same coords no longer short-circuits — it re-drains
-    // (P_old's state is already gone, so the re-drain packages nothing). This confirms the dedup
-    // window closed only because the storage was reclaimed, not by accident.
     let reclaimed_redrain = handle_merge_event(
         p_old_part,
         &store,
@@ -966,9 +936,8 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
     );
 }
 
-/// End-to-end orphan reclaim: an absent-team merge drain leaves P_old's `cf_stage2` row behind
-/// (`composable_cohort_ids` is empty for an absent team, so the drain deletes nothing), and a later
-/// orphan-GC tick against a healthy non-empty catalog reclaims it while a co-resident live cohort's
+/// An absent-team drain leaves `cf_stage2` rows behind (no composable_cohort_ids to delete). A later
+/// orphan-GC tick against a non-empty catalog reclaims the orphan while a co-resident live cohort
 /// row on the same partition survives.
 #[test]
 fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
@@ -982,7 +951,6 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
     let p_old_part = part(p_old);
     let p_new = person_not_on(p_old_part);
 
-    // Seed TEAM's composable cohort-4 row for P_old, as a fold would.
     let orphan = Stage2Key {
         partition_id: p_old_part,
         team_id: TEAM as u64,
@@ -996,8 +964,7 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
     .encode();
     store.write_batch(|b| b.put_stage2(&orphan, &row)).unwrap();
 
-    // Drive the real drain against empty filters — the absent-team fallback the worker uses. The drain
-    // deletes no cf_stage2 rows, so P_old's row orphans.
+    // Empty filters = absent-team fallback; drain deletes no cf_stage2 rows, so the row orphans.
     let absent_team_filters = TeamFiltersBuilder::default().freeze(UTC);
     let mut queue = EvictionQueue::<Stage1Key>::new();
     handle_merge_event(
@@ -1014,7 +981,6 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
         "the absent-team drain leaves P_old's cf_stage2 row behind (the orphan)",
     );
 
-    // A co-resident LIVE row on the same partition: LIVE_TEAM, composable cohort 4.
     let live = Stage2Key {
         partition_id: p_old_part,
         team_id: LIVE_TEAM as u64,
@@ -1023,7 +989,7 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
     };
     store.write_batch(|b| b.put_stage2(&live, &row)).unwrap();
 
-    // Healthy non-empty catalog: LIVE_TEAM present with composable AND(daily, person) cohort 4, TEAM absent.
+    // Catalog has LIVE_TEAM (composable cohort 4) but not TEAM — so TEAM's row is an orphan.
     let mut builder = TeamFiltersBuilder::default();
     builder
         .add_cohort(
@@ -1050,7 +1016,6 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
     );
 }
 
-/// Drain `old → new` on `old`'s partition and return the staged cross-partition transfer.
 fn drain_cross(
     store: &CohortStore,
     filters: &TeamFilters,
@@ -1074,10 +1039,9 @@ fn drain_cross(
     }
 }
 
-/// Chained merge `A → B → C` where the downstream `B → C` drain runs before the upstream `A → B`
-/// transfer applies: the `A → B` transfer lands on B's partition where B is already tombstoned to C,
-/// so the apply forwards A's state to C (hops=1) instead of stranding it on the drained B. Applying
-/// the forwarded transfer at C leaves C with A + B + C contributions.
+/// `B → C` drains before `A → B` transfer applies: when the transfer lands on B's slice, B is already
+/// tombstoned to C, so apply forwards A's state to C (hops=1) instead of stranding it at B.
+/// Applying the forwarded transfer at C leaves C with A + B + C contributions.
 #[test]
 fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermediate_to_the_survivor(
 ) {
@@ -1087,12 +1051,11 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
     let (a, b, c) = chain_persons();
     let (a_part, b_part, c_part) = (part(a), part(b), part(c));
 
-    // A: 1 pageview; B: 1; C: 1 — each on its own partition.
     fold_pageview(&store, &filters, a_part, a, 10, 0);
     fold_pageview(&store, &filters, b_part, b, 20, 0);
     fold_pageview(&store, &filters, c_part, c, 30, 0);
 
-    // 1) B → C drains first and applies at C → C now has B + C (daily sum 2). B is tombstoned to C.
+    // 1) B → C drains and applies at C → C = B + C (daily 2); B tombstoned to C.
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
@@ -1108,10 +1071,10 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
         .unwrap()
         .is_some());
 
-    // 2) A → B drains; its transfer is keyed by B and would apply on B's partition.
+    // 2) A → B drains; transfer keyed to B.
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
 
-    // 3) Apply A → B on B's partition: B is tombstoned to C (cross-partition) → Forward to C, hops=1.
+    // 3) Apply on B's partition: B tombstoned to C (cross-partition) → Forward(C, hops=1).
     let mut b_queue = EvictionQueue::<Stage1Key>::new();
     let forwarded =
         match handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap() {
@@ -1133,14 +1096,13 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
         "old_person stays A (the ancestor)"
     );
 
-    // B's slice gained no resurrected stage1 rows for the forwarded leaves — A did not strand at B.
     let (b_single, b_daily, b_compressed) = behavioral_states(&store, &filters, b_part, b);
     assert!(
         b_single.is_none() && b_daily.is_none() && b_compressed.is_none(),
         "B stays drained — no resurrected orphan state",
     );
 
-    // 4) Apply the forwarded transfer at C → C = A + B + C.
+    // 4) Apply forwarded transfer at C → C = A + B + C.
     let applied =
         handle_transfer(c_part, &store, &filters, &forwarded, (5, 81), &mut c_queue).unwrap();
     assert!(matches!(applied, ApplyOutcome::Applied { .. }));
@@ -1160,7 +1122,7 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
     );
     assert_eq!(compressed_sum(&compressed.unwrap()), 3);
 
-    // The marker is written under C with A → B's source coords (so a redelivered copy dedups).
+    // Apply marker written under C keyed to A → B's source coords so a redelivery dedups.
     assert!(store
         .get_merge_applied(&MergeAppliedKey {
             partition_id: c_part,
@@ -1173,8 +1135,8 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
         .is_some());
 }
 
-/// The ordered case: `A → B` applies *before* `B → C` drains, so the marker is written under B and a
-/// redelivery of the `A → B` transfer dedups on B's marker — no forward, no double-count at C.
+/// `A → B` applies before `B → C` drains: the marker lives under B, so a redelivery of `A → B`
+/// hits B's marker directly — no forward, no double-count at C.
 #[test]
 fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding() {
     let dir = TempDir::new().unwrap();
@@ -1187,7 +1149,7 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
     fold_pageview(&store, &filters, b_part, b, 20, 0);
     fold_pageview(&store, &filters, c_part, c, 30, 0);
 
-    // 1) A → B applies at B first (B not yet tombstoned) → marker under B.
+    // 1) A → B drains and applies at B (not yet tombstoned) → marker under B.
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
     let mut b_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
@@ -1195,7 +1157,7 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
         ApplyOutcome::Applied { .. }
     ));
 
-    // 2) B → C drains (B now carries A + B) and applies at C → C has A + B + C.
+    // 2) B → C drains (B carries A + B) and applies at C → C = A + B + C.
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
@@ -1209,8 +1171,7 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
         "ordered chain reaches C correctly"
     );
 
-    // 3) Redeliver the A → B transfer at B → the B marker (written before the tombstone) absorbs it:
-    // AlreadyApplied, no forward, no double-count at C.
+    // 3) Redeliver A → B at B → the pre-tombstone marker absorbs it: AlreadyApplied, no forward.
     let redelivered =
         handle_transfer(b_part, &store, &filters, &a_to_b, (61, 999), &mut b_queue).unwrap();
     assert_eq!(
@@ -1226,8 +1187,8 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
     );
 }
 
-/// After a raced forward, redelivering the original `A → B` transfer resolves to C again; C's marker
-/// (written by the forwarded apply) is present → AlreadyApplied, exactly-once.
+/// Redelivery of `A → B` after a raced forward re-resolves B → C; C's marker (written by the first
+/// forwarded apply) absorbs it: AlreadyApplied, no double-count.
 #[test]
 fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
     let dir = TempDir::new().unwrap();
@@ -1255,8 +1216,7 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
     let (_, c_daily, _) = behavioral_states(&store, &filters, c_part, c);
     assert_eq!(daily_sum(&c_daily.unwrap()), 3);
 
-    // Redeliver the *original* A → B transfer at B → resolves to C again → Forward; applying the
-    // re-forwarded copy at C dedups on the survivor marker (no double-count).
+    // Redeliver original A → B at B → re-resolves to C → Forward; apply at C dedupes on C's marker.
     let reforwarded =
         match handle_transfer(b_part, &store, &filters, &a_to_b, (62, 1000), &mut b_queue).unwrap()
         {
@@ -1285,9 +1245,8 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
     );
 }
 
-/// `B`, `C`, `D` on one shared partition (distinct, off `avoid`), so a chain `B → C → D` resolves
-/// entirely inline on that partition while `A` (off it) drains cross-partition into the chain. Scans
-/// uuids once, returning the first partition (≠ `avoid`) that accumulates three of them.
+/// Returns `(partition, B, C, D)` where B/C/D colocate on a partition ≠ `avoid`, so `B → C → D`
+/// resolves inline while `A` (on `avoid`) drains cross-partition into the chain.
 fn colocated_chain_off(avoid: u16) -> (u16, Uuid, Uuid, Uuid) {
     let mut by_partition: std::collections::HashMap<u16, Vec<Uuid>> =
         std::collections::HashMap::new();
@@ -1306,32 +1265,29 @@ fn colocated_chain_off(avoid: u16) -> (u16, Uuid, Uuid, Uuid) {
     unreachable!("the uuid space fills three slots on some partition off the avoided one")
 }
 
-/// The same-partition raced-then-extended hazard the original-target dual-write closes. `A → B`
-/// applies *after* `B → C` already drained, so it resolves inline to C and writes its marker under
-/// C — and, with the fix, also under the original target B. `C → D` then drains (counts move to D,
-/// the C marker stays at C). A redelivered `A → B` re-resolves B → C → D; the resolved-target probe
-/// under D misses (the marker is under C), but the fixed-origin probe under B hits and dedups —
-/// without it, A's leaves would be summed into D a second time.
+/// The raced-then-extended hazard: `A → B` applies after `B → C` drains (inline resolve to C), so
+/// the apply writes markers under C (resolved target) AND B (original target, the dual-write). Then
+/// `C → D` drains, leaving C's marker stranded. A redelivery of `A → B` re-resolves B → C → D;
+/// the resolved-target probe under D misses, but the fixed-origin probe under B hits and dedups —
+/// without the dual-write, A's leaves would be summed into D twice.
 #[test]
 fn raced_chain_then_extends_dedups_on_the_origin_marker() {
     let dir = TempDir::new().unwrap();
     let store = temp_store_in(&dir);
     let filters = build_filters();
 
-    // A off the chain's partition; B, C, D colocated so B → C → D resolves inline.
     let a = Uuid::from_u128(0xA);
     let a_part = part(a);
     let (bcd_part, b, c, d) = colocated_chain_off(a_part);
     assert_ne!(a_part, bcd_part, "A drains cross-partition into the chain");
 
-    // One $pageview each (daily = 1 per person).
     fold_pageview(&store, &filters, a_part, a, 10, 0);
     fold_pageview(&store, &filters, bcd_part, b, 20, 0);
     fold_pageview(&store, &filters, bcd_part, c, 30, 0);
     fold_pageview(&store, &filters, bcd_part, d, 40, 0);
 
-    // 1) B → C is a same-partition fast-path merge → B tombstoned to C, C = B + C (daily 2). No apply
-    //    marker is written by a fast-path drain.
+    // 1) B → C: same-partition fast path → B tombstoned to C, C = B + C (daily 2).
+    //    Fast path writes no apply marker.
     let mut bc_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_merge_event(
@@ -1346,16 +1302,16 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         DrainOutcome::FastPath { .. }
     ));
 
-    // 2) A → B drains cross-partition (B's tombstone lives on the chain's slice, not A's, so the
-    //    drain assist does not retarget) → transfer keyed to B.
+    // 2) A → B drains cross-partition; B's tombstone is on the chain's slice (not A's), so the
+    //    drain-side assist does not retarget → transfer keyed to B.
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
     assert_eq!(
         a_to_b.new_person_uuid, b,
         "transfer keyed to the raw target B"
     );
 
-    // 3) Apply A → B on the chain's partition: B is tombstoned to C, C is live here → resolve Inline
-    //    to C, apply into C → C = A + B + C (daily 3). Marker written under C and (the fix) under B.
+    // 3) Apply on chain's partition: B tombstoned to C (inline) → apply into C = A+B+C (daily 3).
+    //    Dual-write: marker written under C (resolved target) and B (original target).
     let mut chain_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
@@ -1392,9 +1348,8 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         "fixed-origin marker also under the original target B",
     );
 
-    // 4) C → D is a same-partition fast-path merge → C tombstoned to D, D = A + B + C + D (daily 4).
-    //    The C marker is untouched (a fast-path drain writes no apply marker), so it now sits under a
-    //    person no redelivery resolves to.
+    // 4) C → D: same-partition fast path → C tombstoned to D, D = A+B+C+D (daily 4).
+    //    The fast path writes no apply marker, so C's marker is stranded (no redelivery resolves to C).
     let mut cd_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_merge_event(
@@ -1415,8 +1370,8 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         "the chain folded A + B + C + D into D",
     );
 
-    // 5) Redeliver A → B (fresh transfer coords). It re-resolves B → C → D; the resolved-target probe
-    //    under D misses (the marker is under C). The fixed-origin probe under B is the dedup.
+    // 5) Redeliver A → B: re-resolves B → C → D; resolved-target probe under D misses (marker at C),
+    //    but the original-target probe under B hits → AlreadyApplied.
     let redelivered = handle_transfer(
         bcd_part,
         &store,
@@ -1432,8 +1387,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         "the fixed-origin marker under B absorbs the raced-then-extended redelivery",
     );
 
-    // D's leaf counts are NOT doubled — without the dual-write the redelivery would re-sum A into D
-    // (daily 5, compressed 5) and a recomposition could spuriously enter.
     let (d_single, d_daily_after, d_compressed_after) =
         behavioral_states(&store, &filters, bcd_part, d);
     assert!(matches!(
@@ -1455,16 +1408,14 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
     );
 }
 
-/// Drain-side same-slice assist: a merge `A → B` where B is already tombstoned to a *same-partition*
-/// C folds straight into C in one drain (the fast path with the assist), skipping a hop.
+/// Drain-side assist: when B is already tombstoned to a same-partition C, the drain resolves inline
+/// to C rather than staging a transfer keyed to B and forwarding later.
 #[test]
 fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
     let dir = TempDir::new().unwrap();
     let store = temp_store_in(&dir);
     let filters = build_filters();
 
-    // A on one partition; B and C colocated on another so the A → B drain's effective target is C and
-    // the assist routes A's state to C in the same slice as B.
     let a = Uuid::from_u128(0xA);
     let a_part = part(a);
     let b = person_not_on(a_part);
@@ -1493,29 +1444,27 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
         DrainOutcome::FastPath { .. }
     ));
 
-    // A → B: the effective target resolves to C (cross-partition from A's view, but B and C colocate),
-    // so the transfer is keyed to C and applies on C's (= B's) partition.
+    // A → B: B's tombstone is on B/C's slice (not A's), so the drain does not retarget → transfer
+    // keyed to B. On apply, B and C colocate → inline resolve to C.
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
     assert_eq!(
         a_to_b.new_person_uuid, b,
         "A and B differ in partition, so the assist did not retarget at A's drain (B's tombstone lives on B's slice, not A's)",
     );
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
-    // B and C colocate → the apply-side resolution is Inline, folding into C directly.
     assert!(matches!(
         handle_transfer(b_part, &store, &filters, &a_to_b, (5, 81), &mut c_queue).unwrap(),
         ApplyOutcome::Applied { .. }
     ));
 
-    // C carries A + B + C; B has no resurrected state.
     let (_, c_daily, _) = behavioral_states(&store, &filters, b_part, c);
     assert_eq!(daily_sum(&c_daily.unwrap()), 3, "A + B + C folded into C");
     let (b_single, b_daily, b_compressed) = behavioral_states(&store, &filters, b_part, b);
     assert!(b_single.is_none() && b_daily.is_none() && b_compressed.is_none());
 }
 
-/// A corrupt cross-partition tombstone cycle: the apply forwards until `forward_hops` hits the cap,
-/// then drops without forwarding (the offset is marked by the caller so the partition does not wedge).
+/// A corrupt cross-partition tombstone cycle (B ↔ C): the apply forwards until `forward_hops` hits
+/// `MAX_TRANSFER_FORWARD_HOPS`, then returns `HopCapped` so the caller can mark and move past it.
 #[test]
 fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
     let dir = TempDir::new().unwrap();
@@ -1533,13 +1482,11 @@ fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
 
     fold_pageview(&store, &filters, a_part, a, 10, 0);
 
-    // Write a corrupt cross-partition tombstone cycle B ↔ C on their own slices.
     write_tombstone(&store, b_part, b, c);
     write_tombstone(&store, part(c), c, b);
 
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
 
-    // Walk the forward: B → C → B → ... until the hop cap. The cap-1'th apply at the cycle drops.
     let mut transfer = a_to_b;
     let mut queue = EvictionQueue::<Stage1Key>::new();
     let mut hops = 0u8;
@@ -1592,9 +1539,8 @@ fn write_tombstone(store: &CohortStore, on_partition: u16, old: Uuid, new: Uuid)
         .unwrap();
 }
 
-/// Checkpoint `store` into a sibling dir of `dir` (sibling, not child: RocksDB hard-links SSTs into
-/// the checkpoint, which must be on the same filesystem and outside the source DB dir), drop the live
-/// handle, and reopen the checkpoint as a fresh DB without wiping — the disaster-restore path.
+/// Checkpoints `store` into a sibling of `dir` (RocksDB hard-links SSTs — checkpoint must be on the
+/// same filesystem and not inside the source dir), then reopens it without wiping.
 fn checkpoint_then_restore(dir: &TempDir, store: CohortStore) -> CohortStore {
     let checkpoint = dir.path().join("checkpoint");
     store.create_checkpoint(&checkpoint).unwrap();
@@ -1626,7 +1572,7 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         "the seed drains at the known coords"
     );
 
-    // Checkpoint with the pending transfer still staged, so the snapshot carries all four merge CFs.
+    // Checkpoint while the pending transfer is still staged; snapshot carries all four merge CFs.
     let restored = checkpoint_then_restore(&dir, store);
 
     let recovered = only_pending(&restored, p_old_part);
@@ -1713,7 +1659,7 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         DrainOutcome::AlreadyDrained,
         "the restored drain marker short-circuits the replayed merge",
     );
-    // Re-apply at different transfer offsets: dedup keys on the source merge coords, not the offsets.
+    // Re-apply at different transfer offsets: apply dedup keys on source merge coords, not these.
     let replay_apply = handle_transfer(
         p_new_part,
         &restored,
@@ -1763,9 +1709,8 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
     );
 }
 
-/// The event-level rewrite is a private worker concern unreachable from these tests, so the redirect
-/// is driven through `tombstone_redirect::resolve` directly — the resolver the worker, drain, and
-/// apply paths all consult.
+/// Event-level rewrite is driven through `tombstone_redirect::resolve` directly — the same resolver
+/// that the worker, drain, and apply paths all call.
 #[test]
 fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
     let dir = TempDir::new().unwrap();
@@ -1804,8 +1749,7 @@ fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
         "the restored tombstone targets P_new"
     );
 
-    // CrossPartition means a P_old straggler is re-keyed and re-produced to P_new's worker downstream,
-    // never folded back into the drained P_old.
+    // CrossPartition: a P_old straggler is re-keyed to P_new's worker, never folded back into the drained P_old.
     let resolution = resolve(&restored, p_old_part, TeamId(TEAM), p_old).unwrap();
     assert_eq!(
         resolution,
@@ -1816,8 +1760,8 @@ fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
         "post-restore, a P_old straggler redirects to P_new",
     );
 
-    // Control shares P_old's partition + team (the tombstone's key fields) so its `NotMerged` proves
-    // the tombstone content drove the redirect, not a trivial key miss.
+    // Control on the same partition/team: NotMerged proves the tombstone content (not a key miss)
+    // drives the redirect.
     let control = person_on(p_old_part);
     assert_ne!(control, p_old);
     assert_eq!(
@@ -1841,7 +1785,7 @@ fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re
     let p_old_part = part(p_old);
     let merge_coords = (transfer.source_partition, transfer.source_offset);
 
-    // Clear the pending transfer first so the snapshot isolates the drain marker as the CF under test.
+    // Clear the pending transfer so the snapshot isolates the drain marker.
     store
         .clear_pending_transfer(&PendingTransferKey {
             partition_id: p_old_part,
@@ -1876,8 +1820,8 @@ fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re
         "the restored drain marker short-circuits the redelivered merge",
     );
 
-    // A lost marker would also leave the outbox empty (P_old's state is gone, so the re-drain stages
-    // nothing); the `AlreadyDrained` outcome above is what actually proves the marker survived.
+    // A lost marker would also leave the outbox empty (empty re-drain); AlreadyDrained above proves
+    // the marker survived, not just that the outbox is empty.
     assert!(
         only_pending(&restored, p_old_part).is_empty(),
         "the replayed merge did not stage a duplicate pending transfer",

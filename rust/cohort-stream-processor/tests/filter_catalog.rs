@@ -7,7 +7,6 @@ use cohort_stream_processor::filters::{
 use cohort_stream_processor::stage2::{CohortEligibility, ExcludedReason};
 use serde_json::{json, Value};
 
-/// Build a catalog with the cohort-cascade gate off.
 fn build_catalog(rows: Vec<CohortRow>) -> FilterCatalog {
     build_catalog_from_rows(rows, false)
 }
@@ -74,7 +73,7 @@ fn same_hash_different_windows_produce_distinct_leaf_state_keys() {
         team.by_condition_to_cohorts[&BEHAVIORAL_HASH],
         vec![CohortId(1), CohortId(2)],
     );
-    // One conditionHash → one HogVM dedup unit, despite two windows.
+    // One conditionHash → one HogVM bytecode evaluation, despite two distinct windows.
     assert_eq!(team.unique_condition_hashes.len(), 1);
 }
 
@@ -92,13 +91,12 @@ fn behavioral_and_person_indexed_cohort_ref_kept_in_tree_only() {
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
 
-    // The cohort ref contributes no conditionHash, so only the two leaves are indexed.
     assert_eq!(team.unique_condition_hashes.len(), 2);
     assert!(team.by_condition_to_lsk.contains_key(&BEHAVIORAL_HASH));
     assert!(team.by_condition_to_lsk.contains_key(&PERSON_HASH));
     assert_eq!(team.by_condition_to_lsk.len(), 2);
 
-    // The cohort ref is kept in the parsed tree for Stage 2.
+    // Cohort ref is kept in the parsed tree (no conditionHash, so not in the index).
     let tree = &team.cohorts[&CohortId(1)];
     let FilterNode::Group { children, .. } = &tree.root else {
         panic!("root should be a group");
@@ -113,7 +111,7 @@ fn behavioral_and_person_indexed_cohort_ref_kept_in_tree_only() {
 
 #[test]
 fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
-    // Drop cases below: missing conditionHash, unsupported behavioral value, action-keyed (int key).
+    // Drop cases: missing conditionHash, unsupported behavioral value, action-keyed (int key).
     let catalog = build_catalog(vec![row(
         1,
         7,
@@ -162,7 +160,7 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
 
 #[test]
 fn leaf_without_bytecode_is_dropped() {
-    // A conditionHash without inline bytecode is not realtime-executable; Node requires both.
+    // A conditionHash without inline bytecode is not realtime-executable.
     let no_bytecode = json!({
         "type": "behavioral",
         "value": "performed_event_multiple",
@@ -228,7 +226,6 @@ fn or_group_of_two_person_leaves_is_not_sibling_merged() {
 
 #[test]
 fn cycle_of_realtime_cohorts_is_excluded_cycle_detected() {
-    // 1 → 2 → 3 → 1, plus an unrelated composable sibling (4) that the cycle must not touch.
     let catalog = build_catalog(vec![
         row(1, 7, cohort(vec![cohort_ref(2)])),
         row(2, 7, cohort(vec![cohort_ref(3)])),
@@ -267,7 +264,6 @@ fn self_referencing_cohort_is_cycle_detected() {
 
 #[test]
 fn ref_to_unloaded_cohort_is_unresolved_ref() {
-    // Cohort 1 references 99, which is absent from the catalog (deleted, non-realtime, or never loaded).
     let catalog = build_catalog(vec![row(1, 7, cohort(vec![cohort_ref(99)]))]);
     let team = catalog.team(TeamId(7)).expect("team 7 present");
     assert_eq!(
@@ -278,8 +274,7 @@ fn ref_to_unloaded_cohort_is_unresolved_ref() {
 
 #[test]
 fn ref_to_another_teams_cohort_is_unresolved_ref() {
-    // The reference graph is team-scoped: cohort 1 (team 7) references cohort 2, which exists only in
-    // team 8, so from team 7's view it is missing → UnresolvedRef.
+    // Reference graph is team-scoped: cohort 2 exists only in team 8, so from team 7's view it is missing.
     let catalog = build_catalog(vec![
         row(1, 7, cohort(vec![cohort_ref(2)])),
         row(2, 8, cohort(vec![person_leaf()])),
@@ -288,7 +283,6 @@ fn ref_to_another_teams_cohort_is_unresolved_ref() {
         catalog.team(TeamId(7)).expect("team 7").eligibility[&CohortId(1)],
         CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
     );
-    // Team 8's cohort 2 is a normal single-leaf — the cross-team reference does not affect it.
     assert!(matches!(
         catalog.team(TeamId(8)).expect("team 8").eligibility[&CohortId(2)],
         CohortEligibility::SingleLeaf(_),
@@ -297,8 +291,8 @@ fn ref_to_another_teams_cohort_is_unresolved_ref() {
 
 #[test]
 fn resolvable_ref_stays_has_cohort_ref_and_contributes_no_emit_mapping() {
-    // Cohort 1 → cohort 2 (a resolvable single-leaf), so 1 stays `HasCohortRef` (the transport-sizing
-    // class) and, being a non-emitting reference cohort, appears in neither emit map.
+    // Cohort 1 → cohort 2 (resolvable): stays `HasCohortRef` (transport-sizing class), appears in
+    // neither emit map — it drives no single-leaf or composable membership.
     let catalog = build_catalog(vec![
         row(1, 7, cohort(vec![cohort_ref(2)])),
         row(2, 7, cohort(vec![behavioral_performed_event(7)])),

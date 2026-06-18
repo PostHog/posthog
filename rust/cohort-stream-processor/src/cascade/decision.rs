@@ -116,7 +116,6 @@ mod tests {
 
     #[test]
     fn depth_one_below_the_cap_still_emits() {
-        // depth 7 < cap 8 emits, reaching depth 8.
         let incoming = incoming(10, 7, vec![1, 2, 3, 4, 5, 6, 7]);
         let decision = should_emit(
             &incoming,

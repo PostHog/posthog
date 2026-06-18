@@ -19,7 +19,6 @@ use crate::partitions::partitioner::merge_partition_key;
 use crate::producer::kafka::AlwaysHealthy;
 use crate::producer::merge::Capture;
 
-/// Produce a batch of cascade messages and await all acks, one result per message in input order.
 #[async_trait]
 pub trait CascadeSink: Send + Sync {
     async fn produce(&self, messages: Vec<CascadeMessage>) -> Vec<Result<(), KafkaProduceError>>;
@@ -53,8 +52,8 @@ impl CascadeSink for KafkaCascadeSink {
     }
 }
 
-/// The co-partition key over `(team, person)`. A non-UUID person falls back to the raw `team:person`
-/// string, matching the shuffler.
+/// Key on `(team, person)` using the same partitioner as the shuffler. Non-UUID persons fall back
+/// to the raw `team:person` string.
 fn cascade_key(message: &CascadeMessage) -> Option<String> {
     let change = &message.change;
     match Uuid::parse_str(&change.person_id) {
@@ -63,9 +62,8 @@ fn cascade_key(message: &CascadeMessage) -> Option<String> {
     }
 }
 
-/// The cascade sink for the gate-off path: fills the `CascadeSink` slot in the worker deps without a
-/// Kafka producer or a provisioned topic. The worker gate stops every build before it produces, so
-/// this is never reached.
+/// No-op cascade sink for when the cascade gate is off: satisfies the `CascadeSink` slot without a
+/// Kafka producer. The worker gate prevents produces from reaching this.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoopCascadeSink;
 
@@ -76,7 +74,6 @@ impl CascadeSink for NoopCascadeSink {
     }
 }
 
-/// In-memory cascade sink for tests.
 #[derive(Debug, Default, Clone)]
 pub struct CaptureCascadeSink(Capture<CascadeMessage>);
 
@@ -139,8 +136,8 @@ mod tests {
 
     #[test]
     fn cascade_key_routes_to_the_same_partition_as_the_event_key() {
-        // The load-bearing invariant: the cascade producer's partition for (team, person) must equal
-        // the shuffler's partition for the same pair, so the message lands on the owning worker.
+        // The cascade producer's partition for (team, person) must equal the shuffler's so the
+        // message lands on the owning worker.
         let person = Uuid::from_u128(0x0192_8ddd);
         let key = cascade_key(&message(7, person)).unwrap();
         let event_key = merge_partition_key(TeamId(7), &person);

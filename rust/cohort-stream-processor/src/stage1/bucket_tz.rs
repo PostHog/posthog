@@ -1,4 +1,4 @@
-//! Calendar-day-in-team-timezone bucket math (TDD D9 / §4.5).
+//! Calendar-day-in-team-timezone bucket math.
 //!
 //! Pure, zone-agnostic, and total: every function takes time as an `i64` (epoch ms) plus a
 //! [`Tz`] and returns without a `Result` and without reading a wall-clock "now". The bucket

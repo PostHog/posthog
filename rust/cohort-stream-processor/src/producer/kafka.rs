@@ -11,7 +11,7 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::{CohortMembershipChange, MembershipSink};
 
-/// No-op liveness reporter; producer stalls are surfaced by the consumer's liveness deadline.
+/// No-op liveness reporter — producer stalls are surfaced by the consumer's liveness deadline.
 #[derive(Clone, Copy)]
 pub(crate) struct AlwaysHealthy;
 

@@ -28,7 +28,6 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-/// Result of attempting to read the next chunk from a stream with cancellation support
 enum ChunkResult {
     Data(Bytes),
     EndOfStream,
@@ -36,9 +35,7 @@ enum ChunkResult {
     Error(object_store::Error),
 }
 
-/// Read next chunk from stream with cancellation support.
-/// Uses `tokio::select!` with `biased;` to ensure cancellation is checked promptly, even if the
-/// stream is slow or stalled.
+/// `biased;` ensures cancellation is checked before polling the stream each iteration.
 async fn next_chunk_cancellable<S>(
     stream: &mut S,
     cancel_token: Option<&CancellationToken>,
@@ -90,9 +87,8 @@ fn s3_error_kind(e: &object_store::Error) -> &'static str {
     }
 }
 
-/// S3Downloader using the `object_store` crate with `LimitStore` for bounded concurrency.
-/// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests. Each download
-/// holds a permit for the entire stream duration, ensuring memory is bounded.
+/// Each download holds a `LimitStore` permit for the entire stream duration, bounding in-flight
+/// memory.
 #[derive(Debug)]
 pub struct S3Downloader {
     store: Arc<LimitStore<object_store::aws::AmazonS3>>,
@@ -154,7 +150,7 @@ impl CheckpointDownloader for S3Downloader {
             }
         };
 
-        // Buffers the whole file into memory; used only for small metadata.json files.
+        // Buffers the whole response into memory; only used for small metadata.json files.
         let body = result.bytes().await.with_context(|| {
             format!(
                 "Failed to read body data from S3 object from bucket {}: {remote_key}",
@@ -187,7 +183,6 @@ impl CheckpointDownloader for S3Downloader {
 
         let path = ObjectPath::from(remote_key);
 
-        // LimitStore holds its semaphore permit for the entire stream, bounding in-flight downloads.
         let result = match self.store.get(&path).await {
             Ok(result) => result,
             Err(e) => {
@@ -283,9 +278,7 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        // buffer_unordered(N) polls only N futures at once, so no file handle or write buffer is
-        // allocated until a slot opens. Pre-collect owned (remote_key, local_filepath) pairs so the
-        // stream closures aren't generic over all lifetimes.
+        // Pre-collect owned (key, path) pairs so closures capture owned data, not borrowed refs.
         let download_tasks: Vec<_> = remote_keys
             .iter()
             .map(|remote_key| {
@@ -319,7 +312,6 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        // Drain remaining futures; cancellation makes them exit without allocating resources.
         if first_error.is_some() {
             while stream.next().await.is_some() {}
         }
@@ -347,8 +339,7 @@ impl CheckpointDownloader for S3Downloader {
             self.s3_bucket
         );
 
-        // Shallow list (single ListObjectsV2 with delimiter="/"): returns only the checkpoint folders
-        // (common prefixes), not the files inside them.
+        // Shallow list (delimiter="/"): returns only the common prefixes (checkpoint folders).
         let prefix = ObjectPath::from(remote_key_prefix.as_str());
         let result = self
             .store
@@ -356,9 +347,7 @@ impl CheckpointDownloader for S3Downloader {
             .await
             .context("listing checkpoint folders from S3")?;
 
-        // Each common_prefix is a checkpoint folder like:
-        //   <hash>/<s3_key_prefix>/<topic>/<partition>/2026-01-22T12-00-00Z
-        // Keep folders at or after the cutoff, then build their metadata.json keys.
+        // Keep folders at or after the cutoff and map them to their metadata.json keys.
         let mut metadata_keys: Vec<String> = result
             .common_prefixes
             .into_iter()
@@ -370,7 +359,7 @@ impl CheckpointDownloader for S3Downloader {
             .map(|cp| format!("{}/{}", cp.as_ref(), METADATA_FILENAME))
             .collect();
 
-        // Sort newest first (checkpoint IDs are timestamps, so reverse lexicographic = newest)
+        // Checkpoint IDs are timestamps, so reverse lexicographic order = newest first.
         metadata_keys.sort_unstable();
         metadata_keys.reverse();
 
@@ -405,8 +394,6 @@ mod tests {
 
     #[test]
     fn format_checkpoint_list_prefix_has_a_trailing_slash_folder_boundary() {
-        // The trailing slash makes the prefix a clean folder boundary: a sibling checkpoint lineage
-        // (different namespace) under the same hash can never prefix-match this one.
         let prefix = format_checkpoint_list_prefix("checkpoints");
         assert!(prefix.ends_with('/'));
 

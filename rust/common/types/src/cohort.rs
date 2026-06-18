@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn team_allowlist_default_is_team_two() {
-        // Documents the envconfig default = "2" — the prod gate without chart wiring.
+        // envconfig default is "2"; a set-but-empty var falls through to `All` (see `FromStr`).
         assert_eq!(
             "2".parse::<TeamAllowlist>().unwrap(),
             TeamAllowlist::Only(HashSet::from([2])),

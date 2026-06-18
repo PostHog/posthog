@@ -66,7 +66,7 @@ impl From<TransitionKind> for MembershipStatus {
     }
 }
 
-/// Project one leaf transition to one membership change per single-leaf cohort owning its LSK.
+/// Fan out one leaf transition to one membership change per single-leaf cohort that owns its LSK.
 pub fn map_transition<'a>(
     filters: &'a TeamFilters,
     transition: &'a LeafTransition,
@@ -97,12 +97,11 @@ pub fn map_transition<'a>(
         })
 }
 
-/// Current UTC time as a ClickHouse `DateTime64(6)` string (microsecond precision).
+/// Current UTC time as a ClickHouse `DateTime64(6)` string (microseconds).
 pub fn now_last_updated() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
-/// Produce a batch and await all acks, returning one result per change in input order.
 #[async_trait]
 pub trait MembershipSink: Send + Sync {
     async fn produce(

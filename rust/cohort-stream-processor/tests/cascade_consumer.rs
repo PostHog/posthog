@@ -68,9 +68,9 @@ fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// A = cohort 2: a single `performed_event` on `$a`. B = cohort 1: a pure cohort-ref to A. With the
-/// gate on, B is `Stage2ComposableRef`, so a flip of A cascades to a re-evaluation of B — and B owns
-/// no state-keyed leaf, so only the cascade (not direct Stage 2 composition) can flip it.
+/// Cohort 2 (A): single `performed_event` on `$a`. Cohort 1 (B): pure cohort-ref to A.
+/// With the cascade gate on, B is `Stage2ComposableRef` — only a cascade from A can flip it,
+/// never its own event.
 fn cascade_catalog() -> CatalogHandle {
     let a_leaf = json!({
         "type": "behavioral", "value": "performed_event", "key": "$a",
@@ -220,7 +220,6 @@ fn follower_client_config(group: &str) -> ClientConfig {
     config
 }
 
-/// Total messages on `topic` across all partitions, from the broker's watermarks.
 fn topic_message_count(topic: &str) -> i64 {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -237,8 +236,8 @@ fn topic_message_count(topic: &str) -> i64 {
         .sum()
 }
 
-/// Read every message on `topic` (up to `expected`, all partitions from the beginning), returning
-/// `(partition, payload)` pairs. Assigned explicitly — no group join, no commit.
+/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
+/// join, no commit.
 async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -284,7 +283,6 @@ fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
 
-/// A serialized `CohortStreamEvent` envelope for `event` (e.g. `$a`).
 fn envelope(person: Uuid, event: &str, source_offset: i64) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "team_id": TEAM,
@@ -302,7 +300,6 @@ fn envelope(person: Uuid, event: &str, source_offset: i64) -> Vec<u8> {
     .expect("serialize envelope")
 }
 
-/// Produce one `event` for `person`, asserting it lands on the person's partition.
 async fn produce_event(
     producer: &FutureProducer,
     topic: &str,
@@ -411,8 +408,6 @@ impl Instance {
     }
 }
 
-/// One full processor instance wired like `main.rs` with the cascade gate **on**: events consumer,
-/// three follower consumers (merge/transfer/cascade), real Kafka sinks for membership and cascade.
 async fn spawn_instance(
     topics: &Topics,
     groups: &Groups,
@@ -557,8 +552,8 @@ async fn spawn_instance(
     Instance { dispatcher, tasks }
 }
 
-/// The cascade producer's partition for `(team, person)` must equal the shuffler's for the same pair,
-/// so a flip lands on the worker owning that person's `cf_stage2`. Verified on the wire.
+/// Cascade produces must co-partition with `partition_of(team, person)` so a flip lands on the worker
+/// that owns the person's `cf_stage2` row.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn cascade_producer_co_partitions_with_events() {
@@ -620,9 +615,9 @@ async fn cascade_producer_co_partitions_with_events() {
     .await;
 }
 
-/// A flip cascades to a referrer on the same worker: one `$a` event flips A (cohort 2); the
-/// first-hop cascade re-evaluates the pure-ref B (cohort 1), which flips and emits its own external
-/// change plus a depth-2 onward cascade. The external bytes are exactly the five-key shape.
+/// One `$a` event flips A (cohort 2); the first-hop cascade re-evaluates B (cohort 1, a pure ref),
+/// which flips and emits an external change plus a depth-2 onward cascade.
+/// External bytes are exactly the five-key `CohortMembershipChange` shape.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn cascade_reevaluates_a_referrer_end_to_end() {
@@ -659,7 +654,6 @@ async fn cascade_reevaluates_a_referrer_end_to_end() {
         let producer = murmur2_producer();
         produce_event(&producer, &topics.events, alice, "$a", 0).await;
 
-        // Two external flips: A (cohort 2) from the event, B (cohort 1) from the cascade.
         wait_for(
             "both cohort flips on the shadow topic",
             Duration::from_secs(60),
@@ -684,7 +678,6 @@ async fn cascade_reevaluates_a_referrer_end_to_end() {
             "A entered from the event and B entered from the cascade re-evaluation",
         );
 
-        // External bytes are exactly the five-key `CohortMembershipChange` shape (Zod-compat).
         let (_, payload) = consume_all(&topics.shadow, 1, Duration::from_secs(10))
             .await
             .into_iter()
@@ -710,8 +703,7 @@ async fn cascade_reevaluates_a_referrer_end_to_end() {
             "external topic carries exactly the five-key shape, no cascade fields",
         );
 
-        // The cascade topic carries the depth-1 (A) and depth-2 (B) hops, both keyed on alice's
-        // partition.
+        // Cascade topic carries depth-1 (A) and depth-2 (B) hops, both keyed on alice's partition.
         wait_for(
             "the depth-1 and depth-2 cascades on the wire",
             Duration::from_secs(60),

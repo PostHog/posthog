@@ -15,23 +15,17 @@ use tracing::{debug, info};
 
 use super::config::DurabilityConfig;
 
-/// Timeout for bucket validation during client initialization.
-/// Keep this short to fail fast on misconfiguration rather than hanging.
+/// Short timeout for bucket validation so misconfiguration fails fast.
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Create an S3 client with proper credential resolution.
+/// Build an S3 client wrapped in a `LimitStore` for bounded concurrency.
 ///
-/// Credential priority:
-/// 1. Explicit credentials from config (for local dev/CI with MinIO)
-/// 2. IRSA via AWS_WEB_IDENTITY_TOKEN_FILE + AWS_ROLE_ARN (for EKS production)
-/// 3. Default credential chain (IMDS, env vars, config files)
-///
-/// The client is wrapped in a `LimitStore` to bound concurrent requests.
+/// Credential priority: explicit config (local dev) → IRSA (`AWS_WEB_IDENTITY_TOKEN_FILE` +
+/// `AWS_ROLE_ARN`) → default AWS credential chain.
 pub async fn create_s3_client(
     config: &DurabilityConfig,
     max_concurrent_requests: usize,
 ) -> Result<Arc<LimitStore<AmazonS3>>> {
-    // from_env() picks up AWS_* vars including IRSA (AWS_WEB_IDENTITY_TOKEN_FILE, AWS_ROLE_ARN).
     let mut builder = AmazonS3Builder::from_env()
         .with_bucket_name(&config.s3_bucket)
         .with_client_options(ClientOptions::new().with_timeout(config.s3_attempt_timeout))
@@ -41,7 +35,6 @@ pub async fn create_s3_client(
             ..Default::default()
         });
 
-    // Config region overrides env.
     if let Some(ref region) = config.aws_region {
         builder = builder.with_region(region);
     }
@@ -53,7 +46,7 @@ pub async fn create_s3_client(
         }
     }
 
-    // Explicit credentials override env (local dev without IAM).
+    // Explicit credentials override the env-based chain (for local dev without IAM).
     if let (Some(ref access_key), Some(ref secret_key)) =
         (&config.s3_access_key_id, &config.s3_secret_access_key)
     {
@@ -69,7 +62,6 @@ pub async fn create_s3_client(
         debug!("Using default AWS credential chain");
     }
 
-    // Path-style URLs are required for MinIO/SeaweedFS.
     if config.s3_force_path_style {
         builder = builder.with_virtual_hosted_style_request(false);
     }
@@ -84,16 +76,11 @@ pub async fn create_s3_client(
 
     let store = Arc::new(LimitStore::new(base_store, max_concurrent_requests));
 
-    // Fail fast on misconfiguration via a short-timeout bucket probe.
     validate_bucket_access(&store, &config.s3_bucket, &config.aws_region).await?;
 
     Ok(store)
 }
 
-/// Validate bucket access with a short timeout to fail fast on misconfiguration.
-///
-/// This prevents the service from hanging for minutes when S3 is unreachable or credentials are
-/// invalid, allowing K8s health checks to fail quickly with a meaningful error message.
 async fn validate_bucket_access(
     store: &LimitStore<AmazonS3>,
     bucket: &str,
@@ -130,8 +117,6 @@ mod tests {
 
     #[test]
     fn validation_timeout_is_reasonable() {
-        // Ensure the validation timeout is short enough to fail fast
-        // but long enough for a healthy S3 to respond.
         assert!(VALIDATION_TIMEOUT >= Duration::from_secs(5));
         assert!(VALIDATION_TIMEOUT <= Duration::from_secs(30));
     }

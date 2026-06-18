@@ -524,7 +524,6 @@ export class PersonMergeService {
             // Produce-after-commit: the merge event is emitted only after the Postgres txn commits,
             // alongside the clickhouse_person messages. A crash between commit and ack loses it; the
             // downstream protocol is idempotent on replay but cannot recover a never-produced event.
-            // currentSourcePerson is P_old (deleted); mergedPerson is P_new (merge target).
             if (this.context.mergeEventsConfig.enabled) {
                 personMergeEventProducedCounter.inc()
             }

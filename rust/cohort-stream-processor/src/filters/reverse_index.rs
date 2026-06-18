@@ -23,7 +23,6 @@ use crate::stage1::state::StateVariant;
 use crate::stage2::eligibility::refine_ref_bearing;
 use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
 
-/// Per-`LeafStateKey` worker metadata derived at freeze time.
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
@@ -37,22 +36,17 @@ pub struct LeafStateMeta {
     pub predicate_op: Option<PredicateOp>,
 }
 
-/// A team's frozen filter view.
 #[derive(Debug)]
 pub struct TeamFilters {
-    /// `conditionHash → [LeafStateKey]`.
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
     /// `conditionHash → [CohortId]` for the Stage 2 walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
     /// `conditionHash → bytecode`. One entry per conditionHash.
     pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
-    /// Distinct conditionHashes for this team.
     pub unique_condition_hashes: HashSet<[u8; 16]>,
-    /// `LeafStateKey → LeafStateMeta`.
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
     /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
     pub behavioral_conditions: HashSet<[u8; 16]>,
-    /// conditionHashes whose leaves are person-property filters.
     pub person_property_conditions: HashSet<[u8; 16]>,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
@@ -147,7 +141,6 @@ impl LeafSink for TeamFiltersBuilder {
 }
 
 impl TeamFiltersBuilder {
-    /// Parse one cohort and fold it into the team's indices.
     pub fn add_cohort(
         &mut self,
         cohort_id: CohortId,
@@ -159,8 +152,7 @@ impl TeamFiltersBuilder {
         Ok(())
     }
 
-    /// Freeze into an immutable [`TeamFilters`] with cascade composition disabled. Delegates to
-    /// [`Self::freeze_with`].
+    /// Equivalent to `freeze_with(timezone, false)`.
     pub fn freeze(self, timezone: Tz) -> TeamFilters {
         self.freeze_with(timezone, false)
     }
@@ -289,7 +281,6 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
     }
 }
 
-/// Recursively record each state-keyed leaf's [`LeafStateMeta`].
 fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
@@ -390,7 +381,6 @@ mod tests {
         })
     }
 
-    /// A `performed_event_multiple` leaf on `$pageview`.
     fn behavioral_performed_event_multiple(
         time_value: i64,
         time_interval: &str,
@@ -658,7 +648,6 @@ mod tests {
         json!({ "type": "cohort", "value": 99, "negation": false })
     }
 
-    /// A cohort-reference leaf pointing at `target`.
     fn cohort_ref_to(target: i32) -> Value {
         json!({ "type": "cohort", "value": target, "negation": false })
     }
@@ -1337,8 +1326,8 @@ mod tests {
             "the cohort's own person leaf indexes it for re-evaluation on the event path",
         );
 
-        // The composer fills a missing referent as `false` (stage2_path.rs:181-184); the negated
-        // leaf flips it to `true`, so the cohort's membership tracks its own leaf alone.
+        // The composer fills a missing referent as `false`; the negated leaf flips it to `true`,
+        // so the cohort's membership tracks its own leaf alone.
         let root = &frozen.cohorts[&CohortId(1)].root;
         let ref_membership = HashMap::from([(CohortId(99), false)]);
         let off = evaluate_tree(root, &HashMap::from([(per_lsk, false)]), &ref_membership);

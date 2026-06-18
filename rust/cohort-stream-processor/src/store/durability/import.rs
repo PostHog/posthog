@@ -59,9 +59,7 @@ impl Drop for ImportCleanupGuard {
 #[derive(Debug)]
 pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
-    // Number of historical checkpoint attempts to import as fallbacks
     import_attempt_depth: usize,
-    // Maximum time allowed for a complete checkpoint import operation
     import_timeout: Duration,
 }
 
@@ -78,18 +76,15 @@ impl CheckpointImporter {
         }
     }
 
-    /// Import checkpoint files into `target_path`, materializing the whole DB.
-    ///
-    /// Lists recent checkpoint metadata.json keys (newest first) and tries up to
-    /// `import_attempt_depth` of them: for each, lazily downloads the metadata.json (one at a time, to
-    /// limit S3 pressure), then downloads all its tracked files into `target_path`. A failed attempt
-    /// falls back to the next-most-recent. On success, writes metadata.json into `target_path`.
+    /// Lists recent checkpoint metadata.json keys (newest first), tries up to `import_attempt_depth`
+    /// of them lazily (one metadata download at a time), and falls back to the next on failure. On
+    /// success, downloads all tracked files and writes metadata.json into `target_path`.
     pub async fn import_checkpoint(&self, target_path: &Path) -> Result<PathBuf> {
         self.import_checkpoint_cancellable(target_path, None).await
     }
 
-    /// Import with optional cancellation. The whole import is bounded by a timeout so it cannot exceed
-    /// Kafka's max poll interval; a cancellation returns an error early.
+    /// Import with optional cancellation. The whole operation is bounded by `import_timeout` to stay
+    /// below Kafka's max poll interval.
     pub async fn import_checkpoint_cancellable(
         &self,
         target_path: &Path,
@@ -122,8 +117,6 @@ impl CheckpointImporter {
         }
     }
 
-    /// Import body run under the timeout wrapper. In the happy path only the newest metadata is
-    /// fetched; older attempts are downloaded only as fallbacks.
     async fn import_checkpoint_inner(
         &self,
         target_path: &Path,
@@ -147,7 +140,6 @@ impl CheckpointImporter {
             ));
         }
 
-        // Truncate to import_attempt_depth BEFORE downloading any content
         let metadata_keys: Vec<_> = metadata_keys
             .into_iter()
             .take(self.import_attempt_depth)
@@ -178,7 +170,6 @@ impl CheckpointImporter {
 
             let attempt_start = Instant::now();
 
-            // Fetch this metadata.json only when the attempt is reached.
             let mut attempt = match self.downloader.download_file(remote_key).await {
                 Ok(content) => match CheckpointMetadata::from_json_bytes(&content) {
                     Ok(metadata) => metadata,
@@ -195,7 +186,6 @@ impl CheckpointImporter {
 
             let attempt_tag = attempt.get_attempt_path();
 
-            // Remove any existing store dir before importing; the caller deemed local data stale.
             if target_path.exists() {
                 info!(
                     store = STORE_TOPIC,
@@ -217,8 +207,7 @@ impl CheckpointImporter {
 
             let guard = ImportCleanupGuard::new(target_path.to_path_buf());
 
-            // Per-attempt child token: a failed file cancels its siblings without aborting the
-            // fallback to the next attempt.
+            // A failed file cancels siblings, but the parent token survives so the next attempt can proceed.
             let attempt_token = cancel_token
                 .map(|parent| parent.child_token())
                 .unwrap_or_default();
@@ -250,7 +239,6 @@ impl CheckpointImporter {
                     return Ok(guard.defuse());
                 }
                 Err(e) => {
-                    // Guard drops here and cleans up the directory.
                     let attempt_duration = attempt_start.elapsed().as_secs_f64();
                     metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS, "result" => "failed")
                         .record(attempt_duration);
@@ -337,7 +325,6 @@ mod tests {
 
     use crate::store::durability::{STORE_PARTITION, STORE_TOPIC};
 
-    /// Mock downloader for testing checkpoint import behavior
     #[derive(Debug)]
     struct MockDownloader {
         metadata: CheckpointMetadata,
@@ -403,8 +390,6 @@ mod tests {
         }
     }
 
-    /// Mock downloader for pre-cancellation checks. Sibling-cancellation and fallback are covered by
-    /// the integration tests against a real S3Downloader.
     #[derive(Debug)]
     struct CancellationTestDownloader {
         checkpoints: Vec<CheckpointMetadata>,
@@ -427,7 +412,6 @@ mod tests {
         }
 
         async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
-            // Find the matching checkpoint metadata
             for checkpoint in &self.checkpoints {
                 if checkpoint.get_metadata_filepath() == remote_key {
                     return Ok(checkpoint.to_json()?.into_bytes());
@@ -442,7 +426,6 @@ mod tests {
             local_filepath: &Path,
             cancel_token: Option<&CancellationToken>,
         ) -> Result<()> {
-            // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
                     return Err(DownloadCancelledError {
@@ -462,7 +445,6 @@ mod tests {
             local_base_path: &Path,
             cancel_token: Option<&CancellationToken>,
         ) -> Result<()> {
-            // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
                     return Err(DownloadCancelledError {
@@ -511,7 +493,6 @@ mod tests {
         let metadata = create_test_metadata(12);
         let downloader = CancellationTestDownloader::new(vec![metadata]);
 
-        // Create a pre-cancelled token
         let token = CancellationToken::new();
         token.cancel();
 
@@ -538,7 +519,6 @@ mod tests {
         let downloader = CancellationTestDownloader::new(vec![metadata]);
         let importer = CheckpointImporter::new(Box::new(downloader), 3, Duration::from_secs(60));
 
-        // Create a pre-cancelled token
         let token = CancellationToken::new();
         token.cancel();
 
@@ -585,14 +565,12 @@ mod tests {
         assert_eq!(import_path, target_path, "Import path should be the target");
         assert!(import_path.exists(), "Import path should exist");
 
-        // Verify the imported SST file exists
         let imported_file = import_path.join("000001.sst");
         assert!(
             imported_file.exists(),
             "Imported SST file should exist after successful import"
         );
 
-        // Verify metadata.json exists and round-trips with the store identity and updated_at.
         let loaded_metadata = CheckpointMetadata::load_from_dir(&import_path)
             .await
             .expect("metadata.json should exist and deserialize");
@@ -608,7 +586,6 @@ mod tests {
         );
     }
 
-    /// Mock downloader that always fails during file download
     #[derive(Debug)]
     struct FailingDownloader {
         metadata: CheckpointMetadata,
@@ -680,11 +657,9 @@ mod tests {
             Duration::from_secs(60),
         );
 
-        // Import should fail
         let result = importer.import_checkpoint(&target_path).await;
         assert!(result.is_err(), "Import should fail");
 
-        // The cleanup guard should have removed the store directory
         assert!(
             !target_path.exists(),
             "Cleanup guard should have removed the store directory on failure"
@@ -699,14 +674,10 @@ mod tests {
         let test_file = test_path.join("test_file.txt");
         std::fs::write(&test_file, b"test content").unwrap();
 
-        // Create guard and defuse it
         let guard = ImportCleanupGuard::new(test_path.clone());
         let returned_path = guard.defuse();
 
-        // Path should be returned
         assert_eq!(returned_path, test_path);
-
-        // Directory should still exist (guard was defused)
         assert!(test_path.exists(), "Directory should exist after defuse");
         assert!(test_file.exists(), "File should exist after defuse");
     }
@@ -719,26 +690,20 @@ mod tests {
         let test_file = test_path.join("test_file.txt");
         std::fs::write(&test_file, b"test content").unwrap();
 
-        // Create guard and let it drop without defusing
         {
             let _guard = ImportCleanupGuard::new(test_path.clone());
-            // guard drops here
         }
 
-        // Directory should be removed
         assert!(
             !test_path.exists(),
             "Directory should be removed after guard drops"
         );
     }
 
-    /// Parameterized mock downloader that tracks call counts and optionally injects file-download
-    /// failures to exercise fallback logic.
     #[derive(Debug)]
     struct TrackingDownloader {
         checkpoints: Vec<CheckpointMetadata>,
         metadata_download_count: Arc<AtomicUsize>,
-        /// Number of initial file-download attempts that should fail (0 = all succeed)
         file_download_fail_count: usize,
         file_download_attempts: Arc<AtomicUsize>,
     }
@@ -812,7 +777,6 @@ mod tests {
     async fn lazy_metadata_download_only_fetches_needed() {
         let tmp_dir = TempDir::new().unwrap();
 
-        // 3 checkpoints available, newest first (hours 14, 13, 12)
         let checkpoints = vec![
             create_test_metadata(14),
             create_test_metadata(13),
@@ -840,7 +804,6 @@ mod tests {
     async fn lazy_metadata_download_fallback_downloads_incrementally() {
         let tmp_dir = TempDir::new().unwrap();
 
-        // 3 checkpoints, first 2 will fail file download, 3rd succeeds
         let checkpoints = vec![
             create_test_metadata(14),
             create_test_metadata(13),

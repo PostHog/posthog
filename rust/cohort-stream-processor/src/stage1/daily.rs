@@ -160,10 +160,9 @@ mod tests {
     #[test]
     fn deadline_saturates_for_an_astronomical_window_instead_of_panicking() {
         // The daily variant is only chosen for window_days ≤ 180 (`pick_state_variant`), so this
-        // pairing is structurally unreachable in production, but the day arithmetic is total
-        // regardless: `oldest_day + window_days + 1` overflows `i32` for a huge window. The window
-        // below makes that sum exceed i32::MAX → unfixed code panics in debug; saturation gives
-        // "never evict" → i64::MAX.
+        // pairing is structurally unreachable in production, but the day arithmetic must be total
+        // regardless: `oldest_day + window_days + 1` overflows `i32` for a huge window. Saturation
+        // gives "never evict" → i64::MAX rather than panicking or wrapping.
         assert_eq!(
             daily_eviction_deadline(&[1], 1_000, 2_147_483_000, UTC),
             i64::MAX,

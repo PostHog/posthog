@@ -33,9 +33,8 @@ pub struct CohortStreamEvent {
 }
 
 impl CohortStreamEvent {
-    /// Takes `person_id` already extracted by [`crate::consumer::classify`] (so no `Option` to
-    /// re-check) and moves every owned field out of `event` — including the unbounded `properties`
-    /// / `person_properties` JSON — rather than cloning.
+    /// Moves every owned field out of `event` rather than cloning; `person_id` is already extracted
+    /// by [`crate::consumer::classify`].
     pub fn from_clickhouse(
         event: ClickHouseEvent,
         person_id: String,

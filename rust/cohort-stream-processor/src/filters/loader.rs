@@ -17,9 +17,8 @@ use crate::observability::metrics::{
     FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK,
 };
 
-/// Realtime cohorts to load, mirroring the Node filter manager's predicate
-/// (`realtime-supported-filter-manager-cdp.ts`), joined to `posthog_team` for the team timezone the
-/// bucket variants compute calendar days in (TDD D9).
+/// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
+/// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
 pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, t.timezone \
      FROM posthog_cohort c \
      JOIN posthog_team t ON t.id = c.team_id \
@@ -43,16 +42,14 @@ pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, Filt
 }
 
 /// Drop rows for teams outside `allowlist`, in place, before catalog building. Kept separate from
-/// [`build_catalog_from_rows`] (which stays allowlist-agnostic so its tests need no scoping setup)
-/// and DB-free so the gate is unit-testable. The shuffler already gates the firehose; this keeps the
-/// catalog lean and scopes shadow output even for events injected straight into `cohort_stream_events`.
+/// [`build_catalog_from_rows`] (which stays allowlist-agnostic) and DB-free for unit testability.
+/// Keeps the catalog lean and scopes shadow output for events injected directly into the stream.
 pub(crate) fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
     rows.retain(|row| allowlist.includes(row.team_id));
 }
 
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
-/// rather than poisoning the rest of the catalog. Stays DB-free so the grouping logic is unit-tested
-/// without Postgres.
+/// rather than poisoning the rest of the catalog.
 pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> FilterCatalog {
     let mut builders: HashMap<TeamId, (TeamFiltersBuilder, Tz)> = HashMap::new();
 
@@ -85,10 +82,9 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
     )
 }
 
-/// Resolve a team's `posthog_team.timezone`, falling back to UTC for an unrecognized zone. The
-/// observability wrapper around [`bucket_tz::resolve_tz_or_utc`](crate::stage1::bucket_tz::resolve_tz_or_utc):
-/// it counts and logs the fallback with the offending `team_id`. The raw string goes only to the
-/// `warn!`, never the (label-free) counter.
+/// Resolve a team's `posthog_team.timezone`, falling back to UTC for an unrecognized zone. Counts
+/// and logs the fallback with the offending `team_id`. The raw string goes only to the `warn!`,
+/// never the (label-free) counter.
 fn resolve_team_tz(raw: &str, team_id: TeamId) -> Tz {
     raw.parse::<Tz>().unwrap_or_else(|_| {
         counter!(FILTER_CATALOG_TZ_FALLBACK).increment(1);

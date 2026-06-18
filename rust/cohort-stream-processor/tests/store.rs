@@ -416,7 +416,6 @@ fn delete_partition_reclaims_the_merge_cfs() {
 
     store.delete_partition(0).unwrap();
 
-    // Partition 0's merge state is gone; partition 1 is untouched.
     assert!(store
         .get_merge_drain_applied(&merge_drain_key(0, 100, 7))
         .unwrap()

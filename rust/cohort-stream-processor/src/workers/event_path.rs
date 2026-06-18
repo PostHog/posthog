@@ -33,7 +33,6 @@ use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
 
-/// Why an event was skipped whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
     NullPersonId,
@@ -58,7 +57,6 @@ impl SkipReason {
     }
 }
 
-/// Either skipped whole (`skipped = Some`, no transitions) or processed (`skipped = None`).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct EventOutcome {
     pub transitions: Vec<LeafTransition>,
@@ -121,7 +119,6 @@ struct PendingWrite {
     variant: StateVariant,
 }
 
-/// Process one re-keyed event against a team's frozen filters.
 pub fn process_event(
     partition_id: u16,
     store: &CohortStore,
@@ -307,14 +304,12 @@ pub fn process_event(
     Ok(EventOutcome::processed(transitions, schedules, event_ms))
 }
 
-/// The finite eviction deadline to schedule for a just-written state, or [`None`] when it never
-/// evicts. The single source of truth for the sweep-scheduling policy: the per-variant deadline from
-/// [`Stage1State::eviction_deadline`], minus the `i64::MAX` permanent-membership sentinel.
+/// Returns `None` for permanent-membership states (`i64::MAX` sentinel), so only time-bounded
+/// leaves get scheduled for sweep eviction.
 pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
     state.eviction_deadline().filter(|&d| d != i64::MAX)
 }
 
-/// Evaluate each conditionHash once and gather the leaves to fold.
 fn collect_applies(
     filters: &TeamFilters,
     behavioral_globals: Option<&serde_json::Value>,
@@ -419,14 +414,10 @@ fn mutate_behavioral(
 
     let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
 
-    // An absolute explicit range matches at **day** granularity, inclusive on both ends, mirroring
-    // the oracle's `date >= toDate(from) AND date <= toDate(to)` against `precalculated_events.date`.
-    // Drop an out-of-range event whole (no dedup record, no state, no schedule, no transition): it is
-    // simply not a match for this leaf, just as the oracle's date filter excludes it. The event's day
-    // is its team-tz calendar day (`day_idx_in_tz`); the bound is already a tz-naive calendar day (the
-    // oracle treats `explicit_datetime` as a tz-naive date, so `toDate('2026-05-01')` is the literal
-    // date), so it is compared **directly** — never re-projected through a timezone, which would shift
-    // it one calendar day under a UTC-offset team.
+    // Explicit range: day-granularity, inclusive, matching `date >= toDate(from) AND date <= toDate(to)`.
+    // The bound is a tz-naive calendar day, compared directly to `day_idx_in_tz(event_ms, tz)` —
+    // never re-projected through a timezone (which would shift it one day for UTC-offset teams).
+    // Out-of-range events are dropped completely: no dedup record, no state, no transition.
     if let Some(EvictionWindow::Explicit { from_day, to_day }) = window {
         let event_day = day_idx_in_tz(event_ms, filters.timezone);
         let before_from = from_day.is_some_and(|f| event_day < f);
@@ -581,7 +572,6 @@ fn mutate_behavioral_daily(
         let last = len - 1;
         buckets[last] = buckets[last].saturating_add(1);
     } else if event_day < window_start_day {
-        // Already slid out of the window.
     } else {
         let idx = (event_day - window_start_day) as usize;
         buckets[idx] = buckets[idx].saturating_add(1);
@@ -618,7 +608,6 @@ fn mutate_behavioral_daily(
 }
 
 /// Fold a `performed_event_multiple` match into sparse compressed-history state (>180-day windows).
-/// Structurally identical to [`mutate_behavioral_daily`] but over run-length entries.
 #[allow(clippy::too_many_arguments)]
 fn mutate_behavioral_compressed(
     filters: &TeamFilters,
@@ -711,7 +700,6 @@ fn mutate_behavioral_compressed(
         );
         compressed_history::insert_event(&mut entries, event_day);
     } else if event_day < window_start_day {
-        // Already slid out of the window.
     } else {
         compressed_history::insert_event(&mut entries, event_day);
     }
@@ -805,7 +793,6 @@ fn mutate_person(
         event.source_offset,
     );
 
-    // argMax tiebreaker: keep the most recent write.
     if (event_ms, event.source_offset) <= (prev_updated_at, prev_updated_offset) {
         counter!(STAGE1_ARGMAX_STALE).increment(1);
         let record = StatefulRecord {

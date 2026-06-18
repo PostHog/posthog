@@ -132,8 +132,6 @@ async fn async_main(config: Config) -> Result<()> {
     info!(restore_source = ?restore.source, "boot restore complete");
 
     let store_config = config.store_config();
-    // Whether this boot wipes or reopens the store; the per-partition breakdown follows from the boot
-    // staleness sweep once the assignment settles.
     info!(
         durable_restore_enabled = config.durable_restore_enabled,
         wipe_store_on_start = config.wipe_store_on_start,
@@ -176,7 +174,6 @@ async fn async_main(config: Config) -> Result<()> {
             .context("creating straggler re-key producer")?,
     );
 
-    // Gate off: a no-op sink needs no producer or topic. Gate on: a real keyed producer.
     let cascade_sink: Arc<dyn CascadeSink> = if config.cohort_cascade_enabled {
         Arc::new(
             KafkaCascadeSink::new(&kafka_config, config.cohort_cascade_events_topic.clone())
@@ -289,10 +286,6 @@ async fn async_main(config: Config) -> Result<()> {
         );
     }
 
-    // Seed each follower group's committed offset from the restore manifest before the rebalance
-    // worker mirrors the assignment, so the follower `incremental_assign` at `Offset::Stored` resolves
-    // to the manifest position rather than the broker's last commit. A strict no-op when the manifest
-    // carries no entries for a follower's topic.
     if let Some(manifest) = restore.manifest.as_ref() {
         commit_follower_offsets_from_manifest(
             &merges_follower_consumer,
@@ -453,7 +446,6 @@ async fn async_main(config: Config) -> Result<()> {
     );
     spawn_follower_after_catalog_load(catalog.clone(), transfer_follower, transfer_follower_handle);
 
-    // Spawned only when the gate is on (consumer and handle are `Some` together).
     if let (Some(cascade_consumer), Some(cascade_handle)) =
         (cascade_follower_consumer, cascade_follower_handle)
     {
@@ -508,7 +500,6 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// Fetch one topic's partition count from live broker metadata.
 fn fetch_partition_count<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
     topic: &str,
@@ -561,12 +552,10 @@ fn commit_follower_offsets_from_manifest(
     }
 }
 
-/// The pure core of [`commit_follower_offsets_from_manifest`]: the `TopicPartitionList` to commit for
-/// `topic`, or `None` when there is nothing to commit (the topic is absent from the manifest, its
-/// inner map is empty, or no partition produced a valid entry). Pure so the no-op-on-empty-manifest
-/// behavior is unit-testable without a broker. Each present partition is committed at
-/// `Offset::Offset(next_offset)`, the next-to-consume value a Kafka committed offset denotes, so
-/// `Offset::Stored` later resolves to it exactly.
+/// Returns the `TopicPartitionList` to commit for `topic`, or `None` when the manifest has no entry,
+/// the entry is empty, or no partition produced a valid offset. Pure (no I/O) so the behavior is
+/// unit-testable without a broker. Each partition is committed at `Offset::Offset(next_offset)` —
+/// the next-to-consume value Kafka committed offsets denote — so `Offset::Stored` resolves to it.
 fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPartitionList> {
     let partitions = manifest.topics.get(topic)?;
     if partitions.is_empty() {
@@ -581,7 +570,6 @@ fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPa
     (tpl.count() > 0).then_some(tpl)
 }
 
-/// Spawn a follower's consume loop after the first successful filter-catalog load.
 fn spawn_follower_after_catalog_load<R: FollowerRoute>(
     catalog: Arc<CatalogHandle>,
     follower: FollowerConsumer<R>,

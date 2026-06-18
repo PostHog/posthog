@@ -22,31 +22,27 @@ pub enum EvalOutcome {
 
 /// Evaluate `bytecode` against `globals`, returning the detailed [`EvalOutcome`].
 ///
-/// Cohort bytecode ends with its root comparison op and no `RETURN`. Python/Node return the
-/// top-of-stack value when running off the end, but the Rust VM treats that as a fatal
-/// `EndOfProgram`; appending a `RETURN` recovers the shared semantic. A program already ending in
-/// `RETURN` finishes first, so the append is safe for both shapes.
+/// Cohort bytecode ends with its root comparison op and no `RETURN`. The Rust VM treats running
+/// off the end as `EndOfProgram`; appending a `RETURN` recovers the Python/Node semantic. A
+/// program already ending in `RETURN` finishes first, so the append is safe for both shapes.
 pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     let mut with_return = Vec::with_capacity(bytecode.len() + 1);
     with_return.extend_from_slice(bytecode);
     with_return.push(Value::from(OP_RETURN));
 
-    // PERF: `with_defaults` rebuilds the full STL (~26 boxed native closures + 2 HashMaps + the hog
-    // module symbol table) on every call — once per conditionHash per event. Building it once per
-    // worker thread and reusing it is blocked by the shared `hogvm` API: `NativeFunction` is
-    // `Box<dyn Fn>` (not `Clone`), `ExecutionContext` owns its native_fns/symbol_table, and there is
-    // no program setter, so a thread_local context can't swap programs in place without a
-    // shared-crate change (cymbal also depends on `common/hogvm`). Likewise each caller clones the
-    // full globals JSON per condition because `with_globals` takes an owned value (`ExecutionContext`
-    // already carries a standing TODO to borrow it). Flamegraph before leaving shadow mode; revisit
-    // with the shared-crate owners if hot.
+    // PERF: `with_defaults` rebuilds the full STL (~26 closures + 2 HashMaps + the hog module
+    // symbol table) on every call — once per conditionHash per event. Reuse is blocked by the
+    // shared `hogvm` API: `NativeFunction` is `Box<dyn Fn>` (not `Clone`), `ExecutionContext`
+    // owns its tables, and there is no program setter, so a thread_local context can't swap
+    // programs in place without a shared-crate change. `with_globals` also takes ownership, so
+    // the full globals JSON is cloned per condition. Flamegraph before optimizing.
     let program = match Program::new(with_return) {
         Ok(program) => program,
         Err(error) => return classify_failure(error),
     };
-    // Opt into coercing comparison semantics (cross-type ordering + epoch temporal ordering/equality)
-    // so cohort leaves match the Python/TS/ClickHouse reference. This path is exclusive to the cohort
-    // evaluator; other shared-crate consumers (e.g. cymbal) keep the legacy strict comparisons.
+    // Coercing comparisons (cross-type ordering + epoch temporal ordering/equality) match the
+    // Python/TS/ClickHouse reference. Opt in here only — other consumers (e.g. cymbal) keep
+    // strict comparisons.
     let context = ExecutionContext::with_defaults(program)
         .with_globals(globals)
         .with_coercing_comparisons();
@@ -57,8 +53,8 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     }
 }
 
-/// Hot-path wrapper: coerces failures and non-bool results to `false`, emitting a per-failure-class
-/// metric so a silently-failing cohort stays observable.
+/// Hot-path wrapper: coerces failures and non-bool results to `false`, emitting a per-class metric
+/// so a silently-failing cohort stays observable.
 pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
     match evaluate_detailed(bytecode, globals) {
         EvalOutcome::Matched(matched) => matched,
@@ -73,8 +69,8 @@ pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
     }
 }
 
-/// A missing native surfaces as either `UnknownFunction` or `UnknownSymbol`; both collapse to one
-/// metric. `VmError` is `#[non_exhaustive]`, so the catch-all arm is mandatory.
+/// `UnknownFunction` and `UnknownSymbol` collapse to the same metric. The catch-all arm is
+/// mandatory because `VmError` is `#[non_exhaustive]`.
 fn classify_failure(error: VmError) -> EvalOutcome {
     match error {
         VmError::UnknownFunction(name) | VmError::UnknownSymbol(name) => {
@@ -133,8 +129,8 @@ mod tests {
 
     #[test]
     fn compiled_style_bytecode_without_trailing_return_still_evaluates() {
-        // Regression guard for the appended-RETURN bridge: cohort bytecode ends with its comparison
-        // op and no RETURN, which the bare Rust VM would reject with EndOfProgram.
+        // Guard the appended-RETURN bridge: cohort bytecode ends without RETURN, which the Rust VM
+        // would reject with EndOfProgram; evaluate_detailed must append one.
         let bc = [
             header(),
             vec![
@@ -179,7 +175,8 @@ mod tests {
         assert!(!evaluate(&[], json!({})));
     }
 
-    /// Push `person.properties.<key>` (GET_GLOBAL reads the path segments in reverse push order).
+    /// Build opcodes to read `person.properties.<key>`. GET_GLOBAL consumes path segments in
+    /// reverse push order.
     fn push_person_property(key: &str) -> Vec<Value> {
         vec![
             json!(OP_STRING),
@@ -195,8 +192,8 @@ mod tests {
 
     #[test]
     fn is_date_before_person_cohort_enters_and_leaves() {
-        // `is_date_before` leaf `Lt(toDateTime(toString(person.properties.signup_date)),
-        // toDateTime("2026-01-01 00:00:00"))`; the compiler emits `right, left, op`.
+        // `Lt(toDateTime(toString(person.properties.signup_date)), toDateTime("2026-01-01 00:00:00"))`
+        // — compiler emits `right, left, op`.
         let mut left = push_person_property("signup_date");
         left.extend_from_slice(&[
             json!(OP_CALL_GLOBAL),
@@ -220,8 +217,6 @@ mod tests {
 
         let globals =
             |signup: Value| json!({ "person": { "properties": { "signup_date": signup } } });
-        // Missing → not: the null comparison errors and `evaluate` coerces it to false, matching
-        // the leaf's null-safe guard.
         assert!(evaluate(&bc, globals(json!("2024-09-09 08:30:00"))));
         assert!(!evaluate(&bc, globals(json!("2027-09-09 08:30:00"))));
         assert!(!evaluate(&bc, json!({ "person": { "properties": {} } })));
@@ -229,8 +224,8 @@ mod tests {
 
     #[test]
     fn numeric_gt_person_cohort_coerces_the_string_threshold() {
-        // The compiler emits the threshold as a string, so the leaf is
-        // `Gt(person.properties.bc_num, "10")`; string→number coercion makes it numeric.
+        // Compiler emits the threshold as a string: `Gt(person.properties.bc_num, "10")`.
+        // Coercing comparisons promote both sides to numeric, matching ClickHouse/TS behaviour.
         let mut bc = vec![json!("_H"), json!(1)];
         bc.extend_from_slice(&[json!(OP_STRING), json!("10")]);
         bc.extend_from_slice(&push_person_property("bc_num"));
@@ -239,8 +234,6 @@ mod tests {
         let globals = |num: Value| json!({ "person": { "properties": { "bc_num": num } } });
         assert!(evaluate(&bc, globals(json!(20))));
         assert!(!evaluate(&bc, globals(json!(5))));
-        // Equal-length numeric *string* property: lexicographic, which agrees with numeric here
-        // (the both-strings divergence only bites on unequal lengths).
         assert!(evaluate(&bc, globals(json!("20"))));
         assert!(!evaluate(&bc, globals(json!("05"))));
     }

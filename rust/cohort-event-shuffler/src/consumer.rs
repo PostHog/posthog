@@ -21,8 +21,7 @@ use crate::observability::metrics::{
 };
 use crate::producer::CohortStreamProducer;
 
-/// A distinct variant per outcome so the consumer can emit a per-reason metric; `Forward` carries
-/// the moved-out `person_id` so the forward path needs no clone.
+/// `Forward` carries the moved-out `person_id` so the forward path needs no clone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardDecision {
     Forward { person_id: String },
@@ -30,9 +29,8 @@ pub enum ForwardDecision {
     SkipTeamGate,
 }
 
-/// `&mut` so `person_id` can be moved out (no clone) when both gates pass; the caller discards any
-/// non-forwarded event, so the `take()` before the team check is unobservable. `person_id` is
-/// checked first because a missing routing key disqualifies the event regardless of the team gate.
+/// Takes `person_id` by `take()` to avoid a clone; `person_id` is checked first because a missing
+/// routing key disqualifies the event regardless of the team gate.
 pub fn classify(event: &mut ClickHouseEvent, team_index: &TeamIndex) -> ForwardDecision {
     let Some(person_id) = event.person_id.take() else {
         return ForwardDecision::DropNoPersonId;
@@ -157,11 +155,9 @@ impl EventShuffler {
         }
 
         // At-least-once: produce and await acks BEFORE storing source offsets, and bail without
-        // committing on any produce failure. `recv()` has already advanced the fetch position past
-        // the failed offsets, so the bailed batch is only replayed on a restart (triggered by a
-        // failure persistent enough to trip the liveness stall) — a transient failure that recovers
-        // gets committed over by a later batch, dropping those events. Accepted codebase-wide
-        // tradeoff; the downstream processor dedups replays via source_offset/source_partition.
+        // committing on any produce failure. A transient produce failure that recovers gets
+        // committed over by a later batch, dropping those events — accepted tradeoff; the downstream
+        // processor dedups replays via source_offset/source_partition.
         let forward_count = forwardable.len();
         if forward_count > 0 {
             let produce_results = self.producer.forward(forwardable).await;

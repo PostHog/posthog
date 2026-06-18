@@ -1,16 +1,16 @@
 //! The cascade re-evaluation handler.
 //!
-//! [`handle_cascade`] runs on the partition worker that owns the affected person's `cf_stage2` (the
-//! `cohort_cascade_events` topic is co-partitioned with `cohort_stream_events`). For one flip of
-//! cohort A on `(team, person)` it re-evaluates every cohort that *references* A
+//! [`handle_cascade`] re-evaluates every cohort that references the flipped cohort
 //! ([`TeamFilters::cohorts_referencing`]), emits each referrer's flip to `cohort_membership_changed`,
 //! and continues the chain to `cohort_cascade_events`, depth- and cycle-bounded by [`should_emit`].
+//! `cohort_cascade_events` is co-partitioned with `cohort_stream_events` so the worker that owns
+//! the person's `cf_stage2` always handles it.
 //!
 //! **Produce-before-state.** A referrer's new `cf_stage2` bit is committed only after both produces
-//! ack; a failure holds without writing, so the replay re-detects the still-old bit and re-emits (the
-//! downstream UPSERT is idempotent). This is sound because the cascade input is a fixed message that
-//! recomputes the same flip on replay — unlike Stage 2 composition, whose event input is deduped by
-//! `cf_stage1`'s applied-offset, so it writes state-before-produce and is at-most-once.
+//! ack; a failure holds without writing, so replay re-detects the still-old bit and re-emits (the
+//! downstream UPSERT is idempotent). The cascade input is a fixed message that recomputes the same
+//! flip on replay — unlike Stage 2 composition, which dedupes by `cf_stage1`'s applied-offset and
+//! writes state-before-produce (at-most-once).
 
 use std::sync::Arc;
 
@@ -302,7 +302,6 @@ mod tests {
         json!({ "type": "cohort", "value": target, "negation": false })
     }
 
-    /// Freeze `(cohort_id, leaves)` cohorts into a one-team catalog with the cascade gate set.
     fn catalog(cohorts: Vec<(i32, Vec<Value>)>, cascade_enabled: bool) -> Arc<CatalogHandle> {
         let mut builder = TeamFiltersBuilder::default();
         for (id, values) in cohorts {
@@ -427,7 +426,6 @@ mod tests {
         (sink, deps)
     }
 
-    /// An incoming cascade message: cohort `flipped` just entered for `who`, at `depth`/`chain`.
     fn incoming(flipped: i32, who: Uuid, depth: u8, chain: Vec<i32>) -> CascadeMessage {
         CascadeMessage {
             change: CohortMembershipChange {

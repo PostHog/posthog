@@ -25,8 +25,6 @@ use crate::stage2::state::Stage2State;
 use crate::stage2::CohortEligibility;
 use crate::store::{CohortStore, Stage2Key, StoreError};
 
-/// Re-evaluate every `Stage2Composable` cohort owning a flipped leaf, emit membership changes,
-/// and commit the new `cf_stage2` bits.
 pub fn compose_stage2(
     partition_id: u16,
     store: &CohortStore,
@@ -184,10 +182,10 @@ fn evaluate_cohort(
     Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
 }
 
-/// Resolve each referenced cohort's membership for one person, keyed by referenced cohort id. The
-/// read source follows the referent's eligibility: a `SingleLeaf` referent from `cf_stage1` via
-/// [`leaf_membership`] (so its comparator applies), a composable referent from its stored `cf_stage2`
-/// bit, anything else as a non-member. One batched read per store.
+/// Resolve each referenced cohort's membership for one person, keyed by referenced cohort id.
+/// A `SingleLeaf` referent is read from `cf_stage1` via [`leaf_membership`] (so its comparator
+/// applies); a composable referent from its stored `cf_stage2` bit; anything else as non-member.
+/// One batched read per store.
 fn resolve_ref_membership(
     partition_id: u16,
     team_id: u64,
@@ -785,8 +783,6 @@ mod tests {
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].status, MembershipStatus::Left);
     }
-
-    // --- Cohort-reference composition ---
 
     use crate::stage2::CohortEligibility;
 

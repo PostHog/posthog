@@ -13,21 +13,17 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-/// Result of checkpoint planning
 #[derive(Debug)]
 pub struct CheckpointPlan {
-    /// The new checkpoint metadata with the files field populated
     pub info: CheckpointInfo,
-    /// Files that need to be uploaded to S3 (filename, local_full_path)
     pub files_to_upload: Vec<LocalCheckpointFile>,
 }
 
-/// Create a checkpoint plan: new metadata plus the list of files to upload.
+/// Build a checkpoint plan: new metadata plus the files to upload.
 ///
-/// Incremental dedup keyed on filename: SST files (immutable) are reused from the previous attempt,
-/// while mutable files are re-uploaded only when their checksum changed. A cancellation token, if
-/// given, is checked during the directory walk and before hashing non-SST files, so rebalance or
-/// shutdown can stop the export before any upload starts.
+/// Incremental dedup keyed on filename: SST files (immutable) are reused from the previous attempt;
+/// mutable files are re-uploaded only on checksum change. The cancellation token, if given, is
+/// checked during the directory walk and before hashing non-SST files.
 pub fn plan_checkpoint(
     local_checkpoint_attempt_dir: &Path,
     remote_bucket_namespace: String,
@@ -55,7 +51,6 @@ pub fn plan_checkpoint(
         local_files.len()
     );
 
-    // If no previous metadata, upload everything
     let Some(prev_meta) = previous_metadata else {
         info!("No previous checkpoint metadata - tracking all files for upload");
         for candidate in local_files {
@@ -130,17 +125,15 @@ pub fn plan_checkpoint(
     })
 }
 
-// Returns true to upload the new file, false to reuse the previous attempt's file.
 fn retain_or_replace_duplicate(
     candidate: &LocalCheckpointFile,
     prev_file: &CheckpointFile,
 ) -> bool {
     match &candidate.filename {
-        // CURRENT is always re-uploaded; SST files are immutable, so always reused.
-        f if f == "CURRENT" => true,
-        f if f.ends_with(".sst") => false,
+        f if f == "CURRENT" => true,       // always re-uploaded
+        f if f.ends_with(".sst") => false, // immutable, always reused
 
-        // RocksDB can mutate these in place, so re-upload only on a checksum change.
+        // RocksDB mutates these in place; re-upload only on checksum change.
         f if f.starts_with("OPTIONS-") || f.starts_with("MANIFEST-") || f.ends_with(".log") => {
             candidate.checksum != prev_file.checksum
         }
@@ -148,8 +141,6 @@ fn retain_or_replace_duplicate(
     }
 }
 
-/// Collect all files in the local checkpoint attempt directory of form:
-/// `<local_base_path>/<topic_name>/<partition_number>/<checkpoint_id>`
 fn collect_local_files(
     base_attempt_path: &Path,
     cancel_token: Option<&CancellationToken>,
@@ -258,7 +249,6 @@ mod tests {
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
-    /// Build the canonical attempt dir layout: `<base>/<STORE_TOPIC>/<STORE_PARTITION>/<checkpoint_id>`.
     fn attempt_dir(base: &Path, checkpoint_id: &str) -> PathBuf {
         base.join(STORE_TOPIC)
             .join(STORE_PARTITION.to_string())
@@ -274,7 +264,6 @@ mod tests {
         let sequence = 1000;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
-        // Create some test files
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("file1.sst"), b"data1").unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("file2.sst"), b"data2").unwrap();
@@ -294,7 +283,6 @@ mod tests {
         let expected_sst2 =
             build_candidate_file(&local_checkpoint_attempt_dir.join("file2.sst"), None).unwrap();
 
-        // With no previous metadata, all files should be uploaded
         assert_eq!(plan.files_to_upload.len(), 2);
         let got_sst1 = plan
             .files_to_upload
@@ -309,7 +297,6 @@ mod tests {
         assert_eq!(got_sst1, &expected_sst1);
         assert_eq!(got_sst2, &expected_sst2);
 
-        // With no previous metadata, all files should be tracked in metadata with hashed paths
         assert_eq!(plan.info.metadata.files.len(), 2);
         let hash = store_hash_prefix();
         let expected_remote_path = format!(
@@ -351,7 +338,6 @@ mod tests {
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
         let prev_sequence = 1000;
 
-        // Create previous metadata with file1 and file2
         let mut prev_metadata = CheckpointMetadata::new(
             STORE_TOPIC.to_string(),
             STORE_PARTITION,
@@ -393,7 +379,6 @@ mod tests {
         let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
-        // Create test files we'd see in current checkpoint attempt
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap();
@@ -411,7 +396,6 @@ mod tests {
         )
         .unwrap();
 
-        // Only sst3 should be uploaded; sst1 and sst2 should be reused
         assert_eq!(plan.files_to_upload.len(), 1);
         let got_sst3 = plan
             .files_to_upload
@@ -422,7 +406,6 @@ mod tests {
 
         assert_eq!(plan.info.metadata.files.len(), 3);
 
-        // Check that file3 is in metadata as a reference (new files use hashed path)
         let hash = store_hash_prefix();
         let current_attempt_remote_path = format!(
             "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
@@ -456,7 +439,6 @@ mod tests {
             .find(|f| f.remote_filepath == sst3_remote_path)
             .unwrap();
 
-        // checksums should match across checkpoint file meta and local file refs for upload
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
         assert_eq!(sst3_file_meta.checksum, expected_sst3.checksum);
@@ -470,7 +452,6 @@ mod tests {
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
         let prev_sequence = 1000;
 
-        // Create previous metadata with file1 and file2
         let mut prev_metadata = CheckpointMetadata::new(
             STORE_TOPIC.to_string(),
             STORE_PARTITION,
@@ -482,7 +463,6 @@ mod tests {
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
-        // Create test files that won't be changed in the next checkpoint attempt
         std::fs::create_dir_all(&prev_local_attempt_dir).unwrap();
         std::fs::write(prev_local_attempt_dir.join("00001.sst"), b"data1").unwrap();
         std::fs::write(prev_local_attempt_dir.join("00002.sst"), b"data2").unwrap();
@@ -520,8 +500,6 @@ mod tests {
         let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
-        // Create test files from what would have been the current checkpoint attempt, identical to
-        // the original attempt
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap();
@@ -537,12 +515,9 @@ mod tests {
         )
         .unwrap();
 
-        // file1, file2 and file3 should be reused, so no uploads in current checkpoint attempt
         assert!(plan.files_to_upload.is_empty());
         assert_eq!(plan.info.metadata.files.len(), 3);
 
-        // Check that previously uploaded file1, file2 and file3 are in metadata with remote paths
-        // referencing the previous checkpoint
         let sst1_file_meta = plan
             .info
             .metadata
@@ -565,7 +540,6 @@ mod tests {
             .find(|f| f.remote_filepath == prev_sst3_remote_path)
             .unwrap();
 
-        // checksums should match across tracked file metadata and the original attempt's local files
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
         assert_eq!(&sst3_file_meta.checksum, &expected_prev_sst3.checksum);
@@ -579,7 +553,6 @@ mod tests {
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
         let prev_sequence = 1000;
 
-        // Create previous metadata
         let mut prev_metadata = CheckpointMetadata::new(
             STORE_TOPIC.to_string(),
             STORE_PARTITION,
@@ -591,7 +564,6 @@ mod tests {
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
-        // Create test files that won't be changed in the next checkpoint attempt
         std::fs::create_dir_all(&prev_local_attempt_dir).unwrap();
         std::fs::write(prev_local_attempt_dir.join("00001.sst"), b"data1").unwrap();
         std::fs::write(prev_local_attempt_dir.join("00002.sst"), b"data2").unwrap();
@@ -653,7 +625,6 @@ mod tests {
         let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
-        // Create test files
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
         std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap(); // no change, always retain
         std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap(); // no change, always retain
@@ -685,7 +656,6 @@ mod tests {
         )
         .unwrap();
 
-        // 00003.sst, 00001.log, and CURRENT should be uploaded
         assert_eq!(plan.files_to_upload.len(), 3);
         assert!(plan
             .files_to_upload
@@ -697,11 +667,9 @@ mod tests {
             .any(|f| f.filename == "00001.log"));
         assert!(plan.files_to_upload.iter().any(|f| f.filename == "CURRENT"));
 
-        // total of 7 tracked files now: 4 from previous checkpoint, 3 from current
         assert_eq!(plan.info.metadata.files.len(), 7);
 
-        // validate the right checkpoint metadata was retained from previous vs. current attempts
-        // new files (sst3, CURRENT, log) use hashed path; retained use prev (unhashed)
+        // New files (sst3, CURRENT, log) use the hashed path; retained files keep the previous path.
         let hash = store_hash_prefix();
         let current_attempt_remote_path = format!(
             "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"

@@ -198,12 +198,12 @@ mod tests {
 
     #[test]
     fn deadline_saturates_for_an_astronomical_window_instead_of_panicking() {
-        // `window_days` is unbounded `u32` user input. The old `oldest_day + window_days as i32 + 1`
-        // either panics in debug (when the sum exceeds i32::MAX — the case below) or, at u32::MAX,
-        // silently wraps to a near-epoch instant (flapping entered/left). The arithmetic is now
-        // total: an effectively infinite window never evicts → i64::MAX.
+        // `window_days` is unbounded `u32` user input; a naïve `oldest_day + window_days as i32 + 1`
+        // either panics in debug (when the sum exceeds i32::MAX — the case below) or at u32::MAX
+        // silently wraps to a near-epoch instant (flapping entered/left). Arithmetic must be total:
+        // an effectively infinite window never evicts → i64::MAX.
         let entries = [(1_000, 1_u32)];
-        // `1_000 + 2_147_483_000 + 1` overflows i32 → unfixed code panics here.
+        // `1_000 + 2_147_483_000 + 1` overflows i32 without saturation.
         assert_eq!(
             compressed_eviction_deadline(&entries, 2_147_483_000, UTC),
             i64::MAX,
@@ -218,8 +218,8 @@ mod tests {
     #[test]
     fn slide_with_an_astronomical_window_never_evicts_and_does_not_panic() {
         // `window_start_day + window_days` (cur "now") overflows i32 for a large anchor + huge
-        // window; the unfixed `as i32` add panics in debug. With saturation the window already
-        // covers any realistic target, so the slide is a no-op (nothing drops, anchor unchanged).
+        // window; a naïve `as i32` add panics in debug. With saturation the window already covers
+        // any realistic target, so the slide is a no-op (nothing drops, anchor unchanged).
         let entries = vec![(2_000_000_000, 9), (2_000_000_100, 2)];
         // `2_000_000_000 + 200_000_000` overflows i32 → unfixed code panics in `slide_window_forward`.
         let (after, start) = slide(entries.clone(), 2_000_000_000, 200_000_000, i32::MAX);

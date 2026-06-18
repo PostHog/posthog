@@ -38,7 +38,6 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    // Register every component before starting the monitor.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
@@ -70,8 +69,8 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    // Build all infrastructure before starting the monitor: a failure here returns before the
-    // monitor runs, so the dropped handles are harmless no-ops and the process exits non-zero.
+    // Build infrastructure before starting the monitor: a failure here returns before the monitor
+    // runs, so dropped handles are harmless no-ops and the process exits non-zero.
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
@@ -155,7 +154,7 @@ fn log_startup(config: &Config) {
     );
 }
 
-/// JSON structured logging in production; human-readable when `RUST_LOG` requests debug.
+/// JSON structured logging by default; human-readable when `RUST_LOG` contains `debug`.
 fn init_tracing() {
     let is_debug = std::env::var("RUST_LOG")
         .map(|v| v.contains("debug"))

@@ -19,7 +19,6 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
 
-/// The in-memory view of all realtime cohorts, keyed by team.
 #[derive(Debug, Default)]
 pub struct FilterCatalog {
     teams: HashMap<TeamId, Arc<TeamFilters>>,
@@ -49,7 +48,6 @@ impl FilterCatalog {
             .sum()
     }
 
-    /// Construct from pre-built per-team filters.
     pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
         Self {
             teams: teams
@@ -72,11 +70,9 @@ pub struct CatalogStats {
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
-    /// Wakes [`wait_until_loaded`](Self::wait_until_loaded) waiters on the first successful store.
     loaded_notify: Notify,
     /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
-    /// Whether each refresh freezes with cohort-cascade composition enabled.
     cascade_enabled: bool,
 }
 
@@ -85,8 +81,6 @@ impl CatalogHandle {
         Self::with_allowlist(TeamAllowlist::All, false)
     }
 
-    /// The production constructor: gate refreshes to `allowlist`, and freeze with cascade composition
-    /// when `cascade_enabled`.
     pub fn with_allowlist(allowlist: TeamAllowlist, cascade_enabled: bool) -> Self {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),

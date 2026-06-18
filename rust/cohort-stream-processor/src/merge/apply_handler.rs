@@ -200,7 +200,7 @@ fn apply_into(
         // Residual: a chain that later extends to a survivor on *another* partition still misses —
         // `cf_merge_applied` markers are partition-local and the cross-partition `Forward` path
         // writes none here. Bounded by `MAX_TRANSFER_FORWARD_HOPS` (short chains ⇒ rare); fully
-        // closing it needs marker-forwarding during drain (deferred, see SESSION.md).
+        // closing it needs marker-forwarding during drain (deferred).
         if target != transfer.new_person_uuid {
             let original_key =
                 applied_key(partition_id, team_u64, transfer.new_person_uuid, transfer);
@@ -242,9 +242,8 @@ pub(crate) fn apply_leaves(
     let team_u64 = team_id as u64;
     let mut out = LeafApply::default();
 
-    // One batched read of every leaf's `p_new` state instead of N sequential point reads (mirrors the
-    // drain side's `multi_get_stage1`). Keys are built in `leaves` order so the zip below stays aligned;
-    // a leaf later skipped by the drift check simply ignores its (already-fetched) result.
+    // One batched read of every leaf's `p_new` state. Keys are built in `leaves` order so the zip
+    // below stays aligned; a leaf later skipped by the drift check simply ignores its result.
     let p_new_keys: Vec<Stage1Key> = leaves
         .iter()
         .map(|(lsk, _)| Stage1Key {

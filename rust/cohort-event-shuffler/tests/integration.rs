@@ -41,21 +41,17 @@ fn test_config(bootstrap: &str) -> Config {
         kafka_client_id: String::new(),
         input_topic: INPUT_TOPIC.to_string(),
         kafka_consumer_group: "shuffler-itest".to_string(),
-        // Read events pre-produced before the shuffler started.
         kafka_consumer_offset_reset: "earliest".to_string(),
         output_topic: OUTPUT_TOPIC.to_string(),
         kafka_producer_partitioner: "murmur2_random".to_string(),
         kafka_compression_codec: "none".to_string(),
-        // Unused: the test loads the team index directly; no refresh loop runs.
-        database_url: String::new(),
+        database_url: String::new(), // unused: test loads the team index directly
         min_pg_connections: 0,
         max_pg_connections: 1,
         pg_acquire_timeout_secs: 5,
         pg_statement_timeout_ms: 0,
         team_index_refresh_secs: 300,
         team_index_refresh_jitter_secs: 0,
-        // The test loads the team index directly via `TeamIndex::from_teams`, so the gate is exercised
-        // by that set, not this field.
         team_allowlist: TeamAllowlist::All,
         recv_batch_size: 100,
         recv_batch_timeout_ms: 200,
@@ -142,7 +138,6 @@ async fn collect_output(
 async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let (cluster, input_producer): (_, FutureProducer<_>) =
         common_kafka::test::create_mock_kafka().await;
-    // Single input partition → source offsets are the deterministic production order 0..N.
     cluster
         .create_topic(INPUT_TOPIC, 1, 1)
         .expect("create input topic");
@@ -152,8 +147,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let bootstrap = cluster.bootstrap_servers();
     let config = test_config(&bootstrap);
 
-    // Team 99 (used below) deliberately absent: it has no realtime cohorts.
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+    let team_index = Arc::new(TeamIndex::from_teams([2, 7])); // team 99 is absent (no realtime cohorts)
 
     let inputs = [
         InputSpec {
@@ -206,7 +200,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         },
     ];
 
-    // Produce sequentially so offsets are deterministic.
     let mut uuid_by_index = Vec::new();
     for (index, spec) in inputs.iter().enumerate() {
         let uuid = Uuid::from_u128(0xC0_0000 + index as u128);
@@ -249,8 +242,8 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     );
     tokio::spawn(async move { shuffler.process().await });
 
-    // Generous deadline only as a safety margin: MockCluster group coordination can be slow to
-    // start and collect_output returns early once the expected count arrives.
+    // MockCluster group coordination can be slow to start; collect_output returns early once the
+    // expected count arrives.
     let output = collect_output(&bootstrap, expected_forwardable, Duration::from_secs(40)).await;
 
     assert_eq!(
@@ -273,7 +266,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         "wrong set of forwarded events"
     );
 
-    // Partition affinity: every event for the same (team_id, person_id) lands on one partition.
     use std::collections::HashMap;
     let mut partitions_by_key: HashMap<(i32, String), std::collections::HashSet<i32>> =
         HashMap::new();
@@ -287,7 +279,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
             .or_default()
             .insert(*partition);
     }
-    // (team 2, "pA") appears 3 times — the strongest affinity signal.
     let pa_partitions = &partitions_by_key[&(2, "pA".to_string())];
     assert_eq!(
         pa_partitions.len(),
@@ -302,7 +293,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         );
     }
 
-    // Field mapping for the first forwardable event (input offset 0, single partition).
     let first = output
         .iter()
         .map(|(_, e)| e)

@@ -18,11 +18,8 @@ use super::s3_client::create_s3_client;
 use super::uploader::CheckpointUploader;
 use crate::observability::metrics::CHECKPOINT_FILES_UPLOADED_TOTAL;
 
-/// Chunk size for streaming file reads during upload.
-/// Balances memory usage and cancellation responsiveness.
 const UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024; // 8MB
 
-/// Result of attempting to read the next chunk from a file with cancellation support
 enum ChunkResult {
     Data(usize),
     EndOfStream,
@@ -30,9 +27,7 @@ enum ChunkResult {
     Error(std::io::Error),
 }
 
-/// Read next chunk from file with cancellation support.
-/// Uses `tokio::select!` with `biased;` to ensure cancellation is checked promptly, even if the read
-/// is slow or stalled.
+/// `biased;` ensures cancellation is checked before each read attempt.
 async fn read_chunk_cancellable(
     file: &mut File,
     buf: &mut [u8],
@@ -60,8 +55,6 @@ async fn read_chunk_cancellable(
     }
 }
 
-/// S3Uploader using the `object_store` crate with `LimitStore` for bounded concurrency.
-/// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests.
 #[derive(Debug)]
 pub struct S3Uploader {
     store: Arc<dyn ObjectStore>,
@@ -114,7 +107,7 @@ impl S3Uploader {
             .with_context(|| format!("Failed to get metadata for file: {local_path:?}"))?
             .len();
 
-        // BufWriter buffers and switches to multipart upload automatically for large files.
+        // BufWriter switches to multipart upload automatically for large files.
         let mut upload = BufWriter::new(Arc::clone(&self.store), path.clone());
 
         let mut buf = vec![0u8; UPLOAD_CHUNK_SIZE];
@@ -202,14 +195,12 @@ impl CheckpointUploader for S3Uploader {
             plan.info.metadata.files.len() - plan.files_to_upload.len()
         );
 
-        // Child token so a failed file cancels its siblings without cancelling the caller's token.
+        // Child token: a failed file cancels siblings without cancelling the caller.
         let upload_token = cancel_token
             .map(|parent| parent.child_token())
             .unwrap_or_default();
 
-        // buffer_unordered(N) polls only N futures at once, so at most N files are open with a read
-        // buffer + BufWriter, bounding memory to N * ~18MB (8MB read buffer + ~10MB BufWriter).
-        // Pre-collect owned (src, dest) pairs so the stream closures aren't generic over all lifetimes.
+        // At most N files open simultaneously: N * ~18MB (8MB read buf + ~10MB BufWriter).
         let upload_tasks: Vec<_> = plan
             .files_to_upload
             .iter()
@@ -241,11 +232,9 @@ impl CheckpointUploader for S3Uploader {
             }
         }
 
-        // Drain remaining futures; cancellation makes them exit without allocating resources.
         while stream.next().await.is_some() {}
 
-        // Metadata is uploaded only after every data file succeeds, so a partial upload is never
-        // discoverable via metadata.json.
+        // Metadata is uploaded last so a partial upload is never discoverable via metadata.json.
         if let Some(e) = first_error {
             return Err(e);
         }

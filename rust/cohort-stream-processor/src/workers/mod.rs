@@ -1,5 +1,4 @@
-//! Stage 1 per-partition workers: the I/O + channel layer that drives the pure domain logic in
-//! [`crate::stage1`].
+//! Stage 1 per-partition workers: the I/O and channel layer over [`crate::stage1`].
 
 pub mod cascade_path;
 pub mod event_path;

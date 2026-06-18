@@ -16,5 +16,4 @@ pub use keys::{
 pub use rocks::{BatchBuilder, CohortStore, StoreConfig, StoreError};
 pub use secondary_index::{decode_person_index, IndexOp, PERSON_INDEX_MERGE_OPERATOR_NAME};
 
-// Defined in `stage1::key`; re-exported so the store's keys are reachable through one path.
 pub use crate::stage1::key::{LeafStateKey, Stage1Key};

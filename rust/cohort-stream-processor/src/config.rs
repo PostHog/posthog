@@ -136,20 +136,11 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub merge_redrive_interval_ms: u64,
 
-    // --- Merge-CF garbage collection retention ---
-    //
-    // The merge idempotence markers (`cf_merge_drains_applied`, `cf_merge_applied`) and the redirect
-    // tombstones (`cf_merge_tombstones`) are written once and never overwritten, so they accumulate
-    // until evicted. A periodic scan-based sweep deletes entries whose value timestamp is older than
-    // the retention floor below. Marker CFs use `merge_marker_retention_ms`; tombstones use the
-    // longer `merge_tombstone_retention_ms` (they also guard the events topics, not just the merge
-    // topic). `cf_pending_transfers` is the redrive's outbox and is NEVER GC'd here.
-    //
-    // STANDING COUPLING: these floors are derived from the Kafka topic `retention.ms` values pinned
-    // in Terraform (`person_merge_events`/`cohort_merge_state_transfer` = 7d, `cohort_stream_events`
-    // = 24h, `clickhouse_events_json` = 7d). If any of those `retention.ms` values change, these
-    // knobs MUST follow — a marker evicted before its source topic's retention lapses re-opens the
-    // replay-dedup window it exists to close.
+    // STANDING COUPLING: these floors are derived from the Kafka topic `retention.ms` values
+    // (`person_merge_events`/`cohort_merge_state_transfer` = 7d, `cohort_stream_events` = 24h,
+    // `clickhouse_events_json` = 7d). If any of those `retention.ms` values change, these knobs
+    // MUST follow — a marker evicted before its source topic's retention lapses re-opens the
+    // replay-dedup window it exists to close. `cf_pending_transfers` is NEVER GC'd here.
     /// Retention floor for both merge marker CFs (`cf_merge_drains_applied`, `cf_merge_applied`). A
     /// marker is GC'd once its `drained_at_ms` / `applied_at_ms` is older than `now − this`. Default
     /// 8d = 7d merge-topic retention + 1d safety: a marker must outlive every replay of the
@@ -179,7 +170,6 @@ pub struct Config {
     #[envconfig(from = "STAGE2_ORPHAN_GC_ENABLED", default = "true")]
     pub stage2_orphan_gc_enabled: bool,
 
-    // --- Cascade (cohort-of-cohort) depth + fan-out caps ---
     /// Max cascade hops before an outgoing cascade is dropped (`incoming.depth >= this`). Default 8.
     #[envconfig(default = "8")]
     pub cohort_cascade_depth_cap: u8,
@@ -377,7 +367,6 @@ impl Config {
         (self.pg_statement_timeout_ms != 0).then_some(self.pg_statement_timeout_ms)
     }
 
-    /// Pool config for the catalog reader.
     pub fn pool_config(&self) -> PoolConfig {
         PoolConfig {
             min_connections: self.min_pg_connections,
@@ -398,17 +387,14 @@ impl Config {
         Duration::from_millis(self.offset_commit_interval_ms)
     }
 
-    /// How often the sweep fires.
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.sweep_interval_ms)
     }
 
-    /// The grace period subtracted from `now` before a deadline is considered due.
     pub fn sweep_safety_margin(&self) -> Duration {
         Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
-    /// Inline bounded backoff for the transfer produce, from the `MERGE_TRANSFER_*` envs.
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
         TransferRetryPolicy {
             max_retries: self.merge_transfer_max_retries,
@@ -417,12 +403,10 @@ impl Config {
         }
     }
 
-    /// How often the pending-transfer redrive fires.
     pub fn merge_redrive_interval(&self) -> Duration {
         Duration::from_millis(self.merge_redrive_interval_ms)
     }
 
-    /// Cascade depth/fan-out caps and the master gate, threaded into the worker deps.
     pub fn cascade_config(&self) -> CascadeConfig {
         CascadeConfig {
             enabled: self.cohort_cascade_enabled,
@@ -431,28 +415,22 @@ impl Config {
         }
     }
 
-    /// How often the merge-CF GC sweep fires.
     pub fn merge_gc_interval(&self) -> Duration {
         Duration::from_millis(self.merge_gc_interval_ms)
     }
 
-    /// How often a local PVC checkpoint is taken.
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
 
-    /// How often a local checkpoint is also uploaded to S3.
     pub fn checkpoint_s3_upload_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_s3_upload_interval_ms)
     }
 
-    /// Max age of a local PVC checkpoint before it is distrusted on restore.
     pub fn checkpoint_local_max_staleness(&self) -> Duration {
         Duration::from_secs(self.checkpoint_local_max_staleness_secs)
     }
 
-    /// Resolved durability knobs for the S3 client / uploader / downloader / importer. Maps the
-    /// `CHECKPOINT_*` fields onto [`DurabilityConfig`].
     pub fn durability_config(&self) -> DurabilityConfig {
         DurabilityConfig {
             local_checkpoint_dir: self.checkpoint_local_dir.clone(),
@@ -476,30 +454,20 @@ impl Config {
         }
     }
 
-    /// Validate the durability-related startup combination, refusing unsafe combos. Pure (no I/O) so
-    /// it is unit-testable without a broker.
+    /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
     ///
-    /// Two guards:
-    ///
-    /// 1. `checkpoint_enabled` requires `durable_restore_enabled`. A checkpoint restore materializes
-    ///    the store at `store_path` and then relies on `effective_wipe_on_start()` keeping it; without
-    ///    durable restore the restored DB is wiped on open, silently discarding the restore.
-    ///
-    /// 2. `durable_restore_enabled` + `cohort_cascade_enabled` is allowed only when the operator
-    ///    asserts a single-pod, static-membership shadow (`durable_restore_single_pod == true` and
-    ///    `pod_identity().is_some()`): such a pod reclaims its own partitions on a restart and never
-    ///    triggers a live rebalance, so a rebalance cannot lose a committed merge tombstone.
-    ///    `pod_identity()` alone is not a single-pod signal (it is set on every k8s pod), so the
-    ///    single-vs-multi assertion needs its own opt-in flag.
+    /// Guards:
+    /// - `checkpoint_enabled` requires `durable_restore_enabled`: without it the restored DB is wiped
+    ///   on open, silently discarding the restore.
+    /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
+    ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
-        // Checkpoint requires reopen-live, else the restored DB is wiped on open.
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
              reopen-live is meaningless.",
         );
 
-        // Durable restore + cascade is allowed only on an asserted single-pod static-membership shadow.
         if self.durable_restore_enabled && self.cohort_cascade_enabled {
             let single_pod_static =
                 self.durable_restore_single_pod && self.pod_identity().is_some();
@@ -532,7 +500,6 @@ impl Config {
         self.wipe_store_on_start && !(self.durable_restore_enabled && db_dir_exists)
     }
 
-    /// RocksDB settings for the state store.
     pub fn store_config(&self) -> StoreConfig {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
@@ -626,7 +593,6 @@ impl Config {
         config
     }
 
-    /// Kafka producer config for the membership output topic.
     pub fn build_kafka_config(&self) -> KafkaConfig {
         KafkaConfig {
             kafka_hosts: self.kafka_hosts.clone(),

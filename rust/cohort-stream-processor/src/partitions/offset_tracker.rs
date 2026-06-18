@@ -186,7 +186,6 @@ mod tests {
         let tracker = OffsetTracker::new();
         tracker.mark_dispatched(3, 100);
 
-        // A worker marking past the ceiling is capped to it and flagged.
         assert_eq!(
             tracker.mark_processed(3, 500),
             MarkOutcome::CappedAheadOfDispatch,
@@ -290,10 +289,8 @@ mod tests {
 
         // A failed message at offset 41 holds at its own offset (no +1).
         tracker.hold(4, 41);
-        // A later success for the same partition marks next-offset 43 (message 42 succeeded).
         assert_eq!(tracker.mark_processed(4, 43), MarkOutcome::WithinDispatch);
 
-        // Committable stays pinned at the held 41 — the success did not leapfrog the failed message.
         assert_eq!(tracker.committable_offsets().get(&4), Some(&41));
     }
 
@@ -310,7 +307,6 @@ mod tests {
         tracker.hold(4, 50);
         assert_eq!(tracker.committable_offsets().get(&4), Some(&41));
 
-        // A lower hold does lower it further.
         tracker.hold(4, 30);
         assert_eq!(tracker.committable_offsets().get(&4), Some(&30));
     }
@@ -353,7 +349,6 @@ mod tests {
         tracker.hold(4, 3);
 
         assert_eq!(tracker.committable_offsets().get(&4), None);
-        // The partition is still tracked (dispatched ceiling + hold), just not committable.
         assert_eq!(tracker.partition_count(), 1);
     }
 }

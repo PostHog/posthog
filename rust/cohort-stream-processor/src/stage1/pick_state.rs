@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn ui_t_separated_upper_bound_parses_and_bounds_the_range() {
-        // Bug 2: the date picker emits the upper bound as `dayjs(...).format('YYYY-MM-DDTHH:mm:ss')`
+        // The date picker emits the upper bound as `dayjs(...).format('YYYY-MM-DDTHH:mm:ss')`
         // (T-separated, no offset). It must parse to the correct `to_day`, not be silently dropped —
         // dropping it would turn the closed range open-ended.
         let (_, window) = pick_state_variant(&explicit_leaf(

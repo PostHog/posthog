@@ -84,27 +84,22 @@ fn live_store_is_intact(path: &Path) -> bool {
 pub fn decide_restore_source(config: &Config) -> RestoreSource {
     let store_path = PathBuf::from(&config.store_path);
 
-    // Reopen-live wins whenever the live store survives this boot. `effective_wipe_on_start()`
-    // already folds in the durable-restore gate: it is `false` exactly when durable restore is on and
-    // a store exists, i.e. the store will not be wiped. Pair that with an intact on-disk store.
+    // `effective_wipe_on_start()` is `false` exactly when durable restore is on and a store exists;
+    // paired with an intact on-disk store, that means reopen-live is safe.
     if !config.effective_wipe_on_start() && live_store_is_intact(&store_path) {
         return RestoreSource::ReopenLive;
     }
 
-    // Disaster paths only exist when the checkpoint layer is enabled. With the gate off, the absence
-    // of a reopen-live store means a cold start.
     if !config.checkpoint_enabled {
         return RestoreSource::ColdStart;
     }
 
-    // The live store is gone/stale. Prefer the freshest usable local checkpoint, else S3.
     if let Some(dir) = newest_fresh_local_checkpoint(config) {
         return RestoreSource::PvcCheckpoint(dir);
     }
 
-    // No usable local source. If an S3 checkpoint exists, the importer will find it; otherwise
-    // `run_boot_restore` downgrades the S3 attempt to a cold start. Deciding "S3 here, downgrade
-    // later" keeps the filesystem-only `decide_restore_source` cheap (no network in the decision).
+    // Return S3 here; `run_boot_restore` downgrades to cold if no S3 checkpoint is found, keeping
+    // the network-free `decide_restore_source` cheap.
     RestoreSource::S3
 }
 
@@ -126,7 +121,7 @@ fn newest_fresh_local_checkpoint(config: &Config) -> Option<PathBuf> {
             continue;
         };
         let age = now.signed_duration_since(manifest.captured_at);
-        // A future-dated capture (clock skew) is treated as age 0 → fresh.
+        // A future-dated capture (clock skew) maps to a negative duration, which is treated as 0 → fresh.
         let within_bound = age
             .to_std()
             .map(|elapsed| elapsed <= max_staleness)
@@ -258,22 +253,17 @@ async fn restore_from_s3(config: &Config, store_path: &Path) -> RestoreOutcome {
         durability.checkpoint_import_timeout,
     );
 
-    // The importer owns `checkpoint_import_duration_seconds` (every result label); restore-level
-    // timing is captured by `checkpoint_restore_duration_seconds` in `run_boot_restore`.
     match importer.import_checkpoint(store_path).await {
-        Ok(_imported_path) => {
-            // The manifest is one of the tracked files, materialized flat into `store_path`.
-            match OffsetManifest::load_from_dir(store_path) {
-                Ok(manifest) => RestoreOutcome {
-                    source: RestoreSource::S3,
-                    manifest: Some(manifest),
-                },
-                Err(e) => {
-                    warn!(error = %e, "S3 checkpoint imported but {MANIFEST_FILENAME} unreadable; cold start");
-                    cold_downgrade()
-                }
+        Ok(_imported_path) => match OffsetManifest::load_from_dir(store_path) {
+            Ok(manifest) => RestoreOutcome {
+                source: RestoreSource::S3,
+                manifest: Some(manifest),
+            },
+            Err(e) => {
+                warn!(error = %e, "S3 checkpoint imported but {MANIFEST_FILENAME} unreadable; cold start");
+                cold_downgrade()
             }
-        }
+        },
         Err(e) => {
             warn!(error = %e, "no usable S3 checkpoint to restore; cold start");
             cold_downgrade()
@@ -314,8 +304,6 @@ mod tests {
     use std::collections::BTreeMap;
     use tempfile::TempDir;
 
-    /// A `Config` with checkpointing on, pointing `store_path` and `checkpoint_local_dir` at the given
-    /// temp subtrees. `store_path` is unique per test so its `.exists()` reflects what the test set up.
     fn config_with(checkpoint_enabled: bool, store_path: &Path, checkpoint_dir: &Path) -> Config {
         let mut config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         config.checkpoint_enabled = checkpoint_enabled;
@@ -327,20 +315,17 @@ mod tests {
         config
     }
 
-    /// Lay down a fake live RocksDB store (just the `CURRENT` marker) at `path`.
     fn make_live_store(path: &Path) {
         std::fs::create_dir_all(path).unwrap();
         std::fs::write(path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
     }
 
-    /// Lay down a checkpoint attempt dir at the planner layout with a manifest captured `age` ago.
     fn make_local_checkpoint(base: &Path, id: &str, age: ChronoDuration) -> PathBuf {
         let attempt = base
             .join(STORE_TOPIC)
             .join(STORE_PARTITION.to_string())
             .join(id);
         std::fs::create_dir_all(&attempt).unwrap();
-        // metadata.json marks it as an attempt leaf for the walker.
         let metadata = CheckpointMetadata::new(
             STORE_TOPIC.to_string(),
             STORE_PARTITION,
@@ -351,7 +336,6 @@ mod tests {
         );
         let json = metadata.to_json().unwrap();
         std::fs::write(attempt.join(METADATA_FILENAME), json).unwrap();
-        // A readable manifest is what makes the dir usable; its captured_at drives freshness.
         let mut topics = BTreeMap::new();
         topics.insert(
             "cohort_stream_events".to_string(),
@@ -368,7 +352,6 @@ mod tests {
 
     #[test]
     fn reopen_live_takes_precedence_over_a_fresh_checkpoint() {
-        // An intact live store + a fresh PVC checkpoint both present → ReopenLive.
         let tmp = TempDir::new().unwrap();
         let store_path = tmp.path().join("store");
         let checkpoint_dir = tmp.path().join("ckpt");
@@ -386,7 +369,7 @@ mod tests {
     #[test]
     fn pvc_checkpoint_chosen_when_live_store_is_gone() {
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // never created
+        let store_path = tmp.path().join("store");
         let checkpoint_dir = tmp.path().join("ckpt");
         let attempt = make_local_checkpoint(
             &checkpoint_dir,
@@ -404,7 +387,7 @@ mod tests {
     #[test]
     fn the_newest_fresh_checkpoint_is_chosen() {
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // gone
+        let store_path = tmp.path().join("store");
         let checkpoint_dir = tmp.path().join("ckpt");
         let _older = make_local_checkpoint(
             &checkpoint_dir,
@@ -426,13 +409,10 @@ mod tests {
 
     #[test]
     fn a_stale_checkpoint_falls_through_to_s3() {
-        // Staleness boundary: a checkpoint just over `max_staleness` is distrusted → S3, while one just
-        // under is trusted → PvcCheckpoint.
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // gone
-        let max_staleness_secs = 7200; // the default 2h
+        let store_path = tmp.path().join("store");
+        let max_staleness_secs = 7200;
 
-        // Just over the bound → S3.
         let stale_dir = tmp.path().join("ckpt_stale");
         make_local_checkpoint(
             &stale_dir,
@@ -447,7 +427,6 @@ mod tests {
             "a checkpoint older than max_staleness must not be trusted",
         );
 
-        // Just under the bound → PvcCheckpoint.
         let fresh_dir = tmp.path().join("ckpt_fresh");
         let fresh = make_local_checkpoint(
             &fresh_dir,
@@ -463,9 +442,9 @@ mod tests {
 
     #[test]
     fn a_manifest_less_checkpoint_dir_is_skipped() {
-        // A checkpoint dir with metadata.json but no offsets.json cannot align offsets → unusable.
+        // A dir with metadata.json but no offsets.json cannot align offsets → unusable.
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // gone
+        let store_path = tmp.path().join("store");
         let checkpoint_dir = tmp.path().join("ckpt");
         let attempt = checkpoint_dir
             .join(STORE_TOPIC)
@@ -481,29 +460,25 @@ mod tests {
             0,
         );
         std::fs::write(attempt.join(METADATA_FILENAME), metadata.to_json().unwrap()).unwrap();
-        // no offsets.json
+        // offsets.json intentionally absent
 
         let config = config_with(true, &store_path, &checkpoint_dir);
-        // No usable local checkpoint → falls through to S3.
         assert_eq!(decide_restore_source(&config), RestoreSource::S3);
     }
 
     #[test]
     fn cold_start_when_no_store_no_checkpoint_and_gate_on() {
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // gone
-        let checkpoint_dir = tmp.path().join("ckpt"); // empty
+        let store_path = tmp.path().join("store");
+        let checkpoint_dir = tmp.path().join("ckpt");
 
         let config = config_with(true, &store_path, &checkpoint_dir);
-        // Gate on, but neither a live store nor a local checkpoint, and no S3 checkpoint dir → the
-        // decision returns S3 (the importer downgrades to cold at materialize time).
+        // Gate on but no live store or local checkpoint → S3 (importer downgrades to cold if empty).
         assert_eq!(decide_restore_source(&config), RestoreSource::S3);
     }
 
     #[test]
     fn gate_off_never_picks_a_disaster_path() {
-        // With `checkpoint_enabled == false`, only ReopenLive (store present) or ColdStart (store
-        // absent) — never PvcCheckpoint/S3.
         let tmp = TempDir::new().unwrap();
         let checkpoint_dir = tmp.path().join("ckpt");
         make_local_checkpoint(
@@ -512,7 +487,6 @@ mod tests {
             ChronoDuration::minutes(1),
         );
 
-        // Store absent + gate off → ColdStart (not PvcCheckpoint, even though a fresh one exists).
         let absent = tmp.path().join("absent");
         let config_absent = config_with(false, &absent, &checkpoint_dir);
         assert_eq!(
@@ -520,7 +494,6 @@ mod tests {
             RestoreSource::ColdStart
         );
 
-        // Store present + gate off → ReopenLive.
         let present = tmp.path().join("present");
         make_live_store(&present);
         let config_present = config_with(false, &present, &checkpoint_dir);
@@ -544,21 +517,19 @@ mod tests {
             outcome.manifest.is_none(),
             "reopen-live needs no manifest (resume-from-committed)",
         );
-        // The live store is untouched.
         assert!(store_path.join("CURRENT").is_file());
     }
 
     #[tokio::test]
     async fn run_boot_restore_copies_a_pvc_checkpoint_into_the_store_path() {
         let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store"); // gone → PVC restore
+        let store_path = tmp.path().join("store");
         let checkpoint_dir = tmp.path().join("ckpt");
         let attempt = make_local_checkpoint(
             &checkpoint_dir,
             "2026-06-17T00-00-00Z",
             ChronoDuration::minutes(3),
         );
-        // Add a fake SST so we can prove the copy materialized DB content, not just the manifest.
         std::fs::write(attempt.join("000001.sst"), b"sst-bytes").unwrap();
 
         let config = config_with(true, &store_path, &checkpoint_dir);
@@ -567,15 +538,12 @@ mod tests {
         assert!(matches!(outcome.source, RestoreSource::PvcCheckpoint(_)));
         let manifest = outcome.manifest.expect("PVC restore yields a manifest");
         assert_eq!(manifest.offset_for("cohort_stream_events", 0), Some(42));
-        // The store path now holds the copied files.
         assert!(store_path.join("000001.sst").is_file());
         assert!(store_path.join(MANIFEST_FILENAME).is_file());
     }
 
     #[test]
     fn manifest_is_none_for_reopen_live_and_cold_some_for_disaster_paths() {
-        // A shape assertion on the manifest invariant, independent of materialization. The disaster
-        // paths attach a manifest; the no-seek paths do not.
         let reopen = RestoreOutcome {
             source: RestoreSource::ReopenLive,
             manifest: None,

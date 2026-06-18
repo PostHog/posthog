@@ -44,7 +44,6 @@ impl LeafDropReason {
     }
 }
 
-/// The outcome of classifying one leaf.
 pub enum LeafClass {
     Keep(CohortLeaf),
     Drop(LeafDropReason),
@@ -169,7 +168,6 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     }
 }
 
-/// The leaf's inline `bytecode`, or `None` if absent or not an array.
 fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
     let array = value?.as_array()?;
     Some(Arc::new(array.clone()))

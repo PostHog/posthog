@@ -1,4 +1,4 @@
-//! The long-lived per-partition Stage 1 worker.
+//! Per-partition Stage 1 worker.
 //!
 //! [`Stage1Worker::spawn`] drains one partition's channel on a dedicated tokio task. Per sub-batch
 //! it produces membership changes and straggler re-keys, awaits all acks, then marks the offset
@@ -51,24 +51,19 @@ use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReaso
 /// Max eviction keys a single sweep pass drains. Daily-bucket deadlines cluster on tz-midnight, so a
 /// large team's whole wave can come due on one tick; capping the pop loop bounds the per-pass RocksDB
 /// read + produce + write batch + Stage 2 pass so events do not queue behind one giant sweep. Leftover
-/// due keys stay scheduled in the queue and drain on the next 30s tick. Sized to match the sibling
-/// `DEFAULT_MERGE_GC_SCAN_LIMIT` / redrive caps in `workers/merge_path.rs`.
+/// due keys stay scheduled and drain on the next sweep tick.
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
-/// Keys read per `cf_stage1` page when rebuilding the `EvictionQueue` on a durable restart; the scan
-/// resumes from the last key until the partition is exhausted.
 const REBUILD_SCAN_PAGE: usize = 10_000;
 
-/// A long-lived worker owning one partition's Stage 1 state.
 pub struct Stage1Worker {
     partition_id: u16,
     handle: JoinHandle<()>,
 }
 
 impl Stage1Worker {
-    /// Spawn a worker draining `receiver` for `partition_id`. When `durable_restore` is on, the worker
-    /// re-seeds its `EvictionQueue` from the partition's restored `cf_stage1` on spawn so a dormant
-    /// person's `Left` still fires after a crash-restart.
+    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
+    /// dormant person's `Left` still fires after a crash-restart.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
@@ -100,13 +95,11 @@ impl Stage1Worker {
         self.partition_id
     }
 
-    /// Resolves once the channel is closed and everything queued has been drained.
     pub async fn join(self) -> Result<(), tokio::task::JoinError> {
         self.handle.await
     }
 }
 
-/// The drain loop. Messages are processed in arrival order.
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
@@ -121,11 +114,11 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
-    // Re-seed from restored state (a bloom-filtered no-op for a cold partition).
+    // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
         rebuild_eviction_queue(partition_id, &store, &mut queue);
     }
-    // Per-worker merge-CF GC resume cursors (in-memory; loss on rebalance is benign — see MergeGcCursor).
+    // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
     let mut stage2_gc_cursor = Stage2GcCursor::default();
 
@@ -134,8 +127,7 @@ async fn run_worker(
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
-        // Set when a pre-arm buffer flush fails mid-loop: we then hold the whole batch's offset (skip
-        // `mark_processed`) exactly like the post-loop flush failure does, so Kafka replays the batch.
+        // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
 
         for message in batch {
@@ -273,16 +265,13 @@ async fn run_worker(
             }
         }
 
-        // A mid-loop pre-arm flush already warned and consumed the buffer; hold the whole batch's
-        // offset (skip re-keys and `mark_processed`) so Kafka replays it, just like the post-loop path.
         if held {
             continue;
         }
 
         if !buffer.is_empty() {
             let changes = buffer.take();
-            // Build the cascades from a borrow before `changes` is moved into the membership produce
-            // (gate-off allocates nothing). A failure on either produce holds the whole batch for replay.
+            // Build cascades from a borrow before `changes` is moved into produce; gate-off allocates nothing.
             let cascades = first_cascades(&merge, &changes, max_offset.unwrap_or(0));
             let errors = produce_membership(&sink, changes).await;
             if errors > 0 {
@@ -337,10 +326,9 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Produce any buffered event-path membership changes so they land before an inline
-/// (sweep/merge/transfer) produce in the same batch — keeping produce order in state-commit order.
-/// No-op (and success) when the buffer is empty, so it adds no produce call to event-free or
-/// already-flushed sub-batches. Returns the failed-ack count (`0` = fully acked / empty).
+/// Flush buffered event-path changes so they land before an inline (sweep/merge/transfer) produce,
+/// preserving produce order == state-commit order. No-op when the buffer is empty.
+/// Returns the failed-ack count (`0` = fully acked / empty).
 async fn flush_membership_buffer(
     sink: &Arc<dyn MembershipSink>,
     buffer: &mut OutputBuffer,
@@ -351,10 +339,9 @@ async fn flush_membership_buffer(
     produce_membership(sink, buffer.take()).await
 }
 
-/// Flush buffered event-path changes ahead of an inline sweep/merge/transfer produce. Returns `true`
-/// when the flush failed and the batch must be held: it sets `held`, warns identically to the
-/// post-loop failure, and the caller `break`s the message loop so `mark_processed` is skipped and
-/// Kafka replays the whole batch. Returns `false` (empty buffer or all acked) to run the arm normally.
+/// Flush buffered event-path changes ahead of an inline arm. Returns `true` when the flush failed:
+/// sets `held` so the caller `break`s and `mark_processed` is skipped, causing Kafka to replay.
+/// Returns `false` (empty or all acked) to run the arm normally.
 async fn flush_event_changes_before_inline(
     sink: &Arc<dyn MembershipSink>,
     buffer: &mut OutputBuffer,
@@ -382,9 +369,8 @@ pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) 
         })
 }
 
-/// Produce membership `changes`, await acks, and book the result metrics. On success increments
-/// `OUTPUT_MEMBERSHIP_CHANGES_EMITTED`; on failure increments `OUTPUT_PRODUCE_ERRORS`. Returns the
-/// failed-ack count (`0` = fully acked). The caller owns the per-site warn and recovery action.
+/// Produce membership `changes`, await acks, and record metrics. Returns the failed-ack count
+/// (`0` = fully acked). The caller owns the per-site warn and recovery action.
 pub(crate) async fn produce_membership(
     sink: &Arc<dyn MembershipSink>,
     changes: Vec<CohortMembershipChange>,
@@ -407,9 +393,9 @@ pub(crate) async fn produce_membership(
     0
 }
 
-/// Build the first-hop cascade for each just-flipped membership change. Gated on
-/// `cohort_cascade_enabled` and empty for an empty slice, so the off path allocates nothing — callers
-/// build from a borrow before the membership produce moves `changes`. `source_offset` is informational.
+/// Build the first-hop cascade messages for each membership change. Empty when the gate is off or
+/// the slice is empty, so the off path allocates nothing. Must be called before `changes` is moved
+/// into `produce_membership`. `source_offset` is informational only.
 pub(crate) fn first_cascades(
     merge: &MergeWorkerDeps,
     changes: &[CohortMembershipChange],
@@ -424,10 +410,9 @@ pub(crate) fn first_cascades(
         .collect()
 }
 
-/// Produce pre-built cascade messages to the cascade sink and await acks. Returns the failed-ack
-/// count (`0` when empty or fully acked); books [`CASCADE_PRODUCE_ERRORS_TOTAL`] on failure. The
-/// caller owns the recovery posture (the event path holds; the sweep/merge paths drop). Shared by the
-/// producer leg (first hop, via [`first_cascades`]) and the consumer leg (onward hops).
+/// Produce cascade messages and await acks. Returns the failed-ack count (`0` when empty or fully
+/// acked). The caller owns the recovery posture: the event path holds the offset; the sweep/merge
+/// paths drop (at-most-once). Shared by the first-hop leg and onward-hop consumer legs.
 pub(crate) async fn produce_cascades(
     merge: &MergeWorkerDeps,
     cascades: Vec<CascadeMessage>,
@@ -607,8 +592,6 @@ async fn handle_sweep(
     last_updated: &str,
     due_before_ms: i64,
 ) {
-    // Cap the drain so one giant wave cannot starve the worker; the remainder stays scheduled in the
-    // queue (`pop_due` removes only what it returns) and drains on the next sweep tick.
     let mut popped: Vec<(Stage1Key, i64)> = Vec::new();
     while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
         let Some(entry) = queue.pop_due(due_before_ms) else {
@@ -750,8 +733,7 @@ async fn handle_sweep(
         return;
     }
 
-    // Only Stage 2 flips cascade; single-leaf sweep evictions self-heal on each referrer's next
-    // event/sweep.
+    // Only Stage 2 membership changes cascade; single-leaf evictions self-heal on the referrer's next event.
     let cascades = first_cascades(merge, &stage2_changes, 0);
     let errors = produce_membership(sink, stage2_changes).await;
     if errors > 0 {
@@ -772,11 +754,10 @@ async fn handle_sweep(
     }
 }
 
-/// Re-seed the per-worker [`EvictionQueue`] from the partition's restored `cf_stage1`, paging through
-/// the slice and scheduling every behavioral key on its stored deadline. Skips `PersonProperty` (no
-/// time eviction) and a permanent `i64::MAX` deadline. A corrupt record is counted
-/// ([`STAGE1_STATE_DECODE_ERROR`]) and skipped — the event path re-derives it; a scan error stops
-/// early, leaving the queue incomplete until new events reschedule.
+/// Re-seed the per-worker [`EvictionQueue`] from `cf_stage1`, scheduling every behavioral key on its
+/// stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX` deadlines
+/// (permanent). Corrupt records are counted and skipped — the event path re-derives them. A scan error
+/// stops early; new events reschedule any missing keys.
 fn rebuild_eviction_queue(
     partition_id: u16,
     store: &CohortStore,
@@ -797,11 +778,10 @@ fn rebuild_eviction_queue(
             }
         };
         let page_len = page.len();
-        // Only the last key resumes the next scan; derive the cursor once per page rather than per key.
         let next_cursor = page.last().map(|(k, _)| k.encode().to_vec());
         for (key, value) in page {
             match StatefulRecord::decode(&value) {
-                // Reuse the live policy so the rebuilt queue can't drift from the event path.
+                // Use the same scheduling policy as the event path to prevent drift.
                 Ok(record) => {
                     if let Some(deadline) = schedule_deadline(&record.state) {
                         queue.schedule(key, deadline);
@@ -975,7 +955,7 @@ mod tombstone_redirect_tests {
         })
     }
 
-    /// Capture-sink deps with the `cf_stage2` orphan-GC kill-switch set, for the MergeCfGc arm gate test.
+    /// Deps with the `stage2_orphan_gc_enabled` kill-switch set to `stage2_orphan_gc_enabled`.
     fn merge_deps_stage2_gc(stage2_orphan_gc_enabled: bool) -> Arc<MergeWorkerDeps> {
         Arc::new(MergeWorkerDeps {
             transfer_sink: Arc::new(CaptureTransferSink::new()),
@@ -991,7 +971,7 @@ mod tombstone_redirect_tests {
         })
     }
 
-    /// Deps capturing the cascade sink, with the gate set, for the event-path producer-leg tests.
+    /// Deps with a captured cascade sink and the cascade gate set to `enabled`.
     fn merge_deps_cascade(cascade_sink: CaptureCascadeSink, enabled: bool) -> Arc<MergeWorkerDeps> {
         Arc::new(MergeWorkerDeps {
             transfer_sink: Arc::new(CaptureTransferSink::new()),
@@ -1011,7 +991,7 @@ mod tombstone_redirect_tests {
         })
     }
 
-    /// One event flipping the single-leaf cohort 1, run through a worker with the given cascade deps.
+    /// Run one event that flips cohort 1 through a worker, returning the partition and its tracker.
     async fn run_flip(
         store: &CohortStore,
         merge: Arc<MergeWorkerDeps>,
