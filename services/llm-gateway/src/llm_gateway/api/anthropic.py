@@ -519,7 +519,7 @@ async def _bedrock_count_tokens_impl(
             )
             return {"input_tokens": input_tokens}
         except Exception as mantle_exc:
-            status_code = str(getattr(mantle_exc, "status_code", 502))
+            status_code = "502"
             error_type_name = type(mantle_exc).__name__
             logger.exception(
                 "Error proxying bedrock-mantle count_tokens request",

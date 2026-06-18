@@ -419,6 +419,7 @@ class TestBedrockCountTokensViaProvider:
         assert response.status_code == 503
         assert "Bedrock region not configured" in response.json()["error"]["message"]
 
+    @patch("llm_gateway.api.anthropic.REQUEST_COUNT")
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
@@ -427,6 +428,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens: MagicMock,
         mock_mantle_count_tokens: AsyncMock,
         mock_get_settings: MagicMock,
+        mock_request_count: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
         valid_request_headers: dict[str, str],
@@ -437,7 +439,10 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.side_effect = Exception("AWS error")
-        mock_mantle_count_tokens.side_effect = Exception("mantle error")
+        mock_mantle_count_tokens.side_effect = HTTPException(
+            status_code=403,
+            detail={"error": {"message": "Access denied", "type": "permission_error"}},
+        )
 
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
@@ -447,6 +452,7 @@ class TestBedrockCountTokensViaProvider:
 
         assert response.status_code == 502
         assert "Failed to count tokens via Bedrock" in response.json()["error"]["message"]
+        assert mock_request_count.labels.call_args.kwargs["status_code"] == "502"
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
