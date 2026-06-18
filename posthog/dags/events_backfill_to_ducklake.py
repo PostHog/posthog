@@ -38,6 +38,7 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.ducklake.backfill_telemetry import emit_backfill_partition_event
 from posthog.ducklake.common import attach_catalog, escape, get_config
 from posthog.ducklake.storage import DuckLakeStorageConfig, configure_connection
 from posthog.settings.base_variables import DEBUG
@@ -365,7 +366,7 @@ def export_events_to_s3(
     partition_date: datetime,
     run_id: str,
     settings: dict[str, Any],
-) -> list[str]:
+) -> tuple[list[str], int]:
     """Export events for a specific team_id chunk to S3 as Parquet.
 
     Returns list of S3 paths that were written.
@@ -410,7 +411,7 @@ def export_events_to_s3(
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
         context.log.info(f"[DRY RUN] Would export chunk {chunk_info} with SQL: {safe_sql[:800]}...")
-        return []
+        return [], 0
 
     context.log.info(f"Exporting events chunk {chunk_info} to {s3_path}")
     logger.info(
@@ -423,9 +424,15 @@ def export_events_to_s3(
 
     try:
         _execute_export_with_retry(client, export_sql, settings, chunk_info)
-        context.log.info(f"Successfully exported chunk {chunk_info}")
-        logger.info("export_chunk_success", chunk=team_id_chunk, total_chunks=total_chunks)
-        return [s3_path]
+        written_rows = 0
+        try:
+            progress = client.last_query.progress if client.last_query else None
+            written_rows = int(progress.written_rows) if progress else 0
+        except Exception:
+            written_rows = 0
+        context.log.info(f"Successfully exported chunk {chunk_info} ({written_rows} rows)")
+        logger.info("export_chunk_success", chunk=team_id_chunk, total_chunks=total_chunks, written_rows=written_rows)
+        return [s3_path], written_rows
     except Exception:
         context.log.exception(f"Failed to export chunk {chunk_info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("export_chunk_failed", chunk=team_id_chunk, total_chunks=total_chunks)
@@ -630,8 +637,9 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     all_s3_paths: list[str] = []
+    total_rows_exported = 0
 
-    def export_single_chunk(chunk_i: int) -> list[str]:
+    def export_single_chunk(chunk_i: int) -> tuple[list[str], int]:
         """Export a single chunk with its own client connection.
 
         Each thread gets its own ClickHouse client via any_host_by_role() because
@@ -639,7 +647,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         threads cannot use the same Client instance.
         """
 
-        def do_export(client: Client) -> list[str]:
+        def do_export(client: Client) -> tuple[list[str], int]:
             with tags_context(kind="dagster", dagster=tags):
                 return export_events_to_s3(
                     context=context,
@@ -659,52 +667,80 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
             node_role=NodeRole.DATA,
         ).result()
 
-    if parallel_chunks > 1:
-        context.log.info(f"Exporting {team_id_chunks} chunks with {parallel_chunks} parallel workers")
-        with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
-            futures = {executor.submit(export_single_chunk, i): i for i in range(team_id_chunks)}
-            for future in as_completed(futures):
-                chunk_i = futures[future]
-                try:
-                    paths = future.result()
-                    all_s3_paths.extend(paths)
-                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
-                except Exception:
-                    context.log.exception(f"Chunk {chunk_i + 1}/{team_id_chunks} failed")
-                    raise
-    else:
-        for chunk_i in range(team_id_chunks):
-            context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
-            paths = export_single_chunk(chunk_i)
-            all_s3_paths.extend(paths)
-            context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+    try:
+        if parallel_chunks > 1:
+            context.log.info(f"Exporting {team_id_chunks} chunks with {parallel_chunks} parallel workers")
+            with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
+                futures = {executor.submit(export_single_chunk, i): i for i in range(team_id_chunks)}
+                for future in as_completed(futures):
+                    chunk_i = futures[future]
+                    try:
+                        paths, rows = future.result()
+                        all_s3_paths.extend(paths)
+                        total_rows_exported += rows
+                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                    except Exception:
+                        context.log.exception(f"Chunk {chunk_i + 1}/{team_id_chunks} failed")
+                        raise
+        else:
+            for chunk_i in range(team_id_chunks):
+                context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
+                paths, rows = export_single_chunk(chunk_i)
+                all_s3_paths.extend(paths)
+                total_rows_exported += rows
+                context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
 
-    context.log.info(f"Exported {len(all_s3_paths)} files to S3")
-    logger.info("export_complete", files_exported=len(all_s3_paths))
+        context.log.info(f"Exported {len(all_s3_paths)} files to S3")
+        logger.info("export_complete", files_exported=len(all_s3_paths))
 
-    registered_count = register_files_with_ducklake(context, all_s3_paths, config)
+        registered_count = register_files_with_ducklake(context, all_s3_paths, config)
 
-    context.add_output_metadata(
-        {
-            "partition_date": partition_range_str,
-            "team_id_chunks": team_id_chunks,
-            "parallel_chunks": parallel_chunks,
-            "files_exported": len(all_s3_paths),
-            "files_registered": registered_count,
-            "s3_paths": dagster.MetadataValue.json(all_s3_paths[:10]),
-        }
-    )
+        context.add_output_metadata(
+            {
+                "partition_date": partition_range_str,
+                "team_id_chunks": team_id_chunks,
+                "parallel_chunks": parallel_chunks,
+                "files_exported": len(all_s3_paths),
+                "files_registered": registered_count,
+                "rows_exported": total_rows_exported,
+                "s3_paths": dagster.MetadataValue.json(all_s3_paths[:10]),
+            }
+        )
 
-    context.log.info(
-        f"Successfully backfilled events for partitions {partition_range_str}: "
-        f"{len(all_s3_paths)} files exported, {registered_count} files registered with DuckLake"
-    )
-    logger.info(
-        "events_backfill_complete",
-        partition_range=partition_range_str,
-        files_exported=len(all_s3_paths),
-        files_registered=registered_count,
-    )
+        context.log.info(
+            f"Successfully backfilled events for partitions {partition_range_str}: "
+            f"{len(all_s3_paths)} files exported, {registered_count} files registered with DuckLake"
+        )
+        logger.info(
+            "events_backfill_complete",
+            partition_range=partition_range_str,
+            files_exported=len(all_s3_paths),
+            files_registered=registered_count,
+        )
+        if not config.dry_run:
+            try:
+                emit_backfill_partition_event(
+                    partition_date=partition_date.date(),
+                    status="success",
+                    run_id=context.run.run_id,
+                    rows_exported=total_rows_exported,
+                    files_exported=len(all_s3_paths),
+                    files_registered=registered_count,
+                )
+            except Exception:
+                context.log.exception("Failed to emit backfill success event (non-fatal)")
+    except Exception as exc:
+        if not config.dry_run:
+            try:
+                emit_backfill_partition_event(
+                    partition_date=partition_date.date(),
+                    status="failed",
+                    run_id=context.run.run_id,
+                    error_message=str(exc)[:1000],
+                )
+            except Exception:
+                context.log.exception("Failed to emit backfill failure event (non-fatal)")
+        raise
 
 
 events_ducklake_backfill_job = define_asset_job(
