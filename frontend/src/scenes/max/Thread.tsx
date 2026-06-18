@@ -108,6 +108,7 @@ import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
+import type { SandboxProgressStep, ThreadItem as SandboxThreadItem } from './types/sandboxStreamTypes'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -163,6 +164,9 @@ function SandboxThread(): JSX.Element {
     // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
     // message while the run is active, falling back to the canned rotation.
     const { threadItems, toolInvocations, currentProgress, isThinking, streamPhase } = useValues(sandboxStreamLogic)
+    const hasActiveProgressItem = threadItems.some(
+        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
+    )
 
     return (
         <>
@@ -247,11 +251,63 @@ function SandboxThread(): JSX.Element {
                 if (item.type === 'task_notification') {
                     return <SandboxTaskNotificationItem key={item.id} item={item} />
                 }
+                if (item.type === 'progress') {
+                    return <SandboxProgressItem key={item.id} item={item} />
+                }
                 return null
             })}
-            {streamPhase === 'provisioning' && <SandboxProvisioningIndicator progress={currentProgress} />}
-            {isThinking && <SandboxThinkingIndicator progress={currentProgress} />}
+            {streamPhase === 'provisioning' && !hasActiveProgressItem && (
+                <SandboxProvisioningIndicator progress={currentProgress} />
+            )}
+            {isThinking && !hasActiveProgressItem && <SandboxThinkingIndicator progress={currentProgress} />}
         </>
+    )
+}
+
+function progressStepText(step: SandboxProgressStep): string {
+    return step.detail ? `${step.label}\n\n${step.detail}` : step.label
+}
+
+function resolveSandboxProgressState(steps: SandboxProgressStep[]): ExecutionStatus {
+    if (steps.some((step) => step.status === 'failed')) {
+        return ExecutionStatus.Failed
+    }
+    if (steps.some((step) => step.status === 'in_progress')) {
+        return ExecutionStatus.InProgress
+    }
+    if (steps.length > 0 && steps.every((step) => step.status === 'pending')) {
+        return ExecutionStatus.Pending
+    }
+    return ExecutionStatus.Completed
+}
+
+function resolveSandboxProgressHeadline(steps: SandboxProgressStep[]): string {
+    const active = steps.find((step) => step.status === 'in_progress')
+    if (active) {
+        return active.label
+    }
+    return steps.at(-1)?.label ?? 'Working'
+}
+
+function SandboxProgressItem({ item }: { item: SandboxThreadItem }): JSX.Element | null {
+    const steps = item.progressSteps ?? []
+    if (!steps.length) {
+        return null
+    }
+
+    const headline = resolveSandboxProgressHeadline(steps)
+    const substeps = steps.length > 1 ? steps.map(progressStepText) : []
+    const state = resolveSandboxProgressState(steps)
+
+    return (
+        <AssistantActionComponent
+            id={item.id}
+            content={headline}
+            substeps={substeps}
+            state={state}
+            icon={<IconWrench />}
+            showCompletionIcon={true}
+        />
     )
 }
 
