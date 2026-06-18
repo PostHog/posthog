@@ -574,6 +574,35 @@ describe('batchExportConfigFormLogic', () => {
                 expect(logic.values.configuration.compression).toBe(expected)
             }
         )
+
+        it('existing export: Parquet/zstd -> JSONLines -> Parquet restores the saved zstd codec', async () => {
+            // AWS_S3_BATCH_EXPORT is saved with Parquet/zstd; zstd is invalid for JSONLines, so it's
+            // cleared on the way out and must come back from the saved config — not default to zstd by
+            // coincidence.
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('zstd')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBeNull()
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('zstd')
+        })
+
+        it('existing export: Parquet/gzip survives a JSONLines round-trip (valid for both formats)', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+        })
     })
 
     describe('invalid persisted compression is dropped on save', () => {

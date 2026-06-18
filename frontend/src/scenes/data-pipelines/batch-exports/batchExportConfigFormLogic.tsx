@@ -848,12 +848,24 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             const fieldName = Array.isArray(name) ? name[0] : name
 
             if (fieldName === 'file_format') {
-                if (values.isNew && value === 'JSONLines') {
-                    actions.setConfigurationValue('compression', null)
-                } else if (values.isNew && value === 'Parquet') {
-                    actions.setConfigurationValue('compression', 'zstd')
-                } else if (!isSelectedCompressionOptionValid(value, values.configuration.compression)) {
-                    actions.setConfigurationValue('compression', null)
+                // Pick a compression that's valid for the newly-selected format, in priority order:
+                //   1. keep the current codec if it still fits (e.g. gzip works for both formats);
+                //   2. otherwise, when returning to the format the export was saved with, restore the
+                //      persisted codec — so a Parquet→JSONLines→Parquet round-trip recovers the saved
+                //      compression rather than stranding the export on a default;
+                //   3. otherwise fall back to the format's default (zstd for Parquet, none for JSONLines).
+                const current = values.configuration.compression
+                const saved = values.savedConfiguration
+                let next: string | null
+                if (current !== null && isSelectedCompressionOptionValid(value, current)) {
+                    next = current
+                } else if (value === saved.file_format && isSelectedCompressionOptionValid(value, saved.compression)) {
+                    next = saved.compression
+                } else {
+                    next = value === 'Parquet' ? 'zstd' : null
+                }
+                if (next !== current) {
+                    actions.setConfigurationValue('compression', next)
                 }
             }
 
