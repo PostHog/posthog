@@ -70,6 +70,15 @@ pub trait PersonLookup: Send + Sync {
         batch_size: i64,
     ) -> StorageResult<i64>;
 
+    /// Delete up to `batch_size` posthog_personlessdistinctid rows for a team.
+    /// These rows have no person FK, so they aren't covered by person deletion.
+    /// Returns the number of deleted rows; 0 means no more rows to delete.
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        team_id: i64,
+        batch_size: i64,
+    ) -> StorageResult<i64>;
+
     /// Atomically split distinct_ids off a person onto new persons.
     ///
     /// Within a single transaction (constant statement count, set-based):

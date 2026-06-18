@@ -2008,6 +2008,7 @@ export const ChartDisplayTypeApi = {
     ActionsAreaGraph: 'ActionsAreaGraph',
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
+    Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
@@ -2125,6 +2126,18 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string | null
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string | null
+    /** Metric display: color the sparkline by whether the metric increased or decreased. */
+    metricColorByDirection?: boolean | null
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string | null
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string | null
+    /** Show the period-over-period change pill on the Metric display. */
+    metricShowChange?: boolean | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */

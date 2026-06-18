@@ -40,6 +40,10 @@ class RunSummary:
     skill_name: str
     skill_version: int
     status: str
+    # `created_at` is the bridge row's own timestamp — the field `search_recent_runs`
+    # filters and orders on, hence the cursor key for walking past the result cap.
+    # `started_at` is the linked TaskRun's creation time and can differ slightly.
+    created_at: str
     started_at: str
     completed_at: str | None
     summary: str
@@ -70,6 +74,7 @@ class RunDetail:
     skill_name: str
     skill_version: int
     status: str
+    created_at: str
     started_at: str
     completed_at: str | None
     summary: str
@@ -153,6 +158,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         skill_name=row.skill_name,
         skill_version=row.skill_version,
         status=task_run.status if task_run is not None else "",
+        created_at=row.created_at.isoformat(),
         started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
         completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
         summary=row.summary,
