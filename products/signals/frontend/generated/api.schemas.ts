@@ -809,6 +809,8 @@ export interface SignalScoutRunSummaryApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -863,6 +865,8 @@ export interface SignalScoutRunDetailApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -1350,7 +1354,7 @@ export type SignalsScoutRunsListParams = {
      */
     date_from?: string
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string
     /**

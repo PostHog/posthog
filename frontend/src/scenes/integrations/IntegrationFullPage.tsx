@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
+import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationDefinition, SettingsSectionComponent } from './integrationTypes'
+import { IntegrationType } from '~/types'
+
+import { IntegrationDefinition, IntegrationStatus, SettingsSectionComponent } from './integrationTypes'
 
 export function IntegrationFullPage({
     definition,
@@ -18,7 +20,8 @@ export function IntegrationFullPage({
 }): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
-    const connected = getIntegrationsByKind([definition.kind]).length > 0
+    const integrations = getIntegrationsByKind([definition.kind])
+    const connected = integrations.length > 0
 
     return (
         <div className="flex flex-col items-center justify-center min-h-full w-full p-4">
@@ -39,7 +42,7 @@ export function IntegrationFullPage({
                     {integrationsLoading ? (
                         <Spinner className="text-2xl" />
                     ) : connected ? (
-                        <ConnectedView definition={definition} />
+                        <ConnectedView definition={definition} integrations={integrations} />
                     ) : (
                         <ConnectView definition={definition} SettingsSection={SettingsSection} />
                     )}
@@ -90,15 +93,47 @@ function ConnectView({
     )
 }
 
-function ConnectedView({ definition }: { definition: IntegrationDefinition }): JSX.Element {
+function ConnectedView({
+    definition,
+    integrations,
+}: {
+    definition: IntegrationDefinition
+    integrations: IntegrationType[]
+}): JSX.Element {
+    const PostConnect = definition.PostConnect
+    // Default to ``ok`` when no status hook is provided so today's integrations keep their
+    // current "Everything is set up" copy without each having to opt in.
+    const status: IntegrationStatus = definition.useStatus?.(integrations) ?? 'ok'
+    const ok = status === 'ok'
+
     return (
         <>
-            <IconCheckCircle className="text-success text-4xl" />
+            {ok ? (
+                <IconCheckCircle className="text-success text-4xl" />
+            ) : (
+                <IconWarning className="text-warning text-4xl" />
+            )}
 
             <div className="flex flex-col items-center gap-1 text-center">
-                <h1 className="text-2xl font-bold m-0">You're connected to {definition.name}</h1>
-                <p className="text-secondary m-0">Everything is set up and ready to go.</p>
+                <h1 className="text-2xl font-bold m-0">
+                    {ok ? `You're connected to ${definition.name}` : `${definition.name} is connected, with caveats`}
+                </h1>
+                <p className="text-secondary m-0">
+                    {ok
+                        ? 'Everything is set up and ready to go.'
+                        : PostConnect
+                          ? 'Review the items below before using it.'
+                          : 'Some settings may need your attention.'}
+                </p>
             </div>
+
+            {PostConnect ? (
+                <div className="w-full flex flex-col gap-2">
+                    {integrations.map((integration) => (
+                        <PostConnect key={integration.id} integration={integration} />
+                    ))}
+                </div>
+            ) : null}
 
             {definition.capabilities.length > 0 ? (
                 <div className="w-full">
