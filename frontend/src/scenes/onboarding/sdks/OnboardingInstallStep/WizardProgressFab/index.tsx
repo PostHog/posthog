@@ -1,12 +1,12 @@
 import './WizardProgressFab.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChevronDown, IconX } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
@@ -46,6 +46,7 @@ function WizardProgressFabInner(): JSX.Element | null {
         now,
     } = useValues(wizardProgressTrackerLogic)
     const { dismiss } = useActions(wizardProgressTrackerLogic)
+    const { reportWizardSyncProgressExpanded } = useActions(eventUsageLogic)
 
     const [expanded, setExpanded] = useState(false)
 
@@ -79,9 +80,11 @@ function WizardProgressFabInner(): JSX.Element | null {
                         // Only the expand direction is an intentful "show me the details"
                         // signal worth tracking; collapsing is just tidying up.
                         if (next) {
-                            posthog.capture('setup wizard sync progress expanded', {
-                                display_state: displayState,
-                                progress_pct: progressPct,
+                            reportWizardSyncProgressExpanded({
+                                workflowId: latestSession?.workflow_id,
+                                skillId: latestSession?.skill_id,
+                                displayState,
+                                progressPct,
                             })
                         }
                     }}

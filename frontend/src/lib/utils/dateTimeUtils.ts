@@ -141,3 +141,14 @@ export function parseDateInTimezone(dateStr: string, timezone: string): dayjs.Da
         return dayjs(null)
     }
 }
+
+/** Whole seconds elapsed from an ISO start timestamp to a reference `now` (ms epoch).
+ * Returns 0 for an unparseable start or a `now` that precedes it, so callers never
+ * surface a negative or NaN duration. */
+export function elapsedSecondsFrom(startedAt: string, now: number): number {
+    const started = new Date(startedAt).getTime()
+    if (Number.isNaN(started)) {
+        return 0
+    }
+    return Math.max(0, Math.floor((now - started) / 1000))
+}

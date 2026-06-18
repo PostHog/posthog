@@ -1,6 +1,8 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
+
+import { elapsedSecondsFrom } from 'lib/utils/dateTimeUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
@@ -66,14 +68,6 @@ function runPhaseMessage(phase: string): string {
     return `wizard phase: ${phase}`
 }
 
-function elapsedSecondsFrom(startedAt: string, now: number): number {
-    const started = new Date(startedAt).getTime()
-    if (Number.isNaN(started)) {
-        return 0
-    }
-    return Math.max(0, Math.floor((now - started) / 1000))
-}
-
 function taskStatusVerb(status: string): string {
     switch (status) {
         case 'in_progress':
@@ -111,6 +105,8 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             ['connect', 'disconnect'],
             wizardActiveSessionDetectorLogic,
             ['markActive', 'scheduleMarkInactive'],
+            eventUsageLogic,
+            ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished', 'reportWizardSyncDismissed'],
         ],
     })),
     actions({
@@ -229,11 +225,11 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 // which never reach the user — don't inflate the funnel.
                 if (!reportedDetectedSessions.has(session.session_id)) {
                     reportedDetectedSessions.add(session.session_id)
-                    posthog.capture('setup wizard sync session detected', {
-                        workflow_id: WORKFLOW_ID,
-                        skill_id: session.skill_id,
-                        run_phase: session.run_phase,
-                        task_count: session.tasks.length,
+                    actions.reportWizardSyncSessionDetected({
+                        workflowId: WORKFLOW_ID,
+                        skillId: session.skill_id,
+                        runPhase: session.run_phase,
+                        taskCount: session.tasks.length,
                     })
                 }
             }
@@ -271,13 +267,13 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 // at most once per session — the id guard covers any SSE redelivery.
                 if (isTerminal && !reportedFinishedSessions.has(session.session_id)) {
                     reportedFinishedSessions.add(session.session_id)
-                    posthog.capture('setup wizard sync session finished', {
-                        workflow_id: WORKFLOW_ID,
-                        skill_id: session.skill_id,
+                    actions.reportWizardSyncSessionFinished({
+                        workflowId: WORKFLOW_ID,
+                        skillId: session.skill_id,
                         outcome: session.run_phase,
-                        task_count: session.tasks.length,
-                        completed_task_count: session.tasks.filter((t) => t.status === 'completed').length,
-                        elapsed_seconds: elapsedSecondsFrom(session.started_at, now),
+                        taskCount: session.tasks.length,
+                        completedTaskCount: session.tasks.filter((t) => t.status === 'completed').length,
+                        elapsedSeconds: elapsedSecondsFrom(session.started_at, now),
                     })
                 }
             }
@@ -293,21 +289,26 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
         },
     })),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         dismiss: () => {
+            const sessionId = values.latestSession?.session_id
+            // No session means nothing to attribute the dismissal to, and without a
+            // session_id the once-per-session guard can't hold — bail rather than fire
+            // an unguarded event on every dispatch.
+            if (!sessionId) {
+                return
+            }
             // Guard against a double-click landing two `dismiss` dispatches before the
             // FAB re-renders itself away: capture at most once per session.
-            const sessionId = values.latestSession?.session_id
-            if (sessionId) {
-                if (reportedDismissedSessions.has(sessionId)) {
-                    return
-                }
-                reportedDismissedSessions.add(sessionId)
+            if (reportedDismissedSessions.has(sessionId)) {
+                return
             }
-            posthog.capture('setup wizard sync dismissed', {
-                workflow_id: WORKFLOW_ID,
+            reportedDismissedSessions.add(sessionId)
+            actions.reportWizardSyncDismissed({
+                workflowId: WORKFLOW_ID,
+                skillId: values.latestSession?.skill_id,
                 outcome: values.displayState,
-                elapsed_seconds: values.elapsedSeconds,
+                elapsedSeconds: values.elapsedSeconds,
             })
         },
     })),

@@ -200,6 +200,7 @@ describe('wizardProgressTrackerLogic', () => {
 
         expect(posthog.capture).toHaveBeenCalledWith('setup wizard sync dismissed', {
             workflow_id: WORKFLOW_ID,
+            skill_id: 'nextjs',
             outcome: 'completed',
             elapsed_seconds: expect.any(Number),
         })
@@ -213,5 +214,14 @@ describe('wizardProgressTrackerLogic', () => {
         logic.actions.dismiss()
 
         expect(capturedEvents('setup wizard sync dismissed')).toHaveLength(1)
+    })
+
+    it('does not capture "session dismissed" when there is no current session', async () => {
+        // No session_id means the once-per-session guard can't hold, so the listener
+        // must bail rather than fire an unguarded event on every dispatch.
+        logic.actions.dismiss()
+        logic.actions.dismiss()
+
+        expect(capturedEvents('setup wizard sync dismissed')).toHaveLength(0)
     })
 })
