@@ -12,7 +12,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -176,7 +176,11 @@ class HogFlowEdgeSerializer(serializers.Serializer):
     )
     index = serializers.IntegerField(
         required=False,
-        help_text="Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition.",
+        help_text=(
+            "Required for type='branch'. conditional_branch: index into config.conditions[index]. "
+            "wait_until_condition: use index:0 — it advances via the index:0 branch edge when it "
+            "resolves (a condition match or an events entry firing)."
+        ),
     )
 
     def get_fields(self):
@@ -185,6 +189,83 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         fields = super().get_fields()
         fields["from"] = serializers.CharField(help_text="Source action id.")
         return fields
+
+
+# Schema-only typing for the polymorphic action config. The MCP tool schema is generated from this
+# (via zod), the MCP server parses tool input with that zod schema, and handlers receive the PARSED
+# result — a matched zod object branch strips keys it doesn't declare. The free-form branch is
+# deliberately FIRST so it wins union parsing for every config shape: the typed
+# wait_until_condition branch exists purely as shape guidance for agents and never strips or
+# rejects anything.
+_HOG_FLOW_WAIT_UNTIL_EVENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "filters": {
+            "anyOf": [{"$ref": "#/components/schemas/HogFunctionFilters"}, {"type": "null"}],
+            "description": (
+                "Event/action filters; the workflow wakes when a matching event fires. Must target "
+                "at least one event or action (entries targeting neither are dropped)."
+            ),
+        },
+        "name": {"type": "string", "description": "Optional display name."},
+    },
+}
+
+HOG_FLOW_ACTION_CONFIG_SCHEMA = {
+    "anyOf": [
+        {
+            "type": "object",
+            "additionalProperties": True,
+            "description": (
+                "Config for every action type except wait_until_condition — see the field "
+                "description for per-type shapes."
+            ),
+        },
+        {
+            "type": "object",
+            "description": (
+                "Config for type='wait_until_condition'. Provide 'condition' and/or 'events' — an "
+                "events-only wait (no condition) is valid."
+            ),
+            "required": ["max_wait_duration"],
+            "properties": {
+                "condition": {
+                    "type": "object",
+                    "description": (
+                        "Property-based wait condition; continues when the person matches. A condition "
+                        "with no property filters is ignored — the wait then relies on 'events' and the "
+                        "max_wait_duration timeout."
+                    ),
+                    "properties": {
+                        "filters": {
+                            "anyOf": [{"$ref": "#/components/schemas/HogFunctionFilters"}, {"type": "null"}],
+                            "description": "Property conditions, e.g. {properties: [{key, value, operator, type}]}.",
+                        },
+                        "name": {"type": "string", "description": "Optional display name."},
+                    },
+                },
+                "events": {
+                    "type": "array",
+                    "items": _HOG_FLOW_WAIT_UNTIL_EVENT_SCHEMA,
+                    "description": (
+                        "Events to wait for: continues when ANY entry fires (OR'd with 'condition'). "
+                        "Each entry: {filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}."
+                    ),
+                },
+                "max_wait_duration": {
+                    "type": "string",
+                    "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                },
+            },
+        },
+    ],
+}
+
+
+@extend_schema_field(HOG_FLOW_ACTION_CONFIG_SCHEMA)
+class HogFlowActionConfigField(serializers.JSONField):
+    # Runtime stays a lenient JSONField: per-type validation lives in HogFlowActionSerializer.validate.
+    pass
 
 
 class HogFlowActionSerializer(serializers.Serializer):
@@ -209,7 +290,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
         ),
     )
-    config = serializers.JSONField(
+    config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
             "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
@@ -224,7 +305,12 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
-            "wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). "
+            "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
+            "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
+            "delay). Continues when condition.filters match OR any events entry fires; each events entry "
+            "must target at least one event or action. On resolution (a condition match or any events "
+            "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
+            "falls through the 'continue' edge. "
             "exit: {reason}."
         ),
     )
@@ -402,6 +488,13 @@ class HogFlowActionSerializer(serializers.Serializer):
                         condition["filters"] = serializer.validated_data
 
         if data.get("type") == "wait_until_condition":
+            config = data.get("config")
+            if isinstance(config, dict) and config.get("condition") is None:
+                # The visual editor seeds every wait node with a condition object ({filters: null}) and
+                # StepWaitUntilCondition assumes it's present. MCP/API callers can author an events-only
+                # wait with no condition; default it so the stored shape matches what the editor renders.
+                # An empty condition is ignored at runtime (isEvaluableCondition), so this is behaviour-neutral.
+                config["condition"] = {"filters": None}
             wait_events = data.get("config", {}).get("events") or []
             # Drop "events to wait for" entries that target neither events nor actions. An empty
             # event filter compiles to always-true bytecode, which would wake the job on every
@@ -483,6 +576,69 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
+
+
+@extend_schema_field(HogFunctionFiltersSerializer)
+class HogFlowConversionEventFiltersField(serializers.JSONField):
+    # Schema-typed as HogFunctionFilters for codegen, but runtime-lenient: drafts may hold invalid
+    # filters, and HogFlowSerializer.validate compiles/validates these with draft leniency.
+    pass
+
+
+class HogFlowConversionEventSerializer(serializers.Serializer):
+    filters = HogFlowConversionEventFiltersField(
+        help_text=(
+            "Event/action filters for this conversion event, same shape as trigger filters: "
+            "{events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], "
+            "properties?: [<cond>]}. bytecode is compiled server-side."
+        )
+    )
+
+
+class HogFlowConversionSerializer(serializers.Serializer):
+    filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text=(
+            "Property-based conversion conditions, as an ARRAY of property filters: "
+            "[{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — "
+            "put them in 'events'. Empty array = any event within the window converts."
+        ),
+    )
+    events = serializers.ListField(
+        child=HogFlowConversionEventSerializer(),
+        required=False,
+        help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
+    )
+    window_minutes = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
+    )
+    # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
+    # (shared by request and response schemas), which would make generated write schemas demand a
+    # server-computed field. Instead it's optional here and stripped in to_internal_value, so a
+    # client-supplied value still never reaches validated_data.
+    bytecode = serializers.JSONField(
+        required=False, allow_null=True, help_text="Compiled server-side from 'filters'. Do not set; ignored if sent."
+    )
+
+    def to_internal_value(self, data):
+        # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
+        if isinstance(data, dict) and "bytecode" in data:
+            data = {k: v for k, v in data.items() if k != "bytecode"}
+        # Legacy shape guard (mirrors the one-time backfill in migration 0009): some clients sent an
+        # event-based goal as an object in 'filters' (e.g. {"events": [...], "source": "events"}).
+        # That belongs in 'events' — relocate it before field validation so the old shape is still
+        # accepted and compiled (filters only takes an array of property conditions) instead of 400ing.
+        if isinstance(data, dict) and isinstance(data.get("filters"), dict) and data["filters"].get("events"):
+            data = {**data, "events": [*(data.get("events") or []), {"filters": data["filters"]}], "filters": []}
+        return super().to_internal_value(data)
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched — rows written before the 'events' slot existed may hold
+        # legacy shapes (object in 'filters') that field-level coercion would mangle on read.
+        return value
 
 
 class HogFlowScheduleSerializer(serializers.ModelSerializer):
@@ -604,13 +760,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "omit to disable."
         ),
     )
-    conversion = serializers.JSONField(
+    conversion = HogFlowConversionSerializer(
         required=False,
         allow_null=True,
         help_text=(
-            "Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, "
-            "type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / "
-            "exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+            "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
+            "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
+            "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
+            "bytecode compiled server-side."
         ),
     )
     exit_condition = serializers.ChoiceField(
@@ -752,16 +909,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
-            # Forward guard for the legacy bad shape (see migration 0009): an event-based conversion
-            # goal stored as an object in `conversion.filters` (e.g. {"events": [...], "source": "events"})
-            # belongs in `conversion.events`. `conversion.filters` is an array of property filters, so the
-            # object both crashes the property picker and is invisible to the matcher. Relocate it here so
-            # no client (web UI, API, MCP) can persist the malformed shape; it then compiles through the
-            # conversion.events path below.
-            if isinstance(filters, dict) and filters.get("events"):
-                data["conversion"]["events"] = [*(conversion.get("events") or []), {"filters": filters}]
-                data["conversion"]["filters"] = []
-                filters = []
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
                 if not strict:

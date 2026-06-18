@@ -111,7 +111,7 @@ test.describe('Dashboards', () => {
             await expect(page).toHaveURL(/\/dashboard\//)
             const card = dashboard.insightCards.filter({ hasText: insightName })
             await expect(card).toBeVisible()
-            await expect(card.locator('canvas')).toBeVisible()
+            await expect(card.locator('canvas[role="img"]')).toBeVisible()
         })
     })
 

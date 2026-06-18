@@ -334,6 +334,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -442,6 +443,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if model:
             extra_state["model"] = model
+
+        # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
+        # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
+        if ai_stage:
+            extra_state["ai_stage"] = ai_stage
 
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
