@@ -1567,7 +1567,7 @@ describe('sandboxStreamLogic', () => {
             expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
                 jsonrpc: '2.0',
                 method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
+                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
             })
         })
 
@@ -1993,7 +1993,7 @@ describe('sandboxStreamLogic', () => {
                 expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-7', 'run-7', {
                     jsonrpc: '2.0',
                     method: 'permission_response',
-                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
                 })
                 const permRequested = captureSpy.mock.calls.find((c) => c[0] === 'permission_requested')
                 expect(permRequested).not.toBeUndefined()
@@ -2020,7 +2020,7 @@ describe('sandboxStreamLogic', () => {
             expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
                 jsonrpc: '2.0',
                 method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
+                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
             })
         })
 
