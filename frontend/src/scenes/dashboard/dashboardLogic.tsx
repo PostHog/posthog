@@ -37,9 +37,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
@@ -291,6 +293,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
+        toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
         addWidgetTileFinished: true,
         /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
         requestScrollToBottom: true,
@@ -1348,6 +1351,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return Array.from(selected)
                 },
                 clearAddWidgetSelectedTypes: () => [],
+            },
+        ],
+        addWidgetCollapsedGroups: [
+            [] as string[],
+            {
+                setAddWidgetModalOpen: (state, { open }) => (open ? [] : state),
+                toggleAddWidgetCollapsedGroup: (state, { groupId }) => {
+                    const collapsed = new Set(state)
+                    if (collapsed.has(groupId)) {
+                        collapsed.delete(groupId)
+                    } else {
+                        collapsed.add(groupId)
+                    }
+                    return Array.from(collapsed)
+                },
             },
         ],
     })),

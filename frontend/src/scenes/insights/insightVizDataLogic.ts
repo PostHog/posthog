@@ -12,7 +12,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -955,6 +955,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
+    // Remove breakdown filter if display type is Metric because it is single-series
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Metric) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 

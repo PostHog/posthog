@@ -7,8 +7,6 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { PROJECT_SECRET_API_KEY_SCOPE_PRESETS } from 'lib/scopes'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { ScopeAccessRow } from '../shared/ScopeAccessRow'
@@ -22,6 +20,7 @@ function EditKeyModal(): JSX.Element {
         editingKeyChanged,
         formScopeRadioValues,
         filteredScopes,
+        availablePresets,
         searchTerm,
     } = useValues(projectSecretAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, setSearchTerm } =
@@ -72,7 +71,7 @@ function EditKeyModal(): JSX.Element {
                         <LemonSelect
                             size="small"
                             placeholder="Select preset"
-                            options={PROJECT_SECRET_API_KEY_SCOPE_PRESETS}
+                            options={availablePresets}
                             dropdownMatchSelectWidth={false}
                         />
                     </LemonField>
@@ -96,10 +95,10 @@ function EditKeyModal(): JSX.Element {
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map(({ key, disabledActions }) => (
+                            filteredScopes.map(({ key, label, disabledActions }) => (
                                 <ScopeAccessRow
                                     key={key}
-                                    label={capitalizeFirstLetter(key.replace(/_/g, ' '))}
+                                    label={label}
                                     value={formScopeRadioValues[key] ?? 'none'}
                                     onChange={(value) => setScopeRadioValue(key, value)}
                                     readDisabledReason={

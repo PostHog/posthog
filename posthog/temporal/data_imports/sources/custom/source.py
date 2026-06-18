@@ -276,12 +276,38 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
             )
 
 
+# Plain-English replacements for the pydantic constraint messages users hit most
+# when hand-authoring a manifest; an unmapped error keeps pydantic's own wording.
+_VALIDATION_MESSAGE_OVERRIDES = {
+    "string_too_short": "must not be empty",
+}
+
+
+def _render_error_location(loc: tuple[Any, ...]) -> str:
+    """Render a pydantic ``loc`` tuple as a path that mirrors the manifest JSON,
+    e.g. ``("resources", 0, "endpoint", "path")`` -> ``resources[0].endpoint.path``."""
+    rendered = ""
+    for part in loc:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        elif rendered:
+            rendered += f".{part}"
+        else:
+            rendered = str(part)
+    return rendered
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
-    """Render Pydantic's validation errors as a single user-facing string."""
+    """Render Pydantic's validation errors as a single user-facing string.
+
+    Pydantic's positional loc tuples and raw constraint wording ("String should
+    have at least 1 character") read like internals to someone editing manifest
+    JSON, so mirror the JSON path and swap the common messages for plainer English.
+    """
     messages: list[str] = []
     for error in exc.errors():
-        location = ".".join(str(part) for part in error["loc"])
-        message = error["msg"].removeprefix("Value error, ")
+        location = _render_error_location(error["loc"])
+        message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)
     return "; ".join(messages)
 

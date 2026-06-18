@@ -704,6 +704,33 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('setEvaluationType switches to sentiment config shape', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                }),
+            })
+        })
+
+        it('switching to sentiment moves away from reports tab', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setActiveTab('reports')
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                activeTab: 'configuration',
+            })
+        })
+
         it('setHogSource updates source in hog config', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -747,6 +774,30 @@ describe('llmEvaluationLogic', () => {
             logic.actions.setHogSource('   ')
 
             await expectLogic(logic).toMatchValues({ formValid: false })
+        })
+
+        it('formValid does not require prompt or code for sentiment type', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+            await expectLogic(logic).toMatchValues({ formValid: true })
+        })
+
+        it('setAllowsNA does not mutate sentiment output config', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('sentiment')
+            logic.actions.setAllowsNA(true)
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_type: 'sentiment',
+                    output_config: {},
+                }),
+            })
         })
 
         it('setEvaluationType marks unsaved changes', async () => {
@@ -844,11 +895,11 @@ describe('llmEvaluationLogic', () => {
                     '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
-                        ctx.status(400),
-                        ctx.json({
+                    '/api/environments/:teamId/evaluations/:id/': () => [
+                        400,
+                        {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
-                        }),
+                        },
                     ],
                 },
             })

@@ -137,9 +137,11 @@ pub enum Commands {
             skill install [--force] <skill-id>                 Install a skill into .agents/skills/\n  \
             agents-md install [--path AGENTS.md]               Install the PostHog steering snippet\n\n\
             Run `posthog-cli api --agent-help` for the full agent-facing usage guide.\n\n\
-            This command group is experimental: pass `--experimental` after `api`, or set \
-            POSTHOG_CLI_EXPERIMENTAL_API=1.\n\
-            Destructive tools require --confirm. Use --dry-run before mutations.",
+            Destructive tools require --confirm. Use --dry-run before mutations.\n\n\
+            Limitation: `login` grants the MCP scope set minus the writes PostHog \
+            withholds from long-lived API keys, so a few tools (desktop file-system \
+            writes, integration deletes, reminder and user-settings writes) are not \
+            available through this command.",
         trailing_var_arg = true
     )]
     Api {

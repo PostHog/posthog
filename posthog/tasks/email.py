@@ -674,10 +674,22 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
     # flag opens up the catch-up delivers their currently-failing schemas naturally.
+    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # without them, release conditions on the project/organization group can't match,
+    # because the analytics group records are keyed by uuid rather than team_id/org_id.
     if not settings.TEST and not posthoganalytics.feature_enabled(
         key="external-data-failure-digest-email",
         distinct_id=str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        only_evaluate_locally=False,
+        # This gate fires once per failed-sync digest run; a $feature_flag_called
+        # event each time would be pure volume with no operational value (we monitor
+        # via the EXTERNAL_DATA_FAILURE_DIGEST_* metrics instead). Matches the v3 gate.
+        send_feature_flag_events=False,
     ):
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
         return False

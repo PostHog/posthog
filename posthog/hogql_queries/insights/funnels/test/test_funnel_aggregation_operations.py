@@ -12,6 +12,16 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserDataWarehouseConfig
+
+
+def _dwh_config(timestamp_expr: ast.Expr | None = None) -> FirstTimeForUserDataWarehouseConfig:
+    return FirstTimeForUserDataWarehouseConfig(
+        table_expr=ast.Field(chain=["payments"]),
+        timestamp_expr=timestamp_expr or ast.Field(chain=["e", "created_at"]),
+        group_by_expr=parse_expr("user_id"),
+        id_select_expr=ast.Field(chain=["payment_id"]),
+    )
 
 
 class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
@@ -230,3 +240,99 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         assert query.select_from.sample is None
         assert isinstance(query.select_from.table, ast.Field)
         assert query.select_from.table.chain == ["events"]
+
+    def test_first_time_for_user_aggregation_data_warehouse_select_from(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview")],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
+            dateRange=DateRange(date_from="-14d"),
+        )
+        ctx = FunnelQueryContext(funnels_query, self.team)
+
+        builder = FirstTimeForUserAggregationQuery(context=ctx, dwh_config=_dwh_config())
+        query = builder.to_query()
+
+        assert query.select_from is not None
+        inner = cast(ast.SelectQuery, query.select_from.table)
+        assert inner.select_from is not None
+        assert isinstance(inner.select_from.table, ast.Field)
+        assert inner.select_from.table.chain == ["payments"]
+
+    def test_first_time_for_user_aggregation_data_warehouse_group_by(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview")],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
+            dateRange=DateRange(date_from="-14d"),
+        )
+        ctx = FunnelQueryContext(funnels_query, self.team)
+
+        builder = FirstTimeForUserAggregationQuery(context=ctx, dwh_config=_dwh_config())
+        query = builder.to_query()
+
+        assert query.select_from is not None
+        inner = cast(ast.SelectQuery, query.select_from.table)
+        assert inner.group_by is not None
+        assert inner.group_by[0] == parse_expr("user_id")
+
+    def test_first_time_for_user_aggregation_data_warehouse_timestamp_and_id(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview")],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
+            dateRange=DateRange(date_from="-14d"),
+        )
+
+        with freeze_time("2024-07-31"):
+            ctx = FunnelQueryContext(funnels_query, self.team)
+            builder = FirstTimeForUserAggregationQuery(context=ctx, dwh_config=_dwh_config())
+            query = builder.to_query()
+
+        # outer query still projects the "uuid" alias
+        assert isinstance(query.select[0], ast.Field)
+        assert query.select[0].chain == ["uuid"]
+
+        assert query.select_from is not None
+        inner = cast(ast.SelectQuery, query.select_from.table)
+
+        timestamp_expr = ast.Field(chain=["e", "created_at"])
+
+        # min_timestamp is computed over the data warehouse timestamp field
+        min_timestamp = inner.select[0]
+        assert isinstance(min_timestamp, ast.Alias)
+        assert min_timestamp.alias == "min_timestamp"
+        assert isinstance(min_timestamp.expr, ast.Call)
+        assert min_timestamp.expr.name == "min"
+        assert min_timestamp.expr.args[0] == timestamp_expr
+
+        # the matching key is argMin(<id_field>, <timestamp_field>), aliased to uuid
+        uuid_select = inner.select[2]
+        assert isinstance(uuid_select, ast.Alias)
+        assert uuid_select.alias == "uuid"
+        assert isinstance(uuid_select.expr, ast.Call)
+        assert uuid_select.expr.name == "argMin"
+        assert uuid_select.expr.args[0] == ast.Field(chain=["payment_id"])
+        assert uuid_select.expr.args[1] == timestamp_expr
+
+        # the date range is filtered on the data warehouse timestamp field
+        assert isinstance(inner.where, ast.CompareOperation)
+        assert inner.where.left == timestamp_expr
+
+    def test_first_time_for_user_aggregation_data_warehouse_string_timestamp(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview")],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
+            dateRange=DateRange(date_from="-14d"),
+        )
+        ctx = FunnelQueryContext(funnels_query, self.team)
+
+        # String timestamp columns are wrapped in toDateTime() by the caller; the wrapped
+        # expression must thread through every timestamp reference in the subquery.
+        timestamp_expr = ast.Call(name="toDateTime", args=[ast.Field(chain=["e", "created_at_str"])])
+        builder = FirstTimeForUserAggregationQuery(context=ctx, dwh_config=_dwh_config(timestamp_expr))
+        query = builder.to_query()
+
+        assert query.select_from is not None
+        inner = cast(ast.SelectQuery, query.select_from.table)
+
+        min_timestamp = inner.select[0]
+        assert isinstance(min_timestamp, ast.Alias)
+        assert min_timestamp.expr == ast.Call(name="min", args=[timestamp_expr])

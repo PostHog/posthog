@@ -25,12 +25,15 @@ export interface ColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -54,12 +57,15 @@ export interface PatchedColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -1442,6 +1448,7 @@ export const ChartDisplayTypeApi = {
     ActionsAreaGraph: 'ActionsAreaGraph',
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
+    Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
@@ -1559,6 +1566,18 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string | null
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string | null
+    /** Metric display: color the sparkline by whether the metric increased or decreased. */
+    metricColorByDirection?: boolean | null
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string | null
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string | null
+    /** Show the period-over-period change pill on the Metric display. */
+    metricShowChange?: boolean | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */
@@ -2793,6 +2812,15 @@ export const WebAnalyticsOrderByDirectionApi = {
     Desc: 'DESC',
 } as const
 
+export type WebAnalyticsPreComputeStrategyApi =
+    (typeof WebAnalyticsPreComputeStrategyApi)[keyof typeof WebAnalyticsPreComputeStrategyApi]
+
+export const WebAnalyticsPreComputeStrategyApi = {
+    PreAggregated: 'pre_aggregated',
+    LazyPrecompute: 'lazy_precompute',
+    Live: 'live',
+} as const
+
 export interface SamplingRateApi {
     denominator?: number | null
     numerator: number
@@ -2809,6 +2837,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -2820,8 +2849,6 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    usedLazyPrecompute?: boolean | null
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -2888,7 +2915,6 @@ export interface WebOverviewItemApi {
     key: string
     kind: WebAnalyticsItemKindApi
     previous?: number | null
-    usedPreAggregatedTables?: boolean | null
     value?: number | null
 }
 
@@ -2901,6 +2927,7 @@ export interface WebOverviewQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -2911,8 +2938,6 @@ export interface WebOverviewQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    usedLazyPrecompute?: boolean | null
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -3167,6 +3192,7 @@ export interface Response4Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3177,8 +3203,6 @@ export interface Response4Api {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    usedLazyPrecompute?: boolean | null
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -3194,6 +3218,7 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3205,8 +3230,6 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    usedLazyPrecompute?: boolean | null
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -3248,6 +3271,7 @@ export interface Response7Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3259,10 +3283,6 @@ export interface Response7Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean | null
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -3285,6 +3305,7 @@ export interface Response8Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3298,7 +3319,6 @@ export interface Response8Api {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    usedLazyPrecompute?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -4628,6 +4648,8 @@ export interface ExperimentMeanMetricApi {
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
     source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number | null
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
@@ -5148,6 +5170,7 @@ export interface WebGoalsQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5159,10 +5182,6 @@ export interface WebGoalsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean | null
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -5269,6 +5288,7 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5282,7 +5302,6 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    usedLazyPrecompute?: boolean | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -6724,15 +6743,9 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    /** Match accounts whose account executive is any of these user ids (OR semantics). */
-    accountExecutive?: number[] | null
-    /** Match accounts whose account owner is any of these user ids (OR semantics). */
-    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
     /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
-    /** Match accounts whose CSM is any of these user ids (OR semantics). */
-    csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'

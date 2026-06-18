@@ -51,10 +51,10 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
             },
             patch: {
-                '/api/projects/:id': async (req, res, ctx) => {
+                '/api/projects/:id': async ({ request }) => {
                     // bounce the setting back as is
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
-                    return res(ctx.json(newTeamSettings))
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) }
+                    return [200, newTeamSettings]
                 },
             },
         }),
