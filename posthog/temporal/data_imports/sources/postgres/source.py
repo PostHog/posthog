@@ -295,6 +295,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Match that message substring so the role-lacks-SELECT case is caught at both layers
             # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            # A view selected for sync calls a function the connecting role can't execute (SQLSTATE
+            # 42501) — most often a view that decrypts secrets via Supabase Vault / pgsodium
+            # (`crypto_aead_det_decrypt`). Distinct from the table/view SELECT denial below: granting
+            # SELECT won't help, so it needs its own EXECUTE-oriented message and must precede the
+            # generic "permission denied for" so that message is the one selected.
+            "permission denied for function": (
+                "PostHog's database role isn't allowed to execute a function used by one or more of the "
+                'tables or views you selected to sync (PostgreSQL reported "permission denied for function"). '
+                "This often happens when a view decrypts secrets (for example Supabase Vault's "
+                "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
+                "view that uses it from the sync, then re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
