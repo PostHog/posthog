@@ -14,8 +14,16 @@ async def wait_for_workflows(
     schedule_id: str,
     expected_count: int,
     timeout: int = 60,
+    exact: bool = True,
 ) -> list[temporalio.client.WorkflowExecution]:
-    """Wait for workflows to be queryable and return them."""
+    """Wait for workflows to be queryable and return them.
+
+    Set ``exact=False`` when ``expected_count`` is a lower bound rather than the
+    final count, i.e. when a backfill is still launching runs while we poll. The
+    visibility store (`list_workflows`) is eventually consistent and may surface
+    several already-started runs in a single poll, so asserting an exact count
+    against a still-growing set is racy.
+    """
     query = f'TemporalScheduledById="{schedule_id}" order by StartTime asc'
     workflows: list[temporalio.client.WorkflowExecution] = []
     elapsed = 0.0
@@ -33,7 +41,8 @@ async def wait_for_workflows(
         delay = min(delay * 2, 5)
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
 
-    assert len(workflows) == expected_count
+    if exact:
+        assert len(workflows) == expected_count
     return workflows
 
 
