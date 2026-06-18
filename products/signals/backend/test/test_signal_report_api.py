@@ -365,6 +365,36 @@ class TestSignalReportListAPI(APIBaseTest):
         assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
         assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
 
+    def test_ordering_skips_unknown_clause_and_keeps_valid_ones(self):
+        """A single unrecognised clause must not discard the whole ordering.
+
+        A stale `sortField` persisted client-side surfaces as an unknown clause; the list
+        must still honour the recognised clauses instead of silently reverting to the
+        default rank (which is what made both sort options appear to order randomly)."""
+        r_p0 = self._create_report(title="P0", summary="s", signal_count=1, total_weight=1.0)
+        r_p3 = self._create_report(title="P3", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p3, priority="P3")
+        # Make the lower-priority report the most-recently-updated, so the default
+        # `-updated_at`-flavoured ordering would float it first; a correct priority sort sinks it.
+        now = timezone.now()
+        SignalReport.objects.filter(pk=r_p0.pk).update(updated_at=now - timedelta(hours=1))
+        SignalReport.objects.filter(pk=r_p3.pk).update(updated_at=now)
+
+        response = self.client.get(self._list_url(status="ready", ordering="bogus_field,priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_p0.id)) < ids.index(str(r_p3.id))
+
+    def test_ordering_all_unknown_falls_back_to_default(self):
+        """When every clause is unknown the list falls back to the default ordering (200, not an error)."""
+        self._create_report(title="A", summary="s", signal_count=1, total_weight=1.0)
+        self._create_report(title="B", summary="s", signal_count=1, total_weight=1.0)
+
+        response = self.client.get(self._list_url(status="ready", ordering="totally_unknown,-also_unknown"))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
+
     def test_ordering_by_total_weight_only_crosses_status_rank(self):
         """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(

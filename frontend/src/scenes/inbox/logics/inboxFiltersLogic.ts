@@ -31,6 +31,11 @@ export const INBOX_PIPELINE_STATUS_FILTERS: SignalReportStatus[] = [
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
 export type InboxSortDirection = 'asc' | 'desc'
 
+export const INBOX_SORT_FIELDS: InboxSortField[] = ['priority', 'created_at', 'updated_at']
+export const INBOX_SORT_DIRECTIONS: InboxSortDirection[] = ['asc', 'desc']
+const DEFAULT_INBOX_SORT_FIELD: InboxSortField = 'priority'
+const DEFAULT_INBOX_SORT_DIRECTION: InboxSortDirection = 'asc'
+
 /**
  * Build the `ordering` query param. Mirrors desktop `buildSignalReportListOrdering`:
  * 1. Status rank (semantic server-side rank, always applied)
@@ -112,14 +117,14 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
         sortField: [
-            'priority' as InboxSortField,
+            DEFAULT_INBOX_SORT_FIELD,
             { persist: true },
             {
                 setSort: (_, { field }) => field,
             },
         ],
         sortDirection: [
-            'asc' as InboxSortDirection,
+            DEFAULT_INBOX_SORT_DIRECTION,
             { persist: true },
             {
                 setSort: (_, { direction }) => direction,
@@ -145,7 +150,20 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        // A sortField/sortDirection persisted by an older client may fall outside the
+        // currently supported set. Left unchecked it's sent verbatim as the `ordering`
+        // param; the backend then drops that clause and falls back to its default rank,
+        // so "Newest first" and "Priority first" both appear to sort randomly. Clear any
+        // stale persisted value back to the defaults before the first list load.
+        const fieldValid = INBOX_SORT_FIELDS.includes(values.sortField)
+        const directionValid = INBOX_SORT_DIRECTIONS.includes(values.sortDirection)
+        if (!fieldValid || !directionValid) {
+            actions.setSort(
+                fieldValid ? values.sortField : DEFAULT_INBOX_SORT_FIELD,
+                directionValid ? values.sortDirection : DEFAULT_INBOX_SORT_DIRECTION
+            )
+        }
         actions.loadAvailableReviewers()
     }),
 ])

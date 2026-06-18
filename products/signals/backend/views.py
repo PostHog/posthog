@@ -750,7 +750,12 @@ class SignalReportViewSet(
             name = part[1:] if descending else part
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
-                return self._default_signal_report_ordering_clauses
+                # Skip clauses we don't recognise rather than discarding the whole
+                # ordering. A single stale/unknown field (e.g. a sortField persisted
+                # in the client's localStorage that's no longer supported) would
+                # otherwise silently revert all ordering to the default, making
+                # both "Newest first" and "Priority first" appear to sort randomly.
+                continue
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
