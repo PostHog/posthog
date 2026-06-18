@@ -214,6 +214,21 @@ async def test_transient_error_is_retried():
     assert len(attempts) == 2  # retried once, then succeeded
 
 
+async def test_recording_deletion_failure_does_not_block_workflow():
+    # Queuing recording deletion is best-effort: if it exhausts its retries, the rest of the
+    # team deletion must still run to completion.
+    attempts: list[str] = []
+
+    async def always_fails(inputs: TeamDataActivityInputs) -> None:
+        attempts.append("attempt")
+        raise RuntimeError("recording deletion service unavailable")
+
+    activities = _core_activities_with("queue_recording_deletions_activity", always_fails)
+    await _run_core_with(activities)  # completes despite recording deletion failing
+
+    assert len(attempts) == 5  # exhausted SIDE_EFFECT_RETRY_POLICY, then swallowed
+
+
 async def test_recursion_error_fails_fast_without_retry():
     # A RecursionError is deterministic (e.g. json.loads can't decode a deeply-nested JSON column
     # on a cascaded row), so the retry policy must not loop on it.
