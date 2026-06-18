@@ -49,6 +49,11 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     Note: `Ticket.objects.bulk_create` does NOT trigger this signal. All current callers
     use `Ticket.objects.create_with_number`; keep it that way or fire the event
     explicitly.
+
+    Callers that create a ticket on someone else's behalf (e.g. the agent-composed
+    `compose` action) attribute the event to the creator rather than the customer by
+    passing `actor_distinct_id` to `create_with_number`, which stashes it on the instance
+    as `_actor_distinct_id` before `save()`.
     """
     if not created:
         return
@@ -57,7 +62,8 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     # already populated and `capture_ticket_created` won't trigger an extra FK lookup.
     def do_emit():
         try:
-            capture_ticket_created(instance)
+            actor_distinct_id = getattr(instance, "_actor_distinct_id", None)
+            capture_ticket_created(instance, actor_distinct_id=actor_distinct_id)
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 

@@ -30,7 +30,16 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
-def capture_ticket_created(ticket: Ticket) -> None:
+def capture_ticket_created(ticket: Ticket, actor_distinct_id: str | None = None) -> None:
+    """
+    Emit `$conversation_ticket_created`.
+
+    The event person (`distinct_id`) is whoever created the ticket: the customer
+    for customer-created tickets, or the composing agent (`actor_distinct_id`) for
+    proactively-composed tickets. Customer-facing context — `customer_name`,
+    `customer_email`, and `$groups` — stays keyed on the customer (`ticket.distinct_id`)
+    regardless of who created the ticket.
+    """
     properties = _get_ticket_base_properties(ticket)
     traits = ticket.anonymous_traits or {}
     properties["customer_name"] = traits.get("name", "")
@@ -52,7 +61,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
         token=team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        distinct_id=actor_distinct_id or ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,

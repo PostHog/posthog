@@ -46,6 +46,25 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
 
     @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_attributes_to_actor(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket, actor_distinct_id="agent-789")
+
+        call_kwargs = mock_capture.call_args.kwargs
+        # Event person is the creator (agent), not the customer
+        assert call_kwargs["distinct_id"] == "agent-789"
+        # Customer fields and groups stay keyed on the customer
+        assert call_kwargs["properties"]["customer_name"] == "Test Customer"
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        mock_get_persons.assert_called_once_with(self.team.id, [self.ticket.distinct_id])
+        assert call_kwargs["process_person_profile"] is True
+        assert call_kwargs["properties"]["$groups"]["organization"] == str(self.team.organization_id)
+
+    @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
         capture_ticket_status_changed(self.ticket, "new", "pending")
 

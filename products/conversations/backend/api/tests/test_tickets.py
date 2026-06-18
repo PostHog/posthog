@@ -1477,3 +1477,33 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_compose_event_attributed_to_agent_with_customer_fields(self, mock_capture, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["customer-xyz"],
+            properties={"name": "Aleks", "email": "aleks@test.com"},
+            immediate=True,
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "aleks@test.com",
+                "recipient_distinct_id": "customer-xyz",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        ticket = Ticket.objects.get(id=response.json()["id"])
+        assert ticket.anonymous_traits == {"email": "aleks@test.com", "name": "Aleks"}
+
+        created_event = next(
+            c.kwargs for c in mock_capture.call_args_list if c.kwargs["event_name"] == "$conversation_ticket_created"
+        )
+        # Event person is the composing agent, customer fields describe the recipient
+        assert created_event["distinct_id"] == self.user.distinct_id
+        assert created_event["properties"]["customer_email"] == "aleks@test.com"
+        assert created_event["properties"]["customer_name"] == "Aleks"

@@ -950,6 +950,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
 
+        anonymous_traits: dict[str, str] = {"email": recipient_email}
+        if person and person.properties and person.properties.get("name"):
+            anonymous_traits["name"] = person.properties["name"]
+
         with transaction.atomic():
             ticket = Ticket.objects.create_with_number(
                 team=team,
@@ -960,6 +964,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                anonymous_traits=anonymous_traits,
+                # Attribute the `$conversation_ticket_created` event to the composing agent
+                # rather than the customer.
+                actor_distinct_id=request.user.distinct_id,
             )
 
             Comment.objects.create(

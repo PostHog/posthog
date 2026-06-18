@@ -11,10 +11,15 @@ if TYPE_CHECKING:
 
 
 class TicketManager(models.Manager):
-    def create_with_number(self, **kwargs):
+    def create_with_number(self, *, actor_distinct_id: str | None = None, **kwargs):
         """
         Create a ticket with an auto-incrementing ticket_number.
         Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
+
+        `actor_distinct_id` attributes the `$conversation_ticket_created` event to the
+        creator (e.g. the composing agent) instead of the customer. It is stashed on the
+        instance before `save()` so the post_save signal picks it up regardless of whether
+        the emit is deferred to commit or run synchronously.
         """
         from posthog.models import Team
 
@@ -28,7 +33,11 @@ class TicketManager(models.Manager):
 
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
-            return self.create(**kwargs)
+            ticket = self.model(**kwargs)
+            if actor_distinct_id:
+                ticket._actor_distinct_id = actor_distinct_id
+            ticket.save(using=self.db)
+            return ticket
 
 
 class Ticket(UUIDTModel):
@@ -36,6 +45,10 @@ class Ticket(UUIDTModel):
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
+
+    # Transient attribute set by create_with_number(actor_distinct_id=...) to attribute the
+    # created event to the creator; read by the post_save signal, never persisted.
+    _actor_distinct_id: str | None
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()
