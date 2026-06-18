@@ -2339,6 +2339,10 @@ export function MarkdownNotebook({
             nodeId: string,
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
+            if (isAskAIDisabled || documentRef.current.nodes.some(isPromptComponentNode)) {
+                return
+            }
+
             onInteractionStateChange?.(true)
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -2389,7 +2393,7 @@ export function MarkdownNotebook({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [commitDocument, onInteractionStateChange]
+        [commitDocument, isAskAIDisabled, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2403,6 +2407,7 @@ export function MarkdownNotebook({
 
     const renderedNodes = getRenderedNodes()
     const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
+    const isAskAIInsertionDisabled = isAskAIDisabled || document.nodes.some(isPromptComponentNode)
     const focusAIPromptNodeId = useMemo(
         () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
         [document.nodes, focusAIPromptRequest]
@@ -2430,9 +2435,9 @@ export function MarkdownNotebook({
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
                 onAskAI ? openAIPrompt : undefined,
-                isAskAIDisabled
+                isAskAIInsertionDisabled
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, isAskAIDisabled]
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, isAskAIInsertionDisabled]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -3224,7 +3229,7 @@ export function MarkdownNotebook({
     }
 
     const askAIAboutSelection = (): void => {
-        if (!floatingToolbar || !onAskAI || isAskAIDisabled) {
+        if (!floatingToolbar || !onAskAI || isAskAIInsertionDisabled) {
             return
         }
 
@@ -5347,7 +5352,7 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
-                            isAskAIDisabled={isAskAIDisabled}
+                            isAskAIDisabled={isAskAIInsertionDisabled}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

@@ -3302,6 +3302,35 @@ ${queryMarkdown}`)
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
     })
 
+    it('disables Ask AI in the insert menu while an Ask AI prompt is already open', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' \n\n<Prompt question="" />'),
+                onAskAI,
+                onChange,
+            })
+        )
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        const askAIButton = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+        expect(askAIButton.textContent).toEqual('Ask AI')
+        expect(askAIButton.disabled).toBe(true)
+        const changeCount = onChange.mock.calls.length
+
+        fireEvent.click(askAIButton)
+        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
+
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(onChange).toHaveBeenCalledTimes(changeCount)
+        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(1)
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+    })
+
     it('animates the live AI thinking placeholder without editing markdown', () => {
         jest.useFakeTimers()
         const onChange = jest.fn()
@@ -5016,24 +5045,28 @@ First paragraph
         expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
     })
 
-    it('collapses an idle prompt beside a selection prompt from the formatting toolbar', () => {
+    it('disables selection Ask AI when an Ask AI prompt is already open', () => {
+        const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: 'First paragraph\n\n<Prompt question="" />',
                 onChange,
-                onAskAI: jest.fn(),
+                onAskAI,
                 createAIChatId: () => TEST_AI_CHAT_ID,
             })
         )
         const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
         selectTextNode(getFirstTextNode(textBlock), 0, 'First'.length, true)
-        fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
+        const askAIButton = container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement
+        const changeCount = onChange.mock.calls.length
 
-        const markdown = onChange.mock.calls.at(-1)?.[0] as string
-        expect(markdown.match(/<Prompt/g) ?? []).toHaveLength(1)
-        expect(markdown).toContain('<Prompt question="" source="selection"')
+        fireEvent.click(askAIButton)
+
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(onChange).toHaveBeenCalledTimes(changeCount)
+        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(1)
     })
 
     it('adds a link from the formatting toolbar', () => {

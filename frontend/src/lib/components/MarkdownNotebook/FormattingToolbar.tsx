@@ -262,6 +262,7 @@ export function FormattingToolbar({
                     icon={<IconSparkles />}
                     tooltip="Ask AI"
                     aria-label="Ask AI"
+                    disabled={isAskAIDisabled}
                     disabledReason={isAskAIDisabled ? 'AI is already working' : undefined}
                     onClick={askAIAboutSelection}
                 />
