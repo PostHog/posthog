@@ -56,6 +56,8 @@ import { calculateMovePath } from './utils'
 export interface ProjectTreeProps {
     logicKey?: string // key override?
     root?: string
+    /** Force-filter the tree to only show objects of this file system type (e.g. `dashboard`, `insight`). */
+    type?: string
     onlyTree?: boolean
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
@@ -119,6 +121,7 @@ const isItemActive = (item: TreeDataItem): boolean => {
 export function ProjectTree({
     logicKey,
     root,
+    type,
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
@@ -130,7 +133,7 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, type }
     const {
         fullFileSystemFiltered,
         lastViewedId,

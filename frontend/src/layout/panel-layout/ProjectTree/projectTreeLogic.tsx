@@ -49,6 +49,8 @@ export interface ProjectTreeLogicProps {
     root?: string
     includeRoot?: boolean
     hideFolders?: string[]
+    /** Force-filter the tree to only show objects of this file system type (e.g. `dashboard`, `insight`). */
+    type?: string
 }
 
 const FOLDER_LOADING = [
@@ -627,8 +629,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 (_, props) => props.root,
                 (_, props) => props.includeRoot,
                 (_, props) => props.hideFolders,
+                (_, props) => props.type,
             ],
-            (fullFileSystem, searchTerm, root, includeRoot, hideFolders): TreeDataItem[] => {
+            (fullFileSystem, searchTerm, root, includeRoot, hideFolders, type): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
 
                 // Filter out folders specified in hideFolders prop
@@ -656,6 +659,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     } else {
                         firstFolders = []
                     }
+                }
+
+                // When a `type` is provided, force-filter the tree to only show objects of that type.
+                // Folders and structural nodes (loading indicators, load-more rows, etc.) are always kept
+                // so the hierarchy stays navigable as folders lazy-load their children. Object types can
+                // carry a subtype (e.g. `insight/trends`), so we match on the type prefix too.
+                if (type) {
+                    const matchesType = (recordType: string): boolean =>
+                        recordType === type || recordType.startsWith(`${type}/`)
+                    const filterByType = (nodes: TreeDataItem[]): TreeDataItem[] =>
+                        nodes.reduce<TreeDataItem[]>((acc, node) => {
+                            const recordType = typeof node.record?.type === 'string' ? node.record.type : undefined
+                            if (recordType && recordType !== 'folder' && !matchesType(recordType)) {
+                                return acc
+                            }
+                            acc.push(node.children ? { ...node, children: filterByType(node.children) } : node)
+                            return acc
+                        }, [])
+                    firstFolders = filterByType(firstFolders)
                 }
 
                 function addRoot(tree: TreeDataItem[]): TreeDataItem[] {
