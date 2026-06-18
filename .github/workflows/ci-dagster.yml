@@ -380,6 +380,19 @@ jobs:
             - name: Run clickhouse migrations
               run: python manage.py migrate_clickhouse
 
+            - name: Restore test durations from cache
+              # pytest-split distributes Dagster tests across shards using .test_durations.
+              # Restore the newest cache (refreshed daily by ci-backend-update-test-timing.yml,
+              # which merges all segments into one file) over the committed file; a miss leaves
+              # the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
             - name: Run Dagster tests
               run: |
                   pytest posthog/dags products/**/dags \
