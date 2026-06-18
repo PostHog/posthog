@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconDatabase, IconWarning } from '@posthog/icons'
 
@@ -7,14 +6,50 @@ import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { DataWarehouseTab, dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
-import { WarehouseSyncStatus, formatLag, formatRows, getMockWarehouseSyncStatus } from './mockWarehouseSyncStatus'
-import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+import type { WarehouseSyncStatusApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-function stateBadge(status: WarehouseSyncStatus): {
+import { DataWarehouseTab, dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
+import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+import { warehouseSyncStatusLogic } from './warehouseSyncStatusLogic'
+
+function formatRows(rows: number | null): string {
+    if (rows == null) {
+        return '—'
+    }
+    if (rows >= 1e9) {
+        return `${(rows / 1e9).toFixed(1)}B`
+    }
+    if (rows >= 1e6) {
+        return `${(rows / 1e6).toFixed(1)}M`
+    }
+    if (rows >= 1e3) {
+        return `${(rows / 1e3).toFixed(1)}K`
+    }
+    return String(rows)
+}
+
+function formatLag(seconds: number | null): string {
+    if (seconds == null) {
+        return 'unknown'
+    }
+    if (seconds < 60) {
+        return `${Math.round(seconds)}s`
+    }
+    if (seconds < 3600) {
+        return `${Math.round(seconds / 60)}m`
+    }
+    if (seconds < 86400) {
+        return `${Math.round(seconds / 3600)}h`
+    }
+    const days = Math.round(seconds / 86400)
+    return `${days}d`
+}
+
+function stateBadge(status: WarehouseSyncStatusApi): {
     tagType: 'success' | 'warning' | 'danger' | 'default'
     label: string
 } {
@@ -22,7 +57,7 @@ function stateBadge(status: WarehouseSyncStatus): {
         case 'caught_up':
             return { tagType: 'success', label: 'Up to date' }
         case 'lagging':
-            return { tagType: 'warning', label: `${formatLag(status.lagSeconds)} behind` }
+            return { tagType: 'warning', label: `${formatLag(status.lag_seconds)} behind` }
         case 'seeding':
             return { tagType: 'warning', label: 'Backfilling…' }
         case 'error':
@@ -43,7 +78,7 @@ function HeroStat({ label, value, sublabel }: { label: string; value: string; su
     )
 }
 
-function FreshnessHero({ status }: { status: WarehouseSyncStatus }): JSX.Element {
+function FreshnessHero({ status }: { status: WarehouseSyncStatusApi }): JSX.Element {
     const badge = stateBadge(status)
     return (
         <div className="border rounded p-4 space-y-4">
@@ -51,11 +86,11 @@ function FreshnessHero({ status }: { status: WarehouseSyncStatus }): JSX.Element
                 <div>
                     <div className="text-muted text-xs uppercase tracking-wide">Events up to date through</div>
                     <div className="text-3xl font-bold">
-                        {status.freshThrough ? dayjs(status.freshThrough).format('MMM D, YYYY') : '—'}
+                        {status.fresh_through ? dayjs(status.fresh_through).format('MMM D, YYYY') : '—'}
                     </div>
-                    {status.lastActivityAt && (
+                    {status.last_activity_at && (
                         <div className="text-muted text-sm mt-1">
-                            Last updated {dayjs(status.lastActivityAt).fromNow()}
+                            Last updated {dayjs(status.last_activity_at).fromNow()}
                         </div>
                     )}
                 </div>
@@ -68,18 +103,22 @@ function FreshnessHero({ status }: { status: WarehouseSyncStatus }): JSX.Element
                 <HeroStat
                     label="Initial backfill"
                     value={
-                        status.initialBackfill.complete
+                        status.initial_backfill.complete
                             ? 'Complete'
-                            : status.initialBackfill.progressPct != null
-                              ? `${status.initialBackfill.progressPct}%`
+                            : status.initial_backfill.progress_pct != null
+                              ? `${status.initial_backfill.progress_pct}%`
                               : 'In progress'
                     }
                     sublabel="historical events"
                 />
-                <HeroStat label="Events synced" value={formatRows(status.totalRowsSynced)} sublabel="rows replicated" />
+                <HeroStat
+                    label="Events synced"
+                    value={formatRows(status.total_rows_synced)}
+                    sublabel="rows replicated"
+                />
                 <HeroStat
                     label="Last update"
-                    value={status.lastActivityAt ? dayjs(status.lastActivityAt).fromNow() : '—'}
+                    value={status.last_activity_at ? dayjs(status.last_activity_at).fromNow() : '—'}
                     sublabel="most recent sync"
                 />
             </div>
@@ -87,9 +126,9 @@ function FreshnessHero({ status }: { status: WarehouseSyncStatus }): JSX.Element
     )
 }
 
-function LoadProgressBar({ status }: { status: WarehouseSyncStatus }): JSX.Element {
-    const pct = status.initialBackfill.complete ? 100 : (status.initialBackfill.progressPct ?? 0)
-    const complete = status.initialBackfill.complete
+function LoadProgressBar({ status }: { status: WarehouseSyncStatusApi }): JSX.Element {
+    const pct = status.initial_backfill.complete ? 100 : (status.initial_backfill.progress_pct ?? 0)
+    const complete = status.initial_backfill.complete
 
     return (
         <div className="space-y-2">
@@ -157,23 +196,31 @@ function EmptyState(): JSX.Element {
 
 export function OverviewTab(): JSX.Element {
     const { warehouseStatus } = useValues(warehouseProvisioningLogic)
-    const status = useMemo(() => getMockWarehouseSyncStatus(), [])
+    const { syncStatus, syncStatusLoading } = useValues(warehouseSyncStatusLogic)
 
     const isReady = warehouseStatus?.state === 'ready'
     if (!isReady) {
         return <EmptyState />
     }
 
+    if (syncStatus === null && syncStatusLoading) {
+        return (
+            <div className="mt-4 flex justify-center py-8">
+                <Spinner />
+            </div>
+        )
+    }
+
     return (
         <div className="mt-4 space-y-4">
             <StatusStrip readyAt={warehouseStatus?.ready_at ?? null} host={warehouseStatus?.connection?.host} />
-            {status.error && (
+            {syncStatus?.error && (
                 <LemonBanner type="error">
-                    Sync error: {status.error.message} (since {dayjs(status.error.since).fromNow()})
+                    Sync error: {syncStatus.error.message} (since {dayjs(syncStatus.error.since).fromNow()})
                 </LemonBanner>
             )}
-            <FreshnessHero status={status} />
-            <LoadProgressBar status={status} />
+            {syncStatus && <FreshnessHero status={syncStatus} />}
+            {syncStatus && <LoadProgressBar status={syncStatus} />}
         </div>
     )
 }
