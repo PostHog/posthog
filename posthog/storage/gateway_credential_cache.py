@@ -393,14 +393,11 @@ def refresh_all_gateway_credentials() -> int:
     return count
 
 
-# Gateway-owned Valkey hash: sha256$<hex> credential hash -> unix-second
-# last-authorized timestamp. The Go gateway writes it (internal/lastused), since
-# gateway traffic never hits the Django auth path that stamps last_used_at; we
-# drain it here. Wire contract — must match internal/lastused.ValkeyKey.
+# Gateway-owned Valkey hash (credential sha256$<hex> -> unix-second last-used),
+# written by the gateway. Wire contract: must match internal/lastused.ValkeyKey.
 GATEWAY_CREDENTIAL_LAST_USED_KEY = "ai-gateway:cred-last-used"
 
-# Match the authenticator's throttle (posthog/auth.py): last_used_at is shown at
-# hour granularity, so skip a write when the row is already that fresh.
+# Match the authenticator's hour-granular throttle (posthog/auth.py).
 _LAST_USED_THROTTLE = timedelta(hours=1)
 
 
@@ -418,23 +415,18 @@ def _decode_last_used_marks(raw: dict[Any, Any]) -> dict[str, int]:
 
 
 def drain_gateway_credential_last_used() -> int:
-    """Persist gateway-observed last-used timestamps onto ProjectSecretAPIKey rows.
+    """Stamp ProjectSecretAPIKey.last_used_at from the gateway-coalesced Valkey hash.
 
-    The gateway can't write Django's DB, so it coalesces per-credential use into a
-    Valkey hash; this drains that hash and stamps last_used_at. Only phs_ secret
-    keys: the gateway marks only those (OAuthAccessToken has no last_used_at field).
-    bulk_update bypasses signals — like the authenticator's .update() — so a drain
-    doesn't churn the credential cache or the activity log. Returns rows updated.
+    phs_ only (OAuthAccessToken has no such field). bulk_update bypasses signals,
+    like the authenticator's .update(), to avoid churning the cache. Returns rows updated.
     """
     if not settings.AI_GATEWAY_REDIS_URL:
         return 0
 
     client = get_client(settings.AI_GATEWAY_REDIS_URL)
-    # Atomic read-and-clear in one MULTI/EXEC (at-most-once): a crash between EXEC
-    # and the DB commit below drops this window's marks. Accepted — last_used_at
-    # is cosmetic and hour-granular, and an active key is re-marked within one
-    # drain. Process-then-delete would be at-least-once but races a concurrent
-    # gateway HSET, so we prefer losing a cosmetic tail over clobbering one.
+    # Atomic read-and-clear (at-most-once): a crash before the DB commit drops
+    # this window's marks. Accepted for a cosmetic, hour-granular, self-healing
+    # field; process-then-delete would be at-least-once but races a gateway HSET.
     pipe = client.pipeline(transaction=True)
     pipe.hgetall(GATEWAY_CREDENTIAL_LAST_USED_KEY)
     pipe.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)

@@ -787,8 +787,7 @@ class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
         self.redis.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
 
     def _seed(self, marks: dict[str, int]) -> None:
-        # Per-field rather than mapping= so the str keys satisfy hset's str|bytes
-        # arg without tripping Mapping's invariant key type.
+        # Per-field, not mapping=, so str keys satisfy hset's str|bytes without Mapping's invariant key.
         for field, ts in marks.items():
             self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, field, ts)
 

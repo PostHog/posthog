@@ -97,12 +97,8 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def drain_gateway_credential_last_used_task() -> None:
-    """Drain gateway-observed credential use into ProjectSecretAPIKey.last_used_at.
-
-    Runs every few minutes so the UI's "last used" tracks gateway traffic, which
-    never hits the Django auth path that would otherwise stamp it. The gateway
-    coalesces marks in Valkey, so this writes at most one row per active key per
-    run regardless of request volume."""
+    """Stamp last_used_at for phs_ keys from the gateway's coalesced Valkey hash,
+    since gateway traffic never hits the Django auth path that would stamp it."""
     updated = drain_gateway_credential_last_used()
     if updated:
         logger.info("Drained gateway credential last_used", updated=updated)
