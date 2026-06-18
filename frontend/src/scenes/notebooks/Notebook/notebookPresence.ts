@@ -15,8 +15,6 @@ export type NotebookRemoteParticipant = NotebookPresenceState
 
 export type NotebookPresenceParticipant = NotebookPresenceState & {
     isCurrentUser?: boolean
-    isAgent?: boolean
-    agentId?: string
     profileUser?: Pick<UserType, 'email' | 'first_name' | 'hedgehog_config'>
 }
 

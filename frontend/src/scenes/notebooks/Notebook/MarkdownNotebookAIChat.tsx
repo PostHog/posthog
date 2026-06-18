@@ -117,9 +117,6 @@ export function InlineNotebookAIThread({
             }
 
             const id = getThreadMessageId(message, index)
-            if (request.source === 'agent' && message.status !== 'completed') {
-                return
-            }
             if (reportedAssistantMessagesRef.current.get(id) === content) {
                 return
             }

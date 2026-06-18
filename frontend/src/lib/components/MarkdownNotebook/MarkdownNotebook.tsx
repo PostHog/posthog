@@ -162,17 +162,7 @@ import {
     parseMarkdownNotebook,
     serializeMarkdownNotebook,
 } from './markdown'
-import {
-    NOTEBOOK_AI_AGENT_ID,
-    NOTEBOOK_AI_AGENT_NAME,
-    NOTEBOOK_AI_WRITING_PLACEHOLDER,
-    NOTEBOOK_AGENT_COMPONENT_TAG,
-    getNotebookAgentCursorProp,
-    getNotebookAgentFromNode,
-    isNotebookAgentNode,
-    makeNotebookAgentNode,
-    stripNotebookAgentsFromMarkdown,
-} from './notebookAgents'
+import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -252,18 +242,14 @@ export type MarkdownNotebookProps = {
 export type MarkdownNotebookAskAIRequest = {
     chatId: string
     query: string
-    source: 'slash' | 'selection' | 'agent'
+    source: 'slash' | 'selection'
     responseNodeId: string
+    responseNodeIndex: number
     responseMarker: string
     markdown: string
     markdownWithResponse: string
     selectedMarkdown?: string
     selectedRefId?: string
-    agent?: {
-        id: string
-        name: string
-        refId: string
-    }
 }
 
 type CommitDocumentOptions = {
@@ -325,53 +311,11 @@ function createNotebookRefId(): string {
     return Math.random().toString(36).slice(2, 10)
 }
 
-function makeNotebookAIAgentNode(cursor: MarkdownNotebookCaretPosition): NotebookComponentBlockNode {
-    return {
-        ...makeNotebookAgentNode({ id: NOTEBOOK_AI_AGENT_ID, name: NOTEBOOK_AI_AGENT_NAME, cursor }),
-        id: makeEmptyParagraph(`agent-${NOTEBOOK_AI_AGENT_ID}`).id,
-    }
-}
-
-function upsertNotebookAIAgentNode(
-    nodes: NotebookBlockNode[],
-    cursor: MarkdownNotebookCaretPosition
-): NotebookBlockNode[] {
-    let foundAIAgent = false
-    const cursorProp = getNotebookAgentCursorProp(cursor)
-    const nextNodes = nodes.map((node) => {
-        const agent = getNotebookAgentFromNode(node)
-        if (!agent || agent.id !== NOTEBOOK_AI_AGENT_ID || node.type !== 'component') {
-            return node
-        }
-
-        foundAIAgent = true
-        return {
-            ...node,
-            props: {
-                ...node.props,
-                name: NOTEBOOK_AI_AGENT_NAME,
-                cursor: cursorProp,
-            },
-        }
-    })
-
-    return foundAIAgent ? nextNodes : [...nextNodes, makeNotebookAIAgentNode(cursor)]
-}
-
 function getAIWritingPlaceholderNodeIds(nodes: NotebookBlockNode[]): Set<string> {
     const nodeIds = new Set<string>()
     for (const node of nodes) {
-        const agent = getNotebookAgentFromNode(node)
-        if (!agent || agent.id !== NOTEBOOK_AI_AGENT_ID || agent.cursor?.nodeIndex === undefined) {
-            continue
-        }
-
-        const targetNode = nodes[agent.cursor.nodeIndex]
-        if (
-            targetNode?.type === 'paragraph' &&
-            getInlineText(targetNode.children) === NOTEBOOK_AI_WRITING_PLACEHOLDER
-        ) {
-            nodeIds.add(targetNode.id)
+        if (node.type === 'paragraph' && getInlineText(node.children) === NOTEBOOK_AI_WRITING_PLACEHOLDER) {
+            nodeIds.add(node.id)
         }
     }
     return nodeIds
@@ -806,7 +750,7 @@ export function MarkdownNotebook({
         const reconciledDocument = ensureEditableNotebookDocument(
             reconcileNotebookDocuments(previousDocument, parseMarkdownNotebook(value)).document
         )
-        // An external value change (artifact apply, restore, agent edit) rebases the undo
+        // An external value change (artifact apply, restore, AI edit) rebases the undo
         // history over the incoming operations instead of clearing it, so CMD+Z keeps
         // reverting only this user's edits.
         rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
@@ -2490,7 +2434,7 @@ export function MarkdownNotebook({
 
     function getRenderedNodes(): NotebookBlockNode[] {
         if (document.nodes.length || mode === 'view') {
-            return document.nodes.filter((node) => !isNotebookAgentNode(node))
+            return document.nodes
         }
         return [emptyNodeRef.current]
     }
@@ -2498,7 +2442,7 @@ export function MarkdownNotebook({
     useEffect(() => {
         const componentNodeIds = new Set(
             document.nodes.flatMap((node): string[] => {
-                if (node.type !== 'component' || node.tagName === NOTEBOOK_AGENT_COMPONENT_TAG) {
+                if (node.type !== 'component') {
                     return []
                 }
                 return [node.id]
@@ -4744,16 +4688,10 @@ export function MarkdownNotebook({
         }
 
         const chatId = createAIChatId()
-        const nextDocument: NotebookDocument = {
-            ...currentDocument,
-            nodes: upsertNotebookAIAgentNode(nodesWithResponse, {
-                nodeIndex: responseNodeIndex,
-                offset: NOTEBOOK_AI_WRITING_PLACEHOLDER.length,
-            }),
-        }
+        const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
-        const markdownWithResponse = stripNotebookAgentsFromMarkdown(serializeMarkdownNotebook(nextDocument))
+        const markdownWithResponse = serializeMarkdownNotebook(nextDocument)
         const responseMarker = NOTEBOOK_AI_WRITING_PLACEHOLDER
         const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
         const selectedMarkdown =
@@ -4773,6 +4711,7 @@ export function MarkdownNotebook({
                     : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
             source,
             responseNodeId: nodeId,
+            responseNodeIndex,
             responseMarker,
             markdown: markdownWithResponse,
             markdownWithResponse,

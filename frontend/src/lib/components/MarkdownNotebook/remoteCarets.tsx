@@ -37,8 +37,6 @@ export type RemoteNotebookCaret = {
     position: MarkdownNotebookCaretPosition
     /** Notebook version the position was computed against, when known. */
     version?: number
-    kind?: 'human' | 'agent'
-    agentId?: string
 }
 
 /**

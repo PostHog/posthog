@@ -1,21 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { getSeriesColor } from 'lib/colors'
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
 import {
-    NOTEBOOK_AI_AGENT_ID,
-    appendNotebookAgentCommentReplyToMarkdown,
-    applyNotebookAgentArtifactMarkdown,
-    getNotebookAgentClientId,
-    getNotebookAgentColorIndex,
-    getNotebookAgentsFromMarkdown,
-    insertNotebookAIFollowUpPromptAfterCursor,
-    insertNotebookAgentMarkdownAfterRef,
-    replaceNotebookAIAgentCursorMarkdown,
-    removeNotebookAgentFromMarkdown,
-} from 'lib/components/MarkdownNotebook/notebookAgents'
+    insertNotebookAIFollowUpPromptAfterResponse,
+    replaceNotebookAIResponseMarkdown,
+} from 'lib/components/MarkdownNotebook/notebookAI'
 import type { RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import { uuid } from 'lib/utils/dom'
 
@@ -35,7 +26,6 @@ import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from '
 import { notebookLogic } from './notebookLogic'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
-const NOTEBOOK_AI_AGENT_DEPARTURE_IDLE_MS = 5_000
 
 export function MarkdownNotebookV2(): JSX.Element {
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
@@ -51,9 +41,7 @@ export function MarkdownNotebookV2(): JSX.Element {
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const markdownEditorValueRef = useRef(markdownEditorValue)
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
-    const activeInlineAIRequestIdsRef = useRef<Set<string>>(new Set())
-    const aiAgentActivityVersionRef = useRef(0)
-    const aiAgentDepartureTimeoutRef = useRef<number | null>(null)
+    const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
     const [focusAIPromptRequest, setFocusAIPromptRequest] = useState<number | undefined>(undefined)
 
     useEffect(() => {
@@ -73,72 +61,7 @@ export function MarkdownNotebookV2(): JSX.Element {
         [handleMarkdownEditorChange]
     )
 
-    const notebookAgents = useMemo(() => getNotebookAgentsFromMarkdown(markdownEditorValue), [markdownEditorValue])
-    const agentCarets = useMemo<RemoteNotebookCaret[]>(
-        () =>
-            notebookAgents.map((agent) => ({
-                clientId: getNotebookAgentClientId(agent),
-                userName: agent.name,
-                color: getSeriesColor(getNotebookAgentColorIndex(agent)),
-                position: agent.cursor ?? { nodeIndex: 0, offset: 0 },
-                version: notebook?.version,
-                kind: 'agent',
-                agentId: agent.id,
-            })),
-        [notebookAgents, notebook?.version]
-    )
-    const remoteCarets = useMemo<RemoteNotebookCaret[]>(
-        () => [...markdownRemoteCarets, ...agentCarets],
-        [agentCarets, markdownRemoteCarets]
-    )
-
-    const clearAIAgentDepartureTimeout = useCallback((): void => {
-        if (aiAgentDepartureTimeoutRef.current !== null) {
-            window.clearTimeout(aiAgentDepartureTimeoutRef.current)
-            aiAgentDepartureTimeoutRef.current = null
-        }
-    }, [])
-
-    const scheduleAIAgentDeparture = useCallback((): void => {
-        clearAIAgentDepartureTimeout()
-        if (activeInlineAIRequestIdsRef.current.size > 0) {
-            return
-        }
-
-        const scheduledActivityVersion = aiAgentActivityVersionRef.current
-        aiAgentDepartureTimeoutRef.current = window.setTimeout(() => {
-            aiAgentDepartureTimeoutRef.current = null
-            if (
-                scheduledActivityVersion !== aiAgentActivityVersionRef.current ||
-                activeInlineAIRequestIdsRef.current.size > 0
-            ) {
-                return
-            }
-
-            updateMarkdownEditorValue((currentMarkdown) =>
-                removeNotebookAgentFromMarkdown(currentMarkdown, NOTEBOOK_AI_AGENT_ID)
-            )
-        }, NOTEBOOK_AI_AGENT_DEPARTURE_IDLE_MS)
-    }, [clearAIAgentDepartureTimeout, updateMarkdownEditorValue])
-
-    const markAIAgentActive = useCallback(
-        (chatId: string): void => {
-            activeInlineAIRequestIdsRef.current.add(chatId)
-            aiAgentActivityVersionRef.current += 1
-            clearAIAgentDepartureTimeout()
-        },
-        [clearAIAgentDepartureTimeout]
-    )
-
-    const markAIAgentInactive = useCallback(
-        (chatId: string): void => {
-            activeInlineAIRequestIdsRef.current.delete(chatId)
-            scheduleAIAgentDeparture()
-        },
-        [scheduleAIAgentDeparture]
-    )
-
-    useEffect(() => clearAIAgentDepartureTimeout, [clearAIAgentDepartureTimeout])
+    const remoteCarets = useMemo<RemoteNotebookCaret[]>(() => [...markdownRemoteCarets], [markdownRemoteCarets])
 
     const handleAskAI = useCallback(
         ({
@@ -146,14 +69,13 @@ export function MarkdownNotebookV2(): JSX.Element {
             query,
             source,
             responseNodeId,
+            responseNodeIndex,
             responseMarker,
             markdown,
             markdownWithResponse,
             selectedMarkdown,
             selectedRefId,
-            agent,
         }: MarkdownNotebookAskAIRequest): void => {
-            markAIAgentActive(chatId)
             const uiContext = getNotebookAIChatUIContext({
                 notebookShortId: notebook?.short_id ?? null,
                 notebookTitle: notebook?.title ?? 'Untitled notebook',
@@ -168,12 +90,12 @@ export function MarkdownNotebookV2(): JSX.Element {
                 query,
                 source,
                 responseNodeId,
+                responseNodeIndex,
                 responseMarker,
                 markdown,
                 markdownWithResponse,
                 selectedMarkdown,
                 selectedRefId,
-                agent,
                 uiContext,
             }
             setInlineAIRequests((currentRequests) => [
@@ -181,22 +103,9 @@ export function MarkdownNotebookV2(): JSX.Element {
                 inlineAIRequest,
             ])
             inlineAIResponseNodeCountsRef.current[chatId] = 1
+            inlineAIResponseNodeIndicesRef.current[chatId] = responseNodeIndex
         },
-        [markAIAgentActive, notebook?.short_id, notebook?.title]
-    )
-
-    const getAgentRequest = useCallback(
-        (chatId: string | undefined): InlineNotebookAIRequest | null => {
-            if (!chatId) {
-                return null
-            }
-            return (
-                inlineAIRequests.find(
-                    (request) => request.chatId === chatId && request.source === 'agent' && request.agent
-                ) ?? null
-            )
-        },
-        [inlineAIRequests]
+        [notebook?.short_id, notebook?.title]
     )
 
     const getInlineAIRequest = useCallback(
@@ -211,39 +120,27 @@ export function MarkdownNotebookV2(): JSX.Element {
 
     const applyNotebookArtifactContent = useCallback(
         (content: NotebookArtifactContent, chatId?: string, mode: NotebookArtifactApplyMode = 'replace'): void => {
-            const agentRequest = getAgentRequest(chatId)
-            if (!agentRequest?.agent) {
-                const inlineAIRequest = getInlineAIRequest(chatId)
-                if (inlineAIRequest) {
-                    const artifactMarkdown = notebookArtifactContentToMarkdown(content)
-                    const replacedNodeCount = inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] ?? 1
-                    updateMarkdownEditorValue((currentMarkdown) =>
-                        replaceNotebookAIAgentCursorMarkdown(currentMarkdown, artifactMarkdown, replacedNodeCount)
+            const inlineAIRequest = getInlineAIRequest(chatId)
+            if (inlineAIRequest) {
+                const artifactMarkdown = notebookArtifactContentToMarkdown(content)
+                const replacedNodeCount = inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] ?? 1
+                updateMarkdownEditorValue((currentMarkdown) => {
+                    const result = replaceNotebookAIResponseMarkdown(
+                        currentMarkdown,
+                        getInlineAIResponseNodeIndex(inlineAIRequest, inlineAIResponseNodeIndicesRef.current),
+                        artifactMarkdown,
+                        replacedNodeCount
                     )
-                    inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] =
-                        getMarkdownBlockCount(artifactMarkdown)
-                    return
-                }
-
-                applyNotebookArtifactMarkdown(content, chatId, mode)
+                    inlineAIResponseNodeIndicesRef.current[inlineAIRequest.chatId] = result.responseNodeIndex
+                    return result.markdown
+                })
+                inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] = getMarkdownBlockCount(artifactMarkdown)
                 return
             }
 
-            const requestAgent = agentRequest.agent
-            updateMarkdownEditorValue((currentMarkdown) => {
-                if (!getNotebookAgentsFromMarkdown(currentMarkdown).some((agent) => agent.id === requestAgent.id)) {
-                    return currentMarkdown
-                }
-
-                return applyNotebookAgentArtifactMarkdown({
-                    markdown: currentMarkdown,
-                    refId: requestAgent.refId,
-                    artifactMarkdown: notebookArtifactContentToMarkdown(content),
-                    replace: mode !== 'insert-after-chat',
-                })
-            })
+            applyNotebookArtifactMarkdown(content, chatId, mode)
         },
-        [applyNotebookArtifactMarkdown, getAgentRequest, getInlineAIRequest, updateMarkdownEditorValue]
+        [applyNotebookArtifactMarkdown, getInlineAIRequest, updateMarkdownEditorValue]
     )
 
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
@@ -258,102 +155,83 @@ export function MarkdownNotebookV2(): JSX.Element {
 
     const handleInlineAIAssistantMessage = useCallback(
         (request: InlineNotebookAIRequest, message: InlineAIAssistantMessage): void => {
-            if (request.source !== 'agent' || !request.agent) {
-                if (!message.hasArtifact) {
-                    const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
-                    updateMarkdownEditorValue((currentMarkdown) =>
-                        replaceNotebookAIAgentCursorMarkdown(currentMarkdown, message.content, replacedNodeCount)
-                    )
-                    inlineAIResponseNodeCountsRef.current[request.chatId] = getMarkdownBlockCount(message.content)
-                }
+            if (message.hasArtifact) {
                 return
             }
 
-            const requestAgent = request.agent
+            const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
             updateMarkdownEditorValue((currentMarkdown) => {
-                if (!getNotebookAgentsFromMarkdown(currentMarkdown).some((agent) => agent.id === requestAgent.id)) {
-                    return currentMarkdown
-                }
-
-                return appendNotebookAgentCommentReplyToMarkdown({
-                    markdown: currentMarkdown,
-                    refId: requestAgent.refId,
-                    agent: requestAgent,
-                    text: message.content,
-                    replyId: message.id,
-                })
+                const result = replaceNotebookAIResponseMarkdown(
+                    currentMarkdown,
+                    getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                    message.content,
+                    replacedNodeCount
+                )
+                inlineAIResponseNodeIndicesRef.current[request.chatId] = result.responseNodeIndex
+                return result.markdown
             })
+            inlineAIResponseNodeCountsRef.current[request.chatId] = getMarkdownBlockCount(message.content)
         },
         [updateMarkdownEditorValue]
     )
 
     const handleInlineAIComplete = useCallback(
         (request: InlineNotebookAIRequest, completion: InlineAICompletion): void => {
-            if (request.source !== 'agent' || !request.agent) {
-                if (completion.kind !== 'assistant' && completion.kind !== 'artifact' && !completion.hasArtifact) {
-                    const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
-                    updateMarkdownEditorValue((currentMarkdown) =>
-                        replaceNotebookAIAgentCursorMarkdown(currentMarkdown, completion.message, replacedNodeCount)
-                    )
-                    inlineAIResponseNodeCountsRef.current[request.chatId] = getMarkdownBlockCount(completion.message)
-                }
-                updateMarkdownEditorValue((currentMarkdown) =>
-                    insertNotebookAIFollowUpPromptAfterCursor(currentMarkdown, NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN)
-                )
-                setFocusAIPromptRequest((currentRequest) => (currentRequest ?? 0) + 1)
-            } else if (completion.kind === 'assistant' && !completion.hasArtifact) {
-                const requestAgent = request.agent
+            if (completion.kind !== 'assistant' && completion.kind !== 'artifact' && !completion.hasArtifact) {
+                const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
                 updateMarkdownEditorValue((currentMarkdown) => {
-                    if (!getNotebookAgentsFromMarkdown(currentMarkdown).some((agent) => agent.id === requestAgent.id)) {
-                        return currentMarkdown
-                    }
-
-                    return insertNotebookAgentMarkdownAfterRef({
-                        markdown: currentMarkdown,
-                        refId: requestAgent.refId,
-                        insertedMarkdown: completion.message,
-                    })
+                    const result = replaceNotebookAIResponseMarkdown(
+                        currentMarkdown,
+                        getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                        completion.message,
+                        replacedNodeCount
+                    )
+                    inlineAIResponseNodeIndicesRef.current[request.chatId] = result.responseNodeIndex
+                    return result.markdown
                 })
+                inlineAIResponseNodeCountsRef.current[request.chatId] = getMarkdownBlockCount(completion.message)
             }
+            updateMarkdownEditorValue((currentMarkdown) =>
+                insertNotebookAIFollowUpPromptAfterResponse(
+                    currentMarkdown,
+                    getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                    NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN
+                )
+            )
+            setFocusAIPromptRequest((currentRequest) => (currentRequest ?? 0) + 1)
 
             window.setTimeout(() => {
                 delete inlineAIResponseNodeCountsRef.current[request.chatId]
-                markAIAgentInactive(request.chatId)
+                delete inlineAIResponseNodeIndicesRef.current[request.chatId]
                 setInlineAIRequests((currentRequests) =>
                     currentRequests.filter((currentRequest) => currentRequest.chatId !== request.chatId)
                 )
             }, 0)
         },
-        [markAIAgentInactive, updateMarkdownEditorValue]
+        [updateMarkdownEditorValue]
     )
 
     const handleInlineAIError = useCallback(
         (request: InlineNotebookAIRequest, completion: InlineAICompletion): void => {
-            if (request.source === 'agent' && request.agent) {
-                const requestAgent = request.agent
-                updateMarkdownEditorValue((currentMarkdown) =>
-                    appendNotebookAgentCommentReplyToMarkdown({
-                        markdown: currentMarkdown,
-                        refId: requestAgent.refId,
-                        agent: requestAgent,
-                        text: completion.message,
-                        replyId: `${request.chatId}-error`,
-                    })
+            const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
+            updateMarkdownEditorValue((currentMarkdown) => {
+                const result = replaceNotebookAIResponseMarkdown(
+                    currentMarkdown,
+                    getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                    completion.message,
+                    replacedNodeCount
                 )
-            } else {
-                const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.chatId] ?? 1
-                updateMarkdownEditorValue((currentMarkdown) =>
-                    replaceNotebookAIAgentCursorMarkdown(currentMarkdown, completion.message, replacedNodeCount)
-                )
-            }
+                inlineAIResponseNodeIndicesRef.current[request.chatId] = result.responseNodeIndex
+                return result.markdown
+            })
 
             delete inlineAIResponseNodeCountsRef.current[request.chatId]
-            markAIAgentInactive(request.chatId)
+            delete inlineAIResponseNodeIndicesRef.current[request.chatId]
             setInlineAIRequests((currentRequests) =>
                 currentRequests.filter((currentRequest) => currentRequest.chatId !== request.chatId)
             )
         },
-        [markAIAgentInactive, updateMarkdownEditorValue]
+        [updateMarkdownEditorValue]
     )
 
     return (
@@ -393,4 +271,11 @@ export function MarkdownNotebookV2(): JSX.Element {
 
 function getMarkdownBlockCount(markdown: string): number {
     return Math.max(1, parseMarkdownNotebook(markdown).nodes.length)
+}
+
+function getInlineAIResponseNodeIndex(
+    request: InlineNotebookAIRequest,
+    responseNodeIndices: Record<string, number>
+): number {
+    return responseNodeIndices[request.chatId] ?? request.responseNodeIndex
 }

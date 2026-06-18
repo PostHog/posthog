@@ -30,13 +30,6 @@ import {
     tryApplyTextChanges,
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
-import {
-    getNotebookAgentsFromMarkdown,
-    getNotebookAgentSyntheticUserId,
-    normalizeNotebookAIAgentArtifactMarkdown,
-    preserveNotebookAIAgentNode,
-    stripNotebookAgentsFromMarkdown,
-} from 'lib/components/MarkdownNotebook/notebookAgents'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
@@ -138,18 +131,6 @@ const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ?
 
 function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
     return getMarkdownNotebookTextContent(content) ?? editorText
-}
-
-function stripNotebookAgentsFromContent(content: JSONContent | null | undefined): JSONContent | null | undefined {
-    if (!isMarkdownNotebookContent(content)) {
-        return content
-    }
-
-    const markdown = getMarkdownNotebookMarkdown(content)
-    const strippedMarkdown = stripNotebookAgentsFromMarkdown(markdown)
-    return strippedMarkdown === markdown
-        ? content
-        : buildMarkdownNotebookContent(strippedMarkdown, getMarkdownNotebookNodeId(content))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -636,7 +617,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
-                    const notebookContent = stripNotebookAgentsFromContent(notebook.content) ?? notebook.content
+                    const notebookContent = notebook.content
 
                     if (values.collabEnabled && values.ttEditor) {
                         const sendable = sendableSteps(values.ttEditor.state)
@@ -990,28 +971,16 @@ export const notebookLogic = kea<notebookLogicType>([
                 getNotebookRemoteParticipants(markdownRemotePresence),
         ],
         notebookPresenceParticipants: [
-            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants, s.markdownEditorValue],
+            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants],
             (
                 user,
                 markdownRemoteParticipants: NotebookRemoteParticipant[],
-                remoteParticipants: NotebookRemoteParticipant[],
-                markdownEditorValue: string
+                remoteParticipants: NotebookRemoteParticipant[]
             ): NotebookPresenceParticipant[] => {
-                const humanParticipants = getNotebookPresenceParticipants(
+                return getNotebookPresenceParticipants(
                     user,
                     markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
                 )
-                const agentParticipants: NotebookPresenceParticipant[] = getNotebookAgentsFromMarkdown(
-                    markdownEditorValue
-                ).map((agent) => ({
-                    clientId: `agent-${agent.id}`,
-                    userId: getNotebookAgentSyntheticUserId(agent),
-                    userName: agent.name,
-                    lastSeenAt: Date.now(),
-                    isAgent: true,
-                    agentId: agent.id,
-                }))
-                return [...humanParticipants, ...agentParticipants]
             },
         ],
         content: [
@@ -1673,13 +1642,7 @@ export const notebookLogic = kea<notebookLogicType>([
             const nextMarkdown =
                 mode === 'insert-after-chat'
                     ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
-                    : preserveNotebookAIAgentNode(
-                          normalizeNotebookAIAgentArtifactMarkdown(
-                              preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId),
-                              currentMarkdown
-                          ),
-                          currentMarkdown
-                      )
+                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
             if (nextMarkdown === currentMarkdown) {
                 return
             }
@@ -1844,16 +1807,13 @@ export const notebookLogic = kea<notebookLogicType>([
             downloadFile(file)
         },
         downloadMarkdown: () => {
-            const markdown = stripNotebookAgentsFromMarkdown(getMarkdownNotebookMarkdown(values.content))
+            const markdown = getMarkdownNotebookMarkdown(values.content)
             const file = new File([markdown], `${slugify(values.title ?? 'untitled')}.md`, { type: 'text/markdown' })
 
             downloadFile(file)
         },
         copyMarkdown: async () => {
-            await copyToClipboard(
-                stripNotebookAgentsFromMarkdown(getMarkdownNotebookMarkdown(values.content)),
-                'markdown'
-            )
+            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
         },
 
         discardLocalChanges: () => {

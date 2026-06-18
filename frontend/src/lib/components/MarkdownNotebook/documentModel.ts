@@ -9,7 +9,6 @@ import {
     parseMarkdownNotebook,
     serializeMarkdownNotebook,
 } from './markdown'
-import { isNotebookAgentNode } from './notebookAgents'
 import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
 import { getTextChanges, mapTextIndex } from './textChanges'
 import {
@@ -78,10 +77,6 @@ export function getMarkdownNotebookVisualGroups(
     }
 
     nodes.forEach((node, index) => {
-        if (isNotebookAgentNode(node)) {
-            return
-        }
-
         const shouldBreakTextGroupForInsertMenu = node.id === insertMenuNodeId && !isPromptComponentNode(node)
         if ((isTextLikeNode(node) || commentJoinsTextGroup(index)) && !shouldBreakTextGroupForInsertMenu) {
             if (!currentTextGroup) {
@@ -695,9 +690,6 @@ export function hasNotebookContent(nodes: NotebookBlockNode[]): boolean {
 }
 
 export function nodeHasContent(node: NotebookBlockNode): boolean {
-    if (isNotebookAgentNode(node)) {
-        return false
-    }
     if (isTextBlockNode(node)) {
         return getInlineText(node.children).trim().length > 0
     }

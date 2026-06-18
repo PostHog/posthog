@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
-import { getNotebookAgentAvatarLabel, getNotebookAgentColorIndex } from 'lib/components/MarkdownNotebook/notebookAgents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -158,34 +156,16 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
     return (
         <Tooltip title={tooltip} placement="left">
             <div className="ProfileBubbles" aria-label={tooltip}>
-                {shownParticipants.map((participant) =>
-                    participant.isAgent && participant.agentId ? (
-                        <div
-                            key={`${participant.userId}-${participant.clientId}`}
-                            className="NotebookPresence__agent-bubble"
-                            title={participant.userName}
-                            aria-label={participant.userName}
-                            style={
-                                {
-                                    '--notebook-agent-color': getSeriesColor(
-                                        getNotebookAgentColorIndex({ id: participant.agentId })
-                                    ),
-                                } as React.CSSProperties
-                            }
-                        >
-                            {getNotebookAgentAvatarLabel({ name: participant.userName })}
-                        </div>
-                    ) : (
-                        <ProfilePicture
-                            key={`${participant.userId}-${participant.clientId}`}
-                            user={participant.profileUser}
-                            name={participant.userName}
-                            title={participant.userName}
-                            size="md"
-                            index={participant.userId}
-                        />
-                    )
-                )}
+                {shownParticipants.map((participant) => (
+                    <ProfilePicture
+                        key={`${participant.userId}-${participant.clientId}`}
+                        user={participant.profileUser}
+                        name={participant.userName}
+                        title={participant.userName}
+                        size="md"
+                        index={participant.userId}
+                    />
+                ))}
                 {overflowCount > 0 ? (
                     <div className="ProfileBubbles__more" title={overflowTitle}>
                         +{overflowCount}
