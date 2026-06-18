@@ -524,46 +524,80 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_hogql_flag_cannot_be_bypassed_by_config_only_patch(self) -> None:
-        # With the flag off, a trends alert is allowed. Switching the insight to a HogQL query and
-        # then PATCHing only the config (no `insight`) skips the field-level validate_insight, so the
-        # SQL-alert flag must be enforced in the object-level validate() or the gate is bypassed.
-        trends_insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+    def _create_hogql_insight(self) -> dict:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                }
+            },
         ).json()
-        hogql_query = {
-            "kind": "DataVisualizationNode",
-            "source": {"kind": "HogQLQuery", "query": "select count() from events"},
-        }
-        config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "last_row"}}
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+    def test_hogql_flag_enforced_on_config_only_patch(self) -> None:
+        # A config-only PATCH (no `insight`) skips the field-level validate_insight, so the SQL-alert
+        # flag must be enforced in the object-level validate() — otherwise an existing SQL alert could
+        # be reconfigured in an account where the flag is no longer enabled.
+        hogql_insight = self._create_hogql_insight()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
             alert = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 {
-                    "insight": trends_insight["id"],
+                    "insight": hogql_insight["id"],
                     "subscribed_users": [self.user.id],
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
                     "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": "trends alert",
+                    "name": "sql alert",
                 },
             )
             assert alert.status_code == status.HTTP_201_CREATED, alert.content
             alert_id = alert.json()["id"]
 
-            # The alert survives the kind switch (HogQL is alertable), leaving it HogQL-backed.
-            self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{trends_insight['id']}", data={"query": hogql_query}
-            )
-            bypass = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert bypass.status_code == status.HTTP_400_BAD_REQUEST, bypass.content
-        assert "SQL insight alerts are not enabled" in str(bypass.content)
+        config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "first_row"}}
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
+        assert "SQL insight alerts are not enabled" in str(blocked.content)
 
-        # Flag on: an already-entitled account can still manage the SQL alert.
         with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
             allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
+
+    def test_alert_deleted_when_insight_changes_alertable_kind(self) -> None:
+        # An alert's config type is bound to the insight's query kind, so switching the insight to a
+        # different alertable kind leaves the config mismatched — the alert is deleted rather than left
+        # to error on its next check (and to render the wrong controls in the editor).
+        trends_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+        ).json()
+        alert_id = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": trends_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "trends alert",
+            },
+        ).json()["id"]
+
+        # Switch the insight from trends to SQL — a different alertable kind.
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
+                data={
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                    }
+                },
+            )
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_404_NOT_FOUND
+        )
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(

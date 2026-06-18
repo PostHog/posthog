@@ -718,8 +718,14 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
+        alertable_kind_before = instance.alertable_query_kind
         updated_insight = super().update(instance, validated_data)
-        if updated_insight.alertable_query_kind is None:
+        # Delete linked alerts when the insight's alertable kind changes (including becoming None).
+        # An alert's config type is bound to the query kind (TrendsAlertConfig<->trends,
+        # HogQLAlertConfig<->SQL); a kind switch leaves every existing alert with a config that no
+        # longer matches, so it would error on its next check and the editor would render the wrong
+        # controls. Deleting is predictable and consistent with the non-alertable case.
+        if updated_insight.alertable_query_kind != alertable_kind_before:
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
 
