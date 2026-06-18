@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { formatDateRange } from 'lib/utils'
+import { formatDateRange } from 'lib/utils/datetime'
 
 import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
