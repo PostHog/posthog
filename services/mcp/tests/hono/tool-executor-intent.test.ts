@@ -91,7 +91,20 @@ describe('ToolExecutor intent capture', () => {
         expect(execEntry.inputSchema.required).toContain('context')
     })
 
-    it('forwards the agent intent to captureToolCall and strips context before the handler', async () => {
+    it.each([
+        {
+            label: 'forwards the agent intent and strips context before the handler',
+            args: { command: 'tools', context: 'investigating signup drop' },
+            expectedIntent: 'investigating signup drop',
+            expectedSource: 'context_parameter',
+        },
+        {
+            label: 'captures no intent when the agent omits context',
+            args: { command: 'tools' },
+            expectedIntent: undefined,
+            expectedSource: undefined,
+        },
+    ])('exec call $label', async ({ args, expectedIntent, expectedSource }) => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
         const filteredTools = catalog
@@ -99,36 +112,18 @@ describe('ToolExecutor intent capture', () => {
             .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
 
         const result = (await executor.handleToolCall(
-            { name: 'exec', arguments: { command: 'tools', context: 'investigating signup drop' } },
+            { name: 'exec', arguments: args },
             makeState(filteredTools, { useSingleExec: false })
         )) as any
 
-        // context must not break exec validation — proves it was stripped before the handler.
+        // context (when present) must not break exec validation — proves it was stripped.
         expect(result.isError).toBeFalsy()
 
         expect(captureSpy).toHaveBeenCalledTimes(1)
         const arg = captureSpy.mock.calls[0]![0]
         expect(arg.toolName).toBe('exec')
-        expect(arg.intent).toBe('investigating signup drop')
-        expect(arg.intentSource).toBe('context_parameter')
-
-        captureSpy.mockRestore()
-    })
-
-    it('captures no intent when the agent omits context', async () => {
-        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-
-        const filteredTools = catalog
-            .getFilteredTools({ scopes: ['*'] })
-            .filter((tool) => tool.name === 'organization-get')
-
-        await executor.handleToolCall(
-            { name: 'exec', arguments: { command: 'tools' } },
-            makeState(filteredTools, { useSingleExec: false })
-        )
-
-        expect(captureSpy).toHaveBeenCalledTimes(1)
-        expect(captureSpy.mock.calls[0]![0].intent).toBeUndefined()
+        expect(arg.intent).toBe(expectedIntent)
+        expect(arg.intentSource).toBe(expectedSource)
 
         captureSpy.mockRestore()
     })

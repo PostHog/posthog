@@ -158,7 +158,8 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent, intentSource: intentMeta.intentSource } : {}),
+            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
+            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
