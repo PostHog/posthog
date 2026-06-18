@@ -7,6 +7,14 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+jest.mock('~/toolbar/toolbarPosthogJS', () => {
+    const actual = jest.requireActual('~/toolbar/toolbarPosthogJS')
+    return {
+        ...actual,
+        captureToolbarException: jest.fn(),
+    }
+})
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -74,6 +82,8 @@ describe('experimentsTabLogic', () => {
         const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
         ;(lemonToast.success as jest.Mock).mockClear()
         ;(lemonToast.error as jest.Mock).mockClear()
+        const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
+        ;(captureToolbarException as jest.Mock).mockClear()
         useMocks({
             get: {
                 '/api/projects/:team/web_experiments/': () => web_experiments,
@@ -281,12 +291,20 @@ describe('experimentsTabLogic', () => {
     describe('form submission error handling', () => {
         const savedFetch = global.fetch
 
+        // Every non-control variant change must carry a selector to clear client-side validation
+        // and actually reach the network request under test.
+        const variantsWithSelector = {
+            control: { transforms: [], rollout_percentage: 50 },
+            test: { transforms: [{ selector: 'h1' }], rollout_percentage: 50 },
+        }
+
         afterEach(() => {
             global.fetch = savedFetch
         })
 
-        it('shows error toast when API returns error with detail', async () => {
+        it('shows error toast but does not capture when API returns a 4xx validation error', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() =>
                 Promise.resolve({
@@ -298,16 +316,20 @@ describe('experimentsTabLogic', () => {
 
             theExperimentsTabLogic.actions.newExperiment()
             theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Bad Experiment')
+            theExperimentsTabLogic.actions.setExperimentFormValue('variants', variantsWithSelector)
 
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
             expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Invalid experiment config')
+            // A 4xx is an expected validation failure already surfaced via the toast — not Error tracking noise.
+            expect(captureToolbarException).not.toHaveBeenCalled()
         })
 
-        it('shows generic error when API returns error and json parsing fails', async () => {
+        it('shows generic error and captures when API returns a 5xx', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() =>
                 Promise.resolve({
@@ -319,27 +341,54 @@ describe('experimentsTabLogic', () => {
 
             theExperimentsTabLogic.actions.newExperiment()
             theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Server Error Experiment')
+            theExperimentsTabLogic.actions.setExperimentFormValue('variants', variantsWithSelector)
 
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
             expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Request failed: 500')
+            expect(captureToolbarException).toHaveBeenCalled()
         })
 
-        it('handles network error gracefully', async () => {
+        it('handles network error gracefully and captures it', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() => Promise.reject(new Error('Network error')))
 
             theExperimentsTabLogic.actions.newExperiment()
             theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Network Error Experiment')
+            theExperimentsTabLogic.actions.setExperimentFormValue('variants', variantsWithSelector)
 
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
             expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
+            expect(captureToolbarException).toHaveBeenCalled()
+        })
+
+        it('does not submit or capture when a non-control variant change has no selector', async () => {
+            const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
+
+            const fetchMock = jest.fn()
+            global.fetch = fetchMock
+
+            // newExperiment() seeds a `test` variant with a selector-less transform ([{}]).
+            theExperimentsTabLogic.actions.newExperiment()
+            theExperimentsTabLogic.actions.setExperimentFormValue('name', 'Missing Selector Experiment')
+
+            await expectLogic(theExperimentsTabLogic, () => {
+                theExperimentsTabLogic.actions.submitExperimentForm()
+            }).delay(0)
+
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                "Experiment save failed: variant 'test' has a change without a target element"
+            )
+            expect(fetchMock).not.toHaveBeenCalled()
+            expect(captureToolbarException).not.toHaveBeenCalled()
         })
     })
 

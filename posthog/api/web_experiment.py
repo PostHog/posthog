@@ -166,7 +166,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 for idx, transform in enumerate(transforms):
                     if transform.get("selector") is None:
                         raise ValidationError(
-                            f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
+                            f"Experiment transform [{idx}] variant '{name}' does not have a valid selector"
                         )
 
                     # Validate text and html fields to prevent XSS attacks

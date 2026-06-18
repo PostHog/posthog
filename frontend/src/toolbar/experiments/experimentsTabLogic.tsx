@@ -190,12 +190,25 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // This property is only used in the editor to undo transforms
                 delete experimentToSave.original_html_state
 
+                // Validate client-side that every non-control variant change targets an element.
+                // The backend rejects selector-less transforms with a 4xx, so catching it here
+                // avoids both the failed request and the resulting Error tracking noise.
+                const variantMissingSelector = Object.entries(experimentToSave.variants ?? {}).find(
+                    ([name, variant]) =>
+                        name !== 'control' && (variant.transforms ?? []).some((transform) => !transform.selector)
+                )
+                if (variantMissingSelector) {
+                    lemonToast.error(
+                        `Experiment save failed: variant '${variantMissingSelector[0]}' has a change without a target element`
+                    )
+                    return
+                }
+
                 const { uiHost } = values
                 const { selectedExperimentId } = values
 
-                let response: WebExperiment
+                let res: Response
                 try {
-                    let res: Response
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
                         res = await toolbarFetch(
                             `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
@@ -205,25 +218,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     } else {
                         res = await toolbarFetch(`/api/projects/@current/web_experiments/`, 'POST', experimentToSave)
                     }
-
-                    if (!res.ok) {
-                        const errorData = await res.json().catch(() => ({}))
-                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
-                    }
-
-                    response = await res.json()
-
-                    experimentsLogic.actions.updateExperiment({ experiment: response })
-                    actions.selectExperiment(null)
-
-                    lemonToast.success('Experiment saved', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
-                        },
-                    })
-                    breakpoint()
                 } catch (e) {
+                    // Network-level failure — worth capturing for investigation.
                     toolbarLogger.error('experiments', 'Failed to save experiment', {
                         experimentId: selectedExperimentId,
                     })
@@ -231,7 +227,37 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (e instanceof Error) {
                         lemonToast.error(`Experiment save failed: ${e.message}`)
                     }
+                    return
                 }
+
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}))
+                    const message = errorData.detail || `Request failed: ${res.status}`
+                    toolbarLogger.error('experiments', 'Failed to save experiment', {
+                        experimentId: selectedExperimentId,
+                    })
+                    // Only capture unexpected server failures. 4xx responses are expected
+                    // validation errors that the toast below already surfaces to the user, so
+                    // they shouldn't pollute Error tracking.
+                    if (res.status >= 500) {
+                        captureToolbarException(new Error(message), 'experiment_save', { status: res.status })
+                    }
+                    lemonToast.error(`Experiment save failed: ${message}`)
+                    return
+                }
+
+                const response: WebExperiment = await res.json()
+
+                experimentsLogic.actions.updateExperiment({ experiment: response })
+                actions.selectExperiment(null)
+
+                lemonToast.success('Experiment saved', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                    },
+                })
+                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)

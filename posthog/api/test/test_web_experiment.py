@@ -79,6 +79,21 @@ class TestWebExperiment(APIBaseTest):
             request=ANY,
         )
 
+    def test_non_control_transform_without_selector_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "Missing selector experiment",
+                "variants": {
+                    "control": {"transforms": [], "rollout_percentage": 50},
+                    "test": {"transforms": [{"html": "<b>hi</b>"}], "rollout_percentage": 50},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "Experiment transform [0] variant 'test' does not have a valid selector"
+
     @patch("posthog.api.web_experiment.report_user_action")
     def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
         response = self._create_web_experiment()
