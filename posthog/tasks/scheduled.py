@@ -67,6 +67,7 @@ from posthog.tasks.tasks import (
 )
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
+from posthog.tasks.user_auth_sessions import cleanup_user_auth_sessions
 from posthog.utils import get_crontab, get_instance_region
 
 from products.conversations.backend.tasks import (
@@ -214,6 +215,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # Login session index cleanup - daily at 3:30 AM, staggered from the 3 AM cleanups
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_user_auth_sessions.s(),
+        name="user auth session index cleanup",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00

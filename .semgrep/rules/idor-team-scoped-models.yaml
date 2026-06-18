@@ -776,6 +776,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |UserAuthSession
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -830,6 +831,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |UserAuthSession
                         |UserPushToken
                         |WebauthnCredential
                     )$

@@ -203,6 +203,7 @@ export type SettingId =
     | 'organization-security'
     | 'organization-personal-api-keys'
     | 'passkeys'
+    | 'login-sessions'
     | 'path-cleaning'
     | 'person-display-name'
     | 'person-last-seen-at'

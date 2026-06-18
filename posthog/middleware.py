@@ -42,6 +42,7 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.user_auth_sessions import sync_user_auth_session
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
@@ -888,6 +889,21 @@ class KnownLoginDeviceCookieMiddleware:
             and not is_impersonated_session(request)
         ):
             set_known_device_cookie(response, request.user)
+        return response
+
+
+class UserAuthSessionActivityMiddleware:
+    """Records and refreshes the index row for the current login session (see user_auth_sessions)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        response = self.get_response(request)
+        # Same gate as KnownLoginDeviceCookieMiddleware: only session-authenticated requests. The helper
+        # itself handles impersonation (it never records impersonation and clears any stray row).
+        if isinstance(request.user, User) and BACKEND_SESSION_KEY in request.session:
+            sync_user_auth_session(request)
         return response
 
 
