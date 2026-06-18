@@ -479,7 +479,13 @@ class TestBedrockCountTokensViaProvider:
                     "Code": "ValidationException",
                     "Message": "The provided model doesn't support counting tokens.",
                 },
-                "ResponseMetadata": {"HTTPStatusCode": 400},
+                "ResponseMetadata": {
+                    "HTTPHeaders": {},
+                    "HTTPStatusCode": 400,
+                    "HostId": "",
+                    "RequestId": "test-request-id",
+                    "RetryAttempts": 0,
+                },
             },
             "CountTokens",
         )
@@ -495,7 +501,9 @@ class TestBedrockCountTokensViaProvider:
         assert response.status_code == 200
         assert response.json()["input_tokens"] == 77
         assert mock_mantle_count_tokens.await_count == 1
-        assert mock_mantle_count_tokens.await_args.kwargs["product"] == "llm_gateway"
+        mantle_count_tokens_call = mock_mantle_count_tokens.await_args
+        assert mantle_count_tokens_call is not None
+        assert mantle_count_tokens_call.kwargs["product"] == "llm_gateway"
         mock_logger.exception.assert_called_once_with(
             "Bedrock CountTokens failed",
             model="us.anthropic.claude-sonnet-4-6",
