@@ -52,7 +52,7 @@ def _sort_by_ordered_uuids(metric_dicts: list[dict[str, Any]], ordered_uuids: li
     if not ordered_uuids:
         return
     order = {uuid: index for index, uuid in enumerate(ordered_uuids)}
-    metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid"), len(order)))
+    metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid", ""), len(order)))
 
 
 def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
