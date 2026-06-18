@@ -13,6 +13,9 @@ const LOOKBACK_DAYS = 7
 // Breakdowns and trends (activity, tools, harnesses, notable sessions) use a longer 30-day window.
 const BREAKDOWN_DAYS = 30
 
+// Queries key on the canonical, $-prefixed event. PostHog's MCP server also dual-emits
+// a legacy `mcp_tool_call` alias — matching both names would double-count its calls, so
+// we read the canonical name only.
 const KPI_QUERY = hogql`
 SELECT
     toDate(timestamp) AS bucket,
@@ -22,7 +25,7 @@ SELECT
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
     timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY AS in_current
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS * 2))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
@@ -42,7 +45,7 @@ SELECT
     uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
     max(timestamp) AS last_seen
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_session_id IS NOT NULL
     AND properties.$mcp_session_id != ''
@@ -64,7 +67,7 @@ SELECT
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
@@ -80,7 +83,7 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
@@ -96,7 +99,7 @@ SELECT
     countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
     countIf(toBool(properties.$mcp_is_error)) AS errors
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
@@ -111,7 +114,7 @@ SELECT
     toString(properties.$mcp_tool_name) AS tool,
     count() AS calls
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''

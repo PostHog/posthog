@@ -23,7 +23,7 @@ from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
+MCP_TOOL_CALL_EVENT = "$mcp_tool_call"
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
 # Session-detail queries look up one $mcp_session_id; without a timestamp bound

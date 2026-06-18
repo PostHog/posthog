@@ -21,7 +21,7 @@ from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
+MCP_TOOL_CALL_EVENT = "$mcp_tool_call"
 
 # How long a snapshot may sit in COMPUTING before we assume the task died and
 # auto-recover. Generous because a real recompute completes in well under a
@@ -63,7 +63,7 @@ SESSION_SORT_FIELDS: frozenset[str] = frozenset(
 )
 DEFAULT_SESSION_SORT_COLUMN = "session_start"
 
-# PR1 aggregates the last 24h of mcp_tool_call events on the fly, scoped to the
+# PR1 aggregates the last 24h of $mcp_tool_call events on the fly, scoped to the
 # team. Wider windows (7d/30d) land in PR2. See
 # products/mcp_analytics/docs/sessions-overview.md for why this replaced the
 # disabled Temporal backfill.
@@ -148,7 +148,7 @@ def list_mcp_sessions(
 ) -> contracts.MCPSessionsPage:
     """List a page of MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
 
-    One row per $mcp_session_id over the last 24h, grouped in ClickHouse and
+    One row per $mcp_session_id over the last 24h of $mcp_tool_call events, grouped in ClickHouse and
     scoped to the team so the events sort key prunes the scan. Over-fetches one row
     to report ``has_next`` (replay-style) without a separate count query. Results
     are cached briefly so concurrent dashboard refreshes share a single aggregation.
