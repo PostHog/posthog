@@ -920,24 +920,41 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
-    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
-    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
-    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
-    # retry here that blip fails the whole discovery activity and surfaces as captured
-    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
-    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
-    # matches transient drops.
-    connection = _connect_with_dropped_retry(
-        lambda: _connect_to_postgres(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-        ),
-        structlog.get_logger(),
-    )
-    try:
-        return _schemas_from_conn(connection, schema, names)
-    finally:
-        connection.close()
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop —
+    # "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall, or
+    # SSH-tunnel hiccup, or a Supavisor "(EDBHANDLEREXITED)" pooler drop — is transient and recovers
+    # on a retry, exactly like the drops the import read path already retries via
+    # `_connect_with_dropped_retry`. Transaction-mode poolers (Supabase's Supavisor, PgBouncer)
+    # routinely accept the client connection and only drop the upstream backend once the first
+    # query runs, so the drop lands on the discovery query (`_is_duckdb_connection`'s
+    # `SELECT version()`), not the connect — the retry must span both or the blip fails the whole
+    # discovery activity and surfaces as captured error-tracking noise even though the next attempt
+    # would succeed. Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_connection_dropped_error` only matches transient drops.
+    logger = structlog.get_logger()
+    attempt = 0
+    while True:
+        connection = _connect_with_dropped_retry(
+            lambda: _connect_to_postgres(
+                host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            ),
+            logger,
+        )
+        try:
+            return _schemas_from_conn(connection, schema, names)
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
+            if not _is_connection_dropped_error(e):
+                raise
+            attempt += 1
+            if attempt >= _MAX_SETUP_CONNECTION_DROPPED_RETRIES:
+                raise
+            logger.debug(
+                f"Schema discovery query failed ({e}). "
+                f"Retrying (attempt {attempt}/{_MAX_SETUP_CONNECTION_DROPPED_RETRIES})"
+            )
+            time.sleep(min(2 * attempt, 30))
+        finally:
+            connection.close()
 
 
 def get_primary_keys_for_schemas(
