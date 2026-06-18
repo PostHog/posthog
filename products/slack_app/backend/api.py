@@ -26,7 +26,6 @@ from posthog.event_usage import groups
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
-    ERROR_TOKEN_REFRESH_FAILED,
     SLACK_INTEGRATION_KINDS,
     Integration,
     SlackIntegration,
@@ -1357,27 +1356,11 @@ def _notify_missing_slack_scopes(
 
 
 # Slack ``users.info`` error codes that mean the stored bot token can no longer talk to
-# Slack on this workspace's behalf. We mirror them onto ``Integration.errors`` so the
-# Settings UI surfaces the existing "needs reconnect" banner instead of going silent.
+# Slack on this workspace's behalf. Surfaced as ``token_broken=True`` on the failure log
+# so support can distinguish "needs reconnect" from other API failures at a glance.
 _SLACK_AUTH_FAILURE_CODES = frozenset(
     {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
 )
-
-
-def _mark_slack_integration_token_broken(integration: Integration, error_code: str) -> None:
-    """Persist a token-broken marker on the integration row so the reconnect banner
-    appears in Settings. Idempotent: skips the write if the row already carries it.
-    """
-    if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        return
-    integration.errors = ERROR_TOKEN_REFRESH_FAILED
-    integration.save(update_fields=["errors"])
-    logger.warning(
-        "slack_app_integration_token_marked_broken",
-        integration_id=integration.id,
-        slack_team_id=integration.integration_id,
-        error_code=error_code,
-    )
 
 
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
@@ -1417,14 +1400,14 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
             return None
         return slack_email
     except SlackApiError as exc:
-        error_code = (exc.response or {}).get("error") if exc.response is not None else None
-        if isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES:
-            _mark_slack_integration_token_broken(probe_integration, error_code)
+        error_code = exc.response.get("error") if exc.response else None
+        token_broken = isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES
         logger.warning(
             "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
             error_code=error_code,
+            token_broken=token_broken,
             exc_info=True,
         )
         return None
@@ -1434,6 +1417,7 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
             error_code=None,
+            token_broken=False,
             exc_info=True,
         )
         return None

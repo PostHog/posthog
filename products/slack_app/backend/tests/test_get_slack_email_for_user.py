@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -30,8 +30,7 @@ def _make_slack_response(payload):
 
 
 def _slack_api_error(error_code):
-    err = SlackApiError(message=f"slack returned {error_code}", response={"ok": False, "error": error_code})
-    return err
+    return SlackApiError(message=f"slack returned {error_code}", response={"ok": False, "error": error_code})
 
 
 class TestGetSlackEmailForUser:
@@ -90,7 +89,7 @@ class TestGetSlackEmailForUser:
         ],
     )
     @patch("posthog.models.integration.WebClient")
-    def test_auth_error_marks_integration_errors(self, mock_webclient_class, integration, error_code, caplog):
+    def test_auth_error_logs_token_broken_flag(self, mock_webclient_class, integration, error_code, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.side_effect = _slack_api_error(error_code)
@@ -99,13 +98,16 @@ class TestGetSlackEmailForUser:
             email = get_slack_email_for_user(integration, "U1")
 
         assert email is None
+        # No DB write — the integration row is untouched. Reconnect signal lives on the log line.
         integration.refresh_from_db()
-        assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
-        assert any("slack_app_resolve_user_email_failed" in record.message for record in caplog.records)
-        assert any("slack_app_integration_token_marked_broken" in record.message for record in caplog.records)
+        assert integration.errors == ""
+        failed = [r for r in caplog.records if "slack_app_resolve_user_email_failed" in r.message]
+        assert failed, "expected slack_app_resolve_user_email_failed to be logged"
+        assert any(f"'error_code': '{error_code}'" in r.message for r in failed)
+        assert any("'token_broken': True" in r.message for r in failed)
 
     @patch("posthog.models.integration.WebClient")
-    def test_non_auth_slack_error_does_not_mark_integration_errors(self, mock_webclient_class, integration, caplog):
+    def test_non_auth_slack_error_does_not_flag_token_broken(self, mock_webclient_class, integration, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.side_effect = _slack_api_error("user_not_found")
@@ -114,24 +116,10 @@ class TestGetSlackEmailForUser:
             email = get_slack_email_for_user(integration, "U1")
 
         assert email is None
-        integration.refresh_from_db()
-        assert integration.errors == ""
-        assert any("slack_app_resolve_user_email_failed" in record.message for record in caplog.records)
-        assert not any("slack_app_integration_token_marked_broken" in record.message for record in caplog.records)
-
-    @patch("posthog.models.integration.WebClient")
-    def test_auth_error_mark_is_idempotent(self, mock_webclient_class, integration):
-        integration.errors = ERROR_TOKEN_REFRESH_FAILED
-        integration.save(update_fields=["errors"])
-
-        mock_client = MagicMock()
-        mock_webclient_class.return_value = mock_client
-        mock_client.users_info.side_effect = _slack_api_error("token_revoked")
-
-        with patch.object(Integration, "save") as save_spy:
-            get_slack_email_for_user(integration, "U1")
-
-        save_spy.assert_not_called()
+        failed = [r for r in caplog.records if "slack_app_resolve_user_email_failed" in r.message]
+        assert failed
+        assert all("'token_broken': False" in r.message for r in failed)
+        assert any("'error_code': 'user_not_found'" in r.message for r in failed)
 
     @patch("posthog.models.integration.WebClient")
     def test_generic_exception_logs_without_error_code(self, mock_webclient_class, integration, caplog):
@@ -143,9 +131,9 @@ class TestGetSlackEmailForUser:
             email = get_slack_email_for_user(integration, "U1")
 
         assert email is None
-        integration.refresh_from_db()
-        assert integration.errors == ""
-        # The structured log records ``error_code=None`` for non-Slack exceptions so a
-        # quick log filter still groups them with the auth-error rows.
-        failed_records = [r for r in caplog.records if "slack_app_resolve_user_email_failed" in r.message]
-        assert failed_records, "expected slack_app_resolve_user_email_failed to be logged"
+        failed = [r for r in caplog.records if "slack_app_resolve_user_email_failed" in r.message]
+        assert failed
+        # Non-Slack exceptions carry ``error_code=None`` and ``token_broken=False`` so a
+        # log filter for "needs reconnect" cleanly excludes them.
+        assert all("'error_code': None" in r.message for r in failed)
+        assert all("'token_broken': False" in r.message for r in failed)
