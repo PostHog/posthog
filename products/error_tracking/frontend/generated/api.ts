@@ -39,11 +39,15 @@ import type {
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
+    ErrorTrackingReleaseCreateRequestApi,
+    ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
+    ErrorTrackingStackFrameBatchGetRequestApi,
+    ErrorTrackingStackFrameBatchGetResponseApi,
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
     ErrorTrackingSuppressionRuleCreateRequestApi,
@@ -72,7 +76,7 @@ import type {
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueFullApi,
     PatchedErrorTrackingIssueWriteApi,
-    PatchedErrorTrackingReleaseApi,
+    PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
@@ -989,14 +993,14 @@ export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
 
 export const errorTrackingReleasesCreate = async (
     projectId: string,
-    errorTrackingReleaseApi: ErrorTrackingReleaseApi,
+    errorTrackingReleaseCreateRequestApi: ErrorTrackingReleaseCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingReleaseApi> => {
     return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
+        body: JSON.stringify(errorTrackingReleaseCreateRequestApi),
     })
 }
 
@@ -1022,14 +1026,14 @@ export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string)
 export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingReleaseApi: ErrorTrackingReleaseApi,
+    errorTrackingReleaseUpdateRequestApi?: ErrorTrackingReleaseUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingReleaseApi> => {
-    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
+        body: JSON.stringify(errorTrackingReleaseUpdateRequestApi),
     })
 }
 
@@ -1040,14 +1044,14 @@ export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: 
 export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingReleaseApi?: PatchedErrorTrackingReleaseApi,
+    patchedErrorTrackingReleaseUpdateRequestApi?: PatchedErrorTrackingReleaseUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingReleaseApi> => {
-    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingReleaseApi),
+        body: JSON.stringify(patchedErrorTrackingReleaseUpdateRequestApi),
     })
 }
 
@@ -1239,15 +1243,18 @@ export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) 
 
 export const errorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
-    errorTrackingStackFrameApi: ErrorTrackingStackFrameApi,
+    errorTrackingStackFrameBatchGetRequestApi: ErrorTrackingStackFrameBatchGetRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingStackFramesBatchGetCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingStackFrameApi),
-    })
+): Promise<ErrorTrackingStackFrameBatchGetResponseApi> => {
+    return apiMutator<ErrorTrackingStackFrameBatchGetResponseApi>(
+        getErrorTrackingStackFramesBatchGetCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingStackFrameBatchGetRequestApi),
+        }
+    )
 }
 
 export const getErrorTrackingSuppressionRulesListUrl = (

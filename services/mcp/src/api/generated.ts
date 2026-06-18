@@ -18930,6 +18930,60 @@ export namespace Schemas {
       project: string;
     }
 
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseCreateRequest {
+      /** Human-readable release version, e.g. a semver string or build number. */
+      version: string;
+      /** Identifier of the project this release belongs to. */
+      project: string;
+      /**
+         * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Optional free-form metadata object stored alongside the release.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseCreateRequestMetadata;
+    }
+
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseUpdateRequestMetadata;
+    }
+
     export interface ErrorTrackingSettings {
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -19059,6 +19113,21 @@ export namespace Schemas {
       /** @nullable */
       symbol_set_ref: string | null;
       release: ErrorTrackingRelease | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetRequest {
+      /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+      raw_ids: string[];
+      /**
+         * Optional symbol set reference to scope the lookup to a single symbol set.
+         * @nullable
+         */
+      symbol_set?: string | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetResponse {
+      /** Resolved stack frames for the requested raw IDs. */
+      results: ErrorTrackingStackFrame[];
     }
 
     export interface ErrorTrackingSuppressionRule {
@@ -34466,19 +34535,33 @@ export namespace Schemas {
     }
 
     /**
+     * Free-form metadata object. Omit to preserve the current value.
      * @nullable
      */
-    export type PatchedErrorTrackingReleaseMetadata = { [key: string]: unknown } | null;
+    export type PatchedErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
 
-    export interface PatchedErrorTrackingRelease {
-      id?: string;
-      hash_id?: string;
-      team_id?: number;
-      created_at?: string;
-      /** @nullable */
-      metadata?: PatchedErrorTrackingReleaseMetadata;
-      version?: string;
-      project?: string;
+    export interface PatchedErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface PatchedErrorTrackingSettings {

@@ -1,4 +1,5 @@
-from rest_framework import status, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -14,9 +15,46 @@ from products.error_tracking.backend.facade import (
 MAX_HASH_ID_LENGTH = 128
 
 
+@extend_schema_field({"type": "object", "additionalProperties": True, "nullable": True})
+class ReleaseMetadataField(serializers.JSONField):
+    pass
+
+
 class ErrorTrackingReleaseSerializer(DataclassSerializer):
     class Meta:
         dataclass = contracts.ErrorTrackingRelease
+
+
+class ErrorTrackingReleaseCreateRequestSerializer(serializers.Serializer):
+    version = serializers.CharField(help_text="Human-readable release version, e.g. a semver string or build number.")
+    project = serializers.CharField(help_text="Identifier of the project this release belongs to.")
+    hash_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_HASH_ID_LENGTH,
+        help_text="Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.",
+    )
+    metadata = ReleaseMetadataField(
+        required=False, allow_null=True, help_text="Optional free-form metadata object stored alongside the release."
+    )
+
+
+class ErrorTrackingReleaseUpdateRequestSerializer(serializers.Serializer):
+    version = serializers.CharField(
+        required=False, allow_null=True, help_text="Human-readable release version. Omit to preserve the current value."
+    )
+    project = serializers.CharField(
+        required=False, allow_null=True, help_text="Project identifier. Omit to preserve the current value."
+    )
+    hash_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_HASH_ID_LENGTH,
+        help_text="Release hash (e.g. a git commit SHA). Omit to preserve the current value.",
+    )
+    metadata = ReleaseMetadataField(
+        required=False, allow_null=True, help_text="Free-form metadata object. Omit to preserve the current value."
+    )
 
 
 class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -45,6 +83,10 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise NotFound()
         return Response(self.get_serializer(release).data)
 
+    @extend_schema(
+        request=ErrorTrackingReleaseCreateRequestSerializer,
+        responses={201: OpenApiResponse(response=ErrorTrackingReleaseSerializer)},
+    )
     def create(self, request, *args, **kwargs) -> Response:
         version = request.data.get("version")
         project = request.data.get("project")
@@ -82,9 +124,11 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise NotFound()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(request=ErrorTrackingReleaseUpdateRequestSerializer, responses={204: None})
     def update(self, request, *args, pk=None, **kwargs) -> Response:
         return self._apply_update(pk, request.data)
 
+    @extend_schema(request=ErrorTrackingReleaseUpdateRequestSerializer, responses={204: None})
     def partial_update(self, request, *args, pk=None, **kwargs) -> Response:
         return self._apply_update(pk, request.data)
 

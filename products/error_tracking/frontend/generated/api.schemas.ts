@@ -1305,19 +1305,87 @@ export interface PaginatedErrorTrackingReleaseListApi {
 }
 
 /**
+ * Optional free-form metadata object stored alongside the release.
  * @nullable
  */
-export type PatchedErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
+export type ErrorTrackingReleaseCreateRequestApiMetadata = { [key: string]: unknown } | null
 
-export interface PatchedErrorTrackingReleaseApi {
-    id?: string
-    hash_id?: string
-    team_id?: number
-    created_at?: string
-    /** @nullable */
-    metadata?: PatchedErrorTrackingReleaseApiMetadata
-    version?: string
-    project?: string
+export interface ErrorTrackingReleaseCreateRequestApi {
+    /** Human-readable release version, e.g. a semver string or build number. */
+    version: string
+    /** Identifier of the project this release belongs to. */
+    project: string
+    /**
+     * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseCreateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type ErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface ErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: ErrorTrackingReleaseUpdateRequestApiMetadata
+}
+
+/**
+ * Free-form metadata object. Omit to preserve the current value.
+ * @nullable
+ */
+export type PatchedErrorTrackingReleaseUpdateRequestApiMetadata = { [key: string]: unknown } | null
+
+export interface PatchedErrorTrackingReleaseUpdateRequestApi {
+    /**
+     * Human-readable release version. Omit to preserve the current value.
+     * @nullable
+     */
+    version?: string | null
+    /**
+     * Project identifier. Omit to preserve the current value.
+     * @nullable
+     */
+    project?: string | null
+    /**
+     * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+     * @maxLength 128
+     * @nullable
+     */
+    hash_id?: string | null
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
 export interface ErrorTrackingSettingsApi {
@@ -1461,6 +1529,21 @@ export interface PaginatedErrorTrackingStackFrameListApi {
     next?: string | null
     /** @nullable */
     previous?: string | null
+    results: ErrorTrackingStackFrameApi[]
+}
+
+export interface ErrorTrackingStackFrameBatchGetRequestApi {
+    /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+    raw_ids: string[]
+    /**
+     * Optional symbol set reference to scope the lookup to a single symbol set.
+     * @nullable
+     */
+    symbol_set?: string | null
+}
+
+export interface ErrorTrackingStackFrameBatchGetResponseApi {
+    /** Resolved stack frames for the requested raw IDs. */
     results: ErrorTrackingStackFrameApi[]
 }
 

@@ -1,4 +1,5 @@
-from rest_framework import viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -16,6 +17,22 @@ from products.error_tracking.backend.facade import (
 class ErrorTrackingStackFrameSerializer(DataclassSerializer):
     class Meta:
         dataclass = contracts.ErrorTrackingStackFrame
+
+
+class ErrorTrackingStackFrameBatchGetRequestSerializer(serializers.Serializer):
+    raw_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Raw frame IDs in 'hash/part' format to resolve in a single request.",
+    )
+    symbol_set = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional symbol set reference to scope the lookup to a single symbol set.",
+    )
+
+
+class ErrorTrackingStackFrameBatchGetResponseSerializer(serializers.Serializer):
+    results = ErrorTrackingStackFrameSerializer(many=True, help_text="Resolved stack frames for the requested raw IDs.")
 
 
 class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
@@ -37,6 +54,10 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
             raise NotFound()
         return Response(self.get_serializer(frame).data)
 
+    @extend_schema(
+        request=ErrorTrackingStackFrameBatchGetRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingStackFrameBatchGetResponseSerializer)},
+    )
     @action(methods=["POST"], detail=False)
     def batch_get(self, request, **kwargs):
         raw_ids = request.data.get("raw_ids", [])

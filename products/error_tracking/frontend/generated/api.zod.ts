@@ -760,34 +760,52 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source\/file path text.'),
 })
 
+export const errorTrackingReleasesCreateBodyHashIdMax = 128
+
 export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
-    id: zod.uuid(),
-    hash_id: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.iso.datetime({ offset: true }),
-    metadata: zod.record(zod.string(), zod.unknown()).nullable(),
-    version: zod.string(),
-    project: zod.string(),
+    version: zod.string().describe('Human-readable release version, e.g. a semver string or build number.'),
+    project: zod.string().describe('Identifier of the project this release belongs to.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesCreateBodyHashIdMax)
+        .nullish()
+        .describe('Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Optional free-form metadata object stored alongside the release.'),
 })
+
+export const errorTrackingReleasesUpdateBodyHashIdMax = 128
 
 export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
-    id: zod.uuid(),
-    hash_id: zod.string(),
-    team_id: zod.number(),
-    created_at: zod.iso.datetime({ offset: true }),
-    metadata: zod.record(zod.string(), zod.unknown()).nullable(),
-    version: zod.string(),
-    project: zod.string(),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesUpdateBodyHashIdMax)
+        .nullish()
+        .describe('Release hash (e.g. a git commit SHA). Omit to preserve the current value.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
+export const errorTrackingReleasesPartialUpdateBodyHashIdMax = 128
+
 export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    id: zod.uuid().optional(),
-    hash_id: zod.string().optional(),
-    team_id: zod.number().optional(),
-    created_at: zod.iso.datetime({ offset: true }).optional(),
-    metadata: zod.record(zod.string(), zod.unknown()).nullish(),
-    version: zod.string().optional(),
-    project: zod.string().optional(),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesPartialUpdateBodyHashIdMax)
+        .nullish()
+        .describe('Release hash (e.g. a git commit SHA). Omit to preserve the current value.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -836,25 +854,11 @@ export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /*
 })
 
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
-    id: zod.uuid(),
-    raw_id: zod.string(),
-    created_at: zod.iso.datetime({ offset: true }),
-    contents: zod.record(zod.string(), zod.unknown()),
-    resolved: zod.boolean(),
-    context: zod.record(zod.string(), zod.unknown()).nullable(),
-    symbol_set_ref: zod.string().nullable(),
-    release: zod.union([
-        zod.object({
-            id: zod.uuid(),
-            hash_id: zod.string(),
-            team_id: zod.number(),
-            created_at: zod.iso.datetime({ offset: true }),
-            metadata: zod.record(zod.string(), zod.unknown()).nullable(),
-            version: zod.string(),
-            project: zod.string(),
-        }),
-        zod.null(),
-    ]),
+    raw_ids: zod.array(zod.string()).describe("Raw frame IDs in 'hash\/part' format to resolve in a single request."),
+    symbol_set: zod
+        .string()
+        .nullish()
+        .describe('Optional symbol set reference to scope the lookup to a single symbol set.'),
 })
 
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
