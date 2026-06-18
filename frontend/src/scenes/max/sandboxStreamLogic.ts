@@ -15,6 +15,8 @@ import type {
     ContextUsage,
     PermissionRequestRecord,
     ResourceProduct,
+    SandboxProgressStatus,
+    SandboxProgressStep,
     SdkSession,
     ThreadItem,
     ThreadItemType,
@@ -395,6 +397,24 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
     }
 }
 
+function normalizeProgressStatus(status: unknown): SandboxProgressStatus {
+    switch (status) {
+        case 'pending':
+        case 'in_progress':
+        case 'completed':
+            return status
+        case 'failed':
+        case 'cancelled':
+            return 'failed'
+        default:
+            return 'in_progress'
+    }
+}
+
+function stringifyOptional(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined
+}
+
 function parsePermissionOption(raw: unknown): PermissionOption | null {
     if (typeof raw !== 'object' || raw === null) {
         return null
@@ -625,6 +645,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         pushCompactBoundaryItem: (payload: { trigger?: string; preTokens?: number; contextSize?: number }) => payload,
         /** Inline `_posthog/task_notification` thread item — a task milestone. */
         pushTaskNotificationItem: (payload: { status?: string; summary?: string }) => payload,
+        /** Inline `_posthog/progress` group — setup and runtime progress from the sandbox workflow. */
+        upsertProgressItem: (payload: {
+            group: string
+            step: string
+            status?: string
+            label: string
+            detail?: string
+        }) => payload,
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
         /** Pin a frame's content hash so a replay (bootstrap `logs/` or reconnect) can't re-fold it. */
@@ -794,6 +822,41 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     ...state,
                     { id: `task-${state.length}`, type: 'task_notification', status, summary },
                 ],
+                upsertProgressItem: (state, { group, step, status, label, detail }) => {
+                    const normalizedStatus = normalizeProgressStatus(status)
+                    const itemIndex = state.findIndex(
+                        (item) => item.type === 'progress' && item.progressGroup === group
+                    )
+                    const nextStep: SandboxProgressStep = {
+                        key: step,
+                        status: normalizedStatus,
+                        label,
+                        ...(detail !== undefined ? { detail } : {}),
+                    }
+
+                    if (itemIndex === -1) {
+                        return [
+                            ...state,
+                            {
+                                id: `progress-${group}`,
+                                type: 'progress',
+                                progressGroup: group,
+                                progressSteps: [nextStep],
+                            },
+                        ]
+                    }
+
+                    const next = [...state]
+                    const existing = next[itemIndex].progressSteps ?? []
+                    const stepIndex = existing.findIndex((progressStep) => progressStep.key === step)
+                    const progressSteps =
+                        stepIndex === -1
+                            ? [...existing, nextStep]
+                            : existing.map((progressStep, index) => (index === stepIndex ? nextStep : progressStep))
+
+                    next[itemIndex] = { ...next[itemIndex], progressSteps }
+                    return next
+                },
                 reset: () => [],
             },
         ],
@@ -973,12 +1036,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         streamPhase: [
             (s) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus],
             (runStarted, isThinking, currentRunStatus, sseStatus): 'provisioning' | 'thinking' | 'idle' => {
-                if (isThinking) {
-                    return 'thinking'
-                }
                 const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
                 if (connecting && !runStarted && !isTerminalRunStatus(currentRunStatus)) {
                     return 'provisioning'
+                }
+                if (isThinking) {
+                    return 'thinking'
                 }
                 return 'idle'
             },
@@ -1452,7 +1515,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             if (method === '_posthog/progress') {
                 const progress = (notification.params ?? {}) as PosthogProgressParams
-                actions.setCurrentProgress(String(progress.label ?? progress.detail ?? ''))
+                const label = stringifyOptional(progress.label)
+                const detail = stringifyOptional(progress.detail)
+                actions.setCurrentProgress(label ?? detail ?? '')
+                const step = stringifyOptional(progress.step)
+                const group = stringifyOptional(progress.group)
+                if (step && group && label) {
+                    actions.upsertProgressItem({
+                        group,
+                        step,
+                        status: stringifyOptional(progress.status),
+                        label,
+                        ...(detail !== undefined ? { detail } : {}),
+                    })
+                }
                 return
             }
             if (method === '_posthog/error') {

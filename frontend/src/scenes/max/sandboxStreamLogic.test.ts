@@ -1200,18 +1200,85 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
-        it('renders the emitter label as current progress', async () => {
+        it('renders the emitter label as current progress and stores a progress thread item', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
                         sessionId: 's',
-                        step: 'clone_repository',
+                        step: 'clone',
                         status: 'in_progress',
                         label: 'Cloning repository',
-                        group: 'setup',
+                        group: 'setup:run-1',
                     })
                 )
             }).toMatchValues({ currentProgress: 'Cloning repository' })
+
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'progress-setup:run-1',
+                    type: 'progress',
+                    progressGroup: 'setup:run-1',
+                    progressSteps: [
+                        {
+                            key: 'clone',
+                            status: 'in_progress',
+                            label: 'Cloning repository',
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('coalesces setup progress by group and updates repeated steps in place', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'sandbox',
+                        status: 'in_progress',
+                        label: 'Setting up sandbox',
+                        group: 'setup:run-1',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'sandbox',
+                        status: 'completed',
+                        label: 'Set up sandbox',
+                        group: 'setup:run-1',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'clone',
+                        status: 'in_progress',
+                        label: 'Cloning repository',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'progress-setup:run-1',
+                    type: 'progress',
+                    progressGroup: 'setup:run-1',
+                    progressSteps: [
+                        {
+                            key: 'sandbox',
+                            status: 'completed',
+                            label: 'Set up sandbox',
+                        },
+                        {
+                            key: 'clone',
+                            status: 'in_progress',
+                            label: 'Cloning repository',
+                        },
+                    ],
+                },
+            ])
         })
 
         it('falls back to detail when label is absent', async () => {
@@ -1220,6 +1287,8 @@ describe('sandboxStreamLogic', () => {
                     notification('_posthog/progress', { sessionId: 's', detail: 'PostHog/posthog @ master' })
                 )
             }).toMatchValues({ currentProgress: 'PostHog/posthog @ master' })
+
+            expect(logic.values.threadItems).toEqual([])
         })
     })
 
