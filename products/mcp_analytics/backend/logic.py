@@ -40,7 +40,7 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    AND properties.$mcp_session_id = {session_id}
+    AND $session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
 """
@@ -78,14 +78,19 @@ assert intent_generation.SESSION_EVENTS_LOOKBACK >= MCP_SESSIONS_LOOKBACK, (
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
 
-# One row per $mcp_session_id, aggregated straight from events. The column shape
+# One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
 # if per-team volume ever warrants materialising it. __HAVING__ / __ORDER__ are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
 # value placeholders.
+# NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
+# `$session_id` is a materialised events column; the `properties.` accessor renders it
+# null-wrapped in SELECT but the raw column in HAVING/ORDER, so the search HAVING would
+# mismatch the GROUP BY key and ClickHouse rejects it. The bare field renders the raw
+# column consistently across SELECT/GROUP/HAVING/ORDER.
 _MCP_SESSIONS_SQL = """
 SELECT
-    properties.$mcp_session_id AS session_id,
+    $session_id AS session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
@@ -96,9 +101,9 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    -- coalesce: HogQL property access is nullable (missing key -> NULL) and its
-    -- `!=` is null-tolerant, so a bare `!= ''` would keep keyless events.
-    AND coalesce(properties.$mcp_session_id, '') != ''
+    -- coalesce: $session_id is '' (not NULL) for sessionless events, so a bare
+    -- `!= ''` correctly drops them.
+    AND coalesce($session_id, '') != ''
 GROUP BY session_id
 __HAVING__
 ORDER BY __ORDER__
@@ -148,7 +153,7 @@ def list_mcp_sessions(
 ) -> contracts.MCPSessionsPage:
     """List a page of MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
 
-    One row per $mcp_session_id over the last 24h of $mcp_tool_call events, grouped in ClickHouse and
+    One row per $session_id over the last 24h of $mcp_tool_call events, grouped in ClickHouse and
     scoped to the team so the events sort key prunes the scan. Over-fetches one row
     to report ``has_next`` (replay-style) without a separate count query. Results
     are cached briefly so concurrent dashboard refreshes share a single aggregation.
