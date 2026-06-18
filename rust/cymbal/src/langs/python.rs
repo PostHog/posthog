@@ -278,6 +278,7 @@ impl RawPythonFrame {
             if EXTERNAL_PACKAGE_PATH.is_match(path) || STDLIB_PATH.is_match(path) {
                 return true;
             }
+            return false;
         }
         if EXTERNAL_PACKAGE_PATH.is_match(&self.filename) {
             return true;
@@ -414,6 +415,17 @@ mod test {
                     "filename": "jsonapi/render.py",
                     "function": "render",
                     "module": "jsonapi.render",
+                    "in_app": true,
+                }),
+                true,
+            ),
+            (
+                "app package shadowing a stdlib module stays in_app",
+                serde_json::json!({
+                    "abs_path": "/app/logging/views.py",
+                    "filename": "logging/views.py",
+                    "function": "index",
+                    "module": "logging.views",
                     "in_app": true,
                 }),
                 true,
