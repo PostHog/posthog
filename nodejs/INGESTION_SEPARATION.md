@@ -119,7 +119,11 @@ The baseline only ever shrinks. An empty baseline means the intra-ingestion DAG 
 
 1. `pnpm --filter=@posthog/nodejs check:boundaries` — no new boundary violations.
 2. `pnpm --filter=@posthog/nodejs typecheck` (or `tsc --noEmit`) — compiles.
-3. `pnpm --filter=@posthog/nodejs lint` + `format:check`.
+3. `pnpm --filter=@posthog/nodejs lint` + `format:check`. **After any `bin/rewrite-imports.mjs` run,
+   run `pnpm format` (prettier `--write`) BEFORE checking** — the codemod changes which `importOrder`
+   group a specifier lands in (e.g. `../x` -> `~/x`) but does not re-sort, so `format:check` fails on
+   every rewritten file until you reformat. `eslint` passing is NOT enough; import order is a prettier
+   concern (`@trivago/prettier-plugin-sort-imports`), so always run `format:check` explicitly.
 4. Affected unit tests (the touched lane/shared area) **pass** — no failures, no tests removed.
 5. Diff is moves-only except for the allowlisted change reasons above.
 
@@ -507,3 +511,12 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   hogvm/cyclotron unbuilt-workspace noise in `src/cdp/`). Pushing the merge to make the branch mergeable
   again so CI re-triggers and can finally validate the Phase 4 + 5 backlog. Documented the heuristic in the
   loop plan: if a push triggers no CI, merge master first.
+- CI re-triggered as expected after the master merge (57 checks on `fe138acb`) — heuristic confirmed end to
+  end. First red: `Node.js Code quality` failed on `format:check` (prettier flagged 264 files). Root cause:
+  the Phase 4/5 codemod rewrote ~1000 imports onto `~/` but didn't re-sort them into prettier's
+  `importOrder` groups (`@trivago/prettier-plugin-sort-imports`; `../x` -> `~/x` changes group), and my
+  local gate ran eslint but skipped `format:check` — eslint doesn't own import order here, prettier does.
+  Fix: `pnpm format` (264 files, 625/-546, pure import re-sort + group separation, no logic). Re-validated:
+  prettier check clean, guard 0, eslint 0, static import-resolution 0. Hardened the loop gate to run
+  `pnpm format` after every codemod run and to always run `format:check` explicitly (eslint passing is not
+  sufficient). Pushed; awaiting the next CI round.
