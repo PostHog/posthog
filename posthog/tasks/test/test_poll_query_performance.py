@@ -89,6 +89,10 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    # Stub the inner query worker the task delegates to (a different module that happens to share
+    # the name — not the task under test): the real worker makes extra time.time_ns() calls that
+    # would exhaust the 2-value mock below and flake with StopIteration.
+    @patch("posthog.tasks.poll_query_performance.poll_query_performance", MagicMock())
     @patch("time.time_ns", MagicMock(side_effect=[int(1e9), int(4e9)]))
     def test_poll_query_performance_runs_and_restarts_itself_with_no_delay_if_it_takes_too_long(
         self, mock_delay: MagicMock, mock_logger_error: MagicMock

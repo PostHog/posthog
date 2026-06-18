@@ -6228,6 +6228,8 @@ export interface ExternalDataJob {
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices`). */
+    hogql_name?: string
     columns: DatabaseSchemaField[]
     row_count: number
 }
