@@ -1,20 +1,16 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { bandCenter, computeBarAtIndex, computeSeriesBars, groupedBarCenter } from '../../core/bar-layout'
+import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
-    type BarRect,
     DEFAULT_BAR_CORNER_RADIUS,
-    drawArea,
     drawBarHighlight,
     drawBars,
     drawGrid,
-    drawLine,
     drawLineHoverPoints,
-    drawPoints,
+    drawLineSeriesLayer,
     type DrawContext,
-    withVerticalClip,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -188,45 +184,34 @@ function ComboChartInner<Meta = unknown>({
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
-            // `comboScales` is structurally a `BarScaleSet`; `computeSeriesBars` resolves each
-            // series' own axis (`yAxes[id] ?? value`), so dual-axis bars draw against the right scale.
-            for (const s of barSeries) {
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const bars = computeSeriesBars({
-                    series: s,
-                    labels: drawLabels,
-                    scales: comboScales,
-                    layout: barLayout,
-                    isHorizontal: false,
-                    stackedBand: barStackedData?.get(s.key),
-                    isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
-                }).filter((b): b is BarRect => b !== null)
+            // `comboScales` is structurally a `BarScaleSet`; `buildBarLayers` (shared with BarChart)
+            // resolves each series' own axis (`yAxes[id] ?? value`), so dual-axis bars draw correctly.
+            const barLayers = buildBarLayers({
+                series: barSeries,
+                labels: drawLabels,
+                scales: comboScales,
+                layout: barLayout,
+                isHorizontal: false,
+                stackedData: barStackedData,
+                topStackedKeyByAxis,
+            })
+            for (const { series: s, bars } of barLayers) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
 
-            // ── 2. Area fills first, then lines + points. Two passes so every area sits below every
-            //      line regardless of input order — a single per-series loop would paint a later
-            //      area over an earlier line. Clipped vertically (shared with LineChart).
-            withVerticalClip(ctx, dimensions, () => {
-                for (const s of lineSeries) {
-                    if (seriesTypeOf(s) !== 'area' && !s.fill) {
-                        continue
-                    }
-                    drawArea(
-                        { ...baseDrawCtx, yScale: resolveYScaleForSeries(comboScales, s) },
-                        s,
-                        undefined,
-                        s.fill?.lowerData
-                    )
-                }
-                for (const s of lineSeries) {
-                    if (s.fill?.lowerData) {
-                        continue
-                    }
-                    const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScaleForSeries(comboScales, s) }
-                    drawLine(drawCtx, s)
-                    drawPoints(drawCtx, s)
-                }
+            // ── 2. Lines + areas (shared with LineChart). `areas-first` so every area sits below
+            //      every line regardless of input order; combo lines aren't stacked, so the raw data
+            //      is used and a series counts as filled when its type is 'area' or it sets `fill`.
+            drawLineSeriesLayer({
+                ctx,
+                dimensions,
+                labels: drawLabels,
+                series: lineSeries,
+                xScale: (label) => bandCenter(comboScales, label),
+                resolveYScale: (s) => resolveYScaleForSeries(comboScales, s),
+                shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
+                bottomFor: (s) => s.fill?.lowerData,
+                zOrder: 'areas-first',
             })
         },
         [seriesTypeOf, showGrid, xTickFormatter, barLayout, barStackedData, topStackedKeyByAxis, barCornerRadius]
