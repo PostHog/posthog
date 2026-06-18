@@ -37,29 +37,31 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const typeKey = `${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`
 
     return (
-        <ActionFilter
-            ref={ref}
-            setFilters={setFilters}
-            filters={exclusionFilters}
-            typeKey={typeKey}
-            addFilterDefaultOptions={{
-                id: '$pageview',
-                name: '$pageview',
-                type: EntityTypes.EVENTS,
-                funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
-                funnel_to_step: exclusionDefaultStepRange.funnelToStep,
-            }}
-            disabled={!isFunnelWithEnoughSteps}
-            buttonCopy="Add exclusion"
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-            mathAvailability={MathAvailability.None}
-            hideFilter
-            hideRename
-            hideDeleteBtn
-            seriesIndicatorType="alpha"
-            renderRow={(props) => <ExclusionRow {...props} />}
-            customRowSuffix={(props) => <ExclusionRowSuffix typeKey={typeKey} {...props} />}
-            filtersLeftPadding={true}
-        />
+        <div data-attr="funnel-exclusions-filter">
+            <ActionFilter
+                ref={ref}
+                setFilters={setFilters}
+                filters={exclusionFilters}
+                typeKey={typeKey}
+                addFilterDefaultOptions={{
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                    funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
+                    funnel_to_step: exclusionDefaultStepRange.funnelToStep,
+                }}
+                disabled={!isFunnelWithEnoughSteps}
+                buttonCopy="Add exclusion"
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                mathAvailability={MathAvailability.None}
+                hideFilter
+                hideRename
+                hideDeleteBtn
+                seriesIndicatorType="alpha"
+                renderRow={(props) => <ExclusionRow {...props} />}
+                customRowSuffix={(props) => <ExclusionRowSuffix typeKey={typeKey} {...props} />}
+                filtersLeftPadding={true}
+            />
+        </div>
     )
 }

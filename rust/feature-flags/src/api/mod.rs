@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod batch_flag_evaluation;
 pub mod body_read_metrics;
 pub mod concurrency_metrics;
 pub mod endpoint;
@@ -9,4 +10,5 @@ pub mod flags_rate_limiter;
 pub mod instance_setting;
 pub mod pak_usage;
 pub mod rate_parser;
+pub mod remote_config;
 pub mod types;

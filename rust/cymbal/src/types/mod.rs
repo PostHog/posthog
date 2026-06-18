@@ -14,7 +14,7 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
-use crate::langs::apple::AppleDebugImage;
+use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 use crate::tokenizer::CL100K_BPE;
 
@@ -143,7 +143,7 @@ pub struct RawErrProps {
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub debug_images: Vec<AppleDebugImage>, // Debug images from iOS/macOS crash reports for symbolication
+    pub debug_images: Vec<DebugImage>, // Debug images sent by native SDKs (apple, rust) for symbolication
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -334,16 +334,18 @@ impl FingerprintedErrProps {
     }
 }
 
+// Deduplicates while preserving first-seen order, so derived properties
+// ($exception_types, $exception_values, ...) follow the $exception_list order.
 fn unique_by<T, I, F, K>(items: I, key_extractor: F) -> Vec<K>
 where
     I: Iterator<Item = T>,
     F: Fn(T) -> Option<K>,
     K: Eq + Hash + Clone,
 {
+    let mut seen = HashSet::new();
     items
         .filter_map(key_extractor)
-        .collect::<HashSet<_>>()
-        .into_iter()
+        .filter(|key| seen.insert(key.clone()))
         .collect()
 }
 
@@ -498,6 +500,7 @@ impl Stacktrace {
         &self,
         team_id: i32,
         lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+        debug_images: &[DebugImage],
     ) -> Option<Self> {
         let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
@@ -505,7 +508,7 @@ impl Stacktrace {
 
         let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
         for raw_frame in raw_frames {
-            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+            match lookup_table.get(&raw_frame.raw_id(team_id, debug_images)) {
                 Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }
@@ -541,7 +544,7 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::RawErrProps;
+    use super::{Exception, ExceptionList, RawErrProps};
 
     #[test]
     fn it_deserialises_error_props() {
@@ -627,6 +630,33 @@ mod test {
         assert_eq!(
             props.unwrap_err().to_string(),
             "missing field `type` at line 5 column 13"
+        );
+    }
+
+    #[test]
+    fn unique_properties_preserve_exception_list_order() {
+        let make_exception = |t: &str, v: &str| Exception {
+            exception_id: None,
+            exception_type: t.to_string(),
+            exception_message: v.to_string(),
+            mechanism: None,
+            module: None,
+            thread_id: None,
+            stack: None,
+        };
+
+        let list: ExceptionList = vec![
+            make_exception("ZError", "z happened"),
+            make_exception("AError", "a happened"),
+            make_exception("ZError", "z happened"),
+            make_exception("MError", "m happened"),
+        ]
+        .into();
+
+        assert_eq!(list.get_unique_types(), vec!["ZError", "AError", "MError"]);
+        assert_eq!(
+            list.get_unique_messages(),
+            vec!["z happened", "a happened", "m happened"]
         );
     }
 }

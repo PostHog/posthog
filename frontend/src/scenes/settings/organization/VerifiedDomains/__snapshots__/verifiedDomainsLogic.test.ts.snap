@@ -30,6 +30,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "isSSOEnforcementAvailable": false,
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
+  "isXAAAuthenticationAvailable": false,
   "samlConfig": {},
   "samlConfigAllErrors": {
     "saml_acs_url": undefined,

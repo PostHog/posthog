@@ -130,10 +130,14 @@ frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
 frontend/dist-report/
+frontend/eager-graph-report*.json
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
+
+# CI log downloads (gh-logs-grab / gh run download)
+/logs/
 
 # Watchman cache
 .watchman-cookie-*

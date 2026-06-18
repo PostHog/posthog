@@ -104,6 +104,16 @@ export function getToolDefinition(toolName: string): ToolDefinition {
     return definition
 }
 
+/**
+ * The product category a tool belongs to (e.g. "Logs", "Tracing"), or undefined
+ * for tools without a catalogued definition (e.g. the `exec` wrapper). Unlike
+ * {@link getToolDefinition} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolCategory(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.category
+}
+
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined

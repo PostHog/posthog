@@ -1,3 +1,4 @@
+import re
 import json
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
@@ -49,6 +50,20 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+
+
+def sanitize_for_system_reminder(text: str) -> str:
+    """Neutralize system_reminder tags to prevent framing spoofs in user-provided content."""
+    return re.sub(r"<(\s*/?\s*system_reminder\b[^>]*)>", r"&lt;\1&gt;", text, flags=re.IGNORECASE)
+
+
+BK_DRILLDOWN_HANDLE_RE = re.compile(r"`?\[bk-doc=[^\]]*\]`?")
+
+
+def strip_bk_drilldown_handles(text: str) -> str:
+    """Remove BK drill-down handles from text. No-op when absent."""
+    result = BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    return re.sub(r"  +", " ", result)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -355,6 +370,10 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
     if isinstance(message, AIMessageChunk):
         for i, final_message in enumerate(messages):
             final_message.id = f"temp-{i}"  # Assign each ephemeral message an index-based temp ID
+
+    for msg in messages:
+        if msg.content:
+            msg.content = strip_bk_drilldown_handles(msg.content)
 
     return messages
 

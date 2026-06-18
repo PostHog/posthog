@@ -148,7 +148,7 @@ describe('LogsSamplingService', () => {
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
             baseLog('a', 'api', 300),
             baseLog('b', 'api', 400),
-            baseLog('c', 'api', 500),
+            { ...baseLog('c', 'api', 500), attributes: { k: 'vv' }, event_name: 'evt' },
         ])
 
         const mockRedis: RedisV2 = {
@@ -168,6 +168,11 @@ describe('LogsSamplingService', () => {
         expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
         expect(result.bytesDropped).toBe(500)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(500)
+        // Billing pro-rate weights are customer-content bytes (body + attributes + event_name),
+        // independent of the per-row bytes_uncompressed field used for rate limiting:
+        // rows a,b = body 'x' (1 each); dropped row c = body(1) + attrs 'k'+'vv'(3) + 'evt'(3) = 7.
+        expect(result.contentBytesTotal).toBe(9)
+        expect(result.contentBytesDropped).toBe(7)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)
@@ -208,6 +213,10 @@ describe('LogsSamplingService', () => {
         expect(result.recordsDropped).toBe(1)
         expect(result.bytesDropped).toBe(1000)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(1000)
+        // Content weights don't depend on the per-row bytes_uncompressed field at all:
+        // the null-field row still weighs its body bytes (1 each, 3 rows, 1 dropped).
+        expect(result.contentBytesTotal).toBe(3)
+        expect(result.contentBytesDropped).toBe(1)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)

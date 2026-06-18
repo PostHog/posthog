@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'

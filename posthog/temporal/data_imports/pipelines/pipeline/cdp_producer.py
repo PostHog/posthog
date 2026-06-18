@@ -1,5 +1,7 @@
 import json
+import uuid
 import asyncio
+import hashlib
 
 from django.conf import settings
 
@@ -67,18 +69,28 @@ class CDPProducer:
             except FileNotFoundError:
                 return []
 
-    def _serialize_json(self, record: object) -> bytes:
+    def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
         try:
-            return orjson.dumps(record)
+            return orjson.dumps(record, option=orjson.OPT_SORT_KEYS if sort_keys else None)
         except TypeError:
             try:
-                return json.dumps(record).encode("utf-8")
+                return json.dumps(record, sort_keys=sort_keys).encode("utf-8")
             except Exception as e:
                 if isinstance(record, dict):
                     record = {str(k): str(v) for k, v in record.items()}
-                    return json.dumps(record).encode("utf-8")
+                    return json.dumps(record, sort_keys=sort_keys).encode("utf-8")
 
                 raise ValueError("Could not serialize record to JSON") from e
+
+    def _build_event_id(self, row: object) -> str:
+        """Build a deterministic event id that is unique per row per job.
+
+        The row is hashed (sorted keys so re-runs of the same job produce the same hash)
+        and combined with the job id, so the id is stable for the same row + job but
+        changes whenever the row's data changes.
+        """
+        row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
+        return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{self.job_id}:{row_hash}"))
 
     async def should_produce_table(self) -> bool:
         if self._should_produce_cache is not None:
@@ -152,7 +164,11 @@ class CDPProducer:
 
                         for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
-                                row_as_props = {"team_id": self.team_id, "properties": row}
+                                row_as_props = {
+                                    "team_id": self.team_id,
+                                    "event_id": self._build_event_id(row),
+                                    "properties": row,
+                                }
                                 await kafka_producer.produce(
                                     topic=KAFKA_DWH_CDP_RAW_TABLE,
                                     data=row_as_props,

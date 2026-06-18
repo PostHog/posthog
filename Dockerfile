@@ -282,14 +282,14 @@ RUN apt-get update && \
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "chromium" \
-    "chromium-driver" \
     "gettext-base" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "libssl3=3.0.19-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl3=3.0.*" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -359,15 +359,6 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install the system dependencies (fonts, shared libs) that headless Chromium screenshots need,
-# but NOT the Playwright-bundled Chromium binary. Heatmap screenshots drive the system chromium
-# (CHROME_BIN) — the same engine the selenium image-export path uses — so we avoid shipping a
-# second, duplicate ~170MB browser. (See _launch_local_browser in heatmap_screenshot.py.)
-USER root
-RUN /python-runtime/bin/python -m playwright install-deps chromium && \
-    rm -rf /var/lib/apt/lists/*
-USER posthog
-
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
 # where the JS sourcemaps have already been stripped.
@@ -400,19 +391,13 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
-# Validate browser dependencies
+# Validate the Playwright client library (used to drive the remote browserless service over CDP —
+# no browser binary ships in this image).
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-# Build-time smoke test: prove the system Chromium actually launches through Playwright and renders a
-# page (the heatmap path uses executable_path=$CHROME_BIN). A missing shared lib or broken chromium
-# fails the build here instead of silently at runtime now that no Playwright browser is bundled.
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage']); pg=b.new_page(); pg.set_content('<h1>ok</h1>'); assert pg.screenshot(), 'empty screenshot'; b.close(); p.stop(); print('chromium launch smoke test OK')"
 
 # Setup ENV.
-ENV NODE_ENV=production \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+ENV NODE_ENV=production
 
 # Expose container port and run entry point script.
 EXPOSE 8000

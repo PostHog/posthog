@@ -45,6 +45,29 @@ describe('legendToggle', () => {
                 expected: false,
             },
             {
+                title: 'funnels historical trends with breakdown',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: 'trends' },
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                },
+                expected: true,
+            },
+            {
+                title: 'funnels historical trends without breakdown',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: 'trends' },
+                    },
+                },
+                expected: false,
+            },
+            {
                 title: 'lifecycle',
                 query: {
                     kind: NodeKind.InsightVizNode,
@@ -88,6 +111,11 @@ describe('legendToggle', () => {
             {
                 kind: NodeKind.LifecycleQuery,
                 filterKey: 'lifecycleFilter',
+                display: undefined,
+            },
+            {
+                kind: NodeKind.FunnelsQuery,
+                filterKey: 'funnelsFilter',
                 display: undefined,
             },
         ])('sets showLegend true when unset ($kind)', ({ kind, filterKey, display }) => {
@@ -145,6 +173,23 @@ describe('legendToggle', () => {
             } as any
 
             expect(getLegendToggleText(query)).toBe('Show legend')
+        })
+
+        it('reflects toggle state for funnels historical trends', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    funnelsFilter: { funnelVizType: 'trends' },
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                },
+            } as any
+
+            expect(getLegendToggleText(query)).toBe('Show legend')
+
+            const next = toggleLegendInInsightQuery(query) as any
+            expect(next.source.funnelsFilter?.showLegend).toBe(true)
+            expect(getLegendToggleText(next)).toBe('Hide legend')
         })
 
         it('after toggling unset legend, label reads hide', () => {

@@ -6,7 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+type ConstantDataType = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "map", "date", "datetime", "uuid", "unknown"
+]
 type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
 type ConstantSupportedData = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
@@ -46,7 +48,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql"]
 
 type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
 

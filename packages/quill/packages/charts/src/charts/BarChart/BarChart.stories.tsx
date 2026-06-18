@@ -108,6 +108,32 @@ export const HorizontalAggregatedSingle: Story = {
     },
 }
 
+// Exercises the horizontal value-tick de-overlap: wide thousands-separated labels (millions) in a
+// compact panel, where consecutive ticks genuinely collide. The de-overlap pass hides the colliding
+// ones so the axis reads cleanly instead of smearing into "0 500,0001,000,000…" — gridlines stay at
+// every tick, labels only at the survivors. Remove the pass and the labels overlap again; the exact
+// gap that decides which survive is pinned by AxisLabels.test.ts.
+export const HorizontalWideValueLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = {
+            axisOrientation: 'horizontal',
+            showGrid: true,
+            yTickFormatter: (v) => v.toLocaleString('en-US'),
+            bars: { cornerRadius: 4, fitToHeight: true },
+        }
+        const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
+        const series: Series[] = [
+            { key: 'views', label: 'Views', color: '', data: [2_300_000, 1_510_000, 940_000, 460_000, 180_000] },
+        ]
+        return (
+            <Stage width={340} height={280}>
+                <BarChart series={series} labels={labels} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const SingleSeries: Story = {
     render: () => {
         const theme = useReactiveTheme()

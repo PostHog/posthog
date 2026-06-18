@@ -23,6 +23,14 @@ class GithubRetryableError(Exception):
     pass
 
 
+class GithubEmptyRepositoryError(Exception):
+    """GitHub returns 409 "Git Repository is empty." on the commits endpoint for
+    a freshly created repo with no commits. `fetch_page` raises this so the
+    caller can sync zero rows without re-parsing the response body."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -134,6 +142,22 @@ def _parse_next_url(link_header: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def _is_empty_repository_response(response: requests.Response) -> bool:
+    """GitHub returns 409 Conflict on the commits endpoint when the repository
+    has no commits yet (e.g. a freshly created, empty repo), with a stable
+    "Git Repository is empty." message in the body. This is a valid, benign
+    state — not a credential or config problem — so callers sync zero rows
+    rather than raising (which otherwise retries the activity indefinitely)."""
+    if response.status_code != 409:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "repository is empty" in message.lower()
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -315,6 +339,12 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
+        # An empty repository (no commits yet) returns 409 on the commits
+        # endpoint. Signal it so the loop can sync zero rows without raising
+        # a hard error (which would otherwise retry the activity indefinitely).
+        if _is_empty_repository_response(response):
+            raise GithubEmptyRepositoryError()
+
         if not response.ok:
             logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
@@ -322,7 +352,11 @@ def get_rows(
         return response
 
     while True:
-        response = fetch_page(url)
+        try:
+            response = fetch_page(url)
+        except GithubEmptyRepositoryError:
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            break
 
         data = response.json()
         # Most GitHub list endpoints return a JSON array at the top level,

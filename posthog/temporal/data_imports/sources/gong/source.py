@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -35,9 +36,9 @@ class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GONG,
+            category=DataWarehouseSourceCategory.SALES,
             label="Gong",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Gong API credentials to pull your Gong data into the PostHog Data warehouse.
 
 Create an **Access Key** and **Access Key Secret** in Gong under **Company Settings > Ecosystem > API**.

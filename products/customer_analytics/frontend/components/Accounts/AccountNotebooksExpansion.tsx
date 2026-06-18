@@ -14,7 +14,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -200,6 +200,17 @@ export function AccountNotebooksExpansion({
                                         accountId={accountId}
                                         externalId={externalId}
                                         kind="usage"
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'spend',
+                                label: 'Spend',
+                                content: (
+                                    <AccountBillingExpansion
+                                        accountId={accountId}
+                                        externalId={externalId}
+                                        kind="spend"
                                     />
                                 ),
                             },

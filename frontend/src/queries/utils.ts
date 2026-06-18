@@ -407,8 +407,14 @@ export function isInsightQueryWithBreakdown(
 
 export function isInsightQueryWithCompare(
     node?: Record<string, any> | null
-): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery | FunnelsQuery {
+    return (
+        isTrendsQuery(node) ||
+        isStickinessQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node) ||
+        isFunnelsQuery(node)
+    )
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -562,6 +568,8 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showLegend
     }
     return undefined
 }
@@ -598,6 +606,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
     }
     return undefined
 }

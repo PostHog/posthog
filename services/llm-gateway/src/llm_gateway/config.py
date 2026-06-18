@@ -158,6 +158,11 @@ class Settings(BaseSettings):
 
     team_rate_limit_multipliers: dict[int, int] = {}
 
+    # Additional elevated cap for PostHog staff, keyed on the authenticated
+    # user's is_staff flag rather than team id, so it survives impersonation.
+    # Combined with the team multiplier by taking the larger of the two.
+    staff_rate_limit_multiplier: int = 10
+
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
@@ -193,6 +198,13 @@ class Settings(BaseSettings):
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
+
+    @field_validator("staff_rate_limit_multiplier")
+    @classmethod
+    def validate_staff_rate_limit_multiplier(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"staff_rate_limit_multiplier must be >= 1, got {v}")
+        return v
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod

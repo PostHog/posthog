@@ -144,6 +144,27 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def __str__(self):
         return f"{self.key} ({self.pk})"
 
+    def _tombstone_suffix(self) -> str:
+        # Soft-deleting a flag that's still referenced (e.g. by a stopped experiment)
+        # renames its key to free the original for reuse. This is the single source of
+        # truth for that suffix — both tombstoned_key() and key_without_tombstone() use it.
+        return f":deleted:{self.id}"
+
+    def tombstoned_key(self) -> str:
+        # The key to store when soft-deleting this flag. The id keeps it unique while
+        # freeing the original key for a new flag.
+        return f"{self.key}{self._tombstone_suffix()}"
+
+    def key_without_tombstone(self) -> str:
+        # The original key, with the soft-delete tombstone stripped. Readers that need
+        # the pre-deletion key (e.g. experiment query runners resolving historical
+        # events) call this. Only strips when the flag is actually deleted, so a live
+        # flag whose key coincidentally ends this way is left untouched.
+        suffix = self._tombstone_suffix()
+        if self.deleted and self.key.endswith(suffix):
+            return self.key[: -len(suffix)]
+        return self.key
+
     def clean(self) -> None:
         """Reject encrypted payloads on non-remote-config flags.
 
@@ -259,10 +280,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return None
 
     def get_filters(self) -> dict:
-        if not self.filters:
-            return {"groups": []}
-        if "groups" not in self.filters:
-            return {**self.filters, "groups": []}
         return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(

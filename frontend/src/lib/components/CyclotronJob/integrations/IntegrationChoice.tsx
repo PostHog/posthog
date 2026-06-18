@@ -10,6 +10,7 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
+import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
 // Side-effect import: register all integration setups
@@ -38,7 +39,7 @@ export function IntegrationChoice({
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+    const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
@@ -124,7 +125,7 @@ export function IntegrationChoice({
                                       />
                                   ),
                                   onClick: () => onChange?.(integ.id),
-                                  active: integ.id === value,
+                                  active: matchesIntegrationIdValue(integ.id, value),
                                   label: integ.display_name,
                               })) || []),
                           ],

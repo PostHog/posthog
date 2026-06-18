@@ -1,14 +1,29 @@
 import os
 import logging
+import warnings
 import threading
 
 import structlog
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, IS_INTERACTIVE_SHELL, TEST
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
-DEFAULT_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
+
+# The level the interactive shell command restores once the REPL is ready — see
+# posthog/management/commands/shell.py. Startup is forced to ERROR below so app-ready
+# logs don't clutter the prompt; this is what logging looks like inside the session.
+SHELL_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
+DEFAULT_LOG_LEVEL = "ERROR" if IS_INTERACTIVE_SHELL else os.getenv("DJANGO_LOG_LEVEL", "ERROR" if TEST else "INFO")
+
+# Third-party warnings that fire during `django.setup()`, before any command's handle()
+# runs. They are pure noise in a REPL, so drop them only for interactive shells.
+if IS_INTERACTIVE_SHELL:
+    warnings.filterwarnings("ignore", message=r"pkg_resources is deprecated.*", category=UserWarning)
+    warnings.filterwarnings(
+        "ignore", message=r"Accessing the database during app initialization.*", category=RuntimeWarning
+    )
 
 
 class FilterStatsd(logging.Filter):

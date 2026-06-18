@@ -8,38 +8,82 @@ import pandas as pd
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models.team import Team
+
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+    GitHubTables,
+)
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
+)
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
-_PULL_REQUESTS_COLUMNS = {
-    "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "number": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "title": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "state": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "draft": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
-    "created_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "updated_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "merged_at": {"clickhouse": "Nullable(DateTime64(3, 'UTC'))", "hogql": "DateTimeDatabaseField"},
-    "closed_at": {"clickhouse": "Nullable(DateTime64(3, 'UTC'))", "hogql": "DateTimeDatabaseField"},
-    "user": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "head": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "base": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "labels": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-}
+# Non-default prefix on purpose: every fixture below lands tables named
+# `myprefixgithub_*`, so the resolver and builders are proven against a name the old
+# hardcoded `github_*` constants would never have matched.
+GITHUB_SOURCE_PREFIX = "myprefix"
 
-_WORKFLOW_RUNS_COLUMNS = {
-    "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
-    "name": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "head_sha": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "status": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-    "conclusion": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
-    "created_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "run_started_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "updated_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
-    "repository": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-}
+
+def create_github_source(
+    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, source_id: str = "gh-source"
+) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.GITHUB,
+        prefix=prefix,
+    )
+
+
+def link_schema(
+    team: Team,
+    source: ExternalDataSource,
+    *,
+    name: str,
+    table: DataWarehouseTable | None,
+    should_sync: bool = True,
+) -> ExternalDataSchema:
+    return ExternalDataSchema.objects.create(team=team, source=source, name=name, table=table, should_sync=should_sync)
+
+
+def create_warehouse_table_row(
+    team: Team, *, name: str, source: ExternalDataSource | None = None
+) -> DataWarehouseTable:
+    # ORM-only table (no object storage); for resolver/mapping tests that mock the query.
+    return DataWarehouseTable.objects.create(
+        team=team,
+        name=name,
+        format=DataWarehouseTable.TableFormat.CSVWithNames,
+        url_pattern="",
+        external_data_source=source,
+        columns={},
+    )
+
+
+def connect_github_source_without_data(team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX) -> GitHubTables:
+    """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
+
+    The resolver finds these without touching object storage; pair with a mocked query
+    when only resolution (not real warehouse data) matters.
+    """
+    source = create_github_source(team, prefix=prefix)
+    pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
+    run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
+    link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
+    link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
+    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name)
 
 
 def _user(login: str) -> str:
@@ -112,30 +156,33 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     warehouse tables. Skips when object storage is unreachable so the suite still
     runs without the dev stack."""
 
-    def _create_table(self, name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+    def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
+        # Returns the real table name (prefixed), which the builder is then told to read —
+        # proving build_query honors the resolved name instead of a hardcoded one.
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
-            _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name=name,
+                table_name=base_name,
                 table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
-                source_prefix="",
+                source_prefix=GITHUB_SOURCE_PREFIX,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
+        return table.name
 
     def _select(self, sql: str) -> list[tuple]:
         return execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
 
     def test_pull_requests_view_maps_columns(self) -> None:
-        self._create_table(
+        table_name = self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
             [
@@ -157,7 +204,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         rows = self._select(
             "SELECT number, author_handle, is_bot, repo_owner, repo_name, labels, state, is_draft, "
             "head_sha, open_to_merge_seconds "
-            f"FROM ({pull_requests.build_query()}) AS pr ORDER BY number"
+            f"FROM ({pull_requests.build_query(table_name)}) AS pr ORDER BY number"
         )
 
         by_number = {row[0]: row for row in rows}
@@ -181,7 +228,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert by_number[12][9] is None
 
     def test_workflow_runs_view_maps_columns(self) -> None:
-        self._create_table(
+        table_name = self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
@@ -193,7 +240,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
 
         rows = self._select(
             "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name "
-            f"FROM ({workflow_runs.build_query()}) AS r ORDER BY id"
+            f"FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
         )
 
         # completed runs carry a duration; in-progress run has null duration and null conclusion

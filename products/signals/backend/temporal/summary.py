@@ -20,6 +20,7 @@ from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -43,7 +44,11 @@ from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportOutput,
     fetch_signals_for_report_activity,
 )
-from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
+    SignalData,
+    SignalReportSummaryWorkflowInputs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -395,6 +400,7 @@ class MarkReportInProgressInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -457,6 +463,7 @@ class MarkReportReadyInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -471,7 +478,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
-            has_new_signals = report.signal_count > input.processed_signal_count
+            # Loop to re-research only if new signals arrived and we're within the cap; past
+            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
+            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
@@ -527,6 +536,7 @@ class MarkReportFailedInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -587,6 +597,7 @@ class MarkReportPendingInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -646,6 +657,7 @@ class ResetReportToPotentialInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:

@@ -9,7 +9,7 @@ import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Ingesti
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import {
     ReplayPlatform,
     replayTriggersLogic,
@@ -37,13 +37,14 @@ function AnyWith100SamplingWarning({
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
 
     const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
-    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+    const sampleRate = toDisplaySampleRate(storedSampleRate)
     const hasOtherCondition =
         (urlTriggerConfig?.length ?? 0) > 0 ||
         (eventTriggerConfig?.length ?? 0) > 0 ||
         !!currentTeam?.session_recording_linked_flag
 
-    if (matchType !== 'any' || sampleRate !== 100 || !hasOtherCondition) {
+    if (matchType !== 'any' || sampleRate !== 100 || storedSampleRate == null || !hasOtherCondition) {
         return null
     }
 
@@ -242,6 +243,8 @@ function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-col gap-2">
@@ -254,9 +257,10 @@ function Sampling(): JSX.Element {
                             ios={{ version: '3.42.0' }}
                             reactNative={{ version: '4.37.0' }}
                         />
+                        {storedSampleRate == null && <span className="text-muted font-normal"> (default)</span>}
                     </LemonLabel>
                     <IngestionControls.SamplingTrigger
-                        initialSampleRate={toDisplaySampleRate(currentTeam?.session_recording_sample_rate)}
+                        initialSampleRate={toDisplaySampleRate(storedSampleRate)}
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                     />
                 </div>
@@ -269,7 +273,8 @@ function Sampling(): JSX.Element {
 function MobileSampling(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
-    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+    const sampleRate = toDisplaySampleRate(storedSampleRate)
 
     return (
         <div className="flex flex-col gap-2">
@@ -283,7 +288,9 @@ function MobileSampling(): JSX.Element {
                     />
                 </LemonLabel>
                 <Tooltip title="Sample rate is shared across web and mobile. Change it on the Web tab.">
-                    <span className="text-muted font-semibold">{sampleRate}%</span>
+                    <span className="text-muted font-semibold">
+                        {sampleRate}%{storedSampleRate == null && <span className="font-normal"> (default)</span>}
+                    </span>
                 </Tooltip>
             </div>
             <p className="text-muted-alt">

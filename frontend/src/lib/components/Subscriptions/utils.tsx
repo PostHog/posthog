@@ -4,7 +4,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'

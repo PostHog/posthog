@@ -226,6 +226,8 @@ export interface VisionQuotaApi {
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
+    /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    readonly projected_monthly_observations: number
 }
 
 export interface ReplayScannerApi {
@@ -269,6 +271,11 @@ export interface ReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -327,6 +334,11 @@ export interface PatchedReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations?: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -588,7 +600,7 @@ export type VisionScannersObservationsListParams = {
      */
     order_by?: string
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string
     /**
@@ -611,7 +623,11 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * Filter to observations of a specific session recording.
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string
     /**

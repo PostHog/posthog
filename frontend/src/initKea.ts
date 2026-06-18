@@ -9,8 +9,8 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -32,6 +32,14 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
+
+/*
+Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
+reach the backend), not application bugs, so we still toast the user a retryable failure but
+don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
+issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+*/
+const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -132,7 +140,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,

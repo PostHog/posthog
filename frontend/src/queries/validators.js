@@ -5914,6 +5914,11 @@ const schema63 = {
         response: { type: 'object' },
         sharedMetricId: { type: 'number' },
         source: { $ref: '#/definitions/ExperimentMetricSource' },
+        threshold: {
+            description:
+                'When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.',
+            type: 'number',
+        },
         upper_bound_percentile: {
             description:
                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).',
@@ -10140,43 +10145,49 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             var valid0 = true
                                                                         }
                                                                         if (valid0) {
-                                                                            if (
-                                                                                data.upper_bound_percentile !==
-                                                                                undefined
-                                                                            ) {
-                                                                                let data14 = data.upper_bound_percentile
+                                                                            if (data.threshold !== undefined) {
+                                                                                let data14 = data.threshold
                                                                                 const _errs31 = errors
-                                                                                if (errors === _errs31) {
-                                                                                    if (
+                                                                                if (
+                                                                                    !(
                                                                                         typeof data14 == 'number' &&
                                                                                         isFinite(data14)
-                                                                                    ) {
+                                                                                    )
+                                                                                ) {
+                                                                                    validate79.errors = [
+                                                                                        {
+                                                                                            instancePath:
+                                                                                                instancePath +
+                                                                                                '/threshold',
+                                                                                            schemaPath:
+                                                                                                '#/properties/threshold/type',
+                                                                                            keyword: 'type',
+                                                                                            params: { type: 'number' },
+                                                                                            message: 'must be number',
+                                                                                        },
+                                                                                    ]
+                                                                                    return false
+                                                                                }
+                                                                                var valid0 = _errs31 === errors
+                                                                            } else {
+                                                                                var valid0 = true
+                                                                            }
+                                                                            if (valid0) {
+                                                                                if (
+                                                                                    data.upper_bound_percentile !==
+                                                                                    undefined
+                                                                                ) {
+                                                                                    let data15 =
+                                                                                        data.upper_bound_percentile
+                                                                                    const _errs33 = errors
+                                                                                    if (errors === _errs33) {
                                                                                         if (
-                                                                                            data14 > 1 ||
-                                                                                            isNaN(data14)
+                                                                                            typeof data15 == 'number' &&
+                                                                                            isFinite(data15)
                                                                                         ) {
-                                                                                            validate79.errors = [
-                                                                                                {
-                                                                                                    instancePath:
-                                                                                                        instancePath +
-                                                                                                        '/upper_bound_percentile',
-                                                                                                    schemaPath:
-                                                                                                        '#/properties/upper_bound_percentile/maximum',
-                                                                                                    keyword: 'maximum',
-                                                                                                    params: {
-                                                                                                        comparison:
-                                                                                                            '<=',
-                                                                                                        limit: 1,
-                                                                                                    },
-                                                                                                    message:
-                                                                                                        'must be <= 1',
-                                                                                                },
-                                                                                            ]
-                                                                                            return false
-                                                                                        } else {
                                                                                             if (
-                                                                                                data14 < 0 ||
-                                                                                                isNaN(data14)
+                                                                                                data15 > 1 ||
+                                                                                                isNaN(data15)
                                                                                             ) {
                                                                                                 validate79.errors = [
                                                                                                     {
@@ -10184,87 +10195,54 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                             instancePath +
                                                                                                             '/upper_bound_percentile',
                                                                                                         schemaPath:
-                                                                                                            '#/properties/upper_bound_percentile/minimum',
+                                                                                                            '#/properties/upper_bound_percentile/maximum',
                                                                                                         keyword:
-                                                                                                            'minimum',
+                                                                                                            'maximum',
                                                                                                         params: {
                                                                                                             comparison:
-                                                                                                                '>=',
-                                                                                                            limit: 0,
+                                                                                                                '<=',
+                                                                                                            limit: 1,
                                                                                                         },
                                                                                                         message:
-                                                                                                            'must be >= 0',
+                                                                                                            'must be <= 1',
                                                                                                     },
                                                                                                 ]
                                                                                                 return false
+                                                                                            } else {
+                                                                                                if (
+                                                                                                    data15 < 0 ||
+                                                                                                    isNaN(data15)
+                                                                                                ) {
+                                                                                                    validate79.errors =
+                                                                                                        [
+                                                                                                            {
+                                                                                                                instancePath:
+                                                                                                                    instancePath +
+                                                                                                                    '/upper_bound_percentile',
+                                                                                                                schemaPath:
+                                                                                                                    '#/properties/upper_bound_percentile/minimum',
+                                                                                                                keyword:
+                                                                                                                    'minimum',
+                                                                                                                params: {
+                                                                                                                    comparison:
+                                                                                                                        '>=',
+                                                                                                                    limit: 0,
+                                                                                                                },
+                                                                                                                message:
+                                                                                                                    'must be >= 0',
+                                                                                                            },
+                                                                                                        ]
+                                                                                                    return false
+                                                                                                }
                                                                                             }
-                                                                                        }
-                                                                                    } else {
-                                                                                        validate79.errors = [
-                                                                                            {
-                                                                                                instancePath:
-                                                                                                    instancePath +
-                                                                                                    '/upper_bound_percentile',
-                                                                                                schemaPath:
-                                                                                                    '#/properties/upper_bound_percentile/type',
-                                                                                                keyword: 'type',
-                                                                                                params: {
-                                                                                                    type: 'number',
-                                                                                                },
-                                                                                                message:
-                                                                                                    'must be number',
-                                                                                            },
-                                                                                        ]
-                                                                                        return false
-                                                                                    }
-                                                                                }
-                                                                                var valid0 = _errs31 === errors
-                                                                            } else {
-                                                                                var valid0 = true
-                                                                            }
-                                                                            if (valid0) {
-                                                                                if (data.uuid !== undefined) {
-                                                                                    const _errs33 = errors
-                                                                                    if (typeof data.uuid !== 'string') {
-                                                                                        validate79.errors = [
-                                                                                            {
-                                                                                                instancePath:
-                                                                                                    instancePath +
-                                                                                                    '/uuid',
-                                                                                                schemaPath:
-                                                                                                    '#/properties/uuid/type',
-                                                                                                keyword: 'type',
-                                                                                                params: {
-                                                                                                    type: 'string',
-                                                                                                },
-                                                                                                message:
-                                                                                                    'must be string',
-                                                                                            },
-                                                                                        ]
-                                                                                        return false
-                                                                                    }
-                                                                                    var valid0 = _errs33 === errors
-                                                                                } else {
-                                                                                    var valid0 = true
-                                                                                }
-                                                                                if (valid0) {
-                                                                                    if (data.version !== undefined) {
-                                                                                        let data16 = data.version
-                                                                                        const _errs35 = errors
-                                                                                        if (
-                                                                                            !(
-                                                                                                typeof data16 ==
-                                                                                                    'number' &&
-                                                                                                isFinite(data16)
-                                                                                            )
-                                                                                        ) {
+                                                                                        } else {
                                                                                             validate79.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
-                                                                                                        '/version',
+                                                                                                        '/upper_bound_percentile',
                                                                                                     schemaPath:
-                                                                                                        '#/properties/version/type',
+                                                                                                        '#/properties/upper_bound_percentile/type',
                                                                                                     keyword: 'type',
                                                                                                     params: {
                                                                                                         type: 'number',
@@ -10275,9 +10253,74 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             ]
                                                                                             return false
                                                                                         }
+                                                                                    }
+                                                                                    var valid0 = _errs33 === errors
+                                                                                } else {
+                                                                                    var valid0 = true
+                                                                                }
+                                                                                if (valid0) {
+                                                                                    if (data.uuid !== undefined) {
+                                                                                        const _errs35 = errors
+                                                                                        if (
+                                                                                            typeof data.uuid !==
+                                                                                            'string'
+                                                                                        ) {
+                                                                                            validate79.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/uuid',
+                                                                                                    schemaPath:
+                                                                                                        '#/properties/uuid/type',
+                                                                                                    keyword: 'type',
+                                                                                                    params: {
+                                                                                                        type: 'string',
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be string',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        }
                                                                                         var valid0 = _errs35 === errors
                                                                                     } else {
                                                                                         var valid0 = true
+                                                                                    }
+                                                                                    if (valid0) {
+                                                                                        if (
+                                                                                            data.version !== undefined
+                                                                                        ) {
+                                                                                            let data17 = data.version
+                                                                                            const _errs37 = errors
+                                                                                            if (
+                                                                                                !(
+                                                                                                    typeof data17 ==
+                                                                                                        'number' &&
+                                                                                                    isFinite(data17)
+                                                                                                )
+                                                                                            ) {
+                                                                                                validate79.errors = [
+                                                                                                    {
+                                                                                                        instancePath:
+                                                                                                            instancePath +
+                                                                                                            '/version',
+                                                                                                        schemaPath:
+                                                                                                            '#/properties/version/type',
+                                                                                                        keyword: 'type',
+                                                                                                        params: {
+                                                                                                            type: 'number',
+                                                                                                        },
+                                                                                                        message:
+                                                                                                            'must be number',
+                                                                                                    },
+                                                                                                ]
+                                                                                                return false
+                                                                                            }
+                                                                                            var valid0 =
+                                                                                                _errs37 === errors
+                                                                                        } else {
+                                                                                            var valid0 = true
+                                                                                        }
                                                                                     }
                                                                                 }
                                                                             }

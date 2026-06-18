@@ -11,13 +11,9 @@ description: >
   fleet — no dependencies on other skills.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (mostly read-only, plus signal_scout_internal:write for scratchpad-remember/forget and
-  emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus the
-  feature flag MCP tools (feature-flag-get-all, feature-flag-get-definition,
-  feature-flags-status-retrieve, feature-flags-activity-retrieve,
-  feature-flags-dependent-flags-retrieve) and standard analytics tools (execute-sql,
-  read-data-schema, activity-log-list, inbox-reports-list).
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the feature flag and analytics tools listed in
+  the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: feature_flags

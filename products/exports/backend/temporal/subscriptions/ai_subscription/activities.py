@@ -16,11 +16,12 @@ from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
-    generate_ai_subscription_markdown,
+    build_ai_subscription_report,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
@@ -46,6 +47,9 @@ LOGGER = get_logger(__name__)
 # can exceed Temporal's ~2 MiB payload cap, so it travels through Postgres by reference rather
 # than on the wire — the same pattern insight snapshots use.
 AI_REPORT_SNAPSHOT_KEY = "ai_report"
+# Companion key holding per-step query diagnostics (the generated HogQL + failure type) so a degraded
+# report is debuggable after the fact. Written alongside the markdown; never shipped to recipients.
+AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
@@ -68,13 +72,20 @@ async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     return await _read()
 
 
-async def _persist_ai_report(delivery_id: uuid.UUID, markdown: str) -> None:
+async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
         # No DoesNotExist guard: create_delivery_record always writes this row before
         # generation runs, so a missing row is a wiring bug — let it raise loudly.
         delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
-        delivery.content_snapshot = {**(delivery.content_snapshot or {}), AI_REPORT_SNAPSHOT_KEY: markdown}
+        delivery.content_snapshot = {
+            **(delivery.content_snapshot or {}),
+            AI_REPORT_SNAPSHOT_KEY: result.markdown,
+            AI_REPORT_DIAGNOSTICS_KEY: [
+                {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
+                for d in result.diagnostics
+            ],
+        }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
     await _write()
@@ -221,7 +232,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(skipped=True)
 
     try:
-        markdown = await generate_ai_subscription_markdown(subscription)
+        report_result = await build_ai_subscription_report(subscription)
     except PromptRejectedError as exc:
         # Structurally permanent: no creator, prompt now fails sanitization, or the
         # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.
@@ -244,7 +255,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
 
-    await _persist_ai_report(inputs.delivery_id, markdown)
+    await _persist_ai_report(inputs.delivery_id, report_result)
     return GenerateAIReportResult(aborted=False)
 
 
@@ -260,7 +271,8 @@ async def _deliver_ai_subscription(
         # delivery, so a missing reference is a wiring bug, not a runtime state.
         raise ApplicationError(f"AI delivery for subscription {subscription.id} has no delivery_id", non_retryable=True)
 
-    markdown = await _load_ai_report(inputs.delivery_id)
+    delivery_id = inputs.delivery_id
+    markdown = await _load_ai_report(delivery_id)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
         # means the row was lost. Non-retryable: re-running *delivery* can't regenerate the
@@ -282,6 +294,7 @@ async def _deliver_ai_subscription(
                 subscription=subscription,
                 markdown=markdown,
                 delivery_run_id=workflow_run_id,
+                delivery_id=delivery_id,
             )
 
         return await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -290,7 +303,7 @@ async def _deliver_ai_subscription(
             subscription,
             recipient_results,
             lambda integration: send_slack_ai_subscription_report(
-                subscription=subscription, markdown=markdown, integration=integration
+                subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
             ),
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,

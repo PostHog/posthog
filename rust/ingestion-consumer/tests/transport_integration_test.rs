@@ -417,13 +417,14 @@ async fn dispatcher_and_transport_end_to_end() {
         let url = worker_urls[sub_batch.worker_idx].clone();
         let routing_keys = sub_batch.routing_keys.clone();
         let worker_idx = sub_batch.worker_idx;
+        let message_count = sub_batch.messages.len();
         let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
             let result = t
                 .send_batch(&url, "batch-e2e", sub_batch.messages)
                 .await
                 .unwrap();
-            d.on_sub_batch_resolved(worker_idx, &routing_keys);
+            d.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
             result
         }));
     }

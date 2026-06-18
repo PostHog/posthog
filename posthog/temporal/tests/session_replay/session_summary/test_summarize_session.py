@@ -1,5 +1,7 @@
+import re
 import json
 from collections.abc import AsyncGenerator, Callable, Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +14,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.session_replay.session_summary.activities.event_based.fetch_session_data import (
     fetch_session_data_activity,
 )
@@ -22,6 +25,7 @@ from posthog.temporal.session_replay.session_summary.state import (
 )
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionProgress
 from posthog.temporal.session_replay.session_summary.workflow import (
+    SUMMARY_RESULT_NO_EVENTS,
     _execute_single_session_summary_workflow,
     _set_phase,
     _start_video_summary_workflow,
@@ -32,6 +36,7 @@ from posthog.temporal.tests.session_replay.session_summary.conftest import Async
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS, SESSION_SUMMARY_EVENT_BLOCKLIST
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
@@ -52,6 +57,22 @@ def test_set_phase_updates_phase_and_step() -> None:
 
     assert progress["phase"] == "uploading_to_gemini"
     assert progress["step"] == 3
+
+
+def test_frontend_summary_gate_constants_match_backend() -> None:
+    # The Summarize button gate in playerMetaLogic.tsx hardcodes copies of the backend summary
+    # event filters. Guard against the two drifting apart (there is no shared source).
+    repo_root = Path(__file__).resolve().parents[5]
+    ts = (repo_root / "frontend/src/scenes/session-recordings/player/player-meta/playerMetaLogic.tsx").read_text()
+
+    cutoff_match = re.search(r"SUMMARY_EVENTS_REPLAY_CUTOFF_MS\s*=\s*(\d+)", ts)
+    assert cutoff_match, "SUMMARY_EVENTS_REPLAY_CUTOFF_MS not found in playerMetaLogic.tsx"
+    assert int(cutoff_match.group(1)) == SESSION_EVENTS_REPLAY_CUTOFF_MS
+
+    blocklist_match = re.search(r"SUMMARY_EVENT_BLOCKLIST\s*=\s*\[(.*?)\]", ts, re.DOTALL)
+    assert blocklist_match, "SUMMARY_EVENT_BLOCKLIST not found in playerMetaLogic.tsx"
+    frontend_blocklist = set(re.findall(r"""['"]([^'"]+)['"]""", blocklist_match.group(1)))
+    assert frontend_blocklist == set(SESSION_SUMMARY_EVENT_BLOCKLIST)
 
 
 class TestFetchSessionDataActivity:
@@ -142,6 +163,9 @@ class TestExecuteSummarizeSessionVideoStream:
         workflow_is_running = AsyncMock(return_value=False)
         atomic = MagicMock(return_value=MagicMock(allowed=True, used=1, cap=4000))
         refund = MagicMock(return_value=None)
+        # In-range metadata by default so the up-front length precheck is a no-op;
+        # length tests override the return value to drive the too-short/too-long paths.
+        get_metadata = MagicMock(return_value={"duration": 120, "active_seconds": 60})
         with (
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._workflow_is_running",
@@ -155,11 +179,13 @@ class TestExecuteSummarizeSessionVideoStream:
                 "posthog.temporal.session_replay.session_summary.workflow.refund",
                 refund,
             ),
+            patch.object(SessionReplayEvents, "get_metadata", get_metadata),
         ):
             yield SimpleNamespace(
                 workflow_is_running=workflow_is_running,
                 atomic=atomic,
                 refund=refund,
+                get_metadata=get_metadata,
             )
 
     @staticmethod
@@ -179,7 +205,7 @@ class TestExecuteSummarizeSessionVideoStream:
 
     @staticmethod
     async def _collect(
-        generator: AsyncGenerator[str, None],
+        generator: AsyncGenerator[str],
     ) -> list[str]:
         return [event async for event in generator]
 
@@ -483,6 +509,140 @@ class TestExecuteSummarizeSessionVideoStream:
             event_label="session-summary-error",
             event_data="Something went wrong while generating the summary. Please try again.",
         )
+
+    @pytest.mark.asyncio
+    async def test_completed_no_events_yields_specific_error(
+        self,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+    ):
+        # Workflow completes with the no-events sentinel: surface a clear message, not the generic one.
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, SUMMARY_RESULT_NO_EVENTS)])
+
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        assert events == [
+            serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data="This recording has no events to summarize.",
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "metadata,expected_substring",
+        [
+            ({"duration": 5, "active_seconds": 5}, "too short"),
+            ({"duration": 40000, "active_seconds": 40000}, "too long"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_out_of_range_recording_yields_error_without_starting_workflow(
+        self,
+        metadata: dict,
+        expected_substring: str,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+    ):
+        cap_mocks.get_metadata.return_value = metadata
+
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
+            patch("posthog.temporal.session_replay.session_summary.workflow._prepare_execution") as mock_prepare,
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow"
+            ) as mock_start,
+            patch("posthog.temporal.session_replay.session_summary.workflow.async_connect") as mock_connect,
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        assert len(events) == 1
+        assert events[0].startswith("event: session-summary-error\n")
+        assert expected_substring in events[0]
+        mock_prepare.assert_not_called()
+        mock_start.assert_not_called()
+        mock_connect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_length_precheck_fails_open_when_metadata_read_errors(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        # A failing get_metadata read must not block summarization: skip the length
+        # precheck and proceed to start the workflow as normal.
+        cap_mocks.get_metadata.side_effect = Exception("clickhouse unavailable")
+        completed_summary = MagicMock()
+        completed_summary.id = "completed-summary-id"
+        completed_summary.summary = mock_enriched_llm_json_response
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, None)])
+
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(side_effect=[None, completed_summary])),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ) as mock_start,
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        mock_start.assert_awaited_once()
+        assert not any("event: session-summary-error" in event for event in events)
+        assert events[-1].startswith("event: session-summary-stream\n")
 
     @pytest.mark.asyncio
     async def test_get_progress_query_failure_retries_next_iteration(
@@ -823,6 +983,14 @@ class TestVideoStreamCapEndToEnd:
     runs in <1s — the production default of 4000 would just multiply the
     iteration count, not exercise any new behavior.
     """
+
+    @pytest.fixture(autouse=True)
+    def _stub_metadata(self) -> Iterator[None]:
+        # In-range metadata so the up-front length precheck is a no-op (avoids a real ClickHouse read).
+        with patch.object(
+            SessionReplayEvents, "get_metadata", MagicMock(return_value={"duration": 120, "active_seconds": 60})
+        ):
+            yield
 
     @pytest.fixture(autouse=True)
     def _isolate_redis_key(self, mock_team: MagicMock) -> Iterator[None]:

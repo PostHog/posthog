@@ -297,6 +297,7 @@ export interface PatchedTaskAutomationApi {
  * * `session_summaries` - Session Summaries
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
+ * * `support_reply` - Support Reply
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -310,6 +311,7 @@ export const OriginProductEnumApi = {
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    SupportReply: 'support_reply',
 } as const
 
 /**
@@ -351,7 +353,8 @@ export interface TaskApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
-     * * `signals_scout` - Signals Scout */
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -433,7 +436,8 @@ export interface PatchedTaskApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
-     * * `signals_scout` - Signals Scout */
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -475,24 +479,6 @@ export interface PatchedTaskApi {
      * @nullable
      */
     ci_prompt?: string | null
-}
-
-export interface TaskFileRequestApi {
-    /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
-    folder?: string
-}
-
-export interface TaskFileResponseApi {
-    /** Identifier of the project-tree entry for this task. */
-    id: string
-    /** Full slash-separated path of the filed task in the project tree. */
-    path: string
-    /** File system entry type. Always 'task'. */
-    type: string
-    /** Identifier of the task this entry points to. */
-    ref: string
-    /** In-app link to the task. */
-    href: string
 }
 
 /**

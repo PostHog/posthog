@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SharePointSource(SimpleSource[SharePointSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHARE_POINT,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="SharePoint",
             iconPath="/static/services/sharepoint.png",
             fields=cast(list[FieldType], []),

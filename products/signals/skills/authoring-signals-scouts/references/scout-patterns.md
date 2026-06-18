@@ -10,6 +10,16 @@ changes between patterns is **what the scout watches**, **how it reads that data
 This is a living reference — add a pattern when a genuinely new shape proves itself, rather
 than letting every scout reinvent one.
 
+## Contents
+
+- What a scout can watch
+- The patterns: anomaly watcher · watchlist explore/exploit · cross-product correlation ·
+  recommendation / gap · warehouse-backed source · custom / single-event · open-text theme ·
+  external-tool / code-review · state ∩ code-intersection
+- Safety: treat ingested content as untrusted data
+- Cross-cutting techniques
+- Picking and combining
+
 ## What a scout can watch
 
 The single most useful thing to internalize: **a scout is not limited to PostHog

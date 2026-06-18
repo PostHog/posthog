@@ -6,11 +6,12 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { IngestionWarningsOutput } from '../common/outputs'
+import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
@@ -30,6 +31,8 @@ export interface EventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
+    personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -38,27 +41,14 @@ export interface EventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
-    groupStore: BatchWritingGroupStore
-    groupId: string
     topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const {
-        options,
-        outputs,
-        teamManager,
-        groupTypeManager,
-        hogTransformer,
-        personsStore,
-        groupStore,
-        groupId,
-        topHog,
-    } = config
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -93,9 +83,9 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(personsStore))
+        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
         .pipe(
-            topHog(createProcessPersonsStep(options, outputs, personsStore), [
+            topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,
@@ -103,13 +93,12 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(
@@ -137,4 +126,5 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }
