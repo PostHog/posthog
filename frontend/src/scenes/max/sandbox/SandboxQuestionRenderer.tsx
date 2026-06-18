@@ -1,25 +1,13 @@
-import { IconAI, IconCheck, IconWarning } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconAI } from '@posthog/icons'
 
-import type { McpToolCallMessage } from '../maxTypes'
+import { SandboxToolActivity } from '../components/Activity'
 import type { McpToolRendererProps } from '../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../messages/FallbackMcpToolRenderer'
-import { MessageTemplate } from '../messages/MessageTemplate'
 import {
     extractSandboxQuestionAnswer,
     parseSandboxQuestionAnswers,
     parseSandboxQuestions,
 } from '../sandboxQuestionUtils'
-
-function StatusBadge({ status }: { status: McpToolCallMessage['status'] }): JSX.Element {
-    if (status === 'in_progress' || status === 'pending') {
-        return <Spinner className="text-sm" />
-    }
-    if (status === 'failed') {
-        return <IconWarning className="text-danger text-sm" />
-    }
-    return <IconCheck className="text-success text-sm" />
-}
 
 /**
  * Thread recap for the `AskUserQuestion` Claude built-in. The interactive answering happens in the
@@ -54,15 +42,10 @@ export function SandboxQuestionRenderer(props: McpToolRendererProps): JSX.Elemen
     const hasBody = answered.length > 0 || Boolean(errorMessage)
 
     return (
-        <MessageTemplate
-            type="ai"
-            header={
-                <div className="flex items-center gap-1.5 text-sm text-secondary mb-1">
-                    <span className="text-base flex items-center">{icon ?? <IconAI className="text-base" />}</span>
-                    <span className="font-medium text-default">{message.title || displayName || 'Question'}</span>
-                    <StatusBadge status={message.status} />
-                </div>
-            }
+        <SandboxToolActivity
+            message={message}
+            icon={icon ?? <IconAI className="text-base" />}
+            displayName={displayName}
         >
             {hasBody ? (
                 <div className="flex flex-col gap-3">
@@ -75,6 +58,6 @@ export function SandboxQuestionRenderer(props: McpToolRendererProps): JSX.Elemen
                     ))}
                 </div>
             ) : null}
-        </MessageTemplate>
+        </SandboxToolActivity>
     )
 }

@@ -4,9 +4,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
-import { MessageTemplate } from '../MessageTemplate'
 import { extractDashboard } from './extractors'
 
 /**
@@ -25,7 +25,7 @@ export function UpsertDashboardWidget(props: McpToolRendererProps): JSX.Element 
     const to = dashboard.url ?? (dashboard.id !== undefined ? urls.dashboard(dashboard.id) : undefined)
 
     return (
-        <MessageTemplate type="ai">
+        <SandboxToolActivity {...props}>
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                     <IconDashboard className="text-base" />
@@ -37,6 +37,6 @@ export function UpsertDashboardWidget(props: McpToolRendererProps): JSX.Element 
                     </LemonButton>
                 )}
             </div>
-        </MessageTemplate>
+        </SandboxToolActivity>
     )
 }
