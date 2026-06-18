@@ -5,6 +5,7 @@ import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { cn } from 'lib/utils/css-classes'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -46,10 +47,10 @@ function getShiftClickIds(
 const MetaDot = (): JSX.Element => <span className="text-quaternary select-none">·</span>
 
 /**
- * Fresher take on the issue title block for the redesigned tab: a single prominent line
- * (icon + name + inline description) over a quiet metadata line (status, assignee, last seen,
- * source). Self-contained — duplicates the selection/navigation wiring on purpose so the row can
- * evolve independently of the shared table column.
+ * Fresher take on the issue title block for the redesigned tab: runtime icon + name on the first
+ * line, the description below it, then a quiet metadata line (status, assignee, last seen, source).
+ * The checkbox only reveals on row hover (via the parent's `group/row`). Self-contained — duplicates
+ * the selection/navigation wiring on purpose so the row can evolve independently of the table column.
  */
 export const IssueRowRedesigned = ({
     record,
@@ -92,28 +93,29 @@ export const IssueRowRedesigned = ({
     }, [dateRange, filterGroup, filterTestAccounts, searchQuery, record.last_seen, record.id])
 
     return (
-        <div className="flex min-w-0 items-start gap-2.5">
-            <LemonCheckbox checked={checked} onChange={handleSelectionChange} className="mt-[3px] shrink-0" />
+        <div className="flex min-w-0 items-start gap-2">
+            <LemonCheckbox
+                checked={checked}
+                onChange={handleSelectionChange}
+                className={cn(
+                    'mt-0.5 shrink-0 transition-opacity',
+                    checked ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'
+                )}
+            />
+            <RuntimeIcon className="mt-1 shrink-0 text-secondary" runtime={runtime} fontSize="0.8rem" />
             <div className="flex min-w-0 flex-col gap-0.5">
                 <Link
                     to={issueUrl}
-                    className="group/title flex min-w-0 items-baseline gap-2"
+                    className="block min-w-0 truncate text-[0.9rem] font-semibold text-default hover:text-accent"
                     onClick={() => {
                         const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <RuntimeIcon className="shrink-0 self-center text-secondary" runtime={runtime} fontSize="0.8rem" />
-                    <span className="truncate text-[0.9rem] font-semibold text-default group-hover/title:text-accent">
-                        {record.name || 'Unknown Type'}
-                    </span>
-                    {record.description && (
-                        <span className="hidden min-w-0 truncate text-[0.8rem] text-muted md:inline">
-                            {record.description}
-                        </span>
-                    )}
+                    {record.name || 'Unknown Type'}
                 </Link>
+                {record.description && <div className="truncate text-[0.82rem] text-muted">{record.description}</div>}
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted">
                     <IssueStatusSelect
                         status={record.status}

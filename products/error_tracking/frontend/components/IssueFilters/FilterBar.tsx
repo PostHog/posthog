@@ -173,9 +173,14 @@ const Bar = (props: BarProps): JSX.Element => {
 
 const Separator = (): JSX.Element => <div className="w-px h-5 bg-border shrink-0 mx-1" />
 
-// Filled pill matching the default bar's surface — wraps the side clusters (date/reload, sort)
-// in the inline variant so they still read as grouped buttons while the filters float between them.
-const INLINE_CLUSTER = 'rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm px-1'
+// Filled, bordered button-group surface for the inline variant's side clusters (date/reload, sort).
+// No inner padding + squared child buttons means each button fills its segment edge-to-edge (clean
+// hover), while overflow-hidden clips the group's outer corners to the rounded container.
+const INLINE_CLUSTER =
+    'overflow-hidden rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm [&_.LemonButton]:!rounded-none'
+
+// Full-height divider between buttons in an inline group.
+const GroupDivider = (): JSX.Element => <div className="w-px self-stretch bg-border" />
 
 const BarContents = ({
     reload,
@@ -218,8 +223,9 @@ const BarContents = ({
                 className
             )}
         >
-            <div className={cn('flex items-center gap-0.5 shrink-0', isInline ? INLINE_CLUSTER : 'pl-1.5')}>
+            <div className={cn('flex items-center shrink-0', isInline ? INLINE_CLUSTER : 'gap-0.5 pl-1.5')}>
                 {reload}
+                {isInline && <GroupDivider />}
                 <DateRangeFilter size="small" type="tertiary" />
             </div>
             {!isInline && <Separator />}
@@ -271,7 +277,7 @@ const BarContents = ({
             {showIssueControls && (
                 <>
                     {!isInline && <Separator />}
-                    <div className={cn('flex items-center gap-0.5 shrink-0', isInline && INLINE_CLUSTER)}>
+                    <div className={cn('flex items-center shrink-0', isInline ? INLINE_CLUSTER : 'gap-0.5')}>
                         <SortControl />
                     </div>
                 </>

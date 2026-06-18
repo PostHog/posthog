@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonCheckbox, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -31,8 +31,10 @@ const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_13rem_5rem_5rem_5rem] items-cent
 export function IssuesListRedesigned(): JSX.Element {
     const { results, responseLoading } = useValues(issuesDataNodeLogic)
 
+    // -mx-4 lets the rows and their dividers bleed to the scene edges (matching the sticky toolbar),
+    // while px-4 on each row keeps the content aligned.
     return (
-        <div className="flex flex-col">
+        <div className="-mx-4 flex flex-col">
             <ColumnHeaders results={results} />
             {responseLoading && results.length === 0 ? (
                 <LoadingRows />
@@ -73,37 +75,17 @@ const SortableCountHeader = ({ field, label }: { field: ErrorTrackingQueryOrderB
 }
 
 const ColumnHeaders = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
+    const { selectedIssueIds } = useValues(bulkSelectLogic)
+
     return (
-        <div className={cn(ROW_GRID, 'border-b border-primary px-2 pb-2 pt-1')}>
-            <SelectAllHeader results={results} />
+        <div className={cn(ROW_GRID, 'border-b border-primary px-4 pb-2 pt-1')}>
+            <div className="min-w-0">
+                {selectedIssueIds.length > 0 ? <IssueActions issues={results} selectedIds={selectedIssueIds} /> : null}
+            </div>
             <div className="text-center text-xs font-medium text-muted">Volume</div>
             <SortableCountHeader field="occurrences" label="Occurrences" />
             <SortableCountHeader field="sessions" label="Sessions" />
             <SortableCountHeader field="users" label="Users" />
-        </div>
-    )
-}
-
-/**
- * Self-contained select-all + bulk action header. Doesn't go through the shared table header so the
- * bulk actions always render inline here, independent of the v1/v2 search bar variant.
- */
-const SelectAllHeader = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
-    const { selectedIssueIds } = useValues(bulkSelectLogic)
-    const { setSelectedIssueIds } = useActions(bulkSelectLogic)
-    const allSelected = results.length === selectedIssueIds.length && selectedIssueIds.length > 0
-
-    return (
-        <div className="-ml-1 flex items-center gap-3">
-            <LemonCheckbox
-                checked={allSelected}
-                onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
-            />
-            {selectedIssueIds.length > 0 ? (
-                <IssueActions issues={results} selectedIds={selectedIssueIds} />
-            ) : (
-                <span className="text-xs font-medium text-muted">Issue</span>
-            )}
         </div>
     )
 }
@@ -122,7 +104,7 @@ const IssueRow = ({
             data-attr="error-tracking-issue-row"
             className={cn(
                 ROW_GRID,
-                'border-b border-primary px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-secondary'
+                'group/row border-b border-primary px-4 py-2 transition-colors last:border-b-0 hover:bg-surface-secondary'
             )}
         >
             <div className="min-w-0">
@@ -146,7 +128,7 @@ const LoadingRows = (): JSX.Element => {
     return (
         <div className="flex flex-col">
             {Array.from({ length: 8 }).map((_, index) => (
-                <div key={index} className={cn(ROW_GRID, 'border-b border-primary px-2 py-3 last:border-b-0')}>
+                <div key={index} className={cn(ROW_GRID, 'border-b border-primary px-4 py-3 last:border-b-0')}>
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-4 w-1/3" />
                         <LemonSkeleton className="h-3 w-2/3" />
