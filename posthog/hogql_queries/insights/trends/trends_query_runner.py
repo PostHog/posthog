@@ -28,7 +28,6 @@ from posthog.schema import (
     EventsNode,
     GroupNode,
     HogQLQueryModifiers,
-    HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
     IntervalType,
@@ -44,8 +43,9 @@ from posthog.schema import (
 
 from common.hogql import ast
 from common.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
-from common.hogql.timings import HogQLTimings
+from common.hogql.timings import HogQLTiming, HogQLTimings
 
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -310,7 +310,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
                 breakdown_values = [
-                    row[results.columns.index("breakdown_value") if results.columns else 2] for row in results.results
+                    row[results.columns.index("breakdown_value") if results.columns else 2]
+                    for row in results.results or []
                 ]
 
                 if breakdown.is_multiple_breakdown:
@@ -356,7 +357,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         response_hogql = get_response_hogql(queries, team=self.team, timings=self.timings, modifiers=self.modifiers)
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
-        timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
+        timings_matrix: list[list[HogQLTiming] | None] = [None] * (2 + len(queries))
         errors: list[Exception] = []
         debug_errors: list[str] = []
 
@@ -441,7 +442,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         timings: list[QueryTiming] = []
         for timing in timings_matrix:
             if isinstance(timing, list):
-                timings.extend(timing)
+                timings.extend(QueryTiming(k=item.k, t=item.t) for item in timing)
 
         return TrendsQueryResponse(
             results=final_result,
@@ -544,7 +545,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             real_series_count = ceil(series_count / 2)
 
         res = []
-        for val in response.results:
+        for val in response.results or []:
             try:
                 series_label = self.series_event(series.series)
             except Action.DoesNotExist:

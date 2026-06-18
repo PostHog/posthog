@@ -14,12 +14,12 @@ from posthog.schema import (
     ErrorTrackingQueryResponse,
     ErrorTrackingSimilarIssuesQuery,
     ErrorTrackingSimilarIssuesQueryResponse,
-    HogQLQueryResponse,
     SimilarIssue,
 )
 
 from common.hogql import ast
 from common.hogql.constants import LimitContext
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_select
 from common.hogql.query import execute_hogql_query
 
@@ -205,7 +205,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 group_by=[ast.Field(chain=["properties", "$exception_fingerprint"])],
             )
             results: HogQLQueryResponse = execute_hogql_query(query, team=self.team)
-            for row in results.results:
+            for row in results.results or []:
                 if row[0] in issues_by_fingerprint:
                     issues_by_fingerprint[row[0]].set_library(row[1])
 
@@ -223,7 +223,8 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 limit_context=self.limit_context,
             )
         similar_fingerprints = [
-            SimilarFingerprint(fingerprint=row[0], timestamp=row[1], distance=row[2]) for row in query_result.results
+            SimilarFingerprint(fingerprint=row[0], timestamp=row[1], distance=row[2])
+            for row in query_result.results or []
         ]
         return (similar_fingerprints, query_result)
 

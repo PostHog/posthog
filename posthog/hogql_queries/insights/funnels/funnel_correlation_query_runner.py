@@ -18,11 +18,11 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
-    HogQLQueryResponse,
 )
 
 from common.hogql import ast
 from common.hogql.constants import LimitContext
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_expr, parse_select
 from common.hogql.printer import to_printed_hogql
 from common.hogql.property import property_to_expr

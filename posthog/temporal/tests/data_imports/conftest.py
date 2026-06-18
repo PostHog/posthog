@@ -18,8 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from testcontainers.mysql import MySqlContainer
 
-from posthog.schema import HogQLQueryResponse
-
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -249,6 +248,7 @@ async def run_external_data_job_workflow(
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT {columns_str} FROM {table_name}", team)
     if expected_total_rows is not None:
+        assert res.results is not None
         assert len(res.results) == expected_total_rows
     if expected_columns is not None:
         assert set(expected_columns) == set(res.columns or [])

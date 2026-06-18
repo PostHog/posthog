@@ -413,6 +413,7 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 user=self.user if with_user else None,
             )
+        assert response.results is not None
         return response.results
 
     def _restrict(self, property_name: str) -> None:

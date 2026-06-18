@@ -127,7 +127,7 @@ def run(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], ti
     from common.hogql.query import execute_hogql_query
 
     response = execute_hogql_query(query=args[0], team=team)
-    return response.results
+    return response.results or []
 
 
 def jsonParse(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:

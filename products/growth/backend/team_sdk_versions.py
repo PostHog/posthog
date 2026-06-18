@@ -6,8 +6,7 @@ import structlog
 from structlog.stdlib import BoundLogger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.schema import HogQLQueryResponse
-
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_select
 from common.hogql.query import execute_hogql_query
 
@@ -67,7 +66,7 @@ def get_sdk_versions_for_team(
         response = run_query(team)
 
         output = defaultdict(list)
-        for lib, lib_version, max_timestamp, event_count in response.results:
+        for lib, lib_version, max_timestamp, event_count in response.results or []:
             if lib in SDK_TYPES:
                 output[lib].append(
                     {

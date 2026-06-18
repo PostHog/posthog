@@ -12,9 +12,10 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY
 
-from posthog.schema import CurrencyCode, HogQLQueryModifiers, HogQLQueryResponse
+from posthog.schema import CurrencyCode, HogQLQueryModifiers
 
 from common.hogql import ast
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
 
 from posthog.models.utils import uuid7
@@ -169,6 +170,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
         results = response.results
+        assert results is not None
         self.assertEqual(results[0][0], 0)
 
     def test_no_data_when_no_events(self):
@@ -190,6 +192,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
         results = response.results
+        assert results is not None
         self.assertEqual(results[0][0], 0)
 
     def test_query_output_data_warehouse_tables(self):
@@ -199,6 +202,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         )
 
         response = self._execute_query(query)
+        assert response.results is not None
 
         self.assertEqual(len(response.results), 6)
         self.assertEqual(
@@ -255,6 +259,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         )
 
         response = self._execute_query(query)
+        assert response.results is not None
 
         self.assertEqual(len(response.results), 2)
         self.assertEqual(

@@ -5,13 +5,12 @@ from typing import TYPE_CHECKING, Union
 from common.hogql import ast
 from common.hogql.constants import LimitContext
 from common.hogql.database.models import DatabaseField, StringDatabaseField
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
 if TYPE_CHECKING:
-    from posthog.schema import HogQLQueryResponse
-
     from common.hogql.database.models import Table
 
 
@@ -295,8 +294,6 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
         query_type: str,
         **kwargs,
     ) -> HogQLQueryResponse:
-        from posthog.schema import HogQLQueryResponse
-
         from common.hogql.constants import get_default_hogql_global_settings
         from common.hogql.printer.utils import print_prepared_ast
         from common.hogql.query import HogQLQueryExecutor

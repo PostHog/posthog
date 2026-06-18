@@ -9,7 +9,6 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
-    HogQLQueryResponse,
     InsightActorsQuery,
     LifecycleQuery,
     StickinessActorsQuery,
@@ -19,6 +18,7 @@ from posthog.schema import (
 
 from common.hogql import ast
 from common.hogql.constants import LimitContext
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
 from common.hogql.timings import HogQLTimings
 

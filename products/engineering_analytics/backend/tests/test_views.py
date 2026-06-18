@@ -185,7 +185,9 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         return table.name
 
     def _select(self, sql: str) -> list[tuple]:
-        return execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
+        response = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test")
+        assert response.results is not None
+        return response.results
 
     def test_pull_requests_view_maps_columns(self) -> None:
         table_name = self._create_table(

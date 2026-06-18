@@ -1,9 +1,7 @@
 import json
 import base64
 from datetime import datetime
-from typing import Any, Union, cast
-
-from posthog.schema import HogQLQueryResponse
+from typing import Any, Union
 
 from common.hogql import ast
 from common.hogql.constants import (
@@ -12,6 +10,7 @@ from common.hogql.constants import (
     get_default_limit_for_context,
     get_max_limit_for_context,
 )
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.query import execute_hogql_query
 
 
@@ -76,13 +75,10 @@ class HogQLHasMorePaginator:
         query_type: str,
         **kwargs,
     ) -> HogQLQueryResponse:
-        self.response = cast(
-            HogQLQueryResponse,
-            execute_hogql_query(
-                query=self.paginate(query),
-                query_type=query_type,
-                **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
-            ),
+        self.response = execute_hogql_query(
+            query=self.paginate(query),
+            query_type=query_type,
+            **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
         )
         self.results = self.trim_results()
         return self.response
@@ -289,13 +285,10 @@ class HogQLCursorPaginator:
         query_type: str,
         **kwargs,
     ) -> HogQLQueryResponse:
-        self.response = cast(
-            HogQLQueryResponse,
-            execute_hogql_query(
-                query=self.paginate(query),
-                query_type=query_type,
-                **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
-            ),
+        self.response = execute_hogql_query(
+            query=self.paginate(query),
+            query_type=query_type,
+            **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
         )
         self.results = self.trim_results()
         return self.response

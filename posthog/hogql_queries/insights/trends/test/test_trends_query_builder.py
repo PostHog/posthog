@@ -11,11 +11,11 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
-    HogQLQueryResponse,
     TrendsFilter,
     TrendsQuery,
 )
 
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.modifiers import create_default_modifiers_for_team
 from common.hogql.query import execute_hogql_query
 from common.hogql.timings import HogQLTimings

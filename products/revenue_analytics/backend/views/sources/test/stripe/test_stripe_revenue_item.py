@@ -177,7 +177,7 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         ]
     )
     def test_calculate_months_for_period_parameterized(self, start_date, end_date, expected_months):
-        response: list[list[Any]] = execute_hogql_query(
+        query_response = execute_hogql_query(
             ast.SelectQuery(
                 select=[
                     calculate_months_for_period(
@@ -187,13 +187,15 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
                 ]
             ),
             self.team,
-        ).results
+        )
+        assert query_response.results is not None
+        response: list[list[Any]] = query_response.results
 
         assert response[0][0] == expected_months
 
     @snapshot_clickhouse_queries
     def test_calculate_months_query_snapshot(self):
-        response: list[list[Any]] = execute_hogql_query(
+        query_response = execute_hogql_query(
             ast.SelectQuery(
                 select=[
                     calculate_months_for_period(
@@ -203,6 +205,8 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
                 ]
             ),
             self.team,
-        ).results
+        )
+        assert query_response.results is not None
+        response: list[list[Any]] = query_response.results
 
         assert response[0][0] == 1

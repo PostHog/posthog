@@ -7,7 +7,6 @@ from posthog.schema import (
     DateRange,
     FilterLogicalOperator,
     HogQLQueryModifiers,
-    HogQLQueryResponse,
     IntervalType,
     LogsQuery,
     PropertyGroupFilter,
@@ -16,6 +15,7 @@ from posthog.schema import (
 
 from common.hogql import ast
 from common.hogql.constants import HogQLGlobalSettings, LimitContext
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_expr, parse_select
 from common.hogql.query import execute_hogql_query
 
@@ -252,7 +252,7 @@ class AlertCheckQuery:
         )
 
         response = self._run_query(query)
-        return [BucketedCount(timestamp=row[0], count=row[1]) for row in response.results]
+        return [BucketedCount(timestamp=row[0], count=row[1]) for row in response.results or []]
 
     def execute_periods(self, period_minutes: int, period_count: int) -> list[BucketedCount]:
         """Per-period counts anchored to `date_from`, oldest-first."""
@@ -423,7 +423,7 @@ class BatchedAlertCheckQuery:
         duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
 
         per_alert: dict[str, list[BucketedCount]] = {str(a.id): [] for a in self.alerts}
-        for row in response.results:
+        for row in response.results or []:
             bucket_ts = row[0]
             for i, alert in enumerate(self.alerts):
                 per_alert[str(alert.id)].append(BucketedCount(timestamp=bucket_ts, count=row[i + 1]))

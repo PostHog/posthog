@@ -15,9 +15,8 @@ into these fragments.
 
 from typing import TYPE_CHECKING
 
-from posthog.schema import HogQLQueryResponse
-
 from common.hogql import ast
+from common.hogql.models import HogQLQueryResponse
 from common.hogql.parser import parse_select
 from common.hogql.query import execute_hogql_query
 

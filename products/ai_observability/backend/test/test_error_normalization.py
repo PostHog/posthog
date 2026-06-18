@@ -71,6 +71,7 @@ class TestErrorsQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Returns: (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
+        assert result.results is not None
         return result.results
 
     def test_groups_by_normalized_error(self):

@@ -2,9 +2,10 @@ import re
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
+from posthog.schema import AssistantHogQLQuery, HogQLQuery
 
 from common.hogql.metadata import get_table_names
+from common.hogql.notices import HogQLNotice
 from common.hogql.parser import parse_select
 from common.hogql.taxonomy_validation import validate_taxonomy_references
 
