@@ -42,6 +42,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -637,6 +641,32 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+    @parameterized.expand(
+        [
+            ("query_error", lambda: QueryError("Cannot redefine an alias with the name: utm_source"), False),
+            ("syntax_error", lambda: HogQLSyntaxError("unexpected token"), False),
+            ("value_error", lambda: ValueError("boom"), True),
+        ]
+    )
+    def test_run_skips_error_tracking_for_exposed_hogql_errors(self, _name, exception_factory, expected_capture):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.hogql_queries.query_runner.posthoganalytics.capture_exception") as mock_capture:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        if expected_capture:
+            mock_capture.assert_called_once_with(raised_exc)
+        else:
+            mock_capture.assert_not_called()
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags

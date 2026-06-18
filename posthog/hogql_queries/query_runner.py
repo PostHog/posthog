@@ -75,6 +75,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1478,7 +1479,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # capture_exceptions is disabled here so we can filter what reaches error tracking:
+        # user-facing HogQL validation errors (ExposedHogQLError and its QueryError/SyntaxError
+        # subclasses) are the 4xx equivalent and must not pollute the issue triage queue. The
+        # except handler below captures everything else, tagged with this context.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1657,6 +1662,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                    # Report to error tracking, but skip user-facing HogQL validation errors
+                    # (invalid query input). They surface to the user as 4xx responses and would
+                    # otherwise create noise in the error-tracking triage queue.
+                    if not isinstance(exc, ExposedHogQLError):
+                        posthoganalytics.capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(
