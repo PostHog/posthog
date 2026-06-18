@@ -552,6 +552,34 @@ snapshots:
         hash: v1.k794b7964.046c56457e162fe1a6a5402eae7613ec9077fa44b8225006a6cbd841eb8ff0c4.SA_AUQ5ZS85jRhQIEOj-UyEZaWz5VlTlAp9_cQsRFio
     components-hogcharts-boxplot--with-gaps--light:
         hash: v1.k794b7964.086dbebb41332bd7582db67d9bdf55256172bfeb1e686de9cff5b01d1007f206.4Ne6kRBHZUB3TPLMEz9eQX-SgPC6xJoGKrX5pLrJJMU
+    components-hogcharts-combochart--area-and-line--dark:
+        hash: v1.k794b7964.8f605a0262398a127af8486f8366aa7189c5d05b170a60ccf28a2bd1a8cf5fd9.W5EftsAVdPWW-Gb_F6a6xMfF3NvNV0IZ_MmS9NJo8eU
+    components-hogcharts-combochart--area-and-line--light:
+        hash: v1.k794b7964.c44f0d154c370409dae17eea011ec37f07aa4594a43a45b484ef2eeca5474a0a.27wcQkL_HxsPmKbGWSSS-DpSOdRl4e7VlxxLSsKbrbw
+    components-hogcharts-combochart--bar-and-line--dark:
+        hash: v1.k794b7964.b21955429d27c6b8d5c27cfdd68a8ed1ffc75079a86a4ad8316c047a97fd60a3.OS8VXzqaE6vWNA6bFtRbuh_p9D2dqj85IeVef5HxI_E
+    components-hogcharts-combochart--bar-and-line--light:
+        hash: v1.k794b7964.a78617b48bd4437d57cd358b877670756ea8fca8df8113d7e3e748e76d631cfa.w6hla1sm0Gz6G4tpPRJf5Z0CApBEOXDIwsww549N5Zc
+    components-hogcharts-combochart--dual-y-axis-bar-and-line--dark:
+        hash: v1.k794b7964.bb893b324bfa2950c0157bc551b57e76b03df90e6e31c58cac048a6a6de9064f.SaLLI0K0hz-OHDCn0dnX_nr2TRyRdOvLmcbA1Klc2Hg
+    components-hogcharts-combochart--dual-y-axis-bar-and-line--light:
+        hash: v1.k794b7964.6a9f32434af77dc1d31226a9da134cf4acf6755aa1f17d2e1e48128b5196e042.Jv1n1TWojcqnGkdkJgNBxSYE_wrY6qH3sXe4XSqeJk4
+    components-hogcharts-combochart--empty--dark:
+        hash: v1.k794b7964.f4a02c6786a1fc031877e1581c74c93043890f855bfeec936e129b325f49f76b.21F6xAcfwYF6PdHfpIqr3VCoc7Eqv3hTqu8hFJmxGLU
+    components-hogcharts-combochart--empty--light:
+        hash: v1.k794b7964.8003169247a00bdd087cdb86efd11744f27c426f7dcbd0f8fc46ccace7ec5de1.r0Z_eyPmkICfKYBEAZR-I3S-Lof7ljfkGLhHtLjMGVs
+    components-hogcharts-combochart--grouped-bars-and-line--dark:
+        hash: v1.k794b7964.8a550c027166e56da8c962f6bfd2e958e227fcbafde6eff9f3f8fef2d70c4f25.6kjnUQTu2QGNSGd30u0gSrtC8roD4JvbuESkTctefGs
+    components-hogcharts-combochart--grouped-bars-and-line--light:
+        hash: v1.k794b7964.8ef0eba984169f1bf0d9950d347cc45fb89230d78d8f7204d67fe2e359344182.IbP2UuwBNtQZGhnmTDFD5TFbM4zjl4FkWpVa40SM3eI
+    components-hogcharts-combochart--line-before-area--dark:
+        hash: v1.k794b7964.6c582af133b6e0cc8cfaebeed45af068d1768c2c5ed3f6fb679a699bb13f2562.o-bzHuxXKWt0xvfT9JynURDbZX3NcFb5CMQ2egLorHU
+    components-hogcharts-combochart--line-before-area--light:
+        hash: v1.k794b7964.503d8e4ba77dafcc7ae5ab9c32d7b17c0dd137d007b201bf6b23a34104283a3a.wFjmc7u_FZTXGygOMkHDYPE51dYrhBm58m7lBDIePzs
+    components-hogcharts-combochart--stacked-bars-and-line--dark:
+        hash: v1.k794b7964.902c9be7688a67190b37eb789707bf2189b13e6c460cef63e1070dfc17196184.gxj4XB703vlholt4Z8TC2bjHVRiWJMMwT3xap2L1Sfg
+    components-hogcharts-combochart--stacked-bars-and-line--light:
+        hash: v1.k794b7964.da86914291718262e6fc1aa52483bcca08ac08c9c2fad67c5f877d6cf78151f7.qO61mSB67aOC7auAYE6KLt69LLRyWdM_VM-Vf0qrq6Q
     components-hogcharts-legend--horizontal--dark:
         hash: v1.k794b7964.748c8221979ca1984c3ef06b0a2d5016e683810a2530a2b7549ff2994484d32d.WlgOW_onzflesCUfetduXiySjbl4uF8oTLxdKf4xYso
     components-hogcharts-legend--horizontal--light:
@@ -952,14 +980,26 @@ snapshots:
         hash: v1.k794b7964.923047d63ec1ae864e60b7b86cfac17b0d5f6219a30d49cd5136f01ff0484e29.NuIevRcOCohA9RKgPAqDQ4LePOvXKSWlle-moHjrNMQ
     components-insighttooltip--math-tags-single-series--light:
         hash: v1.k794b7964.d24656089329001d29308a16f3e6a1c3e462bc441399753a7d34cbbbcbea7b52.5lWzjuoDbPhC3rdjisXnHNn7RfsfgBdtjtl89icOwlc
+    components-integrations-slack--slack-full-page-connect--dark:
+        hash: v1.k794b7964.51583f338ebbc9431907cf88e2a9203eac9d935bf9b1239c4719ec2b0d8fde60.QaekG_L27F8dbaTbN7cZhq55VHrO7eZoZzasZQJ8zcQ
+    components-integrations-slack--slack-full-page-connect--light:
+        hash: v1.k794b7964.887985c176c1acc4a271e7035ff0df683b21db6df6a4b2e5ee5b9d57ea450892.Fu27S76ove9JpMONVMPLJKnrFC6tKRtcWQJ_x4zEAWA
+    components-integrations-slack--slack-full-page-connected-all-scopes--dark:
+        hash: v1.k794b7964.a98f3a60ecef683efb4fdf3cbc58286ebc98f570b44fe24c97ed0668c51064eb.DPIIxII9L49YGcc_NOiAjR8p2cJ_5JDuw5c2hwVcYac
+    components-integrations-slack--slack-full-page-connected-all-scopes--light:
+        hash: v1.k794b7964.b23d81fff71cd1d4cee2efa42ba7a4db827ad2a0ec09138716f01f3605b99322.KMT66t2fhW4MExoWKAe6__v5CL8l4L5qBLjHOI029MY
+    components-integrations-slack--slack-full-page-connected-missing-scopes--dark:
+        hash: v1.k794b7964.13446a4ebca85a6c734614405d1e52e58c8b4526650761a81c7c9dea1487e108.kYq2Z2ogm7O6RInvJ5UGxBuxHzaR_Vp2-18KmOlp27A
+    components-integrations-slack--slack-full-page-connected-missing-scopes--light:
+        hash: v1.k794b7964.d6899b66373d28d2340c90fad643cc13a62301ca1454c084ba1036a8d2c1d5b4.jLOVtJQun2Ow8TsRSoRB0-BpkgDTNeVT_1GVriGXMQ4
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.0Jsmo2XKYiKkfSVMN4GzeK-ePRjh4q_l60Ez2M90L58
     components-integrations-slack--slack-integration--light:
         hash: v1.k794b7964.5e31191fe884081eaecccc0ca410571bfea114969731061b25274559c377e9c2.48o8xuoIkdsSSYnrrvbAKMwn9XvAGobjR0zC3-wD7bc
     components-integrations-slack--slack-integration-added--dark:
-        hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.bsnv2iCt7wmYW7NkkBCcYY4qe9uGkjk1co5S1VY-12A
+        hash: v1.k794b7964.a1ad42b0f0f975569b93110a669febd3e486f6b90ee785b80979ae83dcbff1db.hV7aqt2bShW5KttL4NDjY3p-mcL2bXJKtEJJvQhn8ao
     components-integrations-slack--slack-integration-added--light:
-        hash: v1.k794b7964.5e31191fe884081eaecccc0ca410571bfea114969731061b25274559c377e9c2.Tz-VqjD9I4B2AkjAU8Z5Aje26LxOJs2i3LfzLBbLoPU
+        hash: v1.k794b7964.ed6cb6ffb8918525982aca7a4eed6c21a239d5cacfe49c0c81898e842fd012ac.c_YqaIbzzzNXueagP2l8S4VMtTe870p7kVDnC6P-27A
     components-integrations-slack--slack-integration-instance-not-configured--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.VkdQOtlSqpDDliAWoEWxISdK8UUYqJyt7gFvAGeB7HE
     components-integrations-slack--slack-integration-instance-not-configured--light:
@@ -6585,9 +6625,9 @@ snapshots:
     scenes-other-billing-product--billing-product-without-addons--light:
         hash: v1.k794b7964.3455fe6bd5eb074408ff091675444e597f9c7a34d232faa0f392a3fcb4f6e021.2FmYvUHcc47NK-z0ntILzg44Any6Y947VSerITyrL6k
     scenes-other-integration-landing-page--connected--dark:
-        hash: v1.k794b7964.c3f38cb69619148711f73cbd2358e9879a628dedce0133ddf4a55c909eb74023.TKSLIKWkZhyP9yVqCUNnOWE-phlM8jkN2hg7yhVk-x8
+        hash: v1.k794b7964.7012e3f23570ed0bdf0af3b947fa8b09bb1a40edd59928bea76c9472eef444a1.yWbx-kU4Sx_plVguU1neQn8eHFiPseBMjmr8tCiy6O0
     scenes-other-integration-landing-page--connected--light:
-        hash: v1.k794b7964.75ccf59d3aeba8ec4f6036dacc9812fad6ac24ebcc8988f74c0de3b4d0ae2ffb.NXnkDcwqc_lAqnRMFjZA4hgi6DiLOx_pL6TfEKmzK7s
+        hash: v1.k794b7964.ecea4a3cebed2c5fba619695c4ca576cfa0ce3a9a818af498791c1080be2675e.nkq28LhIVvheqMxYLdV5Od1eeCXKI1AFgIKfcbUOAEw
     scenes-other-integration-landing-page--not-connected--dark:
         hash: v1.k794b7964.cbc1efc83f9f31ee7ed22a7da2be3ec19e7e6f6568a5b43ade5f75ee4aaccbc5.u1nKAJkTALr_RPPMm4EA68pFFF4JE03AJBqWleTvbJk
     scenes-other-integration-landing-page--not-connected--light:
