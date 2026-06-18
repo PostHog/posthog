@@ -2645,7 +2645,7 @@
         "$sdk_debug_extensions_init_time_ms": {
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
             "examples": [
-                "150"
+                150
             ],
             "label": "PostHog.js extensions init time (ms)",
             "type": "Numeric",
@@ -7003,7 +7003,7 @@
         "$sdk_debug_extensions_init_time_ms": {
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
             "examples": [
-                "150"
+                150
             ],
             "label": "PostHog.js extensions init time (ms)",
             "type": "Numeric",
@@ -8122,7 +8122,7 @@
         "$autocapture_count": {
             "description": "The number of autocapture events in this session.",
             "examples": [
-                "123"
+                123
             ],
             "label": "Autocapture count",
             "type": "Numeric"
@@ -8359,8 +8359,8 @@
         "$is_bounce": {
             "description": "Whether the session was a bounce.",
             "examples": [
-                "true",
-                "false"
+                true,
+                false
             ],
             "label": "Is bounce",
             "type": "Boolean"
@@ -8383,7 +8383,7 @@
         "$pageview_count": {
             "description": "The number of page view events in this session.",
             "examples": [
-                "123"
+                123
             ],
             "label": "Pageview count",
             "type": "Numeric"
@@ -8391,7 +8391,7 @@
         "$screen_count": {
             "description": "The number of screen events in this session.",
             "examples": [
-                "123"
+                123
             ],
             "label": "Screen count",
             "type": "Numeric"
@@ -8399,9 +8399,9 @@
         "$session_duration": {
             "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in [our documentation](https://posthog.com/docs/user-guides/sessions).\n\nNote: If the duration is formatted as a single number (not `HH:MM:SS`), it's in seconds.",
             "examples": [
-                "30",
-                "146",
-                "2"
+                30,
+                146,
+                2
             ],
             "label": "Session duration",
             "type": "Numeric"

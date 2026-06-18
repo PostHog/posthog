@@ -669,7 +669,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$sdk_debug_extensions_init_time_ms": {
             "label": "PostHog.js extensions init time (ms)",
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
-            "examples": ["150"],
+            "examples": [150],
             "type": "Numeric",
             "used_for_debug": True,
         },
@@ -3294,7 +3294,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$session_duration": {
             "label": "Session duration",
             "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in [our documentation](https://posthog.com/docs/user-guides/sessions).\n\nNote: If the duration is formatted as a single number (not `HH:MM:SS`), it's in seconds.",
-            "examples": ["30", "146", "2"],
+            "examples": [30, 146, 2],
             "type": "Numeric",
         },
         "$start_timestamp": {
@@ -3360,19 +3360,19 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview_count": {
             "label": "Pageview count",
             "description": "The number of page view events in this session.",
-            "examples": ["123"],
+            "examples": [123],
             "type": "Numeric",
         },
         "$autocapture_count": {
             "label": "Autocapture count",
             "description": "The number of autocapture events in this session.",
-            "examples": ["123"],
+            "examples": [123],
             "type": "Numeric",
         },
         "$screen_count": {
             "label": "Screen count",
             "description": "The number of screen events in this session.",
-            "examples": ["123"],
+            "examples": [123],
             "type": "Numeric",
         },
         "$channel_type": {
@@ -3384,7 +3384,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$is_bounce": {
             "label": "Is bounce",
             "description": "Whether the session was a bounce.",
-            "examples": ["true", "false"],
+            "examples": [True, False],
             "type": "Boolean",
         },
         "$last_external_click_url": {
