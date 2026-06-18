@@ -14,10 +14,10 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from temporalio import activity
 
+from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.markdown_safety import strip_external_links_markdown
 from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
