@@ -4040,6 +4040,10 @@ snapshots:
         hash: v1.k794b7964.cc26937830dc95deb164b13bda7327a6a7bed094f2670332b6ea0885ffb15733.j8pxbf3h92E8pkD9KCSQrlBeFY3UUEmF7E_6XJg47kQ
     mcp-apps-funnels--three-step--light:
         hash: v1.k794b7964.a4cf6cff88ffb74e40e2dbe91cc266054f699eeae2d39d40019f3ed184ba030e.g12F2_uMZw3-VDO3TX1BqQu01X5UDRFTag0fO0WcrTc
+    mcp-apps-insight-actors--event-counts--light:
+        hash: v1.k794b7964.f3ff99b4ec1920b2df7c65cb407482896b99b2ea34d4bfbb4cad722b05d25f9a.6K2QCgM8Znsuz_zMA2jTZW884aJ29-cvc1OWldMEzgc
+    mcp-apps-insight-actors--with-recordings--light:
+        hash: v1.k794b7964.af9ec36dd0d406f45eec2bf3fafb8dbe63b0eba139c5fff4b33e83cf24668f8e.hQ3brX3MIHwfCM95Re7Ti6Z8bsY2zq-He2uM63uuvUw
     mcp-apps-lifecycle--grouped--light:
         hash: v1.k794b7964.fa32f317c7015ae73b5b5c38e11209e6a51967de4e0457ae29f7eedb8ea8fce8._OUjY62EdIDs4LQbOyr1ORBmTYMn9AZ5BHWC9e4Bx5c
     mcp-apps-lifecycle--stacked--light:
@@ -5629,9 +5633,9 @@ snapshots:
     scenes-app-mcp-analytics--dashboard--light:
         hash: v1.k794b7964.c64d5d43c4eaa79d3008e9dd40857d9bee879832e68a8f8e9464657ff670773f.yKxStICPwIMCMEnf_zQhK0BuXu5BIxaUKmgPYHAEzYo
     scenes-app-mcp-analytics--sessions--dark:
-        hash: v1.k794b7964.c316f0028a9cc9b6a8e2b85d95b5e5ab65548805d4069f001c5cbbbcfbac970c.u4rZzVUZRlEBb11eUbRTRsVFfH_5gb3qRI5BEuAN7qw
+        hash: v1.k794b7964.277463ad445565d14f2549a063a4f8c0c23a81af419bfafc9eefc65577fb0834.woelvjefGWPDW4Acae_sP2fA7YidrA7tkhfvC8u_AQ4
     scenes-app-mcp-analytics--sessions--light:
-        hash: v1.k794b7964.497d9ae69307438f3ef9ebfc80bb948ffd70d285eda4192f6b2e21f1a66d3eba.XI5y0bJbIitncOcXS_6Gxcr4pgGCK1moA7JIAstwuL4
+        hash: v1.k794b7964.bbe32ae76ef1ed9053d24d860933bc0bf1cca54ed3f601effaf515b8d9a6cd21.saYknnP-f1-BwcwRczq_p6CgUmnH8cmE8YJ_9XpN2Pk
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--dark:
         hash: v1.k794b7964.695d298349258e60b3b8f0c8775e1554ffd9ad3a3b9d4d750df124550bf65c51.cpBNQ-OwnkymJacZsj27ScYkVTr_36Yb8Z27xINlTN8
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--light:
