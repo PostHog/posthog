@@ -270,7 +270,7 @@ describe('MetricCard', () => {
                 />
             )
             expect(container.textContent).toContain(change.label)
-            const pill = container.querySelector('.rounded-full') as HTMLElement | null
+            const pill = container.querySelector('[data-attr="metric-card-change-pill"]') as HTMLElement | null
             expect(pill?.style.color).toBe(expectedColor)
         })
 
@@ -278,13 +278,93 @@ describe('MetricCard', () => {
             const { container } = render(
                 <MetricCard title="Revenue" value={8800} change={{ value: -4.2, label: '-4.2%' }} />
             )
-            const chevron = container.querySelector('.rounded-full svg')
+            const chevron = container.querySelector('[data-attr="metric-card-change-pill"] svg')
             expect(chevron?.getAttribute('class')).toContain('rotate-180')
         })
 
         it('applies dataAttr to the root', () => {
             const { container } = render(<MetricCard title="Revenue" value={8800} dataAttr="metric-revenue" />)
             expect(container.querySelector('[data-attr="metric-revenue"]')).not.toBeNull()
+        })
+    })
+
+    describe('new props', () => {
+        it('replaces the default headline via the headline render-prop', () => {
+            // The consumer-supplied data-attr is the stable hook here.
+            const { container } = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    formatValue={(v) => `$${Math.round(v)}`}
+                    headline={(value) => <button data-attr="custom-headline">go {value}</button>}
+                />
+            )
+            expect(container.querySelector('[data-attr="custom-headline"]')?.textContent).toBe('go $400')
+        })
+
+        it('passes the hover-animated value to the headline render-prop', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    formatValue={(v) => `$${Math.round(v)}`}
+                    headline={(value) => <span data-attr="custom-headline">{value}</span>}
+                />
+            )
+            chart.hoverAtIndex(1)
+            expect(container.querySelector('[data-attr="custom-headline"]')?.textContent).toBe('$200')
+        })
+
+        it('renders the change pill exactly once with changeInline (no header duplicate)', () => {
+            const { container } = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    changeInline
+                    change={{ value: 12.5, label: '+12.5%' }}
+                />
+            )
+            expect(container.querySelectorAll('[data-attr="metric-card-change-pill"]')).toHaveLength(1)
+        })
+
+        it('drops the fixed sparkline height when sparklineFill is set', () => {
+            const fixed = renderHogChart(
+                <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} sparklineHeight={120} />
+            )
+            expect((fixed.container.querySelector('[data-attr="metric-card-sparkline"]') as HTMLElement).style.height).toBe(
+                '120px'
+            )
+
+            const filled = renderHogChart(
+                <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} sparklineFill />
+            )
+            expect(
+                (filled.container.querySelector('[data-attr="metric-card-sparkline"]') as HTMLElement).style.height
+            ).toBe('')
+        })
+
+        it('renders the subtitle when provided and omits the row when empty', () => {
+            const withSubtitle = renderHogChart(
+                <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} subtitle="Last 7 days" />
+            )
+            expect(withSubtitle.container.querySelector('[data-attr="metric-card-subtitle"]')?.textContent).toBe(
+                'Last 7 days'
+            )
+
+            const valueOnly = render(<MetricCard title={null} value={42} />)
+            expect(valueOnly.container.querySelector('[data-attr="metric-card-subtitle"]')).toBeNull()
         })
     })
 })

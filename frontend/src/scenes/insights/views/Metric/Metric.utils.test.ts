@@ -1,16 +1,17 @@
-import { computeMetricChange, MAX_CHANGE_PERCENT, MetricChangeResult } from './Metric.utils'
+import { computeMetricChange, MetricChangeResult } from './Metric.utils'
 
 describe('computeMetricChange', () => {
     const cases: { name: string; data: number[] | undefined; expected: MetricChangeResult }[] = [
         { name: 'undefined data → no change', data: undefined, expected: { change: undefined, startValue: undefined } },
         { name: 'empty series → no change', data: [], expected: { change: undefined, startValue: undefined } },
         { name: 'single point → no change', data: [5], expected: { change: undefined, startValue: undefined } },
-        { name: 'increase', data: [100, 150], expected: { change: { value: 50 }, startValue: 100 } },
         {
-            name: 'decrease',
-            data: [150, 100],
-            expected: { change: { value: ((100 - 150) / 150) * 100 }, startValue: 150 },
+            name: 'filtering drops below two finite points → no change',
+            data: [NaN, Infinity],
+            expected: { change: undefined, startValue: undefined },
         },
+        { name: 'increase', data: [100, 150], expected: { change: { value: 50 }, startValue: 100 } },
+        { name: 'decrease', data: [200, 100], expected: { change: { value: -50 }, startValue: 200 } },
         {
             name: 'zero start, positive end → +∞',
             data: [0, 50],
@@ -23,14 +24,24 @@ describe('computeMetricChange', () => {
             expected: { change: { value: -1, label: '∞' }, startValue: 0 },
         },
         {
-            name: 'near-zero start over cap → ∞ (value preserved)',
-            data: [0.001, 50],
-            expected: { change: { value: ((50 - 0.001) / 0.001) * 100, label: '∞' }, startValue: 0.001 },
+            name: 'just below cap → real % with no ∞ label',
+            data: [100, 10000],
+            expected: { change: { value: 9900 }, startValue: 100 },
         },
         {
             name: 'exactly at cap → ∞',
             data: [1, 101],
-            expected: { change: { value: MAX_CHANGE_PERCENT, label: '∞' }, startValue: 1 },
+            expected: { change: { value: 10000, label: '∞' }, startValue: 1 },
+        },
+        {
+            name: 'large positive over cap → ∞ (value preserved)',
+            data: [1, 100000],
+            expected: { change: { value: 9999900, label: '∞' }, startValue: 1 },
+        },
+        {
+            name: 'large negative over cap → ∞ (Math.abs triggers on decreases too)',
+            data: [100, -10000],
+            expected: { change: { value: -10100, label: '∞' }, startValue: 100 },
         },
         {
             name: 'non-finite values filtered out',

@@ -15,10 +15,13 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
-import { computeMetricChange } from './Metric.utils'
-
-export const METRIC_DEFAULT_INCREASE_COLOR = '#388600'
-export const METRIC_DEFAULT_DECREASE_COLOR = '#db3707'
+import {
+    computeMetricChange,
+    METRIC_COLOR_BY_DIRECTION_DEFAULT,
+    METRIC_DEFAULT_DECREASE_COLOR,
+    METRIC_DEFAULT_INCREASE_COLOR,
+    METRIC_SHOW_CHANGE_DEFAULT,
+} from './Metric.utils'
 
 const makeChangeColor = (hex: string): { background: string; foreground: string } => ({
     background: hexToRGBA(hex, 0.1),
@@ -35,12 +38,14 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
 
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
-    if (!resultSeries) {
+    // `count` is typed as a number but can be absent at runtime; without a headline MetricCard renders nothing,
+    // so fall through to the empty state rather than showing a blank tile.
+    if (!resultSeries || resultSeries.count == null) {
         return <InsightEmptyState />
     }
 
     const headlineValue = resultSeries.count
-    const showChange = trendsFilter?.metricShowChange ?? true
+    const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
     // The pill and line both read from `change` (change across the displayed period), so they always agree.
     const { change, startValue } = computeMetricChange(resultSeries.data)
@@ -57,7 +62,7 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
     const lineIncreaseColor = trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR
     const lineDecreaseColor = trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR
     let lineColor: string | undefined
-    if ((trendsFilter?.metricColorByDirection ?? false) && change != null) {
+    if ((trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT) && change != null) {
         lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
     }
 
@@ -65,25 +70,25 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
     // way ("June 16, 2026") rather than the raw backend label ("16-Jun-2026").
     const labels = resultSeries.days?.map((day) => formatDate(dayjs(day))) ?? resultSeries.labels
 
-    const handleClick = context?.onDataPointClick
-        ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
-        : showPersonsModal && headlineValue != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
-          ? () => {
-                openPersonsModal({
-                    title: resultSeries.label,
-                    query: {
-                        kind: NodeKind.InsightActorsQuery,
-                        source: querySource!,
-                        includeRecordings: true,
-                    },
-                    additionalSelect: {
-                        value_at_data_point: 'event_count',
-                        matched_recordings: 'matched_recordings',
-                    },
-                    orderBy: ['event_count DESC, actor_id DESC'],
-                })
-            }
-          : undefined
+    let handleClick: (() => void) | undefined
+    if (context?.onDataPointClick) {
+        handleClick = () => context.onDataPointClick?.({ compare: 'current' }, resultSeries)
+    } else if (showPersonsModal && !hasDataWarehouseSeries) {
+        handleClick = () =>
+            openPersonsModal({
+                title: resultSeries.label,
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: querySource!,
+                    includeRecordings: true,
+                },
+                additionalSelect: {
+                    value_at_data_point: 'event_count',
+                    matched_recordings: 'matched_recordings',
+                },
+                orderBy: ['event_count DESC, actor_id DESC'],
+            })
+    }
 
     // Left-aligned, full-width tile. On a dashboard card the content fills the height (value/pill at the top,
     // sparkline grows to fill the rest); in the insight view the tile is content-height at the top.

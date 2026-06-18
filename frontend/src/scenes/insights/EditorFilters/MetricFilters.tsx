@@ -4,7 +4,12 @@ import { getSeriesColorPalette } from 'lib/colors'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonColorPicker } from 'lib/lemon-ui/LemonColor'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { METRIC_DEFAULT_DECREASE_COLOR, METRIC_DEFAULT_INCREASE_COLOR } from 'scenes/insights/views/Metric/Metric'
+import {
+    METRIC_COLOR_BY_DIRECTION_DEFAULT,
+    METRIC_DEFAULT_DECREASE_COLOR,
+    METRIC_DEFAULT_INCREASE_COLOR,
+    METRIC_SHOW_CHANGE_DEFAULT,
+} from 'scenes/insights/views/Metric/Metric.utils'
 
 import { insightLogic } from '../insightLogic'
 
@@ -52,7 +57,7 @@ export function MetricShowChangeFilter(): JSX.Element {
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const showChange = trendsFilter?.metricShowChange ?? true
+    const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
     return (
         <div className="flex flex-col">
@@ -80,7 +85,7 @@ export function MetricColorFilter(): JSX.Element {
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const colorByDirection = trendsFilter?.metricColorByDirection ?? false
+    const colorByDirection = trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
 
     return (
         <div className="flex flex-col">

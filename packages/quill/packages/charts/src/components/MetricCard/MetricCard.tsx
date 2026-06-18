@@ -168,7 +168,9 @@ function MetricCardInner({
             )}
 
             {resolvedSubtitle != null && resolvedSubtitle !== '' && (
-                <div className="mt-1 text-sm opacity-60">{resolvedSubtitle}</div>
+                <div className="mt-1 text-sm opacity-60" data-attr="metric-card-subtitle">
+                    {resolvedSubtitle}
+                </div>
             )}
 
             {sparklineData && theme && (
@@ -182,6 +184,7 @@ function MetricCardInner({
                     fillOpacity={sparklineFillOpacity}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
+                    dataAttr="metric-card-sparkline"
                 />
             )}
         </div>
@@ -201,6 +204,7 @@ function ChangePill({ positive, label, colors, size = 'sm' }: ChangePillProps): 
         <div
             className={`inline-flex items-center rounded-full font-medium transition-colors ${sizeClasses}`}
             style={{ background: colors.background, color: colors.foreground }}
+            data-attr="metric-card-change-pill"
         >
             <Chevron up={positive} size={size === 'md' ? 12 : 10} />
             <span className="tabular-nums">{label}</span>
