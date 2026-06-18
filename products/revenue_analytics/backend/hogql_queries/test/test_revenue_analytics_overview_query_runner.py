@@ -23,6 +23,9 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
 )
 
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -271,6 +274,42 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ),
                 ],
             )
+
+    def test_with_data_with_old_analyzer(self):
+        # Regression test for CHQueryErrorNotFoundColumnInBlock on the revenue overview.
+        # `amount` is a `convertCurrency(...)` call whose conversion-date argument references the
+        # warehouse `created`/`created_at` timestamp. That call expands inline into a
+        # `dictGetOrDefault(...)` that still references the timestamp column, so aggregating it
+        # directly (`sum(amount)`) under the old analyzer (`enable_analyzer=0`, as used in
+        # production) pruned the source timestamp column from the aggregation block and raised
+        # `Not found column parseDateTime64BestEffortOrNull(toString(...)) in block`.
+        #
+        # The test ClickHouse cluster defaults to the new analyzer, so we force the old one here to
+        # exercise the production code path over the currency-converted Stripe charge/invoice views.
+        with freeze_time(self.QUERY_TIMESTAMP):
+            runner = RevenueAnalyticsOverviewQueryRunner(
+                team=self.team,
+                query=RevenueAnalyticsOverviewQuery(
+                    dateRange=DateRange(date_from="-30d"),
+                    properties=[],
+                    modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+                ),
+            )
+
+            response = execute_hogql_query(
+                query_type="revenue_analytics_overview_query",
+                query=runner.to_query(),
+                team=self.team,
+                modifiers=runner.modifiers,
+                settings=HogQLGlobalSettings(enable_analyzer=False),
+            )
+
+        # Same numbers as `test_with_data` — the point is that the query runs at all under the old analyzer
+        self.assertEqual(len(response.results), 1)
+        revenue, paying_customer_count, avg_revenue_per_customer = response.results[0]
+        self.assertEqual(revenue, Decimal("1621.0866070701"))
+        self.assertEqual(paying_customer_count, 3)
+        self.assertEqual(avg_revenue_per_customer, Decimal("540.3622023567"))
 
     def test_with_data_and_empty_interval(self):
         results = self._run_revenue_analytics_overview_query(

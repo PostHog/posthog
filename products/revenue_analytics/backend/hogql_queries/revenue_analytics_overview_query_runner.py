@@ -91,43 +91,26 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
         )
 
     def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
-        query = ast.SelectQuery(
+        # The `amount` column of the revenue item view is a `convertCurrency(...)` call whose
+        # conversion-date argument is the warehouse `created`/`created_at` timestamp. That call
+        # expands inline (it's not a real ClickHouse function) into a `dictGetOrDefault(...)` that
+        # still references the timestamp column. With the old analyzer (`enable_analyzer=0`),
+        # aggregating it directly (`sum(amount)`) prunes the source timestamp column from the
+        # aggregation block, raising `Not found column ... in block`.
+        #
+        # To avoid that, we first project `amount`/`customer_id` through a plain intermediate
+        # subquery — forcing the conversion (and its timestamp dependency) to be materialized in a
+        # block where the source column is still available — and only then aggregate over the
+        # already-converted column.
+        inner_query = ast.SelectQuery(
             select=[
                 ast.Alias(
-                    alias="revenue",
-                    expr=ast.Call(
-                        name="coalesce",
-                        args=[
-                            ast.Call(
-                                name="toDecimal",
-                                args=[
-                                    ast.Call(
-                                        name="sum",
-                                        args=[
-                                            ast.Field(
-                                                chain=[
-                                                    RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                                                    "amount",
-                                                ]
-                                            )
-                                        ],
-                                    ),
-                                    ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
-                                ],
-                            ),
-                            ZERO_DECIMAL,
-                        ],
-                    ),
+                    alias="amount",
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
                 ),
                 ast.Alias(
-                    alias="paying_customer_count",
-                    expr=ast.Call(
-                        name="count",
-                        distinct=True,
-                        args=[
-                            ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"])
-                        ],
-                    ),
+                    alias="customer_id",
+                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
                 ),
             ],
             select_from=self._with_where_property_joins(
@@ -152,7 +135,35 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
             ),
         )
 
-        return query
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="revenue",
+                    expr=ast.Call(
+                        name="coalesce",
+                        args=[
+                            ast.Call(
+                                name="toDecimal",
+                                args=[
+                                    ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
+                                    ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
+                                ],
+                            ),
+                            ZERO_DECIMAL,
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias="paying_customer_count",
+                    expr=ast.Call(
+                        name="count",
+                        distinct=True,
+                        args=[ast.Field(chain=["customer_id"])],
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=inner_query),
+        )
 
     def _calculate(self):
         response = execute_hogql_query(
