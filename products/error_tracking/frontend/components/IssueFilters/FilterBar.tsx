@@ -228,6 +228,12 @@ const BarContents = ({
                 {isInline && <GroupDivider />}
                 <DateRangeFilter size="small" type="tertiary" />
             </div>
+            {/* Inline variant: sort lives as its own island between the date group and the filters. */}
+            {isInline && showIssueControls && (
+                <div className={cn('flex items-center shrink-0', INLINE_CLUSTER)}>
+                    <SortControl />
+                </div>
+            )}
             {!isInline && <Separator />}
             <div className={cn('flex-1 min-w-0 flex items-center flex-wrap gap-1', !isInline && 'px-1')}>
                 <TaxonomicFilterMenu
@@ -274,10 +280,10 @@ const BarContents = ({
                     <FilterChip onClear={() => setSearchQuery('')}>Search: "{searchQuery}"</FilterChip>
                 )}
             </div>
-            {showIssueControls && (
+            {!isInline && showIssueControls && (
                 <>
-                    {!isInline && <Separator />}
-                    <div className={cn('flex items-center shrink-0', isInline ? INLINE_CLUSTER : 'gap-0.5')}>
+                    <Separator />
+                    <div className="flex items-center gap-0.5 shrink-0">
                         <SortControl />
                     </div>
                 </>

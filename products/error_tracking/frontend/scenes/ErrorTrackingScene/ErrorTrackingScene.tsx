@@ -131,15 +131,16 @@ const IssuesRedesignedTab = (): JSX.Element => {
                 props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
             >
                 {banners}
-                <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
-                    <FilterBar
-                        variant="inline"
-                        reload={<IssueReloadButton />}
-                        logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
-                        quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                    />
-                </SceneStickyBar>
-                <IssuesListRedesigned />
+                <IssuesListRedesigned
+                    toolbar={
+                        <FilterBar
+                            variant="inline"
+                            reload={<IssueReloadButton />}
+                            logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                        />
+                    }
+                />
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )

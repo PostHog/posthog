@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
@@ -27,26 +29,29 @@ const VOLUME_GAP = 'pr-5'
 /**
  * Table-less issues list. Renders each issue as a plain hover row (Linear-style) instead of the
  * DataTable: a fresh, compact title block (IssueRowRedesigned) plus the shared volume/count cells.
- * Expects an `issuesDataNodeLogic` provided by the surrounding scene.
+ * The `toolbar` is laid into the sticky header's title column so the metric column names align with
+ * the rows below. Expects an `issuesDataNodeLogic` provided by the surrounding scene.
  */
-export function IssuesListRedesigned(): JSX.Element {
+export function IssuesListRedesigned({ toolbar }: { toolbar: ReactNode }): JSX.Element {
     const { results, responseLoading } = useValues(issuesDataNodeLogic)
 
-    // -mx-4 lets the rows and their dividers bleed to the scene edges (matching the sticky toolbar),
-    // while px-4 on each row keeps the content aligned.
     return (
-        <div className="-mx-4 flex flex-col">
-            <ColumnHeaders results={results} />
-            {responseLoading && results.length === 0 ? (
-                <LoadingRows />
-            ) : results.length === 0 ? (
-                <EmptyState />
-            ) : (
-                results.map((record: ErrorTrackingIssue, index: number) => (
-                    <IssueRow key={record.id} record={record} recordIndex={index} results={results} />
-                ))
-            )}
-        </div>
+        <>
+            <ListHeader toolbar={toolbar} results={results} />
+            {/* -mx-4 lets the rows and their dividers bleed to the scene edges (matching the sticky
+                header), while px-4 on each row keeps the content aligned. */}
+            <div className="-mx-4 flex flex-col">
+                {responseLoading && results.length === 0 ? (
+                    <LoadingRows />
+                ) : results.length === 0 ? (
+                    <EmptyState />
+                ) : (
+                    results.map((record: ErrorTrackingIssue, index: number) => (
+                        <IssueRow key={record.id} record={record} recordIndex={index} results={results} />
+                    ))
+                )}
+            </div>
+        </>
     )
 }
 
@@ -75,19 +80,32 @@ const SortableCountHeader = ({ field, label }: { field: ErrorTrackingQueryOrderB
     )
 }
 
-const ColumnHeaders = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Element => {
+/**
+ * Sticky top bar. The toolbar sits in the title column and the metric column names sit in their own
+ * (sortable) cells, so the header lines up with the rows and needs no separate divider beneath it.
+ * When issues are selected the toolbar slot becomes the bulk-action bar.
+ */
+const ListHeader = ({ toolbar, results }: { toolbar: ReactNode; results: ErrorTrackingIssue[] }): JSX.Element => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
 
     return (
-        <div className={cn(ROW_GRID, 'border-b border-primary px-4 pb-2 pt-1')}>
-            <div className="min-w-0">
-                {selectedIssueIds.length > 0 ? <IssueActions issues={results} selectedIds={selectedIssueIds} /> : null}
+        <SceneStickyBar showBorderBottom={false} className="-mt-2">
+            {/* Bottom-align so the metric column names sit just above the rows, not centered in the
+                taller toolbar band. */}
+            <div className={cn(ROW_GRID, 'items-end')}>
+                <div className="min-w-0">
+                    {selectedIssueIds.length > 0 ? (
+                        <IssueActions issues={results} selectedIds={selectedIssueIds} />
+                    ) : (
+                        toolbar
+                    )}
+                </div>
+                <div className={cn(VOLUME_GAP, 'text-center text-xs font-medium text-muted')}>Volume</div>
+                <SortableCountHeader field="occurrences" label="Occurrences" />
+                <SortableCountHeader field="sessions" label="Sessions" />
+                <SortableCountHeader field="users" label="Users" />
             </div>
-            <div className={cn(VOLUME_GAP, 'text-center text-xs font-medium text-muted')}>Volume</div>
-            <SortableCountHeader field="occurrences" label="Occurrences" />
-            <SortableCountHeader field="sessions" label="Sessions" />
-            <SortableCountHeader field="users" label="Users" />
-        </div>
+        </SceneStickyBar>
     )
 }
 
