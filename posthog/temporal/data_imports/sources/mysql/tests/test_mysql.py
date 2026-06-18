@@ -1073,6 +1073,21 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.ProgrammingError(1146, "Table 'defaultdb.wealth_insights' doesn't exist")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "ProgrammingError: (1146, \"Table 'defaultdb.wealth_insights' doesn't exist\")",
+        ],
+    )
+    def test_table_not_found_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Table-not-found error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
