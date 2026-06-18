@@ -99,6 +99,18 @@ class TestBingAdsSource:
         assert error is not None
         assert "Failed to validate Bing Ads credentials" in error
 
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.source.capture_exception")
+    @mock.patch.object(BingAdsSource, "get_oauth_integration")
+    def test_validate_credentials_integration_not_found(self, mock_get_oauth, mock_capture):
+        """A deleted integration is an expected user state, not an error worth capturing."""
+        mock_get_oauth.side_effect = ValueError("Integration not found: 162559")
+
+        is_valid, error = self.source.validate_credentials(self.valid_config, self.team_id)
+
+        assert is_valid is False
+        assert error == "Bing Ads integration not found. Please reconnect your Bing Ads integration."
+        mock_capture.assert_not_called()
+
     def test_get_schemas(self):
         """Test getting available schemas."""
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
