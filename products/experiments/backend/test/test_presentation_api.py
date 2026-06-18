@@ -31,6 +31,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
@@ -397,8 +398,8 @@ class TestExperimentCRUD(APILicensedTest):
         return experiment, action
 
     def test_listing_experiments_with_action_metrics_is_not_nplus1(self) -> None:
-        # Action names are refreshed per metric during serialization; without batching this is one
-        # Action query per metric per experiment. Query count must stay flat as rows grow.
+        # The list serializer omits metrics, so no per-metric Action lookups happen during
+        # serialization. Query count must stay flat as rows grow.
         self._create_experiment_with_action_metrics(0)
 
         with CaptureQueriesContext(connection) as single_row:
@@ -415,6 +416,26 @@ class TestExperimentCRUD(APILicensedTest):
             self.assertEqual(response.json()["count"], 5)
 
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+
+    def test_list_query_defers_heavy_metric_columns(self) -> None:
+        # Omitting the metric fields lets the list query defer the heavy JSON columns — they must
+        # not be SELECTed from posthog_experiment. This is the perf payoff of ExperimentBasicSerializer
+        # / safely_get_queryset; if the defer regresses, these columns reappear in the SELECT.
+        self._create_experiment_with_action_metrics(0)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment_selects = [
+            query["sql"] for query in ctx.captured_queries if 'FROM "posthog_experiment"' in query["sql"]
+        ]
+        self.assertTrue(experiment_selects, "expected at least one SELECT against posthog_experiment")
+        for sql in experiment_selects:
+            for column in LIST_DEFERRED_FIELDS:
+                # Table-qualified so a same-named column on a joined table (e.g. feature_flag.filters)
+                # doesn't trigger a false positive.
+                self.assertNotIn(f'"posthog_experiment"."{column}"', sql)
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
