@@ -1307,9 +1307,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         extra_state: dict[str, Any] | None = None
         if initial_permission_mode is not None:
             extra_state = {"initial_permission_mode": initial_permission_mode}
-        if home_quick_action is not None:
-            extra_state = extra_state or {}
-            extra_state["home_quick_action"] = home_quick_action
 
         provider = get_provider_for_runtime_adapter(runtime_adapter)
         for key, value in {
@@ -1321,6 +1318,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "home_quick_action": home_quick_action,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}

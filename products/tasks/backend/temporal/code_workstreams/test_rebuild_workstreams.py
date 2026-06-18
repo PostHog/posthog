@@ -2,14 +2,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-from products.tasks.backend.models import CodePrSnapshot, TaskRun
+from products.tasks.backend.models import CodePrSnapshot
 from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
-    _base_branch_from_run,
     _branch_resolution_pref,
     _build_pr_input,
-    _quick_action_from_run,
     _repo_from_pr_url,
 )
+from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 
 def _snapshot(**overrides) -> CodePrSnapshot:
@@ -40,12 +39,8 @@ def _snapshot(**overrides) -> CodePrSnapshot:
         (None, None),
     ],
 )
-def test_base_branch_from_run_reads_pr_base_branch(state, expected):
-    assert _base_branch_from_run(TaskRun(state=state)) == expected
-
-
-def test_base_branch_from_run_handles_missing_run():
-    assert _base_branch_from_run(None) is None
+def test_parse_run_state_reads_pr_base_branch(state, expected):
+    assert parse_run_state(state).pr_base_branch == expected
 
 
 @pytest.mark.parametrize(
@@ -86,8 +81,8 @@ def test_branch_resolution_pref_prefers_open_then_recent():
         (None, None),
     ],
 )
-def test_quick_action_from_run(state, expected):
-    assert _quick_action_from_run(TaskRun(state=state)) == expected
+def test_parse_run_state_reads_home_quick_action(state, expected):
+    assert parse_run_state(state).home_quick_action == expected
 
 
 @pytest.mark.parametrize(

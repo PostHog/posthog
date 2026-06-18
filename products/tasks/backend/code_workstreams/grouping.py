@@ -105,7 +105,7 @@ def workstream_key(task: TaskInput, pr_url: Optional[str]) -> Optional[str]:
 
 def branch_lookup_key(repo: Optional[str], branch: Optional[str]) -> Optional[tuple[str, str]]:
     if repo and branch:
-        return (repo.lower(), branch)
+        return (repo.casefold(), branch)
     return None
 
 

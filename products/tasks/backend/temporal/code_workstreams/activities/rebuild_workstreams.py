@@ -22,6 +22,7 @@ from products.tasks.backend.code_workstreams.grouping import (
 )
 from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW, MAX_TASKS_PER_TEAM
+from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 
 @dataclass
@@ -54,18 +55,11 @@ def _pr_url_from_run(run: Optional[TaskRun]) -> Optional[str]:
     return (run.output or {}).get("pr_url") if run and run.output else None
 
 
-def _base_branch_from_run(run: Optional[TaskRun]) -> Optional[str]:
-    return (run.state or {}).get("pr_base_branch") if run and run.state else None
-
-
-def _quick_action_from_run(run: Optional[TaskRun]) -> Optional[str]:
-    return (run.state or {}).get("home_quick_action") if run and run.state else None
-
-
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
     run: Optional[TaskRun] = task.latest_run
     last_activity = run.updated_at if run else task.updated_at
     cloud_pr_url = _pr_url_from_run(run)
+    state = parse_run_state(run.state if run else None)
     return (
         TaskInput(
             id=str(task.id),
@@ -75,10 +69,10 @@ def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
             repo_name=_repo_name(task.repository),
             repo_full_path=task.repository,
             branch=run.branch if run else None,
-            base_branch=_base_branch_from_run(run),
+            base_branch=state.pr_base_branch,
             cloud_pr_url=cloud_pr_url,
             folder_path=None,
-            quick_action=_quick_action_from_run(run),
+            quick_action=state.home_quick_action,
         ),
         cloud_pr_url,
     )
@@ -139,8 +133,6 @@ def _repo_from_pr_url(pr_url: str) -> Optional[str]:
     if len(segments) < 2:
         return None
     owner, repo = segments[-2], segments[-1]
-    if not owner or not repo:
-        return None
     return f"{owner}/{repo}"
 
 
