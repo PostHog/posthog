@@ -1,3 +1,4 @@
+import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { RecordingsWidget } from '../UIPayloadAnswer'
@@ -16,5 +17,9 @@ export function SearchSessionRecordingsWidget(props: McpToolRendererProps): JSX.
         return <FallbackMcpToolRenderer {...props} />
     }
 
-    return <RecordingsWidget toolCallId={message.id} filters={filters} />
+    return (
+        <SandboxToolActivity {...props}>
+            <RecordingsWidget toolCallId={message.id} filters={filters} embedded />
+        </SandboxToolActivity>
+    )
 }
