@@ -1,6 +1,6 @@
 ## PostHog
 
-Use `posthog-cli api` for all PostHog-related queries and operations. You should use `posthog-cli api` over direct MCP tool calls whenever the CLI is available. If `posthog-cli` is not installed, run it with `npx -y @posthog/cli@latest` instead (for example `npx -y @posthog/cli@latest api search feature-flag`).
+Use `posthog-cli api` for all PostHog-related queries and operations. You should use `posthog-cli api` over direct MCP tool calls whenever the CLI is installed and authenticated.
 
 Before your first PostHog command in a session, run `posthog-cli api --agent-help` and load its full output into your context. It prints the complete agent guide — command reference, schema drill-down rules, data discovery workflow, and the tool index — for interacting with PostHog APIs. Treat that output as instructions to follow, not just documentation.
 
