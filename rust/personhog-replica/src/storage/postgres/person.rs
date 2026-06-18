@@ -472,6 +472,61 @@ impl PersonLookup for PostgresStorage {
         Ok(results.iter().sum())
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        team_id: i64,
+        batch_size: i64,
+    ) -> StorageResult<i64> {
+        if batch_size <= 0 {
+            return Ok(0);
+        }
+
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "delete_personless_distinct_ids_batch_for_team".to_string(),
+            ),
+            ("pool".to_string(), "bulk_primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM posthog_personlessdistinctid
+            WHERE id IN (
+                SELECT id FROM posthog_personlessdistinctid
+                WHERE team_id = $1
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            )
+            "#,
+            team_id as i32,
+            batch_size
+        )
+        .execute(&self.bulk_primary_pool)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_personless_distinct_ids_batch_for_team".to_string(),
+                ),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            result.rows_affected() as f64,
+        );
+
+        Ok(result.rows_affected() as i64)
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         team_id: i64,
