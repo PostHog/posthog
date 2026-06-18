@@ -26,7 +26,7 @@ jobs:
         timeout-minutes: 15
         environment: Release
         permissions:
-            contents: write
+            contents: read
             id-token: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -44,24 +44,41 @@ jobs:
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4
 
+            # Version base is the version LIVE ON NPM for this dist-tag, not the
+            # in-repo package.json. master is branch-protected with no bypass
+            # actor, so the bumped version can never be committed back — the repo
+            # always lags. Reading the base from npm makes the workflow
+            # self-correcting: each run publishes the version after whatever's
+            # already on the registry, so a stale repo can't cause a
+            # "version already exists" collision. The repo package.json only
+            # seeds the very first publish of a never-published package.
             - name: Bump versions
               env:
                   NPM_TAG: ${{ inputs.tag }}
               run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
                   BUMP_TYPE=$( [ "$NPM_TAG" = "latest" ] && echo "patch" || echo "prerelease" )
+                  bump() {
+                    local pkg_name="$1"
+                    # Seed local package.json from the live npm version for this
+                    # tag; on a brand-new package `npm view` is empty, so we keep
+                    # the repo version as the base. --allow-same-version because
+                    # the seed may already match the repo.
+                    local base
+                    base=$(npm view "${pkg_name}@${NPM_TAG}" version 2>/dev/null || true)
+                    if [ -n "$base" ]; then
+                      npm version "$base" --no-git-tag-version --allow-same-version >/dev/null
+                    fi
+                    npm version "$BUMP_TYPE" --no-git-tag-version >/dev/null
+                    node -p "require('./package.json').version"
+                  }
                   cd packages/quill/packages/tokens
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  TOKENS_V=$(node -p "require('./package.json').version")
+                  TOKENS_V=$(bump "@posthog/quill-tokens")
                   echo "Bumped @posthog/quill-tokens to $TOKENS_V ($BUMP_TYPE)"
                   cd ../quill
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  QUILL_V=$(node -p "require('./package.json').version")
+                  QUILL_V=$(bump "@posthog/quill")
                   echo "Bumped @posthog/quill to $QUILL_V ($BUMP_TYPE)"
                   cd ../charts
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  CHARTS_V=$(node -p "require('./package.json').version")
+                  CHARTS_V=$(bump "@posthog/quill-charts")
                   echo "Bumped @posthog/quill-charts to $CHARTS_V ($BUMP_TYPE)"
 
             - name: Install dependencies
@@ -143,16 +160,12 @@ jobs:
               run: |
                   echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}, @posthog/quill-charts@${CHARTS_VERSION}" >> $GITHUB_OUTPUT
 
-            - name: Commit version bump
-              run: |
-                  git add packages/quill/packages/tokens/package.json packages/quill/packages/quill/package.json packages/quill/packages/charts/package.json
-                  TOKENS_V=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
-                  QUILL_V=$(node -p "require('./packages/quill/packages/quill/package.json').version")
-                  CHARTS_V=$(node -p "require('./packages/quill/packages/charts/package.json').version")
-                  git commit -m "chore(quill): bump quill-tokens to $TOKENS_V, quill to $QUILL_V, quill-charts to $CHARTS_V [skip ci]"
-                  if ! git push; then
-                    echo "::warning::git push failed (likely branch protection). Versions were published successfully but package.json not updated in repo. A manual bump or PR may be needed."
-                  fi
+            # No commit-back to master: it's branch-protected with no bypass
+            # actor, and a package.json bump trips the PR-approval agent's
+            # deny-list (T2-never) and is skipped as bot-authored — so an
+            # auto-merging PR could never land unattended. The published version
+            # is sourced from npm in the "Bump versions" step instead, so the
+            # in-repo package.json is allowed to lag without causing collisions.
 
             - name: Notify Slack
               if: ${{ !cancelled() }}
