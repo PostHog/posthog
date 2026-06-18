@@ -163,6 +163,94 @@ def build_function_call(
     return return_expr(expr)
 
 
+# Virtual-hosted-style S3 host, e.g. ``bucket.s3.amazonaws.com`` or
+# ``bucket.s3.us-east-1.amazonaws.com`` (also legacy ``bucket.s3-us-east-1...``).
+_S3_VHOST_RE = re.compile(r"^(?P<bucket>.+?)\.s3([.-][a-z0-9-]+)*\.amazonaws\.com$", re.IGNORECASE)
+# Path-style S3 host, e.g. ``s3.amazonaws.com`` or ``s3.us-east-1.amazonaws.com``.
+_S3_PATH_HOST_RE = re.compile(r"^s3([.-][a-z0-9-]+)*\.amazonaws\.com$", re.IGNORECASE)
+
+
+def to_duckdb_s3_uri(url: str) -> str:
+    """Rewrite an HTTP(S) AWS S3 URL into an ``s3://bucket/key`` URI.
+
+    DuckDB only applies a configured S3 secret (credentials) to ``s3://`` URIs;
+    an ``https://…amazonaws.com/…`` URL is treated as plain HTTP and reaches a
+    private bucket unauthenticated. We recognize the two AWS addressing styles
+    and rewrite them; any other scheme or host is returned unchanged so DuckDB's
+    httpfs can handle it.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme in ("s3", "s3a", "s3n"):
+        return url
+    if scheme not in ("http", "https"):
+        return url
+
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.lstrip("/")
+
+    vhost_match = _S3_VHOST_RE.match(host)
+    if vhost_match:
+        return f"s3://{vhost_match.group('bucket')}/{path}"
+    if _S3_PATH_HOST_RE.match(host):
+        # Path-style: the bucket is the first path segment.
+        return f"s3://{path}"
+    return url
+
+
+def _resolve_duckdb_data_url(url: str, format: str, queryable_folder: Optional[str]) -> str:
+    """Resolve the concrete file URL DuckDB should read, mirroring the ClickHouse path.
+
+    For ``DeltaS3Wrapper`` tables the queryable Parquet lives under a ``__query``
+    sibling folder (or an explicit ``queryable_folder``), so we point DuckDB at
+    that Parquet glob rather than the Delta root.
+    """
+    if format != "DeltaS3Wrapper":
+        return url
+
+    if queryable_folder:
+        parsed = urlparse(url)
+        new_path = str(PurePosixPath(parsed.path).parent) + "/"
+        new_url = urlunparse(parsed._replace(path=new_path))
+        return new_url + queryable_folder + "/**.parquet"
+
+    if url.endswith("/"):
+        return f"{url[:-1]}__query/**.parquet"
+    return f"{url}__query/**.parquet"
+
+
+def build_duckdb_function_call(
+    url: str,
+    format: str,
+    queryable_folder: Optional[str] = None,
+    context: Optional[HogQLContext] = None,
+) -> str:
+    """Render an S3-backed warehouse table as a DuckDB/DuckLake table function.
+
+    DuckLake (duckgres/DuckDB) has no ClickHouse ``s3()`` table function, so the
+    Postgres-dialect print can't reuse :func:`build_function_call`. We map the
+    stored file format to the matching DuckDB reader and rewrite the HTTP(S) S3
+    URL into an ``s3://`` URI so DuckDB applies the server-side S3 secret.
+    """
+    data_url = _resolve_duckdb_data_url(url, format, queryable_folder)
+    s3_uri = to_duckdb_s3_uri(data_url)
+
+    if context is not None:
+        escaped_url = context.add_value(s3_uri)
+    else:
+        escaped_url = "'" + s3_uri.replace("'", "''") + "'"
+
+    if format == "Delta":
+        return f"delta_scan({escaped_url})"
+    if format in ("CSV", "CSVWithNames"):
+        header = "true" if format == "CSVWithNames" else "false"
+        return f"read_csv({escaped_url}, header = {header})"
+    if format == "JSONEachRow":
+        return f"read_json({escaped_url}, format = 'newline_delimited')"
+    # Parquet and DeltaS3Wrapper (whose queryable folder holds Parquet) both read Parquet.
+    return f"read_parquet({escaped_url})"
+
+
 class S3Table(FunctionCallTable):
     requires_args: bool = False
     url: str
@@ -187,6 +275,14 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
             table_size_mib=self.table_size_mib,
+        )
+
+    def to_printed_postgres(self, context):
+        return build_duckdb_function_call(
+            url=self.url,
+            format=self.format,
+            queryable_folder=self.queryable_folder,
+            context=context,
         )
 
 

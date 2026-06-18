@@ -5,11 +5,13 @@ from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.s3_table import build_function_call
+from posthog.hogql.database.s3_table import build_duckdb_function_call, build_function_call, to_duckdb_s3_uri
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -44,7 +46,7 @@ class TestS3Table(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
+    def _select(self, query: str, dialect: Literal["hogql", "clickhouse", "postgres"] = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_s3_table_select(self):
@@ -454,3 +456,121 @@ class TestS3Table(BaseTest):
                 res
                 == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'Parquet', 'some structure')"
             )
+
+    @parameterized.expand(
+        [
+            (
+                "vhost_no_region",
+                "https://my-bucket.s3.amazonaws.com/team_1/table/file.parquet",
+                "s3://my-bucket/team_1/table/file.parquet",
+            ),
+            (
+                "vhost_with_region",
+                "https://posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com/team_1/table/file.parquet",
+                "s3://posthog-s3-datawarehouse-us-east-1/team_1/table/file.parquet",
+            ),
+            (
+                "vhost_legacy_dash_region",
+                "https://my-bucket.s3-eu-west-1.amazonaws.com/key.parquet",
+                "s3://my-bucket/key.parquet",
+            ),
+            (
+                "path_style_with_region",
+                "https://s3.us-east-1.amazonaws.com/my-bucket/key.parquet",
+                "s3://my-bucket/key.parquet",
+            ),
+            (
+                "already_s3_scheme",
+                "s3://my-bucket/key.parquet",
+                "s3://my-bucket/key.parquet",
+            ),
+            (
+                "non_s3_host_unchanged",
+                "https://example.com/some/file.parquet",
+                "https://example.com/some/file.parquet",
+            ),
+        ]
+    )
+    def test_to_duckdb_s3_uri(self, _name: str, url: str, expected: str):
+        assert to_duckdb_s3_uri(url) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "parquet",
+                DataWarehouseTable.TableFormat.Parquet,
+                None,
+                "read_parquet('s3://my-bucket/key.parquet')",
+            ),
+            (
+                "delta",
+                DataWarehouseTable.TableFormat.Delta,
+                None,
+                "delta_scan('s3://my-bucket/key.parquet')",
+            ),
+            (
+                "csv_with_names",
+                DataWarehouseTable.TableFormat.CSVWithNames,
+                None,
+                "read_csv('s3://my-bucket/key.parquet', header = true)",
+            ),
+            (
+                "csv_no_header",
+                DataWarehouseTable.TableFormat.CSV,
+                None,
+                "read_csv('s3://my-bucket/key.parquet', header = false)",
+            ),
+            (
+                "json",
+                DataWarehouseTable.TableFormat.JSON,
+                None,
+                "read_json('s3://my-bucket/key.parquet', format = 'newline_delimited')",
+            ),
+        ]
+    )
+    def test_build_duckdb_function_call_without_context(self, _name: str, format: str, queryable_folder, expected: str):
+        res = build_duckdb_function_call(
+            "https://my-bucket.s3.amazonaws.com/key.parquet", format, queryable_folder, None
+        )
+        assert res == expected
+
+    def test_build_duckdb_function_call_delta_s3_wrapper(self):
+        res = build_duckdb_function_call(
+            "https://my-bucket.s3.amazonaws.com/path/to/table/",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            None,
+            None,
+        )
+        assert res == "read_parquet('s3://my-bucket/path/to/table__query/**.parquet')"
+
+    def test_build_duckdb_function_call_delta_s3_wrapper_with_queryable_folder(self):
+        res = build_duckdb_function_call(
+            "https://my-bucket.s3.amazonaws.com/path/to/table_name",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "table_name__query_12345",
+            None,
+        )
+        assert res == "read_parquet('s3://my-bucket/path/to/table_name__query_12345/**.parquet')"
+
+    def test_build_duckdb_function_call_with_context_parameterizes_url(self):
+        self._init_database()
+        res = build_duckdb_function_call(
+            "https://my-bucket.s3.amazonaws.com/key.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            None,
+            self.context,
+        )
+        assert res == "read_parquet(%(hogql_val_0)s)"
+        assert self.context.values["hogql_val_0"] == "s3://my-bucket/key.parquet"
+
+    def test_postgres_dialect_select_emits_read_parquet_not_s3(self):
+        with override_settings(
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
+        ):
+            self._init_database()
+
+            postgres = self._select(query="SELECT Date FROM aapl_stock LIMIT 10", dialect="postgres")
+
+            assert "s3(" not in postgres
+            assert "read_csv(" in postgres or "read_parquet(" in postgres
