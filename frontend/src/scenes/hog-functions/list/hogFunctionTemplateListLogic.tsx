@@ -9,8 +9,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,6 +25,7 @@ import {
 
 import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
+import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
@@ -33,6 +34,7 @@ export interface Fuse extends FuseClass<HogFunctionTemplateType> {}
 
 export type HogFunctionTemplateListFilters = {
     search?: string
+    deliveryType?: HogFunctionDeliveryType
 }
 
 export type HogFunctionTemplateListLogicProps = {
@@ -205,13 +207,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 hideComingSoonByDefault,
                 customFilterFunction
             ): HogFunctionTemplateType[] => {
-                const { search } = filters
+                const { search, deliveryType } = filters
+                const matchesDelivery = (template: HogFunctionTemplateType): boolean =>
+                    !deliveryType || getHogFunctionDeliveryType(template) === deliveryType
 
                 if (search) {
                     return templatesFuse
                         .search(search)
                         .map((x) => {
-                            if (!customFilterFunction(x.item)) {
+                            if (!customFilterFunction(x.item) || !matchesDelivery(x.item)) {
                                 return null
                             }
                             return x.item
@@ -221,7 +225,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                 const [available, comingSoon] = templates.reduce(
                     ([available, comingSoon], template) => {
-                        if (!customFilterFunction(template)) {
+                        if (!customFilterFunction(template) || !matchesDelivery(template)) {
                             return [available, comingSoon]
                         }
 

@@ -14,7 +14,7 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_COLUMNS,
     EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
-    EXPECTED_DUCKLAKE_COLUMNS,
+    EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
@@ -159,7 +159,7 @@ class TestEventsDDL:
         result = conn.execute("DESCRIBE memory.posthog.events").fetchall()
         column_names = {row[0] for row in result}
 
-        assert column_names == EXPECTED_DUCKLAKE_COLUMNS
+        assert column_names == EXPECTED_DUCKLAKE_EVENTS_COLUMNS
         conn.close()
 
     def test_events_ddl_is_idempotent(self):

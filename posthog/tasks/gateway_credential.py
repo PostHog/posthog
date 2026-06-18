@@ -29,7 +29,7 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 
 logger = structlog.get_logger(__name__)
 
-_NAMESPACE = "gateway_credential"
+_CACHE_NAME = "gateway_credential"
 _SECRET_KEY_KIND = "project_secret_api_key"
 _OAUTH_KIND = "oauth_access_token"
 
@@ -51,7 +51,9 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
         return
 
     project_gateway_credential(credential)
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace=_NAMESPACE, operation="update", result="success").inc()
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+        namespace="team_metadata", cache_name=_CACHE_NAME, operation="update", result="success"
+    ).inc()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

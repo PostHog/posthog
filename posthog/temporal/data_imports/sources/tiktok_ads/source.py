@@ -43,6 +43,11 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
             # the user-facing error since it names the specific advertiser and TikTok error code.
             TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
+            # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
+            # the customer has to reconnect.
+            "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
         }
 
     @property

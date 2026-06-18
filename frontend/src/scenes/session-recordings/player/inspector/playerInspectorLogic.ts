@@ -15,8 +15,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { eventToDescription } from 'lib/utils/events'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { humanizeBytes } from 'lib/utils/numbers'
+import { toParams } from 'lib/utils/url'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,

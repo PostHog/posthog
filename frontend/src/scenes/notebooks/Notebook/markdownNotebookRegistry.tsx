@@ -321,6 +321,7 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
 export function RealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     deleteNode,
     forceEditing = false,
@@ -337,6 +338,7 @@ export function RealNotebookNodeComponent({
         <MountedRealNotebookNodeComponent
             node={node}
             mode={mode}
+            notebookMode={notebookMode}
             updateProps={updateProps}
             deleteNode={deleteNode}
             editOnly={editOnly}

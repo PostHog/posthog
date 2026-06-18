@@ -692,7 +692,9 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)"""
 
 
-def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, include_table_clauses=True):
+def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+    table_name, engine, include_aliases=True, include_table_clauses=True, settings=None
+):
     """JSON-backed query_log_archive table.
 
     include_aliases=True for the data table and read tables (exposes lc_* / ProfileEvents_*).
@@ -701,11 +703,12 @@ def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, in
     columns = _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS
     if include_aliases:
         columns = f"{columns},\n{_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS}"
-    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses}".format(
+    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses} {settings}".format(
         table_name=table_name,
         columns=columns,
         engine=engine,
         table_clauses=_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES if include_table_clauses else "",
+        settings=settings if settings else "",
     )
 
 
@@ -718,6 +721,7 @@ def SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
         engine=SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE(),
+        settings="SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'",
     )
 
 

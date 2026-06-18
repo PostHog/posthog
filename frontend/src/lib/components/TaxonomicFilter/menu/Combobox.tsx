@@ -56,6 +56,7 @@ import {
 } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
+import { MatchedValueBadge } from './MatchedValueBadge'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, CommitSelectionContext, DrillCategory, MenuFilterEntry, TAXONOMIC_FILTER_SURFACE } from './types'
 import { VerificationBadge } from './VerificationBadge'
@@ -805,7 +806,7 @@ export function MenuFilterCombobox({
         })
         setActiveChip('all')
         inputRef.current?.focus()
-    }, [activeChip])
+    }, [activeChip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const selectionContextFor = useCallback(
         (entry: MenuFilterEntry): CommitSelectionContext => {
@@ -1271,6 +1272,7 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
                 )}
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
+            <MatchedValueBadge entry={entry} />
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

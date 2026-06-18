@@ -1,6 +1,7 @@
 from posthog.schema import (
     CachedWebPageURLSearchQueryResponse,
     PageURL,
+    WebAnalyticsPreComputeStrategy,
     WebPageURLSearchQuery,
     WebPageURLSearchQueryResponse,
 )
@@ -96,4 +97,5 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
             hasMore=len(response.results) >= limit,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
         )

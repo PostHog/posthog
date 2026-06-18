@@ -142,6 +142,10 @@ class Pipeline:
     def run(self) -> str:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
+
+        if self.pr.author_is_bot:
+            return self._refuse_bot_author()
+
         self._classify()
         self._run_gates()
 
@@ -170,6 +174,28 @@ class Pipeline:
         if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
             return False
         return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+
+    def _refuse_bot_author(self) -> str:
+        """Hard gate: stamphog never reviews bot-authored PRs.
+
+        A human applying the stamphog label can't override this — bot output
+        isn't a trusted basis for an auto-approval. The workflow already gates
+        the review job on a non-bot author; this is the defense-in-depth layer
+        for any manual or out-of-band invocation.
+        """
+        self.final_verdict = "REFUSED"
+        self.reviewer_output = {
+            "verdict": "REFUSE",
+            "reasoning": (
+                f"@{self.pr.author} is a bot — stamphog does not review "
+                "bot-authored PRs. This change needs a human reviewer."
+            ),
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_fail('REFUSED')} — bot author (@{self.pr.author}); stamphog skips bot-authored PRs")
+        self._capture_review_completed("DENIED", "BOT-AUTHOR")
+        return self.final_verdict
 
     def _refuse_pending_migration_check(self) -> str:
         self.final_verdict = "REFUSED"
@@ -497,11 +523,14 @@ class Pipeline:
             "author": self.pr.author,
             "head_sha": self.pr.head_sha,
             "classification": {
-                "tier": self.classification["tier"],
+                # .get() not [] — the bot-author REFUSE returns before _classify(),
+                # so classification is empty {} on that path; --output-json must
+                # still serialize cleanly rather than KeyError.
+                "tier": self.classification.get("tier", ""),
                 "t1_subclass": self.classification.get("t1_subclass", ""),
                 "lines_total": self.pr.lines_total,
                 "files_changed": len(self.pr.files),
-                "breadth": self.classification["breadth"],
+                "breadth": self.classification.get("breadth", ""),
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),

@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Person | None:
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
     from posthog.personhog_client.proto import GetPersonByDistinctIdRequest
@@ -30,7 +31,8 @@ def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -
     if client is None:
         raise RuntimeError("personhog client not configured")
 
-    resp = client.get_person_by_distinct_id(GetPersonByDistinctIdRequest(team_id=team_id, distinct_id=distinct_id))
+    with personhog_caller_tag("replay/recording-person"):
+        resp = client.get_person_by_distinct_id(GetPersonByDistinctIdRequest(team_id=team_id, distinct_id=distinct_id))
     if resp.person and resp.person.id and resp.person.team_id == team_id:
         # Only pass the queried distinct_id — the list endpoint also intentionally
         # sets a single distinct_id to avoid expensive all-distinct-ids lookups.

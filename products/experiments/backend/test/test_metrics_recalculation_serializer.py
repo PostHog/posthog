@@ -5,7 +5,11 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.presentation.serializers import ExperimentMetricsRecalculationSerializer
+from products.experiments.backend.presentation.serializers import (
+    ExperimentMetricsRecalculationSerializer,
+    MetricRecalculationResultSerializer,
+    RecalculateMetricsRequestSerializer,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -74,3 +78,53 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         # can't silently start emitting is_existing on payloads that never asked for it.
         data = ExperimentMetricsRecalculationSerializer({}).data
         assert "is_existing" not in data
+
+
+class TestRecalculateMetricsRequestSerializer(BaseTest):
+    def test_defaults_trigger_to_manual_when_omitted(self):
+        s = RecalculateMetricsRequestSerializer(data={})
+        assert s.is_valid(), s.errors
+        assert s.validated_data["trigger"] == "manual"
+
+    @parameterized.expand(
+        [
+            ("manual",),
+            ("experiment_launch",),
+            ("experiment_stop",),
+            ("experiment_update",),
+        ]
+    )
+    def test_accepts_valid_trigger(self, trigger: str):
+        s = RecalculateMetricsRequestSerializer(data={"trigger": trigger})
+        assert s.is_valid(), s.errors
+        assert s.validated_data["trigger"] == trigger
+
+    def test_rejects_unknown_trigger(self):
+        s = RecalculateMetricsRequestSerializer(data={"trigger": "nonsense"})
+        assert not s.is_valid()
+        assert "trigger" in s.errors
+
+
+class TestMetricRecalculationResultSerializer(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "completed",
+                {"metric_uuid": "m1", "status": "completed", "result": {"variants": []}, "error_message": None},
+            ),
+            (
+                "failed",
+                {"metric_uuid": "m2", "status": "failed", "result": None, "error_message": "boom"},
+            ),
+            (
+                "pending",
+                {"metric_uuid": "m3", "status": "pending", "result": None, "error_message": None},
+            ),
+        ]
+    )
+    def test_serializes_result_row(self, name: str, payload: dict):
+        data = MetricRecalculationResultSerializer(payload).data
+        assert data["metric_uuid"] == payload["metric_uuid"]
+        assert data["status"] == payload["status"]
+        assert data["result"] == payload["result"]
+        assert data["error_message"] == payload["error_message"]

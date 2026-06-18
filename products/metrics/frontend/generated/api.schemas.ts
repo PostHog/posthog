@@ -30,6 +30,7 @@ export interface AppMetricsTotalsResponseApi {
  * * `p95` - p95
  * * `rate` - rate
  * * `increase` - increase
+ * * `histogram_quantile` - histogram_quantile
  */
 export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
 
@@ -40,6 +41,7 @@ export const AggregationEnumApi = {
     P95: 'p95',
     Rate: 'rate',
     Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
 } as const
 
 /**
@@ -93,6 +95,149 @@ export interface _MetricFilterApi {
     scope?: MetricAttributeScopeEnumApi
 }
 
+export interface _MetricAnomalyBodyApi {
+    /**
+     * Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').
+     * @maxLength 255
+     */
+    metricName: string
+    /** Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong. */
+    anomalyFrom: string
+    /** End of the suspicious window (exclusive). Defaults to now. */
+    anomalyTo?: string
+    /** Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo. */
+    baselineFrom?: string
+    /** End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom. */
+    baselineTo?: string
+    /** Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
+     *
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile */
+    aggregation?: AggregationEnumApi | null
+    /**
+     * Quantile for histogram_quantile. Defaults to 0.95.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
+    /** Label predicates narrowing which series are characterized. */
+    filters?: _MetricFilterApi[]
+    /**
+     * Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.
+     * @items.maxLength 255
+     */
+    candidateKeys?: string[]
+}
+
+export interface _MetricAnomalyRequestApi {
+    /** The anomaly characterization to run. */
+    query: _MetricAnomalyBodyApi
+}
+
+/**
+ * * `up` - up
+ * * `down` - down
+ * * `flat` - flat
+ */
+export type _MetricAnomalyReportDirectionEnumApi =
+    (typeof _MetricAnomalyReportDirectionEnumApi)[keyof typeof _MetricAnomalyReportDirectionEnumApi]
+
+export const _MetricAnomalyReportDirectionEnumApi = {
+    Up: 'up',
+    Down: 'down',
+    Flat: 'flat',
+} as const
+
+export interface _MetricAnomalyDimensionApi {
+    /** Label key that was drilled into. */
+    key: string
+    /** Label value this row describes. */
+    label: string
+    /** Mean value over the baseline window for this label value. */
+    baseline_value: number
+    /** Mean value over the anomaly window for this label value. */
+    anomaly_value: number
+    /** anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic). */
+    change_ratio: number
+}
+
+export interface _MetricQueryPointApi {
+    /** Bucket start as ISO 8601 timestamp. */
+    time: string
+    /** Aggregated value for the bucket. */
+    value: number
+}
+
+/**
+ * Label values identifying this series. Empty for an ungrouped query.
+ */
+export type _MetricSeriesApiLabels = { [key: string]: string }
+
+export interface _MetricSeriesApi {
+    /** Label values identifying this series. Empty for an ungrouped query. */
+    labels: _MetricSeriesApiLabels
+    /** Time-bucketed points, ordered by time ascending. */
+    points: _MetricQueryPointApi[]
+    /**
+     * Metric the series was computed from. Null for formula results.
+     * @nullable
+     */
+    metric_name?: string | null
+    /**
+     * Name of the query clause that produced this series.
+     * @nullable
+     */
+    clause?: string | null
+}
+
+export interface _MetricAnomalyReportApi {
+    /** Metric that was characterized. */
+    metric_name: string
+    /** Aggregation used (auto-picked when not specified). */
+    aggregation: string
+    /** Bucket size of the analysis grid. */
+    interval: string
+    /** Baseline window start, ISO 8601. */
+    baseline_from: string
+    /** Baseline window end, ISO 8601. */
+    baseline_to: string
+    /** Anomaly window start, ISO 8601. */
+    anomaly_from: string
+    /** Anomaly window end, ISO 8601. */
+    anomaly_to: string
+    /** Mean over the baseline window. */
+    baseline_mean: number
+    /** Population stddev over the baseline window. */
+    baseline_stddev: number
+    /** Mean over the anomaly window. */
+    anomaly_mean: number
+    /** Maximum bucket value in the anomaly window. */
+    anomaly_peak: number
+    /** anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself. */
+    change_ratio: number
+    /** Which way the metric moved versus the baseline.
+     *
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat */
+    direction: _MetricAnomalyReportDirectionEnumApi
+    /**
+     * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
+     * @nullable
+     */
+    onset_time: string | null
+    /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
+    top_movers: _MetricAnomalyDimensionApi[]
+    /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
+    series: _MetricSeriesApi
+}
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -130,21 +275,63 @@ export const MetricQueryIntervalEnumApi = {
     Week: 'week',
 } as const
 
-export interface _MetricQueryBodyApi {
+export interface _MetricClauseApi {
     /**
-     * Exact metric name to query (e.g. 'http.server.duration').
+     * Clause name a formula refers to (e.g. 'a').
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Exact metric name this clause queries.
      * @maxLength 255
      */
     metricName: string
-    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
+    /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
      *
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
      * * `rate` - rate
-     * * `increase` - increase */
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile */
     aggregation?: AggregationEnumApi
+    /**
+     * Quantile in (0, 1) for 'histogram_quantile'.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
+    /** Label predicates ANDed together for this clause. */
+    filters?: _MetricFilterApi[]
+    /** Labels to split this clause into separate series by. */
+    groupBy?: _MetricGroupByApi[]
+}
+
+export interface _MetricQueryBodyApi {
+    /**
+     * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
+     * @maxLength 255
+     */
+    metricName?: string
+    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+     *
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile */
+    aggregation?: AggregationEnumApi
+    /**
+     * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -160,6 +347,14 @@ export interface _MetricQueryBodyApi {
      * * `day` - day
      * * `week` - week */
     interval?: MetricQueryIntervalEnumApi | null
+    /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+    clauses?: _MetricClauseApi[]
+    /**
+     * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
+     * @maxLength 512
+     * @nullable
+     */
+    formula?: string | null
     /** Lower bound (inclusive) for the query range. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
@@ -169,35 +364,6 @@ export interface _MetricQueryBodyApi {
 export interface _MetricQueryRequestApi {
     /** The metric query to execute. */
     query: _MetricQueryBodyApi
-}
-
-export interface _MetricQueryPointApi {
-    /** Bucket start as ISO 8601 timestamp. */
-    time: string
-    /** Aggregated value for the bucket. */
-    value: number
-}
-
-/**
- * Label values identifying this series. Empty for an ungrouped query.
- */
-export type _MetricSeriesApiLabels = { [key: string]: string }
-
-export interface _MetricSeriesApi {
-    /** Label values identifying this series. Empty for an ungrouped query. */
-    labels: _MetricSeriesApiLabels
-    /** Time-bucketed points, ordered by time ascending. */
-    points: _MetricQueryPointApi[]
-    /**
-     * Metric the series was computed from. Null for formula results.
-     * @nullable
-     */
-    metric_name?: string | null
-    /**
-     * Name of the query clause that produced this series.
-     * @nullable
-     */
-    clause?: string | null
 }
 
 export interface _MetricQueryResponseApi {

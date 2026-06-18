@@ -163,6 +163,11 @@ function process(event: PluginEvent, next: () => void): void {
         props['functionId'] = functionId
     }
 
+    // The functionId represents the whole trace's purpose, so only override the span name for the top-level event
+    if (isTopLevel && typeof functionId === 'string' && functionId) {
+        props['$ai_span_name'] = functionId
+    }
+
     const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
     if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
         if (props['posthog_distinct_id'] === undefined) {
