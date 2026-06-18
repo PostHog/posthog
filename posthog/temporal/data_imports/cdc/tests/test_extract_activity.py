@@ -276,6 +276,35 @@ class TestFlushDeferredRuns:
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
 
+class TestBuildEventNameMap:
+    @pytest.mark.parametrize(
+        "schema_name,schema_metadata,source_schema_config,wal_event_name,expected_canonical",
+        [
+            # Path 1: schema_metadata resolves the source-qualified name.
+            ("orders", {"source_schema": "public", "source_table_name": "orders"}, None, "public.orders", "orders"),
+            # Path 2: no metadata, but `name` is already schema-qualified.
+            ("public.orders", None, None, "public.orders", "public.orders"),
+            # Path 3: no metadata, bare name — falls back to the source's default schema.
+            ("orders", None, "analytics", "analytics.orders", "orders"),
+            # Path 3: no metadata, bare name, no default schema — falls back to "public".
+            ("orders", None, None, "public.orders", "orders"),
+        ],
+    )
+    def test_resolves_wal_event_name_to_canonical_schema_name(
+        self, schema_name, schema_metadata, source_schema_config, wal_event_name, expected_canonical
+    ):
+        source = _make_source(job_inputs={"schema": source_schema_config} if source_schema_config else {})
+        schema = _make_schema(schema_name, cdc_mode="streaming", source=source)
+        schema.sync_type_config = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
+        if schema_metadata is not None:
+            schema.sync_type_config["schema_metadata"] = schema_metadata
+
+        activity_obj = _make_extract_activity(source)
+        activity_obj.cdc_schemas = [schema]
+
+        assert activity_obj._build_event_name_map().get(wal_event_name) == expected_canonical
+
+
 class TestCDCExtractActivity:
     """Integration tests for cdc_extract_activity with mocked external deps."""
 
