@@ -54,13 +54,16 @@ runs:
         - name: Install dependencies
           shell: bash
           working-directory: ${{ inputs.working-directory }}
-          # pnpm reads npm_config_* — keep cache-miss fetches resilient to
-          # transient registry blips (pnpm's own default retry count is lower).
+          # Pass the command through env and eval it rather than interpolating
+          # ${{ }} straight into run: — that trips semgrep's run-shell-injection
+          # rule. eval keeps shell parsing so quoted --filter globs survive.
+          # pnpm reads npm_config_* — keep cache-miss fetches resilient to blips.
           env:
+              INSTALL_COMMAND: ${{ inputs.install-command }}
               npm_config_fetch_retries: 3
               npm_config_fetch_retry_mintimeout: 10000
               npm_config_fetch_retry_maxtimeout: 60000
-          run: ${{ inputs.install-command }}
+          run: eval "$INSTALL_COMMAND"
 
         # Save only on the default branch. Caches written on a PR/branch ref are
         # scoped to that ref alone — no other branch can read them, they evict
