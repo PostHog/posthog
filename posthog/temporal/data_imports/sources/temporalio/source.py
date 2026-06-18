@@ -142,6 +142,14 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         secret=True,
                     ),
                     SourceFieldInputConfig(
+                        name="fallback_decryption_keys",
+                        label="Fallback decryption keys",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="key1,key2,key3",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="server_client_root_ca",
                         label="Server client root CA",
                         type=SourceFieldInputConfigType.TEXTAREA,

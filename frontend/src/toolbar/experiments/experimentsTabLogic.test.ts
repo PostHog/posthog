@@ -52,12 +52,17 @@ const web_experiments = [
     },
 ]
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ results: web_experiments }),
-    } as any as Response)
-)
+// The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
+// test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
+// which runs after this module loads and would otherwise clobber a top-level assignment.
+const installFetchMock = (): void => {
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ results: web_experiments }),
+        } as any as Response)
+    )
+}
 describe('experimentsTabLogic', () => {
     let theExperimentsTabLogic: ReturnType<typeof experimentsTabLogic.build>
     let theExperimentsLogic: ReturnType<typeof experimentsLogic.build>
@@ -65,6 +70,7 @@ describe('experimentsTabLogic', () => {
     let theToolbarConfigLogic: ReturnType<typeof toolbarConfigLogic.build>
 
     beforeEach(() => {
+        installFetchMock()
         const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
         ;(lemonToast.success as jest.Mock).mockClear()
         ;(lemonToast.error as jest.Mock).mockClear()

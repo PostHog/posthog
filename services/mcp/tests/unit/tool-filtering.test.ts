@@ -732,7 +732,7 @@ describe('Tool Filtering - Feature Flags', () => {
         // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([
-                'agent-platform-mcp',
+                'agent-platform',
                 'logs-alerting',
                 'replay-video-based-summarization',
                 'tracing',

@@ -1029,6 +1029,140 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 4)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
 
+    # Retention where the start event and completion event are the same. The
+    # qualifying start occurrence must not count as its own completion, otherwise
+    # every user is trivially retained at 100%; the metric should measure "did the
+    # user fire this event again within the window?", so only a *distinct* later
+    # occurrence counts.
+    @parameterized.expand(
+        [
+            # [0,0] FIRST_SEEN anchors on the first occurrence, so a distinct
+            # same-day repeat after it counts as "did it again".
+            ("first_seen_same_day_direct", False, StartHandling.FIRST_SEEN, 0, 0, 1, 1),
+            ("first_seen_same_day_precomputed", True, StartHandling.FIRST_SEEN, 0, 0, 1, 1),
+            # [0,0] LAST_SEEN anchors on the last occurrence; nothing distinct can
+            # come after it within the same day, so no user is ever retained. This
+            # also guards that start_uuid is paired with the *last* occurrence
+            # (argMax): were it the first, the last occurrence would falsely self-count.
+            ("last_seen_same_day_direct", False, StartHandling.LAST_SEEN, 0, 0, 0, 0),
+            ("last_seen_same_day_precomputed", True, StartHandling.LAST_SEEN, 0, 0, 0, 0),
+            # [1,1] regression: the self occurrence is already outside the window
+            # (day 0, window starts day 1), so the new uuid clause is a no-op here.
+            # Only the distinct next-day repeat counts, exactly as before the change.
+            ("first_seen_window_start_one_direct", False, StartHandling.FIRST_SEEN, 1, 1, 1, 0),
+            ("first_seen_window_start_one_precomputed", True, StartHandling.FIRST_SEEN, 1, 1, 1, 0),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_retention_same_start_and_completion_event_excludes_self(
+        self,
+        name,
+        use_precomputation,
+        start_handling,
+        window_start,
+        window_end,
+        expected_control_retained,
+        expected_test_retained,
+    ):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="page_view",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="page_view",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=window_start,
+            retention_window_end=window_end,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=start_handling,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        def _exposure(variant: str) -> dict:
+            return {
+                "event": "$feature_flag_called",
+                "timestamp": "2024-01-02T09:00:00",
+                "properties": {
+                    "$feature_flag_response": variant,
+                    ff_property: variant,
+                    "$feature_flag": feature_flag.key,
+                },
+            }
+
+        def _page_view(variant: str, timestamp: str) -> dict:
+            return {"event": "page_view", "timestamp": timestamp, "properties": {ff_property: variant}}
+
+        # 3 control + 2 test users start; whether each is retained depends on the
+        # window. A distinct same-day repeat counts only for [0,0]; a distinct
+        # next-day repeat counts only for [1,1]. A single occurrence never counts.
+        journeys_for(
+            {
+                "control_repeat_same_day": [
+                    _exposure("control"),
+                    _page_view("control", "2024-01-02T10:00:00"),
+                    _page_view("control", "2024-01-02T14:00:00"),
+                ],
+                "control_single": [
+                    _exposure("control"),
+                    _page_view("control", "2024-01-02T10:00:00"),
+                ],
+                "control_repeat_next_day": [
+                    _exposure("control"),
+                    _page_view("control", "2024-01-02T10:00:00"),
+                    _page_view("control", "2024-01-03T10:00:00"),
+                ],
+                "test_repeat_same_day": [
+                    _exposure("test"),
+                    _page_view("test", "2024-01-02T10:00:00"),
+                    _page_view("test", "2024-01-02T11:00:00"),
+                ],
+                "test_single": [
+                    _exposure("test"),
+                    _page_view("test", "2024-01-02T10:00:00"),
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: 3 users started; retention depends on start_handling
+        self.assertEqual(control_variant.number_of_samples, 3)
+        self.assertEqual(control_variant.sum, expected_control_retained)
+
+        # Test: 2 users started; retention depends on start_handling
+        self.assertEqual(test_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.sum, expected_test_retained)
+
     @parameterized.expand(
         [
             ("direct", False),

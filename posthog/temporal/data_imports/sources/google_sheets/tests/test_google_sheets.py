@@ -237,6 +237,68 @@ def test_retry_on_transient_api_error_retries_then_exhausts(status_code):
         assert fn.call_count == 10
 
 
+def _api_error_with_status(
+    status_code: int, body: dict[str, Any] | None, text: str = ""
+) -> gspread.exceptions.APIError:
+    """Build an APIError whose HTTP status and body can differ. When `body` is None the
+    JSON body is unparseable, mirroring a transient 5xx returned by a gateway/proxy with a
+    non-JSON payload — gspread then falls back to `code == -1`."""
+    mock_response = mock.MagicMock()
+    mock_response.status_code = status_code
+    if body is None:
+        mock_response.json.side_effect = ValueError("no json")
+        mock_response.text = text
+    else:
+        mock_response.json.return_value = body
+    return gspread.exceptions.APIError(mock_response)
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_retry_on_transient_api_error_retries_5xx_with_non_json_body(status_code):
+    """A transient 5xx/429 can arrive with a non-JSON body (e.g. a gateway/proxy error
+    page), in which case gspread sets `code` to -1. The retry decision must fall back to
+    the HTTP status so the genuinely transient error is still retried rather than failing
+    the sync on the first attempt."""
+    with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
+        error = _api_error_with_status(status_code, body=None, text="upstream connect error")
+        assert error.code == -1  # gspread couldn't parse a code out of the body
+        fn = mock.MagicMock(side_effect=error)
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 10
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 503])
+def test_retry_on_transient_api_error_retries_when_code_is_string(status_code):
+    """Some error envelopes carry the code as a string, so `e.code` is e.g. "500" and a
+    direct membership test against the integer set misses it. The retry decision must still
+    recognise the transient status via the HTTP status code."""
+    with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
+        body = {"error": {"code": str(status_code), "message": "Internal error encountered.", "status": "INTERNAL"}}
+        error = _api_error_with_status(status_code, body=body)
+        fn = mock.MagicMock(side_effect=error)
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 10
+
+
+def test_retry_on_transient_api_error_does_not_retry_4xx_with_non_json_body():
+    """A non-transient 4xx with an unparseable body must still be raised immediately — the
+    HTTP-status fallback should only retry the transient codes, not everything."""
+    with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
+        error = _api_error_with_status(400, body=None, text="Bad Request")
+        fn = mock.MagicMock(side_effect=error)
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 1
+
+
 def test_retry_on_transient_api_error_does_not_retry_non_transient():
     with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
         fn = mock.MagicMock(side_effect=_api_error(400, status="INVALID_ARGUMENT"))

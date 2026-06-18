@@ -402,3 +402,26 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     patch_side_effects["soft_delete"].assert_called_once()
     emit_kwargs = patch_side_effects["emit"].call_args.kwargs
     assert emit_kwargs["metadata"]["deleted"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_effects):
+    """A signal that dedupes into a DELETED report fires signal_matched_deleted_report (so the
+    emit->assign funnel stays complete) and never signal_assigned_to_report."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.DELETED,
+        total_weight=2.0,
+        signal_count=3,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    await assign_and_emit_signal_activity(input_)
+
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_matched_deleted_report"]
+    properties = patch_side_effects["capture"].call_args.kwargs["properties"]
+    assert properties["report_id"] == str(report.id)
+    assert properties["source_id"] == input_.source_id
+    assert properties["source_product"] == "conversations"

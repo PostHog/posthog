@@ -701,6 +701,7 @@
     'save',
     'start_date',
     'status',
+    'status_label',
     'team_id',
     'updated_at',
   ])
@@ -871,6 +872,8 @@
     'filters_hash',
     'funnel',
     'generate_query_metadata',
+    'get_analytics_query_kinds',
+    'get_analytics_query_metadata',
     'get_effective_query',
     'get_file_system_representation',
     'get_file_system_unfiled',

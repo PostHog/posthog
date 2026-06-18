@@ -200,3 +200,30 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+
+
+class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_regenerate_allowed_with_heatmap_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["heatmap:write"])
+        # Use a non-existent short_id; a 404 proves the scope gate was passed.
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code != 403, r.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["heatmap:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_regenerate_rejected_without_heatmap_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code == 403, r.json()

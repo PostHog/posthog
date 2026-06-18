@@ -19,6 +19,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
     { key: 'agents', objectName: 'Agent', objectPlural: 'agents' },
+    {
+        key: 'agent_approvals',
+        objectName: 'Agent approval',
+        objectPlural: 'agent approvals',
+        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Code desktop app.',
+        disabledActions: ['read'],
+    },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
@@ -212,12 +219,17 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
-export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+export type ProjectSecretAPIKeyScopePreset = {
     value: string
     label: string
     scopes: string[]
     isCloudOnly?: boolean
-}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
+}
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
+    { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

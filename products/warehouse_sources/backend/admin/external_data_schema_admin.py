@@ -393,6 +393,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["unpause_schedule_url"] = reverse(
                 "admin:external_data_schema_unpause_schedule", args=[obj.id]
             )
+
+            # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
+            # above is paused once streaming starts, so surface the real one too.
+            if obj.is_cdc:
+                extra_context["cdc_extraction_schedule_id"] = f"cdc-extraction-{obj.source_id}"
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Team")
