@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from django.conf import settings
+
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
@@ -105,9 +107,26 @@ class HogQLContext:
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
 
+    # Per-query override for the events-json schema decision. None => fall back to the global
+    # CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA setting. Read it via the `use_new_events_schema` property.
+    use_new_events_schema_override: Optional[bool] = None
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+
+    @property
+    def use_new_events_schema(self) -> bool:
+        """Whether HogQL should read events from the ClickHouse JSON schema (events_json subcolumns).
+
+        Single source of truth for every query-building path that carries a HogQLContext — the HogQL
+        printer/transforms and the legacy raw-SQL builders that thread `hogql_context`. Falls back to the
+        global ``CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA`` setting, which also governs the ingestion/write
+        side, so reads and writes stay in agreement.
+        """
+        if self.use_new_events_schema_override is not None:
+            return self.use_new_events_schema_override
+        return bool(settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

@@ -70,10 +70,19 @@ def _use_events_json_schema_subcolumns(
     table: TableWithProperties,
     materialised_table_column: str,
     use_json_schema_subcolumns: bool = True,
+    hogql_context: Optional[HogQLContext] = None,
 ) -> bool:
+    # Read the events-json decision from the query's HogQLContext when one is threaded through (the dominant
+    # property-filter path does). Fall back to the global setting for the external callers that build raw SQL
+    # without a context — both resolve to the same value by default.
+    use_new_events_schema = (
+        hogql_context.use_new_events_schema
+        if hogql_context is not None
+        else django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+    )
     return (
         use_json_schema_subcolumns
-        and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        and use_new_events_schema
         and table == "events"
         and materialised_table_column in ("properties", "person_properties")
     )
@@ -234,6 +243,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
                 table_name=table_name,
+                hogql_context=hogql_context,
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
@@ -249,6 +259,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=True,
                 property_operator=property_operator,
                 use_event_column="person_properties",
+                hogql_context=hogql_context,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -264,6 +275,7 @@ def parse_prop_clauses(
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
                 property_operator=property_operator,
+                hogql_context=hogql_context,
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -293,6 +305,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=allow_denormalized_props,
                 transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
                 property_operator=property_operator,
+                hogql_context=hogql_context,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -304,6 +317,7 @@ def parse_prop_clauses(
                 prop_var="{}properties".format(table_formatted),
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
+                hogql_context=hogql_context,
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
@@ -332,6 +346,7 @@ def parse_prop_clauses(
                         prop_var=f"group_properties_{prop.group_type_index}",
                         allow_denormalized_props=False,
                         property_operator=property_operator,
+                        hogql_context=hogql_context,
                     )
                     final.append(filter_query)
                     params.update(filter_params)
@@ -343,6 +358,7 @@ def parse_prop_clauses(
                     prepend,
                     prop_var=f"group_properties",
                     allow_denormalized_props=False,
+                    hogql_context=hogql_context,
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
@@ -426,6 +442,7 @@ def prop_filter_json_extract(
     property_operator: str = PropertyOperatorType.AND,
     table_name: Optional[str] = None,
     use_event_column: Optional[str] = None,
+    hogql_context: Optional[HogQLContext] = None,
 ) -> tuple[str, dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
@@ -436,6 +453,7 @@ def prop_filter_json_extract(
     uses_events_json_subcolumn = _use_events_json_schema_subcolumns(
         property_table_name,
         materialised_table_column,
+        hogql_context=hogql_context,
     )
 
     property_expr, is_denormalized = get_property_string_expr(
@@ -446,6 +464,7 @@ def prop_filter_json_extract(
         allow_denormalized_props,
         table_name,
         materialised_table_column=materialised_table_column,
+        hogql_context=hogql_context,
     )
 
     if is_denormalized and transform_expression:
@@ -678,6 +697,7 @@ def get_single_or_multi_property_string_expr(
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
     use_json_schema_subcolumns: bool = True,
+    hogql_context: Optional[HogQLContext] = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     When querying for breakdown properties:
@@ -706,6 +726,7 @@ def get_single_or_multi_property_string_expr(
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
             use_json_schema_subcolumns=use_json_schema_subcolumns,
+            hogql_context=hogql_context,
         )
 
         expression = normalize_url_breakdown(expression, normalize_url)
@@ -722,6 +743,7 @@ def get_single_or_multi_property_string_expr(
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
                 use_json_schema_subcolumns=use_json_schema_subcolumns,
+                hogql_context=hogql_context,
             )
             expressions.append(normalize_url_breakdown(expr, normalize_url))
 
@@ -751,6 +773,7 @@ def get_property_string_expr(
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
     use_json_schema_subcolumns: bool = True,
+    hogql_context: Optional[HogQLContext] = None,
 ) -> tuple[str, bool]:
     """
 
@@ -769,7 +792,9 @@ def get_property_string_expr(
     """
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
-    if _use_events_json_schema_subcolumns(table, materialised_table_column, use_json_schema_subcolumns):
+    if _use_events_json_schema_subcolumns(
+        table, materialised_table_column, use_json_schema_subcolumns, hogql_context=hogql_context
+    ):
         return _events_json_subcolumn_string_expr(column, str(property_name), table_alias), False
 
     if (

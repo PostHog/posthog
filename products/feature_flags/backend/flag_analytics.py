@@ -296,6 +296,7 @@ def _flag_key_filter_sql() -> str:
     Falls back to JSONExtractString so the query still works when the property
     isn't materialized on this ClickHouse instance.
     """
+    # Cross-project raw SQL with no per-query HogQLContext, so read the global default directly.
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         expression, _ = get_property_string_expr("events", "$feature_flag", "'$feature_flag'", "properties")
         return f"{expression} = %(flag_key)s"

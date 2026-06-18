@@ -38,6 +38,8 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     entity_query = f"AND event IN %(events_list)s"
     entity_params = {"events_list": sorted(events)}
+    # Raw SQL keyed to the physical events table (EVENTS_QUERY_TABLE) rather than the HogQL printer, so the
+    # query shape stays tied to the global setting that also chooses that table.
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
         events_result = sync_execute(

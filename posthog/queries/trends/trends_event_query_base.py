@@ -1,7 +1,5 @@
 from typing import Any
 
-from django.conf import settings
-
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
@@ -110,13 +108,14 @@ class TrendsEventQueryBase(EventQuery):
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             group_field = f"$group_{self._entity.math_group_type_index}"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if self._filter.hogql_context.use_new_events_schema:
                 group_expr = get_property_string_expr(
                     "events",
                     group_field,
                     f"'{group_field}'",
                     "properties",
                     table_alias=self.EVENT_TABLE_ALIAS,
+                    hogql_context=self._filter.hogql_context,
                 )[0]
                 return f"AND {group_expr} != ''"
             return f"""AND "{group_field}" != ''"""

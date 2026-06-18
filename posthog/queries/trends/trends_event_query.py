@@ -31,6 +31,7 @@ class TrendsEventQuery(TrendsEventQueryBase):
                         f"'{property}'",
                         "properties",
                         table_alias="e",
+                        hogql_context=self._filter.hogql_context,
                     )[0]
                     + f" as {property}"
                     for property in self._extra_event_properties
@@ -74,6 +75,7 @@ class TrendsEventQuery(TrendsEventQueryBase):
                         column="person_properties",
                         table_alias=self.EVENT_TABLE_ALIAS,
                         materialised_table_column="person_properties",
+                        hogql_context=self._filter.hogql_context,
                     ),
                     column_name=column_name,
                 )

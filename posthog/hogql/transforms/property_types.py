@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional, cast
 
-from django.conf import settings
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
@@ -360,7 +359,7 @@ class PropertySwapper(CloningVisitor):
             return None
 
         if (
-            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            self.context.use_new_events_schema
             and table_name == "events"
             and field_type.name in ("properties", "person_properties")
         ):

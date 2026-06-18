@@ -143,6 +143,8 @@ def build_person_properties_at_time(
     if not isinstance(row_limit, int) or row_limit <= 0:
         raise ValueError("row_limit must be a positive integer")
 
+    # Contextless raw-SQL builder (no HogQLContext threaded): read the global default, which also
+    # selects the physical events table this query reads from.
     json_has_set_expr = (
         "isNotNull(properties.`$set`)"
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA

@@ -759,6 +759,7 @@ class ClickhouseFunnelBase(ABC):
                     column="person_properties",
                     allow_denormalized_props=True,
                     materialised_table_column="person_properties",
+                    hogql_context=self._filter.hogql_context,
                 )
             else:
                 basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
@@ -766,6 +767,7 @@ class ClickhouseFunnelBase(ABC):
                     table="person",
                     query_alias="prop_basic",
                     column="person_props",
+                    hogql_context=self._filter.hogql_context,
                 )
         elif self._filter.breakdown_type == "event":
             basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
@@ -774,6 +776,7 @@ class ClickhouseFunnelBase(ABC):
                 query_alias="prop_basic",
                 column="properties",
                 normalize_url=self._filter.breakdown_normalize_url,
+                hogql_context=self._filter.hogql_context,
             )
         elif self._filter.breakdown_type == "cohort":
             basic_prop_selector = "value AS prop_basic"
@@ -787,6 +790,7 @@ class ClickhouseFunnelBase(ABC):
                 property_name=self._filter.breakdown,
                 var="%(breakdown)s",
                 column=properties_field,
+                hogql_context=self._filter.hogql_context,
             )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
