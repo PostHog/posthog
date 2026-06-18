@@ -2,6 +2,9 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
+import { signalsReportsMergePrCreate } from 'products/signals/frontend/generated/api'
 
 import { SignalReport } from '../types'
 import type { rapidReviewLogicType } from './rapidReviewLogicType'
@@ -109,7 +112,7 @@ export const rapidReviewLogic = kea<rapidReviewLogicType>([
         performMerge: async ({ reportId }) => {
             cache.disposables.dispose(reportId)
             try {
-                const result = await api.signalReports.mergePr(reportId)
+                const result = await signalsReportsMergePrCreate(String(getCurrentTeamId()), reportId)
                 actions.removeReport(reportId)
                 const suffix = result.merge_method === 'squash' ? ' (squash)' : ''
                 lemonToast.success(`Merged${suffix} into GitHub`)
