@@ -1,9 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 
-class TeamConversationsTeamsChannelSync(TeamScopedRootMixin):
+class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
     """Per-channel Microsoft Graph delta-sync state for shared-channel polling.
 
     Shared (and private) Teams channels never push ambient messages over the bot

@@ -868,10 +868,29 @@ def _poll_one_shared_channel(
     Idempotency is handled by ``create_or_update_teams_ticket`` (dedup on
     channel + normalized conversation id), so re-delivering a message is a no-op.
     """
-    sync, _ = TeamConversationsTeamsChannelSync.objects.for_team(team.id).get_or_create(
+    sync, created = TeamConversationsTeamsChannelSync.objects.for_team(team.id).get_or_create(
         channel_id=channel_id,
         defaults={"team": team, "teams_team_id": teams_team_id},
     )
+
+    # On first encounter, verify via Graph that the channel is actually shared.
+    # conversations_settings is client-mutable, so we don't trust its
+    # membership_type — we confirm from the authoritative source before polling.
+    if created:
+        ch_resp = requests.get(
+            f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
+        )
+        if ch_resp.status_code != 200 or ch_resp.json().get("membershipType") != "shared":
+            logger.warning(
+                "poll_teams_shared_channel_not_shared",
+                team_id=team.id,
+                channel_id=channel_id,
+                status=ch_resp.status_code,
+            )
+            sync.delete()
+            return
 
     url: str | None = sync.delta_link or (
         f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/delta"
