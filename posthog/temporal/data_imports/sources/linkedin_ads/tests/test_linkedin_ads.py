@@ -627,9 +627,7 @@ class TestLinkedinAdsSource:
         manager.save_state.assert_not_called()
 
     @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    def test_initial_sync_starts_from_bounded_lookback_not_epoch(
-        self, mock_client_func, should_use_incremental_field
-    ):
+    def test_initial_sync_starts_from_bounded_lookback_not_epoch(self, mock_client_func, should_use_incremental_field):
         """First sync of an analytics resource has no cursor. The start date must be the bounded
         lookback, not 1970 — syncing stats from the epoch fans out into decades of empty yearly
         windows that exhaust LinkedIn's daily call budget."""
@@ -657,7 +655,6 @@ class TestLinkedinAdsSource:
         date_start = mock_client.get_data_by_resource.call_args[1]["date_start"]
         parsed = dt.date.fromisoformat(date_start)
         expected_floor = (dt.datetime.now() - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).date()
-        assert parsed.year != 1970
         assert abs((parsed - expected_floor).days) <= 1
 
     def test_incremental_resume_uses_saved_cursor_not_lookback(self, mock_client_func):
