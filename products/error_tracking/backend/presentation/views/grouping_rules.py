@@ -157,7 +157,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             raise NotFound()
         return Response(self.get_serializer(rule).data)
 
-    def _apply_rule_update(self, request: ValidatedRequest, pk: str | None) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
         rule = error_tracking_api.update_grouping_rule(self.team.id, pk, filters=request.validated_data.get("filters"))
         if rule is None:
             raise NotFound()

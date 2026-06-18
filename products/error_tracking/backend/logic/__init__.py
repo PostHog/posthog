@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Model, Q, QuerySet
 
 from posthog.models.integration import (
     GitHubIntegration,
@@ -456,7 +456,7 @@ def match_all_bytecode() -> list[Any]:
     return create_bytecode(ast.ReturnStatement(expr=ast.Constant(value=True))).bytecode
 
 
-def _reorder_rules(model: type, team_id: int, orders: dict[str, int]) -> None:
+def _reorder_rules(model: type[Model], team_id: int, orders: dict[str, int]) -> None:
     rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
     for rule in rules:
         rule.order_key = orders[str(rule.id)]
@@ -502,8 +502,8 @@ def create_assignment_rule(
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
         order_key=0,
-        user_id=assignee_id if assignee_type == "user" else None,
-        role_id=assignee_id if assignee_type == "role" else None,
+        user_id=cast(int, assignee_id) if assignee_type == "user" else None,
+        role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
     )
 
 

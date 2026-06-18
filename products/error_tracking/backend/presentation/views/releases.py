@@ -65,7 +65,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise ValidationError(f"Hash id {err} already in use")
         return Response(self.get_serializer(release).data, status=status.HTTP_201_CREATED)
 
-    def _apply_update(self, pk: str | None, data) -> Response:
+    def _apply_update(self, pk: str, data) -> Response:
         hash_id = self._validated_hash_id(data.get("hash_id"))
         try:
             release = error_tracking_api.update_release(

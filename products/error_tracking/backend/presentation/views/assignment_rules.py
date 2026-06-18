@@ -135,7 +135,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             raise NotFound()
         return Response(self.get_serializer(rule).data)
 
-    def _apply_rule_update(self, request: ValidatedRequest, pk: str | None) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
         rule = error_tracking_api.update_assignment_rule(
             self.team.id,
             pk,
