@@ -318,13 +318,19 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
+        # Snapshot the flow-affecting fields BEFORE save() — DRF mutates `instance` in place, so these
+        # must be read pre-save for the change comparison to be meaningful.
         old_delivery = instance.delivery_config
         old_enabled = instance.enabled
-        action = serializer.save()
-        # Only re-provision when delivery targets or the enabled flag actually changed — cadence or
-        # selection edits must not churn the flow (and bump its version / updated_at).
-        if action.delivery_config != old_delivery or action.enabled != old_enabled:
-            provision_delivery_flow(action, request=self.request, team=self.team)
+        old_name = instance.name
+        # Atomic so a re-provision failure rolls the action edit back too (parity with perform_create).
+        with transaction.atomic():
+            action = serializer.save()
+            # Re-provision only when something the flow reflects changed: delivery targets, the enabled
+            # flag, or the name (the flow is named after the action). Cadence/selection edits don't
+            # touch the flow, so they must not churn it (bump its version / updated_at).
+            if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
+                provision_delivery_flow(action, request=self.request, team=self.team)
 
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery_flow(instance, request=self.request, team=self.team)

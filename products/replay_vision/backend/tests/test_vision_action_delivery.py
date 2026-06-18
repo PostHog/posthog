@@ -147,10 +147,11 @@ class TestVisionActionDelivery(APIBaseTest):
         action = self._create_action()
         flow_before = HogFlow.objects.get(id=action.hog_flow_id)
 
+        # A cadence/selection edit (nothing the flow reflects) must not churn the flow.
         with patch("products.replay_vision.backend.api.vision_actions.provision_delivery_flow") as mock_provision:
             resp = self.client.patch(
                 f"{self.actions_url}{action.id}/",
-                data={"name": "renamed", "selection": {"window_days": 7}},
+                data={"selection": {"window_days": 7}},
                 format="json",
             )
         self.assertEqual(resp.status_code, 200, resp.content)
@@ -159,6 +160,15 @@ class TestVisionActionDelivery(APIBaseTest):
         flow_after = HogFlow.objects.get(id=action.hog_flow_id)
         self.assertEqual(flow_after.updated_at, flow_before.updated_at)
         self.assertEqual(flow_after.version, flow_before.version)
+
+    def test_rename_reprovisions_and_updates_flow_name(self) -> None:
+        # The flow is named after the action, so a rename must re-provision to keep the name in sync.
+        action = self._create_action()
+        resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"name": "renamed action"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+        flow = HogFlow.objects.get(id=action.hog_flow_id)
+        self.assertIn("renamed action", flow.name)
 
     def test_disable_archives_flow(self) -> None:
         action = self._create_action()
