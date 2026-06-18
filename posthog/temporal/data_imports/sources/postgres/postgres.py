@@ -154,6 +154,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # raises this from inside a wait, e.g. the commit at the end of get_connection).
     # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
     "the connection is lost",
+    # Supabase's Supavisor pooler reports a transient failure to reach the upstream backend (TCP
+    # timeout while the backend is briefly unreachable — failover, idle cull, restart) as a
+    # ConnectionFailure (SQLSTATE 08006, an OperationalError) carrying the Erlang-tuple reason
+    # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
+    # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
+    "{:error, :etimedout}",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a

@@ -724,6 +724,10 @@ class TestIsConnectionDroppedError:
             psycopg.errors.InternalError_(
                 "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
             ),
+            # Supavisor reports a transient timeout reaching the upstream backend as a
+            # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
+            # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :etimedout}"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
