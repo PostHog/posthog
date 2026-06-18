@@ -48,10 +48,6 @@ export interface MetricCardProps {
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
-    /** Override the headline rendering. Receives the already-formatted value string (the hover-animated
-     *  value when a sparkline is present); return the node to render in place of the default headline —
-     *  e.g. to attach click handlers or custom typography. */
-    headline?: (formattedValue: string) => React.ReactNode
     animationMs?: number
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
      *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
@@ -100,7 +96,6 @@ function MetricCardInner({
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
-    headline,
     animationMs = 350,
     hoverIntentMs = 140,
     className,
@@ -140,9 +135,7 @@ function MetricCardInner({
     const headerDelta = delta != null && !changeInline ? delta : null
     const showHeader = title != null || headerDelta != null
     const headerJustify = title != null ? 'justify-between' : 'justify-end'
-    const renderedHeadline = headline ? (
-        headline(headlineDisplay)
-    ) : (
+    const renderedHeadline = (
         <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
     )
 

@@ -9,9 +9,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
@@ -28,11 +26,9 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function Metric({ showPersonsModal = true, inCardView, context }: ChartParams): JSX.Element {
+export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, querySource, hasDataWarehouseSeries } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
     const theme = useChartTheme()
 
@@ -67,26 +63,6 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
     // Format the backend day labels the app's way ("June 16, 2026" rather than "16-Jun-2026").
     const labels = resultSeries.days?.map((day) => formatDate(dayjs(day))) ?? resultSeries.labels
 
-    let handleClick: (() => void) | undefined
-    if (context?.onDataPointClick) {
-        handleClick = () => context.onDataPointClick?.({ compare: 'current' }, resultSeries)
-    } else if (showPersonsModal && !hasDataWarehouseSeries) {
-        handleClick = () =>
-            openPersonsModal({
-                title: resultSeries.label,
-                query: {
-                    kind: NodeKind.InsightActorsQuery,
-                    source: querySource!,
-                    includeRecordings: true,
-                },
-                additionalSelect: {
-                    value_at_data_point: 'event_count',
-                    matched_recordings: 'matched_recordings',
-                },
-                orderBy: ['event_count DESC, actor_id DESC'],
-            })
-    }
-
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-4', inCardView && 'flex-1')}>
             <MetricCard
@@ -108,18 +84,7 @@ export function Metric({ showPersonsModal = true, inCardView, context }: ChartPa
                 formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
                 sparklineHeight={120}
                 sparklineClassName="mt-4 -mx-4"
-                headline={(formattedValue) => (
-                    <div
-                        className={clsx(
-                            'text-4xl font-bold tracking-tight tabular-nums',
-                            showPersonsModal ? 'cursor-pointer' : 'cursor-default'
-                        )}
-                        data-attr="metric-value"
-                        onClick={handleClick}
-                    >
-                        {formattedValue}
-                    </div>
-                )}
+                dataAttr="metric-value"
             />
         </div>
     )

@@ -288,40 +288,7 @@ describe('MetricCard', () => {
         })
     })
 
-    describe('headline override, inline change pill, fill, and subtitle', () => {
-        it('replaces the default headline via the headline render-prop', () => {
-            const { container } = renderHogChart(
-                <MetricCard
-                    title="Total"
-                    data={[100, 200, 300, 400]}
-                    labels={LABELS}
-                    theme={THEME}
-                    animationMs={0}
-                    hoverIntentMs={0}
-                    formatValue={(v) => `$${Math.round(v)}`}
-                    headline={(value) => <button data-attr="custom-headline">go {value}</button>}
-                />
-            )
-            expect(container.querySelector('[data-attr="custom-headline"]')?.textContent).toBe('go $400')
-        })
-
-        it('passes the hover-animated value to the headline render-prop', () => {
-            const { container, chart } = renderHogChart(
-                <MetricCard
-                    title="Total"
-                    data={[100, 200, 300, 400]}
-                    labels={LABELS}
-                    theme={THEME}
-                    animationMs={0}
-                    hoverIntentMs={0}
-                    formatValue={(v) => `$${Math.round(v)}`}
-                    headline={(value) => <span data-attr="custom-headline">{value}</span>}
-                />
-            )
-            chart.hoverAtIndex(1)
-            expect(container.querySelector('[data-attr="custom-headline"]')?.textContent).toBe('$200')
-        })
-
+    describe('inline change pill, fill, and subtitle', () => {
         it('renders the change pill exactly once with changeInline (no header duplicate)', () => {
             const { container } = renderHogChart(
                 <MetricCard
