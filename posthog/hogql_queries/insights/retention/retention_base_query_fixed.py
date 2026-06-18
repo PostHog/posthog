@@ -65,12 +65,6 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def apply_sampling(self, base_query: ast.SelectQuery) -> None:
         select_from = base_query.select_from
         if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
-            # Variant path: select_from wraps a UNION ALL with one arm per retention entity, created in
-            # start/return order by build_base_query_dwh. SAMPLE on that wrapper never reaches the inner
-            # events scans, so push it into each events-side arm's FROM events. Data-warehouse arms are
-            # never sampled — a DWH series with sampling is rejected upstream by
-            # DisallowUnsupportedDataWarehouseSettings. We route by entity type (the same signal
-            # build_base_query_dwh uses to pick the table) so the arm-to-table mapping can't drift.
             if self.query.samplingFactor is None or not isinstance(self.query.samplingFactor, float):
                 return
             for arm, entity in zip(select_from.table.select_queries(), [self.start_event, self.return_event]):
