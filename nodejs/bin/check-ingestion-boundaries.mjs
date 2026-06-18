@@ -28,10 +28,18 @@ const ING = path.join(SRC, 'ingestion')
 const BASELINE = path.join(ROOT, 'bin', 'ingestion-boundaries.baseline.json')
 
 // Ingestion lanes — each is an isolated unit. A lane may not import another lane,
-// and shared/common ingestion code may not import any lane. Sibling dirs (logs,
-// metrics, session-recording/replay) join this set as they move into src/ingestion.
+// and shared/common ingestion code may not import any lane.
 const SHARED = '(shared)'
-const LANES = new Set(['analytics', 'heatmaps', 'clientwarnings', 'ai', 'error-tracking', 'session_replay'])
+const LANES = new Set([
+    'analytics',
+    'heatmaps',
+    'ingestionwarnings',
+    'ai',
+    'error-tracking',
+    'session-replay',
+    'logs',
+    'metrics',
+])
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '__snapshots__'])
 

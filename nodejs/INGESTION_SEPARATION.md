@@ -229,8 +229,14 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 - [x] Move `clientwarnings` -> `ingestionwarnings` lane dir. `src/ingestion/clientwarnings` ->
       `src/ingestion/ingestionwarnings` (directory move, filenames unchanged). 32 imports across 5
       files; lane-pure; only the general server (composition root) imports it.
-- [ ] Place each shared module in its correct common tier.
-- [ ] Add moved lanes to the guard's `LANES` set.
+- [x] Place each shared module in its correct common tier. Validated the correctness direction:
+      `cdp -> ingestion` = 0 and `cdp -> ingestion/common` = 0 (production), so every module cdp needs
+      lives in top-level `common/` and ingestion-only modules live in `ingestion/common/`. (Narrowest-
+      scope demotion of any over-broad top-level `common/` module is a non-blocking tidiness follow-up
+      — no DAG impact.)
+- [x] Add moved lanes to the guard's `LANES` set. `LANES` now = analytics, heatmaps, ingestionwarnings,
+      ai, error-tracking, session-replay, logs, metrics. Guard green (2 baselined) — no intra-ingestion
+      code imports the four newly-registered lanes, so lane isolation holds across all eight.
 - [ ] Resolve the 2 deferred intra-ingestion edges (`analytics` -> `ai` via `createAiEventSubpipeline`,
       and `ingestion-consumer` -> `analytics`). Intent (per product owner): AI and analytics are
       separate lanes in the long run, but the split is still mid-migration so the boundary is blurry
@@ -315,3 +321,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   prettier clean, consumer unit test passes. All four lane moves (worker fold, logs, metrics,
   session-replay, ingestionwarnings) are now in place; remaining Phase 2 is tier placement + turning
   on guard `LANES` enforcement (which will surface the deferred top-level->lane config/types edges).
+- Phase 2 "tier placement + guard LANES" complete: registered the four moved lanes in the guard
+  (`LANES` now lists all eight) — guard stays green, so nothing inside ingestion imports the new lanes
+  (isolation holds). Tier placement validated by the boundary that matters: `cdp -> ingestion` and
+  `cdp -> ingestion/common` are both 0, so cdp-needed modules sit in top-level `common/` and
+  ingestion-only modules in `ingestion/common/`. Note the guard only walks `src/ingestion`, so the
+  deferred top-level `config.ts`/`types.ts`/`index.ts` -> lane edges are NOT guard-enforced; they are
+  composition/config wiring outside ingestion and don't break the in-ingestion DAG. Remaining Phase 2:
+  the ai<->analytics composition decision (blurry, product-owner-flagged) + the CI exit gate.
