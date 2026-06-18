@@ -21,6 +21,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
+from posthog.models.group.util import create_group
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -575,6 +577,143 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "event_filters": [
                                 {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"},
                                 {"key": "$filter_prop", "value": "some", "operator": "icontains", "type": "event"},
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        res = execute(filter, self.team)
+
+        assert [p1.uuid] == [r[0] for r in res]
+
+    def test_performed_event_with_group_property_event_filter(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="clinic", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="clinic:us", properties={"country": "US"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="clinic:uk", properties={"country": "UK"})
+
+        # p1 performed the event tied to the US clinic
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$group_0": "clinic:us"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        # p2 performed the same event but tied to the UK clinic
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$group_0": "clinic:uk"},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {
+                                    "key": "country",
+                                    "value": "US",
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        res = execute(filter, self.team)
+
+        assert [p1.uuid] == [r[0] for r in res]
+
+    def test_performed_event_multiple_with_group_property_event_filter(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="clinic", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="clinic:us", properties={"country": "US"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="clinic:uk", properties={"country": "UK"})
+
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={"$group_0": "clinic:us"},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+
+        # p2 hit the threshold but against the UK clinic, so should be excluded
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={"$group_0": "clinic:uk"},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {
+                                    "key": "country",
+                                    "value": "US",
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                },
                             ],
                         }
                     ],

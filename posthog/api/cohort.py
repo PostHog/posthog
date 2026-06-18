@@ -256,6 +256,14 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
+class GroupPropFilter(BaseModel, extra="forbid"):
+    type: Literal["group"]
+    key: str
+    value: Any | None = None
+    operator: str | None = None
+    group_type_index: int | None = None
+
+
 class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
@@ -272,7 +280,7 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     seq_event_type: str | None = None
     total_periods: int | None = None
     min_periods: int | None = None
-    event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
+    event_filters: list[Union[EventPropFilter, HogQLFilter, GroupPropFilter]] | None = None
     explicit_datetime: str | None = None
     explicit_datetime_to: str | None = None
 

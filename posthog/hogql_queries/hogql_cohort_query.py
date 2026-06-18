@@ -19,6 +19,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    GroupPropertyFilter,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     InsightActorsQuery,
@@ -205,12 +206,14 @@ def convert_property(prop: Property) -> PersonPropertyFilter:
     return PersonPropertyFilter(key=prop.key, value=value, operator=prop.operator or PropertyOperator.EXACT)
 
 
-def property_to_typed_property(property: Property) -> EventPropertyFilter | HogQLPropertyFilter:
+def property_to_typed_property(property: Property) -> EventPropertyFilter | HogQLPropertyFilter | GroupPropertyFilter:
     type = get_property_type(property)
     if type == "event":
         return EventPropertyFilter(**property.to_dict())
     if type == "hogql":
         return HogQLPropertyFilter(**property.to_dict())
+    if type == "group":
+        return GroupPropertyFilter(**property.to_dict())
     raise ValidationError("Property type not supported")
 
 

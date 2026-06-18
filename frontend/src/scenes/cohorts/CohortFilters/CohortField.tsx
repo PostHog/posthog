@@ -28,6 +28,7 @@ import {
     FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
 
+import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
@@ -226,6 +227,7 @@ export function CohortEventFiltersField({
     })
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const componentRef = useRef<HTMLDivElement>(null)
 
     const valueExists = ((value as AnyPropertyFilter[]) || []).length > 0
@@ -258,6 +260,7 @@ export function CohortEventFiltersField({
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    ...groupsTaxonomicTypes,
                 ]}
                 onChange={(newValue: AnyPropertyFilter[]) => {
                     onChange({ [fieldKey]: newValue })
