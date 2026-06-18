@@ -331,10 +331,15 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
                 ran_on_event_loop.append(False)
             return real_prepare(*args, **kwargs)
 
+        # The build runs in a worker thread whose connection can't see this test's
+        # transaction, so every relation it reads must already be cached: assets via
+        # select_related, subscription/integration via the cached setUp instances.
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
         with patch("ee.tasks.subscriptions.slack_subscriptions._prepare_slack_message", side_effect=_spy):
             result = asyncio.run(
                 send_slack_message_with_integration_async(
-                    self.integration, self.subscription, [self.asset], self.TOTAL_ASSET_COUNT
+                    self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
                 )
             )
 
