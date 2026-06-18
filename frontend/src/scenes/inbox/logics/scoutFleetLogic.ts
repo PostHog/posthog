@@ -153,14 +153,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     state?.map((config) => (config.id === configId ? { ...config, ...updates } : config)) ?? state,
             },
         ],
-        // Flips true the first time the runs window settles (success or failure) and stays true
-        // across the 60s polls. Consumers (e.g. the scout detail Signals section) use it to tell
-        // "not loaded yet" from "loaded, genuinely empty" without flickering a skeleton on polls.
+        // Flips true the first time the runs window loads *successfully* and stays true across the
+        // 60s polls. Consumers (e.g. the scout detail Signals section) use it to tell "not loaded
+        // yet" from "loaded, genuinely empty" without flickering a skeleton on polls. Deliberately
+        // NOT set on failure: a failed first load must keep showing loading (the poll retries),
+        // not latch and let a consumer render a false "no signals" empty state over no data.
         runsWindowLoadedOnce: [
             false,
             {
                 loadRunsWindowSuccess: () => true,
-                loadRunsWindowFailure: () => true,
             },
         ],
     }),
