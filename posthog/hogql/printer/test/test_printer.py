@@ -1286,6 +1286,19 @@ class TestPrinter(BaseTest):
         # of raising "Cannot parse boolean value here" and failing the whole query.
         self.assertEqual(self._expr(expr), expected)
 
+    @parameterized.expand(
+        [
+            ("toFloat", "toFloat('1.3')"),
+            ("toFloatOrNull", "toFloatOrNull('1.3')"),
+            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+        ]
+    )
+    def test_to_float_aliases(self, _name: str, expr: str) -> None:
+        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
+        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -5965,17 +5978,33 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("null"), "NULL")
 
     def test_json_properties_render_as_postgres_json_access(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
-            self._expr("properties.a.b.c.$browser"),
-            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+            self._expr("properties.a.b.c.$browser", context=context),
+            "((((events.properties) -> %(hogql_val_0)s) -> %(hogql_val_1)s) -> %(hogql_val_2)s) ->> %(hogql_val_3)s",
         )
+        self.assertEqual(list(context.values.values()), ["a", "b", "c", "$browser"])
 
     def test_json_properties_in_select_render_as_postgres_json_access(self):
-        printed = self._select("SELECT properties.detail.name FROM events")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select("SELECT properties.detail.name FROM events", context=context)
 
         self.assertIn("(events.properties) ->", printed)
-        self.assertIn("->> 'name'", printed)
+        self.assertIn("->> %(hogql_val", printed)
         self.assertIn('AS "properties.detail.name"', printed)
+        self.assertIn("name", context.values.values())
+
+    def test_json_property_key_injection_is_parameterized_not_inlined(self):
+        # A property key containing a single quote must not break out of the string literal.
+        # The ClickHouse ``\'`` escape does not work in Postgres (standard_conforming_strings=on),
+        # so the key must be parameterized rather than escape-inlined.
+        # The doubled '' is an escaped single quote in HogQL, so the key value contains a literal '.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties['x''); DROP TABLE users; --']", context=context)
+
+        self.assertNotIn("DROP TABLE", printed)
+        self.assertNotIn("\\'", printed)
+        self.assertIn("x'); DROP TABLE users; --", context.values.values())
 
     def test_allows_dollar_identifiers(self):
         printed = self._select("SELECT event AS $value FROM events")

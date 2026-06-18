@@ -532,6 +532,95 @@ export namespace Schemas {
     }
 
     /**
+     * * `user` - user
+     * * `team` - team
+     */
+    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
+
+
+    export const AchievementDefinitionScopeEnum = {
+      User: 'user',
+      Team: 'team',
+    } as const;
+
+    export interface AchievementStage {
+      /** Stage number within the track, 1-5. */
+      stage: number;
+      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      name: string;
+      /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+      threshold: number;
+    }
+
+    export interface AchievementDefinition {
+      /** Stable track identifier, e.g. 'hog_streak'. */
+      key: string;
+      /** Human-readable track name. */
+      display_name: string;
+      /** One-line description of what the track rewards. */
+      description: string;
+      /** Whether the track is tracked per user or per team.
+       *
+       * * `user` - user
+       * * `team` - team */
+      scope: AchievementDefinitionScopeEnum;
+      /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+      is_experiment_track: boolean;
+      /** The five stages of this track, in ascending threshold order. */
+      stages: AchievementStage[];
+    }
+
+    export interface AchievementProgress {
+      /** Track this progress row belongs to. */
+      track_key: string;
+      /** Highest stage unlocked so far, 0-5. */
+      current_stage: number;
+      /** Most recently computed progress value for the track. */
+      progress_value: number;
+      /**
+         * When the track was last recomputed, or null if it never has been.
+         * @nullable
+         */
+      last_computed_at: string | null;
+    }
+
+    export interface PendingCelebration {
+      /** Track whose stage was newly unlocked. */
+      track_key: string;
+      /** Newly unlocked stage number, 1-5. */
+      stage: number;
+      /** Name of the unlocked stage, shown in the celebration UI. */
+      stage_name: string;
+    }
+
+    export interface AchievementsListResponse {
+      /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+      definitions: AchievementDefinition[];
+      /** The requesting user's progress on per-user tracks. */
+      user_progress: AchievementProgress[];
+      /** The team's progress on per-team tracks. */
+      team_progress: AchievementProgress[];
+      /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+      pending_celebrations: PendingCelebration[];
+    }
+
+    export interface AcknowledgeCelebrationRequest {
+      /** Track of the celebration being acknowledged. */
+      track_key: string;
+      /**
+         * Stage number being acknowledged, 1-5.
+         * @minimum 1
+         * @maximum 5
+         */
+      stage: number;
+    }
+
+    export interface AcknowledgeCelebrationResponse {
+      /** True if a matching pending celebration was cleared (idempotent). */
+      acknowledged: boolean;
+    }
+
+    /**
      * * `event` - event
      * * `event_metadata` - event_metadata
      * * `feature` - feature
@@ -2176,6 +2265,7 @@ export namespace Schemas {
       ActionsAreaGraph: 'ActionsAreaGraph',
       ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
       BoldNumber: 'BoldNumber',
+      Metric: 'Metric',
       ActionsPie: 'ActionsPie',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
@@ -2294,6 +2384,18 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Metric display: change pill color when the metric decreased. Defaults to red. */
+      metricChangeDecreaseColor?: string | null;
+      /** Metric display: change pill color when the metric increased. Defaults to green. */
+      metricChangeIncreaseColor?: string | null;
+      /** Metric display: color the sparkline by whether the metric increased or decreased. */
+      metricColorByDirection?: boolean | null;
+      /** Metric display: line color when the metric decreased. Defaults to red. */
+      metricLineDecreaseColor?: string | null;
+      /** Metric display: line color when the metric increased. Defaults to green. */
+      metricLineIncreaseColor?: string | null;
+      /** Show the period-over-period change pill on the Metric display. */
+      metricShowChange?: boolean | null;
       minDecimalPlaces?: number | null;
       movingAverageIntervals?: number | null;
       /** Wether result datasets are associated by their values or by their order. */
@@ -13795,6 +13897,11 @@ export namespace Schemas {
       last_accessed_at?: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
       readonly is_shared: boolean;
       deleted?: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -13864,6 +13971,11 @@ export namespace Schemas {
       readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -18124,12 +18236,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18268,18 +18376,14 @@ export namespace Schemas {
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
       /** @nullable */
-      description?: string | null;
+      description: string | null;
       /**
          * Issue linked to this rule
          * @nullable
          */
       readonly issue: ErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18912,14 +19016,74 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingReleaseMetadata = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingRelease {
-      readonly id: string;
+      id: string;
       hash_id: string;
-      readonly team_id: number;
-      readonly created_at: string;
-      metadata?: unknown;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      metadata: ErrorTrackingReleaseMetadata;
       version: string;
       project: string;
+    }
+
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseCreateRequest {
+      /** Human-readable release version, e.g. a semver string or build number. */
+      version: string;
+      /** Identifier of the project this release belongs to. */
+      project: string;
+      /**
+         * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Optional free-form metadata object stored alongside the release.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseCreateRequestMetadata;
+    }
+
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface ErrorTrackingSettings {
@@ -19018,43 +19182,62 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSpikeEventIssue {
-      readonly id: string;
+      id: string;
       /** @nullable */
-      readonly name: string | null;
+      name: string | null;
       /** @nullable */
-      readonly description: string | null;
+      description: string | null;
     }
 
     export interface ErrorTrackingSpikeEvent {
-      readonly id: string;
-      readonly issue: ErrorTrackingSpikeEventIssue;
-      readonly detected_at: string;
-      readonly computed_baseline: number;
-      readonly current_bucket_value: number;
+      id: string;
+      issue: ErrorTrackingSpikeEventIssue;
+      detected_at: string;
+      computed_baseline: number;
+      current_bucket_value: number;
     }
 
+    export type ErrorTrackingStackFrameContents = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingStackFrameContext = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingStackFrame {
-      readonly id: string;
-      /** Raw frame ID in 'hash/part' format */
-      readonly raw_id: string;
-      readonly created_at: string;
-      contents: unknown;
+      id: string;
+      raw_id: string;
+      created_at: string;
+      contents: ErrorTrackingStackFrameContents;
       resolved: boolean;
-      context?: unknown;
-      symbol_set_ref?: string;
-      readonly release: ErrorTrackingRelease;
+      /** @nullable */
+      context: ErrorTrackingStackFrameContext;
+      /** @nullable */
+      symbol_set_ref: string | null;
+      release: ErrorTrackingRelease | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetRequest {
+      /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+      raw_ids: string[];
+      /**
+         * Optional symbol set reference to scope the lookup to a single symbol set.
+         * @nullable
+         */
+      symbol_set?: string | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetResponse {
+      /** Resolved stack frames for the requested raw IDs. */
+      results: ErrorTrackingStackFrame[];
     }
 
     export interface ErrorTrackingSuppressionRule {
       readonly id: string;
       filters: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
+      disabled_data: unknown;
+      sampling_rate: number;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -19195,7 +19378,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
       /**
@@ -19209,6 +19392,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -19250,6 +19436,7 @@ export namespace Schemas {
     /**
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
      */
     export type EvaluationTypeEnum = typeof EvaluationTypeEnum[keyof typeof EvaluationTypeEnum];
 
@@ -19257,16 +19444,19 @@ export namespace Schemas {
     export const EvaluationTypeEnum = {
       LlmJudge: 'llm_judge',
       Hog: 'hog',
+      Sentiment: 'sentiment',
     } as const;
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
 
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Sentiment: 'sentiment',
     } as const;
 
     export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
@@ -19338,16 +19528,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
@@ -20393,6 +20585,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly completed_at: string | null;
+      /**
+         * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+         * @nullable
+         */
+      readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
@@ -25474,6 +25671,18 @@ export namespace Schemas {
          */
       created_at: string | null;
     }
+
+    /**
+     * * `data` - data
+     * * `recording` - recording
+     */
+    export type InteractionKindEnum = typeof InteractionKindEnum[keyof typeof InteractionKindEnum];
+
+
+    export const InteractionKindEnum = {
+      Data: 'data',
+      Recording: 'recording',
+    } as const;
 
     export interface InterestingNote {
       text: string;
@@ -34357,10 +34566,6 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34400,10 +34605,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34456,14 +34657,34 @@ export namespace Schemas {
       description?: string | null;
     }
 
-    export interface PatchedErrorTrackingRelease {
-      readonly id?: string;
-      hash_id?: string;
-      readonly team_id?: number;
-      readonly created_at?: string;
-      metadata?: unknown;
-      version?: string;
-      project?: string;
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type PatchedErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface PatchedErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface PatchedErrorTrackingSettings {
@@ -34514,10 +34735,6 @@ export namespace Schemas {
     export interface PatchedErrorTrackingSuppressionRule {
       readonly id?: string;
       filters?: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       sampling_rate?: number;
@@ -34537,7 +34754,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
@@ -34551,6 +34768,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -34574,16 +34794,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
@@ -43796,6 +44018,24 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    export interface RecordInteractionRequest {
+      /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+       *
+       * * `data` - data
+       * * `recording` - recording */
+      interaction_kind: InteractionKindEnum;
+    }
+
+    export interface RecordInteractionResponse {
+      /** True once the interaction has been counted for the user. */
+      recorded: boolean;
+    }
+
+    export interface RecordVisitResponse {
+      /** True once today's visit row exists for the user. */
+      recorded: boolean;
+    }
+
     /**
      * Request body for `remember`.
      */
@@ -44805,6 +45045,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -44859,6 +45101,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -50218,6 +50462,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsDashboardsListParams = {
+    /**
+     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
+     */
+    folder?: string;
     format?: EnvironmentsDashboardsListFormat;
     /**
      * Number of results to return per page.
@@ -55924,6 +56172,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsListParams = {
+    /**
+     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
+     */
+    folder?: string;
     format?: DashboardsListFormat;
     /**
      * Number of results to return per page.
@@ -60355,7 +60607,7 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string;
     /**

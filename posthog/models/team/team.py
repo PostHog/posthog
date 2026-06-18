@@ -423,7 +423,7 @@ class Team(UUIDTClassicModel):
     conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
-    # Proactive tasks (#team-signals)
+    # Proactive tasks (#team-self-driving)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys

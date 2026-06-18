@@ -65,10 +65,7 @@ export class DynamoDBKeyStore implements KeyStore {
                 })
             )
         } catch (error) {
-            if (
-                error instanceof ConditionalCheckFailedException ||
-                (error as Error)?.name === 'ConditionalCheckFailedException'
-            ) {
+            if (error instanceof ConditionalCheckFailedException) {
                 // Key already exists — return the existing key instead of overwriting
                 return this.getKey(sessionId, teamId)
             }

@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -20,7 +19,6 @@ export interface EventToEmit<O extends string> {
 
 export interface EmitEventStepConfig<O extends string> {
     outputs: IngestionOutputs<O | IngestionWarningsOutput>
-    groupId: string
 }
 
 export interface EmitEventStepInput<O extends string> {
@@ -30,21 +28,44 @@ export interface EmitEventStepInput<O extends string> {
     message: Message
 }
 
+/**
+ * Info about an ingested event, resolved by `ingested` promises once the
+ * event has been acked by Kafka.
+ */
+export interface IngestedEventInfo {
+    /** Capture time from the `now` header; undefined when the header is missing. */
+    capturedAt?: Date
+    /** Topic and partition the event was consumed from. */
+    topic: string
+    partition: number
+}
+
+export interface EmitEventStepOutput {
+    /**
+     * One promise per emitted event, resolving with the event info once the
+     * emission has been acked by Kafka, or with null when the event was not
+     * ingested (e.g. rejected as too large). The same promises also flow
+     * through side effects for scheduling; this field lets downstream steps
+     * (e.g. ingestion lag recording) observe when the events have actually
+     * been ingested. Empty when nothing was emitted.
+     */
+    ingested: Promise<IngestedEventInfo | null>[]
+}
+
 export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
     config: EmitEventStepConfig<O>
-): ProcessingStep<T, void> {
+): ProcessingStep<T, EmitEventStepOutput> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
-        const { outputs, groupId } = config
+        const { outputs } = config
 
-        // Record ingestion lag metric if we have the required data
-        if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
-            const lag = Date.now() - headers.now.getTime()
-            ingestionLagGauge.labels({ topic: message.topic, partition: String(message.partition), groupId }).set(lag)
-            ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
+        const ingestedInfo: IngestedEventInfo = {
+            capturedAt: headers.now,
+            topic: message.topic,
+            partition: message.partition,
         }
 
-        const sideEffects: Promise<void>[] = []
+        const ingested: Promise<IngestedEventInfo | null>[] = []
 
         for (const { event, output } of eventsToEmit) {
             const serialized = serializeEvent(event)
@@ -59,9 +80,9 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     headers: { productTrack: productTrackHeader(event) },
                     teamId: serialized.team_id,
                 })
-                .then((result) => {
+                .then(() => {
                     eventProcessedAndIngestedCounter.inc()
-                    return result
+                    return ingestedInfo
                 })
                 .catch(async (error) => {
                     // TODO: For now we have to live with the ingestion warning happening here
@@ -73,15 +94,17 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                             eventUuid: serialized.uuid,
                             distinctId: serialized.distinct_id,
                         })
+                        // The event was not ingested, so there is no info to resolve with
+                        return null
                     } else {
                         throw error
                     }
                 })
 
-            sideEffects.push(emitPromise)
+            ingested.push(emitPromise)
         }
 
-        return Promise.resolve(ok(undefined, sideEffects))
+        return Promise.resolve(ok({ ingested }, ingested))
     }
 }
 
