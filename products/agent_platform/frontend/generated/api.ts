@@ -22,6 +22,7 @@ import type {
     AgentApplicationsListParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
+    AgentApplicationsPreviewTokenMintParams,
     AgentApplicationsPreviewTokenParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionLogsParams,
@@ -61,6 +62,7 @@ import type {
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
+    PreviewTokenMintRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     WriteAgentMdRequestApi,
@@ -1746,6 +1748,58 @@ export const agentApplicationsPreviewToken = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsPreviewTokenMintUrl = (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/preview-token/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/preview-token/`
+}
+
+/**
+ * Mint a short-lived JWT for talking to a non-live revision
+ * directly via the public ingress URL. The caller attaches it as
+ * the `x-agent-preview-token` header (or `?preview_token=` query
+ * param for `EventSource`). See `_mint_preview_jwt` for the
+ * payload + claim binding.
+ *
+ * The response also includes `endpoints`, `auth`, and
+ * `preview_proxy` blocks so the caller can wire a preview
+ * invocation without grepping the agent-ingress source for which
+ * path each trigger exposes or which header name carries the
+ * token. This is the "self-describing" half of preview-mode —
+ * every piece of info you need to hit ingress is in one response.
+ */
+export const agentApplicationsPreviewTokenMint = async (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams,
+    previewTokenMintRequestApi?: PreviewTokenMintRequestApi,
+    options?: RequestInit
+): Promise<AgentApplicationPreviewTokenResponseApi> => {
+    return apiMutator<AgentApplicationPreviewTokenResponseApi>(
+        getAgentApplicationsPreviewTokenMintUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(previewTokenMintRequestApi),
         }
     )
 }

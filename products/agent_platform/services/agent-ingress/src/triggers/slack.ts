@@ -238,7 +238,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         event.text ?? '',
     ].join('\n')
     const outcome = await enqueueOrResume(
-        { queue: deps.queue },
+        { queue: deps.queue, encryption: deps.encryption },
         {
             application: resolved.application,
             revision: resolved.revision,
@@ -266,6 +266,8 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                 ts: event.ts,
                 thread_ts: event.thread_ts ?? event.ts,
             },
+            isPreview: resolved.isPreview,
+            previewSecretOverride: resolved.previewSecretOverride,
         }
     )
     if (outcome.kind === 'elevation_required') {

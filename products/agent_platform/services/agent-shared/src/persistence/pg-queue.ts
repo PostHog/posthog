@@ -30,7 +30,8 @@ import {
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      idempotency_key, trigger_metadata, state,
                      conversation, pending_inputs, principal, retry_count,
-                     usage_total, acl, pending_elevation_requests,
+                     usage_total, acl, pending_elevation_requests, is_preview,
+                     preview_secret_override,
                      created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
@@ -38,14 +39,22 @@ export class PgSessionQueue implements SessionQueue {
 
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
+            // `is_preview` + `preview_secret_override` are immutable post-create
+            // — intentionally NOT in the ON CONFLICT update set. A retried
+            // enqueue of the same id (rare, but possible via the runner's
+            // append flow) must not flip a live session into preview, nor flip
+            // a preview session's secret-override bag mid-run: the side-effect-
+            // isolation contract for the runner relies on both being stable
+            // across the row's lifetime.
             `INSERT INTO agent_session
                 (id, application_id, revision_id, team_id, external_key,
                  idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
-                 usage_total, acl, pending_elevation_requests,
+                 usage_total, acl, pending_elevation_requests, is_preview,
+                 preview_secret_override,
                  created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
-                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -70,6 +79,8 @@ export class PgSessionQueue implements SessionQueue {
                 JSON.stringify(session.usage_total ?? EMPTY_USAGE_TOTAL),
                 JSON.stringify(session.acl ?? []),
                 JSON.stringify(session.pending_elevation_requests ?? []),
+                session.is_preview,
+                session.preview_secret_override,
                 session.created_at,
                 session.updated_at,
             ]
@@ -545,6 +556,8 @@ interface DbRow {
     usage_total: unknown
     acl: unknown
     pending_elevation_requests: unknown
+    is_preview: boolean
+    preview_secret_override: string | null
     created_at: Date
     updated_at: Date
 }
@@ -596,6 +609,8 @@ function rowToSession(row: DbRow): AgentSession {
         pending_elevation_requests: Array.isArray(row.pending_elevation_requests)
             ? (row.pending_elevation_requests as PendingElevationRequest[])
             : [],
+        is_preview: row.is_preview === true,
+        preview_secret_override: row.preview_secret_override ?? null,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

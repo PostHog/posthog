@@ -227,6 +227,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 acl: [],
                 pending_elevation_requests: [],
+                is_preview: false,
+                preview_secret_override: null,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -296,6 +298,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: created,
             updated_at: created,
         })
@@ -353,6 +357,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -396,6 +402,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -437,6 +445,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -537,6 +547,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -635,6 +647,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -656,6 +670,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             proposed_args: { team_id: 42, dry_run: false },
             assistant_message: asstMsg,
             approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -721,6 +736,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -741,6 +758,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_name: 'tool.dispatch',
             assistant_message: asstMsg,
             approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -877,6 +895,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
+            preview_secret_override: null,
             created_at: ts,
             updated_at: ts,
         })

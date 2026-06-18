@@ -33,6 +33,8 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         usage_total: { input_tokens: 0, output_tokens: 0, cost_total: 0 },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
+        preview_secret_override: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession

@@ -1071,6 +1071,31 @@ export interface AgentSession {
      * surfaces them in the chat UI / Slack thread.
      */
     pending_elevation_requests: PendingElevationRequest[]
+    /**
+     * Author iteration session — created via the preview ingress path (the
+     * Django-side preview-proxy, or a direct ingress call carrying a valid
+     * `aud=agent-ingress.preview` JWT). Output adapters (slack reply, webhook
+     * publish) noop instead of POSTing externally; the analytics sink tags
+     * `$ai_*` events with `preview: true` so production observability
+     * dashboards can filter author iteration noise. Cron is implicitly safe
+     * because the janitor only schedules off `live_revision_id`, so preview
+     * sessions never originate from cron. False for every session created via
+     * the live ingress path.
+     */
+    is_preview: boolean
+    /**
+     * Sealed (Fernet-encrypted via the same `EncryptedFields` key schedule
+     * as `AgentApplication.encrypted_env`) JSON map `{KEY: value, ...}` of
+     * per-session secret overrides supplied at preview mint time. The
+     * runner's secret resolver overlays this on top of the application's
+     * `encrypted_env` for the lifetime of the session; the wire value is
+     * never returned through any read path (`/sessions/<id>` excludes it,
+     * the analytics sink doesn't see it). Null for live sessions and for
+     * preview sessions whose author didn't supply an override. Stored
+     * encrypted at rest so a DB dump alone doesn't disclose plaintext
+     * override values.
+     */
+    preview_secret_override: string | null
     created_at: string
     updated_at: string
 }

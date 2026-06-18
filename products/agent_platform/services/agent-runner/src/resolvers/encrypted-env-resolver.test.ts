@@ -34,6 +34,8 @@ function freshSession(overrides: Record<string, unknown> = {}): never {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
+        preview_secret_override: null,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
         ...overrides,

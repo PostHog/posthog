@@ -124,6 +124,15 @@ export interface BuildAppOpts {
      * prod. Optional — falls back to a direct HttpClient in tests.
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Fernet `EncryptedFields` instance for sealing the preview
+     * `secret_override` map onto the session row. Shares the
+     * `ENCRYPTION_SALT_KEYS` key schedule with the runner's
+     * `encrypted_env` decrypt path so the runner's existing instance
+     * reads it back without any extra wiring. Required: every entrypoint
+     * (prod + harness) constructs one at boot.
+     */
+    encryption: import('@posthog/agent-shared').EncryptedFields
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -179,6 +188,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         routingMode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         publicBaseUrl: opts.publicBaseUrl,
+        encryption: opts.encryption,
     } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

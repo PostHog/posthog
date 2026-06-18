@@ -80,6 +80,7 @@ from .serializers import (
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
+    PreviewTokenMintRequestSerializer,
     PromoteRevisionRequestSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
@@ -169,7 +170,12 @@ class JanitorUpstreamError(APIException):
 AGENT_SESSION_LOG_SOURCE = "agent_session"
 
 
-def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
+def _mint_preview_jwt(
+    application: AgentApplication,
+    revision: AgentRevision,
+    user: Any,
+    secret_override: dict[str, str] | None = None,
+) -> tuple[str, int] | None:
     """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
 
     Returns `(token, ttl_seconds)` or `None` when no shared signing key is
@@ -178,22 +184,56 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
     Bound to (app, rev) so a captured token can't be replayed against a
     different draft, and to `aud = agent-ingress.preview` so it can't be
     replayed against any other agent-platform service.
+
+    `secret_override` is an optional `{KEY: value, ...}` map embedded into the
+    JWT claims under `sec_ovr`. Validation that keys are declared in
+    `revision.spec["secrets"]` happens at the call site (the POST mint view),
+    not here — this helper is also reached from the preview-proxy path which
+    doesn't take an override map. The claim is omitted when empty so the
+    common (no override) case keeps the JWT small.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
-    ttl_seconds = 60
+    ttl_seconds = 15 * 60
     payload: dict[str, Any] = {
         "app": str(application.id),
         "rev": str(revision.id),
     }
     if user and getattr(user, "is_authenticated", False):
         payload["sub"] = f"user:{user.id}"
+    if secret_override:
+        payload["sec_ovr"] = secret_override
     token = encode_agent_internal_jwt(
         payload,
         timedelta(seconds=ttl_seconds),
         AgentInternalAudience.INGRESS_PREVIEW,
     )
     return token, ttl_seconds
+
+
+# Total serialized override size cap — keeps the resulting JWT well under the
+# typical 8 KiB header limit (signed payload + base64 overhead lands around 2x
+# the source). 8 KiB of raw key:value pairs is more than any realistic preview
+# secret bag — the overlay is for testing values, not bulk env imports.
+_PREVIEW_SECRET_OVERRIDE_BYTES_CAP = 8 * 1024
+
+
+def _declared_secret_names(spec: dict[str, Any]) -> set[str]:
+    """Names declared under `spec.secrets[]`, handling both forms.
+
+    Spec entries are either bare strings (back-compat, no host binding) or
+    `{name, allowed_hosts}` dicts. Both carry a name; this helper normalises
+    to the set used by the preview-mint validator.
+    """
+    declared: set[str] = set()
+    for entry in spec.get("secrets") or []:
+        if isinstance(entry, str):
+            declared.add(entry)
+        elif isinstance(entry, dict):
+            name = entry.get("name")
+            if isinstance(name, str) and name:
+                declared.add(name)
+    return declared
 
 
 # Per-trigger route catalogue. Mirrors the `path:` arrays in each
@@ -888,45 +928,60 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # server-side mediation. Both share `_mint_preview_jwt` so the
     # JWT payload + secret can't drift between paths.
 
-    @extend_schema(
-        operation_id="agent_applications_preview_token",
-        parameters=[
-            OpenApiParameter(
-                "revision_id",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                required=True,
-                description="Target draft revision. Must belong to this application and not be live.",
-            ),
-        ],
-        request=None,
-        responses=OpenApiResponse(
-            response=inline_serializer(
-                name="AgentApplicationPreviewTokenResponse",
-                fields={
-                    "token": drf_serializers.CharField(
-                        help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
-                    ),
-                    "expires_in": drf_serializers.IntegerField(
-                        help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
-                    ),
-                    "ingress_slug": drf_serializers.CharField(
-                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
-                    ),
-                    "endpoints": drf_serializers.JSONField(
-                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
-                    ),
-                    "auth": drf_serializers.JSONField(
-                        help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
-                    ),
-                    "preview_proxy": drf_serializers.JSONField(
-                        help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
-                    ),
-                },
-            )
+    # Reused by GET + POST so drf-spectacular emits one component and the two
+    # operations stay shape-locked. POST is the contract-faithful verb (minting
+    # is a write); GET stays for `EventSource` callers and back-compat.
+    _PREVIEW_TOKEN_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentApplicationPreviewTokenResponse",
+            fields={
+                "token": drf_serializers.CharField(
+                    help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
+                ),
+                "expires_in": drf_serializers.IntegerField(
+                    help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
+                ),
+                "ingress_slug": drf_serializers.CharField(
+                    help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
+                ),
+                "endpoints": drf_serializers.JSONField(
+                    help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
+                ),
+                "auth": drf_serializers.JSONField(
+                    help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
+                ),
+                "preview_proxy": drf_serializers.JSONField(
+                    help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
+                ),
+            },
         ),
     )
-    @action(detail=True, methods=["get"], url_path="preview-token")
+
+    _PREVIEW_TOKEN_PARAMETERS = [
+        OpenApiParameter(
+            "revision_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Target draft revision. Must belong to this application and not be live.",
+        ),
+    ]
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="agent_applications_preview_token",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @extend_schema(
+        methods=["POST"],
+        operation_id="agent_applications_preview_token_mint",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=PreviewTokenMintRequestSerializer,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @action(detail=True, methods=["get", "post"], url_path="preview-token")
     def preview_token(self, request: Request, **kwargs) -> Response:
         """Mint a short-lived JWT for talking to a non-live revision
         directly via the public ingress URL. The caller attaches it as
@@ -954,9 +1009,40 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(
                 "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
             )
-        token_pair = _mint_preview_jwt(application, revision, request.user)
-        ingress_slug = f"{application.slug}-{revision.id.hex}"
         spec = revision.spec if isinstance(revision.spec, dict) else {}
+        # POST-only feature: optional `secret_override` overlay. The body
+        # serializer's CharField caps each value; here we additionally cap the
+        # serialized total to keep the resulting JWT under typical header
+        # limits, and validate every key is declared in `spec.secrets[]` so
+        # authors can't smuggle arbitrary env-vars into tools that read by
+        # name. The validated map is passed to `_mint_preview_jwt`, which
+        # embeds it under the `sec_ovr` claim.
+        secret_override: dict[str, str] | None = None
+        if request.method == "POST":
+            body_serializer = PreviewTokenMintRequestSerializer(data=request.data or {})
+            body_serializer.is_valid(raise_exception=True)
+            raw_override = body_serializer.validated_data.get("secret_override") or {}
+            if raw_override:
+                serialized_size = len(json.dumps(raw_override))
+                if serialized_size > _PREVIEW_SECRET_OVERRIDE_BYTES_CAP:
+                    raise ValidationError(
+                        f"secret_override exceeds the {_PREVIEW_SECRET_OVERRIDE_BYTES_CAP}-byte cap; "
+                        f"got {serialized_size}. Trim values or set them via env_keys instead."
+                    )
+                declared = _declared_secret_names(spec)
+                undeclared = sorted(k for k in raw_override if k not in declared)
+                if undeclared:
+                    raise ValidationError(
+                        {
+                            "secret_override": (
+                                f"keys {undeclared!r} are not declared in spec.secrets[]; "
+                                f"add them to the draft spec before overriding"
+                            )
+                        }
+                    )
+                secret_override = dict(raw_override)
+        token_pair = _mint_preview_jwt(application, revision, request.user, secret_override=secret_override)
+        ingress_slug = f"{application.slug}-{revision.id.hex}"
         body: dict[str, Any] = {
             "token": token_pair[0] if token_pair is not None else "",
             "expires_in": token_pair[1] if token_pair is not None else 0,

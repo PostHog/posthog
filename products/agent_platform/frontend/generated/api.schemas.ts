@@ -1329,6 +1329,33 @@ export interface AgentApplicationPreviewTokenResponseApi {
     preview_proxy: unknown
 }
 
+/**
+ * Per-session secret overlay applied for the resulting preview session. Keys must be declared in `spec.secrets[]`; undeclared keys are rejected with a 400. Values are encrypted into the JWT and applied only for the lifetime of one session — never persisted to `encrypted_env`. Omit to inherit live secrets unchanged.
+ */
+export type PreviewTokenMintRequestApiSecretOverride = { [key: string]: string }
+
+/**
+ * Body shape for `POST .../preview-token/`.
+ *
+ * `secret_override` is optional per-session secret overlay applied at preview
+ * mint time. Keys MUST be a subset of `revision.spec["secrets"]` — the view
+ * validates server-side and rejects undeclared keys with a field-level
+ * 400. The overlay is encrypted into the minted JWT's claims (the JWT is
+ * HS256-signed with `AGENT_INTERNAL_SIGNING_KEY` so the override is
+ * tamper-proof in transit); the ingress extracts it at session create and
+ * stamps it onto the row. It is never returned through any read path and
+ * never persisted as plaintext.
+ *
+ * Values are bounded at the DRF level (CharField default ~1 KiB) and the
+ * total serialized map is capped by the view so the JWT stays under typical
+ * header limits. Authors who need to test against a real secret value should
+ * set it through the standard `env_keys` UI instead of this hatch.
+ */
+export interface PreviewTokenMintRequestApi {
+    /** Per-session secret overlay applied for the resulting preview session. Keys must be declared in `spec.secrets[]`; undeclared keys are rejected with a 400. Values are encrypted into the JWT and applied only for the lifetime of one session — never persisted to `encrypted_env`. Omit to inherit live secrets unchanged. */
+    secret_override?: PreviewTokenMintRequestApiSecretOverride
+}
+
 export interface AgentSessionUsageTotalApi {
     tokens_in: number
     tokens_out: number
@@ -1777,6 +1804,13 @@ export const AgentApplicationsPreviewProxyFormat = {
 } as const
 
 export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewTokenMintParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */

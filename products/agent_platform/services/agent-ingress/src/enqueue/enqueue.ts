@@ -28,6 +28,7 @@ import {
     AgentRevision,
     ConversationMessage,
     EMPTY_USAGE_TOTAL,
+    EncryptedFields,
     SessionPrincipal,
     SessionQueue,
 } from '@posthog/agent-shared'
@@ -36,6 +37,16 @@ import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclA
 
 export interface EnqueueDeps {
     queue: SessionQueue
+    /**
+     * Used to seal the optional `previewSecretOverride` map onto the
+     * `agent_session.preview_secret_override` column. Same key schedule as
+     * `AgentApplication.encrypted_env` so the runner's existing
+     * `EncryptedFields` instance reads it back. Required at the dep layer
+     * because every trigger that can reach the preview path (chat, slack,
+     * webhook, mcp) calls `enqueueOrResume` and must be able to persist
+     * the override.
+     */
+    encryption: EncryptedFields
 }
 
 export interface EnqueueInput {
@@ -86,6 +97,26 @@ export interface EnqueueInput {
      * for audit. Defaults to false (owner-only, the fail-closed behaviour).
      */
     bypassOwnerAcl?: boolean
+    /**
+     * True when the request that produced this enqueue carried a valid
+     * `aud=agent-ingress.preview` JWT (or arrived via the Django-side
+     * preview-proxy, which mints one server-side). Stamps the same value onto
+     * `agent_session.is_preview`. Triggers decide this based on the verified
+     * audience of the inbound token — never on a client-asserted query param.
+     * Defaults to false so the live-ingress path stays the no-extra-thought
+     * default.
+     */
+    isPreview?: boolean
+    /**
+     * Optional per-session secret overlay extracted from the verified preview
+     * JWT's `sec_ovr` claim. Keys are guaranteed (server-side at mint, see
+     * `views.py::preview_token`) to be declared in `revision.spec["secrets"]`;
+     * values are encrypted at rest on the session row and overlaid by the
+     * runner's secret resolver. Null on live sessions, on dev paths without a
+     * signing key, and on preview sessions whose author didn't supply an
+     * override at mint time.
+     */
+    previewSecretOverride?: Record<string, string> | null
 }
 
 export type EnqueueOutcome =
@@ -159,6 +190,15 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: input.isPreview === true,
+        // Sealed before it hits the queue insert. Empty maps (the common
+        // preview case where the author didn't supply an override) stay null
+        // so the column doesn't carry a noise row of encrypted-empty-object
+        // bytes for every preview run.
+        preview_secret_override:
+            input.previewSecretOverride && Object.keys(input.previewSecretOverride).length > 0
+                ? deps.encryption.encrypt(JSON.stringify(input.previewSecretOverride))
+                : null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }

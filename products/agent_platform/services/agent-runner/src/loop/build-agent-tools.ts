@@ -459,6 +459,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
             : undefined,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        isPreview: deps.session.is_preview,
     }
 }
 

@@ -116,6 +116,14 @@ export interface JanitorServerOpts {
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
      */
     internalSigningKey?: string
+    /**
+     * `EncryptedFields` instance — required by `fireCronManually`'s call
+     * to `enqueueOrResume`. Cron firings never carry a preview override
+     * (they only fire off the live revision), so the instance is only
+     * used for `Object.keys({}).length === 0` short-circuit; the dep
+     * contract still requires it. Wire from `ENCRYPTION_SALT_KEYS`.
+     */
+    encryption?: import('@posthog/agent-shared').EncryptedFields
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -434,19 +442,25 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             // useful for huge sessions where the caller only cares about the most
             // recent turns. usage_total comes off the row regardless so cost
             // reporting stays accurate.
+            //
+            // `preview_secret_override` is stripped before the spread — the
+            // column carries Fernet-encrypted bytes (the runner's secret
+            // resolver decrypts it locally), but even the field's presence
+            // hints at the preview-session's override set, which is meant to
+            // be invisible to API consumers. Boolean `is_preview` stays so
+            // dashboards can badge preview sessions; the override map does
+            // not.
+            const { preview_secret_override: _drop, ...visible } = s
             if (q.last_n !== undefined && q.last_n < s.conversation.length) {
-                const trimmed: AgentSession = {
-                    ...s,
-                    conversation: s.conversation.slice(-q.last_n),
-                }
                 res.json({
-                    ...trimmed,
+                    ...visible,
+                    conversation: s.conversation.slice(-q.last_n),
                     conversation_total_turns: s.conversation.length,
                     conversation_trimmed: true,
                 })
                 return
             }
-            res.json({ ...s, conversation_trimmed: false })
+            res.json({ ...visible, conversation_trimmed: false })
         })
     )
     app.post(
@@ -544,6 +558,11 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         decision_at: r.decision_at,
         decision_reason: r.decision_reason,
         dispatch_outcome: r.dispatch_outcome,
+        // Preview-mode marker copied from `agent_session.is_preview` at insert
+        // time (see PgApprovalStore.upsertQueued). Surfaced to the inbox UI so
+        // the approvals queue can render a "preview" badge and (optionally)
+        // hide preview approvals from a default operator view.
+        is_preview: r.is_preview,
         created_at: r.created_at,
         expires_at: r.expires_at,
     })
@@ -943,8 +962,12 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const requestId = body.request_id ?? randomUUID()
+            if (!opts.encryption) {
+                res.status(503).json({ error: 'encryption_unconfigured' })
+                return
+            }
             const result = await fireCronManually(
-                { revisions: opts.revisions!, queue: opts.queue },
+                { revisions: opts.revisions!, queue: opts.queue, encryption: opts.encryption },
                 {
                     rev,
                     app: app_,

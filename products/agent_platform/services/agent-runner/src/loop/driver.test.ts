@@ -91,6 +91,8 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
+        preview_secret_override: null,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',

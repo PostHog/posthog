@@ -60,7 +60,7 @@ describe('cron trigger: real e2e', () => {
         })
 
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         // First tick seeds lastTickAt; no firings in (now, now].
         const t0 = new Date('2026-06-01T09:00:00Z')
         const r0 = await cronTick({ ...deps, now: () => t0 }, state)

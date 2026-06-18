@@ -37,7 +37,7 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
     // Unauthenticated header — UX gating only, never a security boundary.
     const clientKind = parseClientKind(ctx.req.headers[CLIENT_KIND_HEADER])
     const outcome = await enqueueOrResume(
-        { queue: deps.queue },
+        { queue: deps.queue, encryption: deps.encryption },
         {
             application: resolved.application,
             revision: resolved.revision,
@@ -47,6 +47,8 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             trigger: 'chat',
             requesterDisplay: principalDisplay(sessionPrincipal),
             triggerMetadata: clientKind ? { client_kind: clientKind } : undefined,
+            isPreview: resolved.isPreview,
+            previewSecretOverride: resolved.previewSecretOverride,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -192,7 +194,7 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
 }
 
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
-    const { req, res, deps } = ctx
+    const { req, res, deps, resolved } = ctx
     const { session_id: sessionId } = ctx.parsed
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
@@ -213,7 +215,40 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`)
     })
-    req.on('close', () => unsubscribe())
+    // Preview-mode streams: pre-emit `preview_token_required` at the JWT's
+    // expiry instead of letting the connection drop silently. The client
+    // (posthog/code agent-builder) handles the event by re-minting via
+    // `POST .../preview-token/` and re-attaching `/listen` transparently —
+    // the agent builder UI never shows a generic disconnect during a long
+    // author session.
+    //
+    // Skew margin (5s): fire just before the upstream `exp` so the client
+    // has a window to re-mint while its existing JWT is still valid for the
+    // POST. Caps the scheduled delay at the v8 setTimeout 32-bit ceiling
+    // (~24.8 days) — the 15-min TTL never approaches it, but a future
+    // longer-lived token wouldn't silently overflow into "fire immediately."
+    let expiryTimer: NodeJS.Timeout | undefined
+    if (resolved.previewJwtExp !== null) {
+        const skewMs = 5_000
+        const delayMs = Math.min(Math.max(0, resolved.previewJwtExp * 1000 - Date.now() - skewMs), 2_147_483_647)
+        expiryTimer = setTimeout(() => {
+            res.write(
+                `data: ${JSON.stringify({
+                    session_id: sessionId,
+                    kind: 'preview_token_required',
+                    data: { reason: 'expired' },
+                    ts: new Date().toISOString(),
+                })}\n\n`
+            )
+            res.end()
+        }, delayMs)
+    }
+    req.on('close', () => {
+        unsubscribe()
+        if (expiryTimer) {
+            clearTimeout(expiryTimer)
+        }
+    })
 }
 
 async function clientToolResultHandler(

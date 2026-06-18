@@ -23,6 +23,8 @@ Verifies:
 
 from __future__ import annotations
 
+import json
+import base64
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -291,3 +293,144 @@ class TestSlackUrlSerializer(APIBaseTest):
         body = self._retrieve(self._app())
         assert body["slack_events_url"] is None
         assert body["slack_interactivity_url"] is None
+
+
+@override_settings(
+    AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com",
+    AGENT_INTERNAL_SIGNING_KEY="dev-internal-signing-key-do-not-use-in-prod",
+)
+class TestPreviewTokenSecretOverride(APIBaseTest):
+    """POST mint endpoint with the optional `secret_override` body field.
+
+    The body's `secret_override` map is validated against the draft revision's
+    `spec.secrets[]` declared names — authors can only override secrets the
+    spec actually declares. Validated maps land in the minted JWT's `sec_ovr`
+    claim; the ingress decodes the claim, seals it, and stamps it onto the
+    session row.
+    """
+
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str = "preview-secret-bot") -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name="X", description="")
+
+    def _revision(self, app: AgentApplication, secrets: list[str]) -> AgentRevision:
+        spec = _base_spec()
+        spec["secrets"] = list(secrets)
+        return AgentRevision.all_teams.create(
+            application=app, state="draft", bundle_uri=f"local://{app.slug}/v1", spec=spec
+        )
+
+    def _url(self, app: AgentApplication, rev: AgentRevision) -> str:
+        return f"/api/projects/{self.team.id}/agent_applications/{app.slug}/preview-token/?revision_id={rev.id}"
+
+    def _decode_jwt_payload(self, token: str) -> dict[str, Any]:
+        # Decode without verification — the body is the assertion target,
+        # signature verification is covered by the JWT helper's own tests.
+        _, payload_b64, _ = token.split(".")
+        # JWT base64url payload — pad to a multiple of 4 before decoding.
+        padding = "=" * (-len(payload_b64) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload_b64 + padding))
+
+    def test_post_with_declared_override_embeds_claim(self) -> None:
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO_API_KEY", "BAR_TOKEN"])
+
+        res = self.client.post(
+            self._url(app, rev),
+            data={"secret_override": {"FOO_API_KEY": "override-value"}},
+            format="json",
+        )
+        assert res.status_code == 200, res.content
+        body = res.json()
+        assert body["token"], "POST mint must return a non-empty token"
+        payload = self._decode_jwt_payload(body["token"])
+        assert payload.get("sec_ovr") == {"FOO_API_KEY": "override-value"}
+
+    def test_post_without_override_emits_no_claim(self) -> None:
+        # Common case: caller just wants a preview token, no override.
+        # The minted JWT must NOT carry an empty `sec_ovr` claim — keeps
+        # the common-case JWT small and the runner's overlay path inert.
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO_API_KEY"])
+        res = self.client.post(self._url(app, rev), data={}, format="json")
+        assert res.status_code == 200, res.content
+        payload = self._decode_jwt_payload(res.json()["token"])
+        assert "sec_ovr" not in payload
+
+    def test_post_undeclared_override_key_rejected(self) -> None:
+        # The whole point of declared-only validation: an author can't slip
+        # in an arbitrary env-var name that happens to be read by a tool.
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO_API_KEY"])
+        res = self.client.post(
+            self._url(app, rev),
+            data={"secret_override": {"NOT_DECLARED": "x"}},
+            format="json",
+        )
+        assert res.status_code == 400, res.content
+        # The error message names the undeclared key so the UI can render a
+        # specific "add this to spec.secrets first" affordance.
+        assert "NOT_DECLARED" in res.content.decode()
+
+    def test_post_undeclared_among_declared_rejects_whole_request(self) -> None:
+        # Mixed case: one valid key + one invalid → the entire mint fails.
+        # No partial mint that silently drops the bad key; the author needs
+        # to know exactly what they shipped.
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO_API_KEY"])
+        res = self.client.post(
+            self._url(app, rev),
+            data={"secret_override": {"FOO_API_KEY": "ok", "NOPE": "x"}},
+            format="json",
+        )
+        assert res.status_code == 400, res.content
+        assert "NOPE" in res.content.decode()
+
+    def test_post_oversized_override_rejected(self) -> None:
+        # 8 KiB cap on the serialized map keeps the resulting JWT under
+        # typical header limits. The cap is on the JSON-serialized size,
+        # not raw value bytes — values containing escapes can balloon.
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO"])
+        big_value = "x" * 4096
+        res = self.client.post(
+            self._url(app, rev),
+            data={"secret_override": {"FOO": big_value}},
+            format="json",
+        )
+        # Single 4 KiB value is within the per-field cap but two of them
+        # would put us over the total cap. Add a second declared key and
+        # test the combined size.
+        rev2 = self._revision(self._app("preview-secret-bot-2"), secrets=["A", "B"])
+        big = "y" * 4096
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/agent_applications/preview-secret-bot-2/preview-token/?revision_id={rev2.id}",
+            data={"secret_override": {"A": big, "B": big}},
+            format="json",
+        )
+        assert res.status_code == 400, res.content
+        assert "cap" in res.content.decode().lower() or "exceeds" in res.content.decode().lower()
+
+    def test_post_on_live_revision_rejected(self) -> None:
+        # The live-revision gate runs BEFORE the body parser so an attempt
+        # to overlay secrets onto the live revision fails the same way the
+        # bare GET fails — with the "non-live revisions only" message.
+        app = self._app()
+        rev = self._revision(app, secrets=["FOO"])
+        app.live_revision = rev
+        app.save(update_fields=["live_revision"])
+
+        res = self.client.post(
+            self._url(app, rev),
+            data={"secret_override": {"FOO": "x"}},
+            format="json",
+        )
+        assert res.status_code == 400, res.content
+        assert "non-live revisions only" in res.content.decode()

@@ -11,12 +11,19 @@ import {
     AgentApplication,
     AgentRevision,
     AgentSpecSchema,
+    EncryptedFields,
     PgRevisionStore,
     PgSessionQueue,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
 
 import { cronTick, fireCronManually, newCronTickState } from './cron-tick'
+
+// Same deterministic key the cluster harness uses. Cron tests don't ever
+// exercise the preview-mode encryption write path (cron only fires off the
+// live revision), but the `EnqueueDeps` shape now requires an instance.
+const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
+const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -98,7 +105,7 @@ describe('cronTick', () => {
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
         const state = newCronTickState()
-        const out = await cronTick({ revisions, queue }, state)
+        const out = await cronTick({ revisions, queue, encryption }, state)
         expect(out).toEqual({ fired: 0, skipped_no_window: 0, skipped_caught_up: 0, skipped_no_app: 0, errors: 0 })
     })
 
@@ -107,7 +114,7 @@ describe('cronTick', () => {
         const queue = new PgSessionQueue(pool)
         await deploy(revisions, { triggers: [minimalCron()] })
         const state = newCronTickState()
-        const out = await cronTick({ revisions, queue }, state)
+        const out = await cronTick({ revisions, queue, encryption }, state)
         // No firings in (now, now]; the catch-up policy can't fire on the
         // first tick because lastTickAt was just initialised.
         expect(out.fired).toBe(0)
@@ -125,9 +132,9 @@ describe('cronTick', () => {
         // has a 3-minute window with 3 missed firings, all collapsed by
         // catch_up=most_recent (the default).
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T10:03:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         expect(out.fired).toBe(1)
         // The fired session lands on the most-recent firing minute (10:03).
         const minute = Math.floor(new Date('2026-06-01T10:03:00Z').getTime() / 60_000)
@@ -144,9 +151,9 @@ describe('cronTick', () => {
         })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T10:03:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         expect(out.fired).toBe(3)
         // Each firing got a distinct idempotency_key keyed by minute.
         const minutes = ['10:01', '10:02', '10:03'].map((m) => {
@@ -165,9 +172,9 @@ describe('cronTick', () => {
         await deploy(revisions, { triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'skip' })] })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T10:05:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         expect(out.fired).toBe(0)
         expect(out.skipped_caught_up).toBeGreaterThan(0)
     })
@@ -180,14 +187,14 @@ describe('cronTick', () => {
         })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         // Window (10:00, 10:05]: firings at 10:01, 10:02, 10:03, 10:04, 10:05.
         // With max_catch_up_age_seconds=120 and now=10:05, the cron enumeration's
         // exclusive lower bound is earliestAllowed=10:03 — so 10:04, 10:05 = 2
         // firings survive (the firing exactly at the age boundary is dropped,
         // matching the `clamps the enumeration window` regression below).
         const t1 = new Date('2026-06-01T10:05:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         expect(out.fired).toBe(2)
     })
 
@@ -204,14 +211,14 @@ describe('cronTick', () => {
         const state = newCronTickState()
 
         const t0 = new Date('2026-06-01T00:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
 
         // 7-day gap on a minute schedule = 10,080 firings before the clamp.
         // After clamping to max_catch_up_age_seconds=120, the tick should
         // enumerate at most 2 firings and skip nothing on the catch-up
         // discard path.
         const tLater = new Date('2026-06-08T00:00:00Z')
-        const out = await cronTick({ revisions, queue, now: () => tLater }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => tLater }, state)
 
         expect(out.fired).toBe(2)
         expect(out.skipped_caught_up).toBe(0)
@@ -229,13 +236,13 @@ describe('cronTick', () => {
         const state = newCronTickState()
 
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
 
         // 200 minute-firings fall in (10:00, 13:20]; the age window (100000s)
         // covers all of them, so all 200 survive catch-up — then the cap trims
         // to the most recent 100.
         const t1 = new Date('2026-06-01T13:20:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
 
         expect(out.fired).toBe(100)
         expect(out.skipped_caught_up).toBe(100)
@@ -251,11 +258,11 @@ describe('cronTick', () => {
         const tickA = newCronTickState()
         const tickB = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, tickA)
-        await cronTick({ revisions, queue, now: () => t0 }, tickB)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, tickA)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, tickB)
         const t1 = new Date('2026-06-01T10:02:00Z')
-        const outA = await cronTick({ revisions, queue, now: () => t1 }, tickA)
-        const outB = await cronTick({ revisions, queue, now: () => t1 }, tickB)
+        const outA = await cronTick({ revisions, queue, encryption, now: () => t1 }, tickA)
+        const outB = await cronTick({ revisions, queue, encryption, now: () => t1 }, tickB)
         // Each tick reports its own `fired`, but the queue holds only one
         // session per minute (idempotency_key collision in
         // `enqueueOrResume`'s pre-check returns the existing id).
@@ -287,9 +294,9 @@ describe('cronTick', () => {
         })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T10:01:30Z')
-        await cronTick({ revisions, queue, now: () => t1 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         const session = await queue.findByIdempotencyKey(
             app.id,
             `cron:${rev.id}:digest:${Math.floor(new Date('2026-06-01T10:01:00Z').getTime() / 60_000)}`
@@ -316,9 +323,9 @@ describe('cronTick', () => {
         const state = newCronTickState()
         // 2026-06-01 is a Monday — a 09:00 firing lands in the window.
         const t0 = new Date('2026-06-01T08:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T09:30:00Z')
-        await cronTick({ revisions, queue, now: () => t1 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         const sessions = []
         for (const minute of [Math.floor(new Date('2026-06-01T09:00:00Z').getTime() / 60_000)]) {
             const s = await queue.findByIdempotencyKey(app.id, `cron:${rev.id}:digest:${minute}`)
@@ -349,9 +356,9 @@ describe('cronTick', () => {
         })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T08:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T09:30:00Z')
-        await cronTick({ revisions, queue, now: () => t1 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         const byExternal = await queue.findByExternalKey(app.id, 'digest-2026-W23')
         expect(byExternal).not.toBeNull()
     })
@@ -367,9 +374,9 @@ describe('cronTick', () => {
         })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
-        await cronTick({ revisions, queue, now: () => t0 }, state)
+        await cronTick({ revisions, queue, encryption, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T10:02:00Z')
-        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+        const out = await cronTick({ revisions, queue, encryption, now: () => t1 }, state)
         expect(out.errors).toBeGreaterThan(0)
         expect(out.fired).toBe(0)
     })
@@ -382,7 +389,7 @@ describe('cronTick', () => {
                 triggers: [minimalCron({ schedule: '0 9 * * MON', prompt: 'manual test' })],
             })
             const result = await fireCronManually(
-                { revisions, queue },
+                { revisions, queue, encryption },
                 { rev, app, cronName: 'digest', requestId: 'req-1' }
             )
             expect(result.idempotency_key).toBe(`cron-manual:${rev.id}:digest:req-1`)
@@ -398,11 +405,11 @@ describe('cronTick', () => {
                 triggers: [minimalCron({ schedule: '0 9 * * MON' })],
             })
             const a = await fireCronManually(
-                { revisions, queue },
+                { revisions, queue, encryption },
                 { rev, app, cronName: 'digest', requestId: 'click-1' }
             )
             const b = await fireCronManually(
-                { revisions, queue },
+                { revisions, queue, encryption },
                 { rev, app, cronName: 'digest', requestId: 'click-1' }
             )
             expect(b.session_id).toBe(a.session_id)
@@ -415,7 +422,7 @@ describe('cronTick', () => {
                 triggers: [minimalCron({ schedule: '0 9 * * MON' })],
             })
             await expect(
-                fireCronManually({ revisions, queue }, { rev, app, cronName: 'ghost', requestId: 'r' })
+                fireCronManually({ revisions, queue, encryption }, { rev, app, cronName: 'ghost', requestId: 'r' })
             ).rejects.toThrow(/unknown_cron:ghost/)
         })
     })

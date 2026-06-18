@@ -230,7 +230,7 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
             // it by URI since they hold the returned id).
             const externalKey = mcpSessionId ? `mcp:${mcpSessionId}:${randomUUID()}` : null
             const freshOutcome = await enqueueOrResume(
-                { queue: deps.queue },
+                { queue: deps.queue, encryption: deps.encryption },
                 {
                     application: resolved.application,
                     revision: resolved.revision,
@@ -239,6 +239,8 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     principal: principal,
                     trigger: 'mcp',
                     requesterDisplay: principalDisplay(principal),
+                    isPreview: resolved.isPreview,
+                    previewSecretOverride: resolved.previewSecretOverride,
                 }
             )
             if (freshOutcome.kind === 'elevation_required') {

@@ -29,6 +29,7 @@ import {
     AgentApplication,
     AgentRevision,
     createLogger,
+    EncryptedFields,
     RevisionStore,
     SessionPrincipal,
     SessionQueue,
@@ -39,6 +40,15 @@ const log = createLogger('cron-tick')
 export interface CronTickDeps {
     revisions: RevisionStore
     queue: SessionQueue
+    /**
+     * Required by `enqueueOrResume` for the preview-mode secret-override
+     * column. Cron firings never carry an override (they're inherently
+     * live-side: the janitor only fires off `application.live_revision_id`),
+     * so this instance is only used for `Object.keys({}).length === 0`
+     * short-circuit — but the dep contract requires a usable instance.
+     * Wire from the janitor's `ENCRYPTION_SALT_KEYS`-backed `EncryptedFields`.
+     */
+    encryption: EncryptedFields
     /** Injectable clock for tests; defaults to `() => new Date()`. */
     now?: () => Date
     /**
@@ -124,7 +134,7 @@ export async function fireCronManually(
     const idempotencyKey = `cron-manual:${input.rev.id}:${trigger.config.name}:${input.requestId}`
 
     const outcome = await enqueueOrResume(
-        { queue: deps.queue },
+        { queue: deps.queue, encryption: deps.encryption },
         {
             application: input.app,
             revision: input.rev,
@@ -287,7 +297,7 @@ async function fireOne(
     const idempotencyKey = `cron:${rev.id}:${cfg.name}:${firedAtMinute}`
 
     await enqueueOrResume(
-        { queue: deps.queue },
+        { queue: deps.queue, encryption: deps.encryption },
         {
             application: app,
             revision: rev,

@@ -170,6 +170,23 @@ class AgentSession(ProductTeamModel, UUIDModel):
     pending_elevation_requests = models.JSONField(default=list, db_default=Value("[]"))
     claimed_at = models.DateTimeField(null=True, blank=True)
     retry_count = models.IntegerField(default=0, db_default=0)
+    # Set to true when the session was created via the preview ingress path
+    # (preview-proxy or direct ingress with a valid `aud=agent-ingress.preview`
+    # JWT). Output adapters (slack reply, webhook publish) noop on preview; the
+    # analytics sink tags `$ai_*` events so author iteration doesn't skew prod
+    # observability dashboards. Cron is implicitly safe (janitor only schedules
+    # off `live_revision_id`), so preview sessions never originate from cron.
+    is_preview = models.BooleanField(default=False, db_default=False)
+    # Per-session secret overlay set at preview mint time. Encrypted JSON map
+    # `{KEY: value, ...}` whose keys are validated server-side at
+    # `POST .../preview-token/` against `revision.spec["secrets"]` — authors can
+    # only override secrets the spec actually declares. The runner's secret
+    # resolver overlays this on top of the application's `encrypted_env` for
+    # the duration of the session; the value is never returned through any read
+    # path (`/sessions/<id>` excludes it, the analytics sink doesn't see it).
+    # NULL for live sessions and for preview sessions whose author didn't
+    # supply an override. Same `EncryptedFields` keys as `encrypted_env`.
+    preview_secret_override: EncryptedTextField = EncryptedTextField(null=True, blank=True)
     usage_total = models.JSONField(
         default=dict,
         db_default=Value(
@@ -268,6 +285,13 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
     decision_reason = models.TextField(null=True, blank=True)
     decided_args = models.JSONField(null=True, blank=True)
     dispatch_outcome = models.JSONField(null=True, blank=True)
+    # Mirrors `agent_session.is_preview` for the owning session. Approval rows
+    # are emitted from the runner with the session's value copied at insert
+    # time, so the listing serializer can render a preview badge without an
+    # additional join. Same flag drives the approval-dispatch path: a preview
+    # approval that resolves still routes its outcome through the runner's
+    # preview-aware adapter set, never the live publish surface.
+    is_preview = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     expires_at = models.DateTimeField()
 

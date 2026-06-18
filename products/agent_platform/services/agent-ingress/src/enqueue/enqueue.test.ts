@@ -1,11 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { AgentSpecSchema, PgSessionQueue, SessionPrincipal } from '@posthog/agent-shared'
+import { AgentSpecSchema, EncryptedFields, PgSessionQueue, SessionPrincipal } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
 
 import { enqueueOrResume } from './enqueue'
+
+// Same deterministic key the cluster harness uses. Lets enqueue tests
+// satisfy the `EnqueueDeps.encryption` shape without standing up the full
+// platform config — none of these cases exercise the preview-mode
+// encryption path, they just need a usable instance.
+const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
+const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -57,7 +64,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const out = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -73,7 +80,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -83,7 +90,7 @@ describe('enqueueOrResume', () => {
             }
         )
         const second = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -108,7 +115,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -119,7 +126,7 @@ describe('enqueueOrResume', () => {
         )
         await queue.update(first.sessionId, { state: 'completed' })
         const second = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -136,7 +143,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -147,7 +154,7 @@ describe('enqueueOrResume', () => {
         )
         await queue.update(first.sessionId, { state: 'closed' })
         const second = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -168,7 +175,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -179,7 +186,7 @@ describe('enqueueOrResume', () => {
             }
         )
         const second = await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -216,7 +223,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         await enqueueOrResume(
-            { queue },
+            { queue, encryption },
             {
                 application: app,
                 revision: rev,
@@ -230,7 +237,7 @@ describe('enqueueOrResume', () => {
         // but here we just exercise the rollover from 5 → 5.
         for (let i = 0; i < 6; i++) {
             await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -253,7 +260,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -271,7 +278,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -281,7 +288,7 @@ describe('enqueueOrResume', () => {
                 }
             )
             const second = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -304,7 +311,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -332,7 +339,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -351,7 +358,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -371,7 +378,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -381,7 +388,7 @@ describe('enqueueOrResume', () => {
                 }
             )
             const second = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -406,7 +413,7 @@ describe('enqueueOrResume', () => {
             const { app, rev } = makePair()
             // First call goes through normally; capture its id.
             const first = await enqueueOrResume(
-                { queue },
+                { queue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -449,7 +456,7 @@ describe('enqueueOrResume', () => {
                 },
             })
             const second = await enqueueOrResume(
-                { queue: racyQueue },
+                { queue: racyQueue, encryption },
                 {
                     application: app,
                     revision: rev,
@@ -483,7 +490,7 @@ describe('enqueueOrResume', () => {
             })
             await expect(
                 enqueueOrResume(
-                    { queue: racyQueue },
+                    { queue: racyQueue, encryption },
                     {
                         application: app,
                         revision: rev,

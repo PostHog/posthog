@@ -25,6 +25,7 @@ import type {
     AuthConfig,
     CredentialBroker,
     CredentialMap,
+    EncryptedFields,
     HttpFetcher,
     IdentityStore,
     IntegrationStore,
@@ -72,6 +73,16 @@ export interface TriggerDeps {
     routingMode?: RoutingMode
     domainSuffix?: string
     publicBaseUrl?: string
+    /**
+     * Fernet `EncryptedFields` instance for sealing the preview
+     * `secret_override` map before it lands on the session row. Same key
+     * schedule as `AgentApplication.encrypted_env` so the runner's
+     * existing `EncryptedFields` instance (in `makeEncryptedEnvResolver`)
+     * decrypts it without any extra wiring. Required everywhere the
+     * preview path can reach (chat, slack, webhook, mcp) — the encryption
+     * salt keys are platform-wide, not per-trigger.
+     */
+    encryption: EncryptedFields
 }
 
 /** Pulled from the `Trigger` discriminator in `@posthog/agent-shared` so this

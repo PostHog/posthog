@@ -29,6 +29,7 @@ function makeCtx(store: S3MemoryStore | undefined): ToolContext {
         memoryStore: store,
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
+        isPreview: false,
     }
 }
 

@@ -52,6 +52,7 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
+    DEV_INTERNAL_SIGNING_KEY,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
@@ -189,6 +190,14 @@ export interface Cluster {
      * so teardown wipes both at once.
      */
     tabularStore: S3JsonlTabularStore
+    /**
+     * Same `EncryptedFields` the harness wires into the ingress and the
+     * janitor. Exposed so cases that drive `cronTick` / `fireCronManually`
+     * directly can satisfy the `CronTickDeps.encryption` shape, and so
+     * preview-mode cases can decrypt the persisted `preview_secret_override`
+     * column to assert the round-trip.
+     */
+    encryption: EncryptedFields
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     ingress: Express
@@ -463,6 +472,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
         http: opts.http,
+        // Wire the JWT gate so preview-mode tests exercise the real claim
+        // verification (audience, signature, app/rev binding, secret_override
+        // extraction). Without this the resolver short-circuits and the
+        // override never flows from the JWT to the session row. Same key
+        // `mintInternalJwt` uses in the preview-mode case fixtures.
+        internalSigningKey: DEV_INTERNAL_SIGNING_KEY,
+        encryption,
     })
 
     const janitor = buildJanitorApp({
@@ -475,6 +491,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Cron manual-fire endpoint uses this to satisfy `EnqueueDeps` —
+        // none of the harness's cron tests exercise an override, but the
+        // dep type still requires an instance.
+        encryption,
     })
 
     return {
@@ -493,6 +513,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         credentialBroker,
         memoryStore,
         tabularStore,
+        encryption,
         model,
         ingress,
         janitor,
