@@ -468,6 +468,7 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIDEBAR_SEARCH_COMMAND_HINT: 'sidebar-search-command-hint', // owner: @fercgomes
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
+    SLACK_APP_INBOX_CHANNEL: 'slack-app-inbox-channel', // owner: @joshua #team-signals
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SNAPCHAT_ADS_SOURCE: 'snapchat-ads-source', // owner: @jabahamondes #team-web-analytics
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus

@@ -1,8 +1,10 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
 
@@ -18,3 +20,45 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
     from products.slack_app.backend.api import _invalidate_user_repo_list_cache  # noqa: PLC0415
 
     _invalidate_user_repo_list_cache(instance.user_id)
+
+
+@receiver(post_save, sender=Integration)
+def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+    """Fresh Slack install -> start the #posthog-inbox onboarding Temporal workflow (flag-gated, off
+    the request thread). Re-auth uses update_or_create (created=False), so only first installs onboard."""
+    if not created or instance.kind != "slack":
+        return
+
+    integration_id = instance.id
+    transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
+
+
+def _start_inbox_onboarding_workflow(integration_id: int) -> None:
+    # Deferred imports keep the Temporal stack off the signals (AppConfig.ready) import path.
+    import asyncio
+
+    from django.conf import settings
+
+    import structlog
+    from temporalio.common import WorkflowIDReusePolicy
+
+    from posthog.temporal.ai.posthog_slack_inbox_onboarding import (  # noqa: PLC0415
+        PostHogSlackInboxOnboardingInputs,
+        PostHogSlackInboxOnboardingWorkflow,
+    )
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    log = structlog.get_logger(__name__)
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                PostHogSlackInboxOnboardingWorkflow.run,
+                PostHogSlackInboxOnboardingInputs(integration_id=integration_id),
+                id=f"posthog-slack-inbox-onboarding-{integration_id}",
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except Exception:
+        log.warning("slack_inbox_onboarding_dispatch_failed", integration_id=integration_id, exc_info=True)

@@ -1,4 +1,5 @@
 import enum
+import dataclasses
 from datetime import timedelta
 from typing import get_args
 
@@ -36,6 +37,140 @@ def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: st
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
+
+
+def get_default_slack_notification_channel(team_id: int) -> str | None:
+    """Team-default Slack channel for signal notifications, stored as "<channel_id>|#name"."""
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
+    if config is None:
+        return None
+    value = (config.default_slack_notification_channel or "").strip()
+    return value or None
+
+
+def set_default_slack_notification_channel(team_id: int, value: str | None) -> None:
+    """Idempotently set the team-default Slack channel for signal notifications."""
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    SignalTeamConfig.objects.update_or_create(
+        team_id=team_id,
+        defaults={"default_slack_notification_channel": value or None},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Slack onboarding: the signal sources offered in the inbox onboarding flow.
+# One catalog drives the list, the "turn on" toggles, and the "connected" checks.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+
+@dataclasses.dataclass(frozen=True)
+class OnboardingSource:
+    """A signal source offered as a checkbox in the Slack onboarding flow, with current state."""
+
+    key: str
+    label: str
+    description: str
+    enabled: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class _SourceSpec:
+    key: str
+    label: str
+    description: str
+    # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
+    pairs: tuple[tuple[str, str], ...]
+    needs_ai_approval: bool = False
+
+
+_SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
+    _SourceSpec(
+        "error_tracking",
+        "Error tracking",
+        "new, reopened & spiking issues",
+        (
+            ("error_tracking", "issue_created"),
+            ("error_tracking", "issue_reopened"),
+            ("error_tracking", "issue_spiking"),
+        ),
+    ),
+    _SourceSpec(
+        "session_replay",
+        "Session replay analysis",
+        "problems real users hit",
+        (("session_replay", "session_analysis_cluster"),),
+        needs_ai_approval=True,
+    ),
+)
+_SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
+
+
+def _ai_data_processing_approved(team_id: int) -> bool:
+    return bool(
+        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+    )
+
+
+def has_enabled_source(team_id: int) -> bool:
+    """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
+    return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+
+
+def onboarding_sources(team_id: int) -> list[OnboardingSource]:
+    """The onboarding sources, in order, with current enabled state (for pre-checking the checkboxes)."""
+    enabled_pairs = set(
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).values_list("source_product", "source_type")
+    )
+    return [
+        OnboardingSource(
+            key=spec.key,
+            label=spec.label,
+            description=spec.description,
+            enabled=any(pair in enabled_pairs for pair in spec.pairs),
+        )
+        for spec in _SOURCE_CATALOG
+    ]
+
+
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+    """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
+    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
+    enabled because AI data processing isn't approved (session replay analysis)."""
+    selected = set(selected_keys)
+    ai_approved = _ai_data_processing_approved(team_id)
+    blocked: list[str] = []
+    for spec in _SOURCE_CATALOG:
+        want_on = spec.key in selected
+        if want_on and spec.needs_ai_approval and not ai_approved:
+            # Wanted but AI-gated: leave the source exactly as it is. Disabling here would silently
+            # turn off a previously-approved source when the full checkbox snapshot is re-submitted.
+            blocked.append(spec.label)
+            continue
+        for source_product, source_type in spec.pairs:
+            if want_on:
+                defaults: dict = {"enabled": True, "created_by_id": user_id}
+                if source_type == "session_analysis_cluster":
+                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
+                obj, created = SignalSourceConfig.objects.get_or_create(
+                    team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
+                )
+                if not created and not obj.enabled:
+                    obj.enabled = True
+                    obj.save(update_fields=["enabled", "updated_at"])
+            else:
+                SignalSourceConfig.objects.filter(
+                    team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+                ).update(enabled=False)
+    return blocked
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
