@@ -120,7 +120,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     # Backstop the agent-side PR detector: when we matched the run (by branch+repo)
     # but its output carries no PR URL yet, persist it so the inbox-notification
     # gate, CI follow-up loop, and later webhook lookups can resolve the PR.
-    if task_run is not None:
+    # Only trust the match when the PR originates from a branch in the installed
+    # repo itself — never a fork. For fork PRs, head.ref is attacker-controlled
+    # while repository.full_name stays the base repo, so a branch+repo match could
+    # otherwise bind an unrelated PR to the run.
+    head_repo_full_name = ((pull_request.get("head") or {}).get("repo") or {}).get("full_name")
+    is_internal_branch = (
+        head_repo_full_name is not None
+        and repository_full_name is not None
+        and head_repo_full_name.strip().lower() == repository_full_name.strip().lower()
+    )
+    if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
