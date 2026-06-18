@@ -1,4 +1,5 @@
 import uuid as uuid_lib
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import pytest
@@ -38,6 +39,16 @@ def _base_kwargs(**overrides) -> dict:
     }
     kwargs.update(overrides)
     return kwargs
+
+
+def _recording_compile() -> tuple[list[str], Callable]:
+    calls: list[str] = []
+
+    def fake_compile(obj):
+        calls.append(obj.hogql_predicate)
+        return "equals(1, 1)", {"k": "v"}
+
+    return calls, fake_compile
 
 
 @pytest.mark.parametrize(
@@ -454,19 +465,14 @@ def test_team_id_unchanged_allows_other_edits():
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
-def test_cached_compile_hogql_predicate_caches_reuses_and_invalidates():
+def test_cached_compile_hogql_predicate_reuses_cache_on_repeat():
     from django.core.cache import cache
 
     cache.clear()
     request = DataDeletionRequest(
         **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
     )
-
-    calls: list[str] = []
-
-    def fake_compile(obj):
-        calls.append(obj.hogql_predicate)
-        return "equals(1, 1)", {"k": "v"}
+    calls, fake_compile = _recording_compile()
 
     with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
         assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
@@ -474,15 +480,41 @@ def test_cached_compile_hogql_predicate_caches_reuses_and_invalidates():
         assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
         assert len(calls) == 1
 
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_when_predicate_text_changes():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
         # Changing the predicate text recompiles via the source guard, even without explicit clear.
         request.hogql_predicate = "properties.$browser = 'Firefox'"
         cached_compile_hogql_predicate(request)
         assert len(calls) == 2
 
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_after_explicit_invalidation():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
         # Explicit invalidation forces a recompile on the next call.
         invalidate_compiled_predicate_cache(request.pk)
         cached_compile_hogql_predicate(request)
-        assert len(calls) == 3
+        assert len(calls) == 2
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
