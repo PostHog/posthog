@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.26 — 2026-06-18
+
+### Patch changes
+
+- [801e9a763c](https://github.com/PostHog/posthog/commit/801e9a763c5247540106db6740fe71ba6798bd7f) Fix CLI login for agent workflows by adding the Agent CLI preset, using the supported agent scope set, and showing clearer messages about what the generated key can do. — Thanks @cvolzer3!
+
 ## 0.7.25 — 2026-06-17
 
 ### Patch changes
