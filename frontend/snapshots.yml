@@ -4037,17 +4037,17 @@ snapshots:
     mcp-apps-feature-flags--testing-no-match--light:
         hash: v1.k794b7964.b5eec4d4100dc834d4c7c891e4962c9effa643ff190f3b0957d816d82ebb7269.9Hg0pCpNp895WlYr8k2m97K0fvniLuzPcRSAIWUCtg8
     mcp-apps-funnels--steep-dropoff--light:
-        hash: v1.k794b7964.cc26937830dc95deb164b13bda7327a6a7bed094f2670332b6ea0885ffb15733.j8pxbf3h92E8pkD9KCSQrlBeFY3UUEmF7E_6XJg47kQ
+        hash: v1.k794b7964.9b1c95cfbfaa751ecc06b1b998af2a9e79304f9d6bb463e83639fea231a786f8.A2qfI1EvER2HUN40tOYPTXKw9MB1Q10TEY7XdsWr-m4
     mcp-apps-funnels--three-step--light:
-        hash: v1.k794b7964.a4cf6cff88ffb74e40e2dbe91cc266054f699eeae2d39d40019f3ed184ba030e.g12F2_uMZw3-VDO3TX1BqQu01X5UDRFTag0fO0WcrTc
+        hash: v1.k794b7964.ea34a8cf895551499ca3bacabcde98ea445e2caea7fdc5b9f75de7d1d6dd8e6b.UfvafB3BxwBsJ8t1xHzxTmm5sRu0_xMGrAp6e4ldb5Y
     mcp-apps-insight-actors--event-counts--light:
         hash: v1.k794b7964.f3ff99b4ec1920b2df7c65cb407482896b99b2ea34d4bfbb4cad722b05d25f9a.6K2QCgM8Znsuz_zMA2jTZW884aJ29-cvc1OWldMEzgc
     mcp-apps-insight-actors--with-recordings--light:
         hash: v1.k794b7964.af9ec36dd0d406f45eec2bf3fafb8dbe63b0eba139c5fff4b33e83cf24668f8e.hQ3brX3MIHwfCM95Re7Ti6Z8bsY2zq-He2uM63uuvUw
     mcp-apps-lifecycle--grouped--light:
-        hash: v1.k794b7964.fa32f317c7015ae73b5b5c38e11209e6a51967de4e0457ae29f7eedb8ea8fce8._OUjY62EdIDs4LQbOyr1ORBmTYMn9AZ5BHWC9e4Bx5c
+        hash: v1.k794b7964.5c33ba0a4dbe6cf279197eadea244d7b9838b99d80b8ba2b899df7ca881e066b.GNSIWjjq4NaJTgY9UUDYIXoxNuzz74X5yRL5TuFPO_Y
     mcp-apps-lifecycle--stacked--light:
-        hash: v1.k794b7964.9ae65eadce145d0cbade09760b4d774eab2861bf0bf9bd0bdf36f1dd1389a620.qYdACXQ2q-w43FAjwS-g7JDwiZiGs6-Mc5lsUs79byA
+        hash: v1.k794b7964.6d00ea357f1a270a0b0a6a4d61339c00a298f946d4f7a8fe9ed70b289aa3b60b.6ijtbv39zAumhoMFY5BSCxCkLHO9rYpeBUjUykvvgK8
     mcp-apps-retention-actors--daily--light:
         hash: v1.k794b7964.0a701acbd2d9dac54c345d22841a6d92b6c2b3728421e8fa5fd574a769514e04.Rhb4Qb0bfRbA3ZB2_4f4WM5507JnwCgoox1RbE9y8Ks
     mcp-apps-surveys--active-popover--light:
@@ -4063,9 +4063,9 @@ snapshots:
     mcp-apps-trends--area-chart--light:
         hash: v1.k794b7964.fea141e4555bf7c84c7df7d28f440f1967cf46eed78c9df63daa191b42156569.osoYKiT_8UiEIKvjzLfRzJxA6gY3cT4eD1g66S-kD5Q
     mcp-apps-trends--bar-value-few-series--light:
-        hash: v1.k794b7964.17235de255bc7d04240957e537b7bc76027c19471525218a28582af1298cd0b3.aA5Dz0x9KR6knEKP4CvKEtRoVS7z6TeKEtTY4_qoML0
+        hash: v1.k794b7964.505657b65a9af9e493f2628daf104e7a3c39deedfcc86b35341b3dd643c2dced.kHez2Oj8tVir2B5AfU9-2OniwQh16ZlpiaaOxB4WHKM
     mcp-apps-trends--bar-value-many-breakdowns--light:
-        hash: v1.k794b7964.407f0a6b71b45525e4d45d20e1e6af8f0b7a4345748af552b53df223fbcf576a.GnlWLZvvw78tfb9YT0og22-n8GDKTQs3487BrZiQi_8
+        hash: v1.k794b7964.65fb21af9009c23db6db45ea402a0cebb0f61f85747f55a29177d09009b9c682.K9XZ2RtpwhNADOxHtyAambrlpFgk9PnEXBZdFpQkI1M
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.de9682bc3d1cacf6198fa053c98657bc296202e4e1e800c98208b0922724cc5d.17c9wz8bYgE3_74LEk8BY5z_gkAp4NZ95x1pkMvip-s
     mcp-apps-trends--single-series--light:
