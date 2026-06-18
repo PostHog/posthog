@@ -933,13 +933,25 @@ snapshots:
     components-insighttooltip--columns--light:
         hash: v1.k794b7964.acca413c07eadd423b88a452f1d76a4f5d3ee51ea3a3af77e8b0b3c3dd785107.nBEt7UaKeQBhQVogW76yT9tmUiJNJUdmzccDAIZsSRw
     components-insighttooltip--default--dark:
-        hash: v1.k794b7964.9885c31ba3ab13abe50a40f01112da6ef02b81b4e95dc2e1788a4709371df47d.ID9KwWTWMc6uuMPuS6Hz0780AbiKtssta5eVHXAYE_M
+        hash: v1.k794b7964.0472b971273bad9a66ddb424c311681d903845232cb8a0ca1d168aa454447173.BFEYYYgOkbJHOcOmb2sXRkCt34bHSlAjzo1eShbEWDQ
     components-insighttooltip--default--light:
-        hash: v1.k794b7964.0c4021b0a9799847dfb04ce548acd4ed90bf5b490fc332d98acb700eb575e8a4.h-VRBbK2nOime0jzvIpuLkeCWS9v49E8IXZr3F1WmJ4
+        hash: v1.k794b7964.a31784b1c03b63577ea66878ab8650b40615000b5ccec96426f10b44c8c4e24c.0H92iAAO8wgNBn53wgoj-ijonXaoXTzZFWIfMWX19XU
     components-insighttooltip--long-names--dark:
         hash: v1.k794b7964.5d75a9153e54f6fc45c587bd03f519b0dbc5aa871db38a3c9e90c9f84943ca9a.M9DnH_RO9dcVSO5RLT_tKejP8FdTiKKoKmCHVq3eeV4
     components-insighttooltip--long-names--light:
         hash: v1.k794b7964.a3cbff5e9d93637e541ee21344030f75fc32adb6edd2a363f7553ffb8d8fc407.VzgJ4zJ-yb9ZtDGxqQQZGPlH8D7diG9ufmZiyFOKwP4
+    components-insighttooltip--math-tags--dark:
+        hash: v1.k794b7964.b87b215e58ae9082942943f8c2bed491f7bfdcf5df2d275a710de44883f3a199.o-tywVFQU6WUpyZNTXjAUntyMC0I_JuzmnKAfaoGQoc
+    components-insighttooltip--math-tags--light:
+        hash: v1.k794b7964.d80c1aacf5b19ce4014ba8b4bebdaaf66482114898a40e5ca2e2ae0da1be5639.KsOoqiHIM-ow9rXvH6B62y01_DTuzzeqzojkiW0DuIA
+    components-insighttooltip--math-tags-as-rows--dark:
+        hash: v1.k794b7964.504670d1745189ec8c8e7ace729965b33d9a1944942f4698927f0ab28bd3bd02.HBJCzAuy852iKeKJQwoz3IXMLuhgirZN__OmGb1M5uo
+    components-insighttooltip--math-tags-as-rows--light:
+        hash: v1.k794b7964.0b6c8b68fe9b0100c478508705f5a10bd39748c8d5822c2f94762b88dbdc5dca.54NBFxVHt1Ei5AUTTI9RPlBwMO0lZnzJoPoG4T-e2ao
+    components-insighttooltip--math-tags-single-series--dark:
+        hash: v1.k794b7964.923047d63ec1ae864e60b7b86cfac17b0d5f6219a30d49cd5136f01ff0484e29.NuIevRcOCohA9RKgPAqDQ4LePOvXKSWlle-moHjrNMQ
+    components-insighttooltip--math-tags-single-series--light:
+        hash: v1.k794b7964.d24656089329001d29308a16f3e6a1c3e462bc441399753a7d34cbbbcbea7b52.5lWzjuoDbPhC3rdjisXnHNn7RfsfgBdtjtl89icOwlc
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.0Jsmo2XKYiKkfSVMN4GzeK-ePRjh4q_l60Ez2M90L58
     components-integrations-slack--slack-integration--light:
