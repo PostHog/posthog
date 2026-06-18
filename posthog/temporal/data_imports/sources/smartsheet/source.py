@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SMARTSHEET,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Smartsheet",
             caption="""Enter your Smartsheet API access token to pull your Smartsheet data into the PostHog Data warehouse.
 

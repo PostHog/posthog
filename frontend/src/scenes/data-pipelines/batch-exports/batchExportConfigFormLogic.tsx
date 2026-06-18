@@ -21,7 +21,7 @@ import {
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { DESTINATIONS } from './destinations'
-import { genericPersonEventFields } from './destinations/common'
+import { genericPersonEventFields, isSelectedCompressionOptionValid } from './destinations/common'
 import { humanizeBatchExportName } from './utils'
 
 export interface BatchExportConfigFormLogicProps {
@@ -46,6 +46,8 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'integration_id',
 ])
 
+const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events'])
+
 function buildDestinationPayload(formValues: Record<string, any>): {
     type: string
     config: Record<string, any>
@@ -56,14 +58,26 @@ function buildDestinationPayload(formValues: Record<string, any>): {
     // Apply destination-specific transform first (e.g. Redshift's COPY copy_inputs assembly).
     // Destinations without a custom serialize get the raw form values passed through.
     const intermediate = definition?.serialize ? definition.serialize(formValues) : formValues
-    // Strip top-level form fields that don't belong in destination.config (always — destinations
-    // shouldn't have to re-implement this).
+    // When a destination declares configKeys, drop any config key outside it (plus the base-export
+    // keys). Mirrors the backend's allowed = destination_fields ∪ base_field_names check, so stale
+    // fields don't survive a deserialize → serialize round-trip and get rejected on save.
+    const allowed = definition?.configKeys ? new Set([...definition.configKeys, ...ALLOWED_BASE_CONFIG_KEYS]) : null
+    // Strip top-level form fields that don't belong in destination.config
     const config: Record<string, any> = {}
     for (const [key, value] of Object.entries(intermediate)) {
         if (TOP_LEVEL_FORM_FIELDS.has(key)) {
             continue
         }
+        if (allowed && !allowed.has(key)) {
+            continue
+        }
         config[key] = value
+    }
+    // A persisted compression value can be invalid for the selected file_format (e.g. an
+    // externally-created JSONLines export still carrying a Parquet-only codec). Drop it on save so
+    // editing an unrelated field doesn't resubmit a combination the backend rejects.
+    if ('compression' in config && !isSelectedCompressionOptionValid(config.file_format, config.compression)) {
+        config.compression = null
     }
     const result: { type: string; config: Record<string, any>; integration?: any } = {
         type: destinationType,
@@ -832,6 +846,28 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         },
         setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
+
+            if (fieldName === 'file_format') {
+                // Pick a compression that's valid for the newly-selected format, in priority order:
+                //   1. keep the current codec if it still fits (e.g. gzip works for both formats);
+                //   2. otherwise, when returning to the format the export was saved with, restore the
+                //      persisted codec — so a Parquet→JSONLines→Parquet round-trip recovers the saved
+                //      compression rather than stranding the export on a default;
+                //   3. otherwise fall back to the format's default (zstd for Parquet, none for JSONLines).
+                const current = values.configuration.compression
+                const saved = values.savedConfiguration
+                let next: string | null
+                if (current !== null && isSelectedCompressionOptionValid(value, current)) {
+                    next = current
+                } else if (value === saved.file_format && isSelectedCompressionOptionValid(value, saved.compression)) {
+                    next = saved.compression
+                } else {
+                    next = value === 'Parquet' ? 'zstd' : null
+                }
+                if (next !== current) {
+                    actions.setConfigurationValue('compression', next)
+                }
+            }
 
             if (fieldName === 'interval') {
                 // if changing to day or week, set the timezone to the team's timezone if not already set

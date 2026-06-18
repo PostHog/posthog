@@ -149,7 +149,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
-        description: 'Destinations allow you to send your data to external systems in real time.',
+        description:
+            'Destinations allow you to send your data to external systems either in real time or in scheduled batches.',
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
@@ -275,6 +276,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.IntegrationsLanding]: { name: 'Integration', layout: 'plain' },
     [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
@@ -904,6 +906,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
@@ -926,7 +929,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
+    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],

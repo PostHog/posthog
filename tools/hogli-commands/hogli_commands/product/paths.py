@@ -49,6 +49,14 @@ def find_views_path(backend_dir: Path) -> tuple[Path | None, bool]:
 
     from .ast_helpers import count_viewset_files
 
+    # `hogli product:isolate:move` relocates multi-viewset products into a
+    # `presentation/views/` package (one module per resource) rather than a single
+    # `presentation/views.py`. Both satisfy the tach `presentation\.views.*` interface,
+    # so treat the package form as a correct location too.
+    pres_views_pkg = backend_dir / "presentation" / "views"
+    if pres_views_pkg.is_dir() and count_viewset_files(pres_views_pkg) > 0:
+        return pres_views_pkg, True
+
     api_dir = backend_dir / "api"
     if api_dir.is_dir() and count_viewset_files(api_dir) > 0:
         return api_dir, False

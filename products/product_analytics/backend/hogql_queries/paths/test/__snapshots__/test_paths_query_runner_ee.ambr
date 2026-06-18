@@ -1158,8 +1158,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '2_step two'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                         and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '2_step two'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1280,7 +1279,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_step two'), 0)
+     WHERE equals(path_key, '2_step two')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1522,8 +1521,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '3_step three'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                           and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '3_step three'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1644,7 +1642,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '3_step three'), 0)
+     WHERE equals(path_key, '3_step three')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1886,8 +1884,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '4_step four'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                          and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '4_step four'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2008,7 +2005,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '4_step four'), 0)
+     WHERE equals(path_key, '4_step four')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2348,7 +2345,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_/2'), 0)
+     WHERE equals(path_key, '2_/2')
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
@@ -2381,7 +2378,7 @@
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE ifNull(equals(path_key, '2_/2'), 0)
+                                                       WHERE equals(path_key, '2_/2')
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -2530,8 +2527,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                   and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '2_/2'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
@@ -2564,8 +2560,7 @@
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                                                                     and isNull(path_key)))
+                                                       WHERE and(equals(path_dropoff_key, '2_/2'), equals(path_dropoff_key, path_key))
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -2690,8 +2685,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                   and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '3_/3'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
@@ -2724,8 +2718,7 @@
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                                                                     and isNull(path_key)))
+                                                       WHERE and(equals(path_dropoff_key, '3_/3'), equals(path_dropoff_key, path_key))
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -2874,7 +2867,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_/2'), 0)
+     WHERE equals(path_key, '2_/2')
      GROUP BY person_id) AS source
   INNER JOIN
     (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
@@ -2907,7 +2900,7 @@
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE ifNull(equals(path_key, '2_/2'), 0)
+                                                       WHERE equals(path_key, '2_/2')
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -3208,8 +3201,8 @@
        arrayEnumerate(limited_path_timings) AS event_in_session_index
   WHERE and(ifNull(greater(start_target_index,
                            0), 0), ifNull(greater(end_target_index,
-                                                  0), 0)))) WHERE ifNull(equals(path_key,
-                                                                                '2_/2'), 0)
+                                                  0), 0)))) WHERE equals(path_key,
+                                                                         '2_/2')
   GROUP BY person_id) AS source
   INNER JOIN (
   SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at,
@@ -3467,8 +3460,8 @@
        arrayEnumerate(limited_path_timings) AS event_in_session_index
   WHERE and(ifNull(greater(start_target_index,
                            0), 0), ifNull(greater(end_target_index,
-                                                  0), 0)))) WHERE ifNull(equals(path_key,
-                                                                                '2_/2'), 0)
+                                                  0), 0)))) WHERE equals(path_key,
+                                                                         '2_/2')
   GROUP BY person_id) AS source)))
   GROUP BY person.id
   HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
@@ -3806,7 +3799,7 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
-     WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), equals(path_key, '2_/about'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4028,7 +4021,7 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
-     WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
+     WHERE and(ifNull(equals(last_path_key, '3_...'), 0), equals(path_key, '4_/5'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4411,7 +4404,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), equals(path_key, '2_/2'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4532,7 +4525,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4740,7 +4733,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4948,7 +4941,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), equals(path_key, '2_/2'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -5069,7 +5062,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -5190,7 +5183,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
+     WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), equals(path_key, '4_/4'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101

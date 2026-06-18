@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { NotebookEditor, NotebookType } from '../types'
+import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { SYNC_DELAY, notebookLogic } from './notebookLogic'
 
@@ -80,6 +81,11 @@ describe('Notebook history revert flow', () => {
             getJSON: () => editorContent,
             getText: () => 'historical',
             getCurrentPosition: () => 0,
+            getMarks: () => [],
+            getAllCommentTexts: () => ({}),
+            getAttributes: () => ({}),
+            findCommentPosition: () => null,
+            removeComment: jest.fn(),
             setTextSelection: jest.fn(),
         }) as unknown as NotebookEditor
 
@@ -88,6 +94,7 @@ describe('Notebook history revert flow', () => {
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
+                [`/api/projects/:project_id/notebooks/${SHORT_ID}/kernel/status/`]: () => [200, { backend: null }],
             },
         })
         initKeaTests()
@@ -129,6 +136,216 @@ describe('Notebook history revert flow', () => {
             expect.anything()
         )
         expect(apiUpdateSpy).not.toHaveBeenCalled()
+    })
+
+    it('saves through the pending content debounce after autosave resumes', async () => {
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(HISTORICAL_DOC)
+        logic.actions.setAutosavePaused(false)
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiUpdateSpy).toHaveBeenCalledTimes(1)
+        expect(apiUpdateSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
+        )
+    })
+
+    it('does not enable ProseMirror collaboration for markdown v2 notebooks', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
+            [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+        })
+        logic = notebookLogic({
+            shortId: SHORT_ID,
+            mode: 'notebook',
+            cachedNotebook: {
+                ...cachedNotebook,
+                content: buildMarkdownNotebookContent('# Markdown v2'),
+            },
+        })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(logic.values.collabEnabled).toBe(false)
+    })
+
+    it('refreshes markdown v2 notebooks from the update stream', async () => {
+        const baseContent = buildMarkdownNotebookContent('# Markdown v2')
+        const updatedContent = buildMarkdownNotebookContent('# Markdown v2\n\nStreamed update')
+        const streamNotebook = {
+            ...cachedNotebook,
+            content: baseContent,
+            text_content: '# Markdown v2',
+        }
+        const updatedNotebook = {
+            ...streamNotebook,
+            version: 2,
+            content: updatedContent,
+            text_content: '# Markdown v2\n\nStreamed update',
+        }
+        type StreamOnMessage = (message: any) => void
+        let streamOnMessage: StreamOnMessage | null = null
+
+        jest.spyOn(api.notebooks, 'get')
+            .mockResolvedValueOnce(streamNotebook as NotebookType)
+            .mockResolvedValueOnce(updatedNotebook as NotebookType)
+        jest.spyOn(api.notebooks, 'collabStream').mockImplementation(async (_shortId, { onMessage }) => {
+            streamOnMessage = onMessage
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        if (!streamOnMessage) {
+            throw new Error('expected markdown notebook update stream to be connected')
+        }
+        const onMessage: StreamOnMessage = streamOnMessage
+        onMessage({
+            id: '2-1',
+            event: 'update',
+            data: '{"type":"update","version":2}',
+        })
+
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(logic.values.notebook?.version).toBe(2)
+        expect(logic.values.notebook?.content).toEqual(updatedContent)
+    })
+
+    it('clears markdown local content after the save response updates notebook content', async () => {
+        const baseContent = buildMarkdownNotebookContent('')
+        const localContent = buildMarkdownNotebookContent(`# title
+
+text`)
+        const baseNotebook = {
+            ...cachedNotebook,
+            content: baseContent,
+            text_content: '',
+        }
+
+        apiUpdateSpy.mockResolvedValueOnce({
+            ...baseNotebook,
+            version: 2,
+            content: localContent,
+            text_content: '# title\n\ntext',
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveNotebook({ content: localContent, title: 'title' })
+        })
+            .toDispatchActions(['saveNotebook', 'saveNotebookSuccess', 'clearLocalContent'])
+            .toFinishAllListeners()
+
+        expect(logic.values.notebook?.content).toEqual(localContent)
+        expect(logic.values.localContent).toBeNull()
+    })
+
+    it('keeps the local markdown draft and adopts fresh server content after a stale save conflict', async () => {
+        const baseMarkdown = `# Markdown v2
+
+Base paragraph`
+        const localMarkdown = `# Markdown v2
+
+Base paragraph with local edit`
+        const remoteMarkdown = `# Markdown v2
+
+Remote paragraph
+
+Base paragraph`
+        const baseMarkdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(baseMarkdown),
+            text_content: baseMarkdown,
+        }
+        const localContent = buildMarkdownNotebookContent(localMarkdown)
+        const remoteNotebook = {
+            ...baseMarkdownNotebook,
+            version: 2,
+            content: buildMarkdownNotebookContent(remoteMarkdown),
+            text_content: remoteMarkdown,
+        }
+
+        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
+        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(remoteNotebook)
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+        logic.actions.saveNotebook({ content: localContent, title: 'Test' })
+
+        await expectLogic(logic).toDispatchActions(['saveNotebookSuccess']).toFinishAllListeners()
+
+        expect(apiUpdateSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({
+                content: localContent,
+                version: 1,
+            })
+        )
+        // The fresh server content flows into the markdown editor's remote-merge path; the local
+        // draft is kept so the editor can merge it and retry the save against the new version.
+        expect(logic.values.notebook?.content).toEqual(remoteNotebook.content)
+        expect(logic.values.localContent).toEqual(localContent)
+        expect(logic.values.conflictWarningVisible).toBe(false)
+    })
+
+    it('shows the conflict warning when fresh server content cannot be loaded after a stale save conflict', async () => {
+        const baseMarkdown = `# Markdown v2
+
+Base paragraph`
+        const localMarkdown = `# Markdown v2
+
+Base paragraph with local edit`
+        const baseMarkdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(baseMarkdown),
+            text_content: baseMarkdown,
+        }
+        const localContent = buildMarkdownNotebookContent(localMarkdown)
+
+        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
+        jest.spyOn(api.notebooks, 'get').mockRejectedValueOnce(new Error('Network error'))
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveNotebook({ content: localContent, title: 'Test' })
+        })
+            .toDispatchActions(['clearLocalContent', 'showConflictWarning', 'saveNotebookSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.localContent).toBeNull()
+        expect(logic.values.conflictWarningVisible).toBe(true)
     })
 
     describe.each([

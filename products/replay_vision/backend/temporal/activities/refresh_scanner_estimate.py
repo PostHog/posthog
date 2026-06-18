@@ -12,11 +12,7 @@ from products.replay_vision.backend.temporal.estimates_types import RefreshScann
 @track_activity()
 def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> bool:
     """Recompute the scanner's persisted estimate; the staleness re-check makes it idempotent against an interactive save racing the batch."""
-    scanner = (
-        ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id, enabled=True)
-        .select_related("team")
-        .first()
-    )
+    scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
     if scanner is None:
         return False
     if scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER:

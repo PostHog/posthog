@@ -8,12 +8,13 @@ from django.db.models.functions import Coalesce
 from dateutil.relativedelta import relativedelta
 
 from posthog.date_util import start_of_month
+from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
-MONTHLY_OBSERVATION_QUOTA = 3000
+MONTHLY_OBSERVATION_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_OBSERVATION_QUOTA", 3000, type_cast=int)
 
 # In-flight rows count against the quota so concurrent on-demand triggers can't all race past the gate before any complete.
 _COUNTED_STATUSES = (ObservationStatus.SUCCEEDED, ObservationStatus.PENDING, ObservationStatus.RUNNING)

@@ -1,4 +1,4 @@
-import { deriveSpanSummary } from './spanSummary'
+import { deriveSpanSummary, getQueryText } from './spanSummary'
 import type { Span } from './types'
 
 function makeSpan(overrides: Partial<Span>): Span {
@@ -17,6 +17,7 @@ function makeSpan(overrides: Partial<Span>): Span {
         is_root_span: false,
         matched_filter: true,
         attributes: {},
+        resource_attributes: {},
         ...overrides,
     }
 }
@@ -65,6 +66,27 @@ describe('deriveSpanSummary', () => {
         expect(s.pod).toBe('load-generator-59f4b49995-w585b')
     })
 
+    it('reads k8s chips from resource attributes (their OTel home)', () => {
+        const s = deriveSpanSummary(
+            makeSpan({
+                resource_attributes: { 'k8s.cluster.name': 'prod-eu', 'k8s.pod.name': 'web-abc12' },
+            })
+        )
+        expect(s.cluster).toBe('prod-eu')
+        expect(s.pod).toBe('web-abc12')
+    })
+
+    it('prefers resource-attribute k8s chips over span attributes when both are set', () => {
+        const s = deriveSpanSummary(
+            makeSpan({
+                attributes: { 'k8s.cluster.name': 'span-cluster', 'k8s.pod.name': 'span-pod' },
+                resource_attributes: { 'k8s.cluster.name': 'resource-cluster', 'k8s.pod.name': 'resource-pod' },
+            })
+        )
+        expect(s.cluster).toBe('resource-cluster')
+        expect(s.pod).toBe('resource-pod')
+    })
+
     it.each([
         ['500', 'danger'],
         ['404', 'warning'],
@@ -91,5 +113,18 @@ describe('deriveSpanSummary', () => {
         [{ 'messaging.system': 'kafka' }, 'Messaging'],
     ])('derives type from the attribute namespace (%j)', (attributes, type) => {
         expect(deriveSpanSummary(makeSpan({ attributes })).type).toBe(type)
+    })
+})
+
+describe('getQueryText', () => {
+    it.each([
+        // legacy spelling
+        [{ 'db.statement': 'SELECT * FROM users WHERE id = ?' }, 'SELECT * FROM users WHERE id = ?'],
+        // both present: the stabilized db.query.text wins over the legacy db.statement
+        [{ 'db.query.text': 'SELECT 1', 'db.statement': 'SELECT 2' }, 'SELECT 1'],
+        // non-DB span
+        [{ 'http.method': 'GET' }, null],
+    ])('resolves the DB query text from %j', (attributes, expected) => {
+        expect(getQueryText(makeSpan({ attributes }))).toBe(expected)
     })
 })

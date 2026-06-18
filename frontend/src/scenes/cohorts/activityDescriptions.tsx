@@ -1,5 +1,3 @@
-import '../../lib/components/Cards/InsightCard/InsightCard.scss'
-
 import {
     ActivityChange,
     ActivityLogItem,

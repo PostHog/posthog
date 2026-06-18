@@ -22,8 +22,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -363,5 +364,13 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
         self.check_error()?;
         Ok(DeleteGroupTypeMappingsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn split_person(
+        &self,
+        _request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status> {
+        self.check_error()?;
+        Ok(SplitPersonResponse { splits: vec![] })
     }
 }

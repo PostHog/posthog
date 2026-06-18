@@ -1,8 +1,8 @@
 import { connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { capitalizeFirstLetter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -95,6 +95,11 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 if (selectedSectionId === 'user-api-keys') {
                     return {
                         activity_scope: ActivityScope.PERSONAL_API_KEY,
+                    }
+                }
+                if (selectedSectionId === 'user-connected-apps') {
+                    return {
+                        activity_scope: ActivityScope.OAUTH_APPLICATION,
                     }
                 }
                 return null

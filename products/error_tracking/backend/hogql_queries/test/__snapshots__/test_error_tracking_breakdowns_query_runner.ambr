@@ -33,7 +33,7 @@
               WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
         GROUP BY breakdown_property,
                  breakdown_value))
-  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  WHERE lessOrEquals(row_number, 3)
   ORDER BY breakdown_property ASC,
            count DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -84,7 +84,7 @@
               WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
         GROUP BY breakdown_property,
                  breakdown_value))
-  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  WHERE lessOrEquals(row_number, 3)
   ORDER BY breakdown_property ASC,
            count DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -135,7 +135,7 @@
               WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
         GROUP BY breakdown_property,
                  breakdown_value))
-  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  WHERE lessOrEquals(row_number, 3)
   ORDER BY breakdown_property ASC,
            count DESC
   LIMIT 100 SETTINGS readonly=2,
@@ -186,7 +186,7 @@
               WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2024-01-03 12:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(events.event, '$exception'), ifNull(equals(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))))
         GROUP BY breakdown_property,
                  breakdown_value))
-  WHERE ifNull(lessOrEquals(row_number, 3), 0)
+  WHERE lessOrEquals(row_number, 3)
   ORDER BY breakdown_property ASC,
            count DESC
   LIMIT 100 SETTINGS readonly=2,

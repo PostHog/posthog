@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -20,17 +20,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import {
-    ENABLED_OPTIONS,
-    EnabledFilter,
-    SCANNER_TYPE_OPTIONS,
-    SCANNER_TYPE_TAG_TYPE,
-    ScannerType,
-    ReplayScanner,
-    scannerTypeLabel,
-} from './types'
+import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -105,11 +98,7 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Type',
             key: 'scanner_type',
-            render: (_, scanner) => (
-                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
-                    {scannerTypeLabel(scanner.scanner_type)}
-                </LemonTag>
-            ),
+            render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
         },
         {

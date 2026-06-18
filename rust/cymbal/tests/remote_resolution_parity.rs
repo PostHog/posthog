@@ -161,22 +161,9 @@ async fn local_and_remote_stages_produce_identical_exception_list_for_empty_stac
 
     // Properties derived by PropertiesResolver should also match in both
     // paths, since they're computed from the (parity-checked) exception_list.
-    // `exception_types` / `exception_messages` come back through cymbal's
-    // `unique_by` helper, which round-trips through a HashSet — order is
-    // therefore implementation-defined per run, so we compare as sorted sets.
-    fn sorted(input: Option<Vec<String>>) -> Vec<String> {
-        let mut out = input.unwrap_or_default();
-        out.sort();
-        out
-    }
-    assert_eq!(
-        sorted(local_out.exception_types),
-        sorted(remote_out.exception_types)
-    );
-    assert_eq!(
-        sorted(local_out.exception_messages),
-        sorted(remote_out.exception_messages)
-    );
+    // `unique_by` preserves exception_list order, so compare directly.
+    assert_eq!(local_out.exception_types, remote_out.exception_types);
+    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
     assert_eq!(local_out.exception_handled, remote_out.exception_handled);
 }
 

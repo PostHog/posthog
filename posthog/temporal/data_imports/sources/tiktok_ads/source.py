@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -42,12 +43,18 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
             # the user-facing error since it names the specific advertiser and TikTok error code.
             TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
+            # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
+            # the customer has to reconnect.
+            "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TIK_TOK_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="TikTok Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from TikTok Ads. Ensure you have granted PostHog access to your TikTok Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/tiktok-ads).",
             releaseStatus=ReleaseStatus.GA,

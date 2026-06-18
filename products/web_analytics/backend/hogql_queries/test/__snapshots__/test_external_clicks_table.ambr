@@ -13,8 +13,8 @@
 # name: TestExternalClicksTableQueryRunner.test_all_time.1
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -59,8 +59,8 @@
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -105,8 +105,8 @@
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by.1
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -151,8 +151,8 @@
 # name: TestExternalClicksTableQueryRunner.test_dont_filter_test_accounts
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -197,8 +197,8 @@
 # name: TestExternalClicksTableQueryRunner.test_filter_test_accounts
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -253,8 +253,8 @@
 # name: TestExternalClicksTableQueryRunner.test_increase_in_users
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -299,8 +299,8 @@
 # name: TestExternalClicksTableQueryRunner.test_no_crash_when_no_data
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -345,8 +345,8 @@
 # name: TestExternalClicksTableQueryRunner.test_path_cleaning
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -391,8 +391,8 @@
 # name: TestExternalClicksTableQueryRunner.test_path_cleaning.1
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -437,8 +437,8 @@
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_under_root
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -483,8 +483,8 @@
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_with_shared_root
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -529,8 +529,8 @@
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,
@@ -575,8 +575,8 @@
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params.1
   '''
   SELECT url AS `context.columns.url`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_click_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_click_count,

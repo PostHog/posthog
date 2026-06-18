@@ -80,6 +80,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -95,7 +96,10 @@ from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import (
+    SessionReplayEvents,
+    get_latest_session_event_properties,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
@@ -982,6 +986,14 @@ class SessionRecordingViewSet(
             recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         return JsonResponse({"viewed": recording.viewed, "other_viewers": len(recording.viewers or [])})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
+    def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Latest event properties for the recording's session, for the capture diagnostics panel."""
+        recording = self.get_object()
+        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        return Response({"properties": properties})
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -2144,7 +2156,8 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        with personhog_caller_tag("replay/recordings-persons"):
+            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:

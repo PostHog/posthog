@@ -5,6 +5,7 @@ import uuid
 import inspect
 import datetime as dt
 import resource
+import functools
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -22,7 +23,13 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.test import (
+    Client as DjangoTestClient,
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.test.utils import CaptureQueriesContext
 
 # we have to import pendulum for the side effect of importing it
@@ -30,7 +37,10 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APIClient,
+    APITestCase as DRFTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -124,7 +134,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.person.util import bulk_create_persons
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
@@ -270,6 +280,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # event uuid point lookups (error tracking first/last event fetch) embed random fixture uuids
+    query = re.sub(
+        r"in\(((?:\w+\.)?uuid), \['[0-9a-f-]{36}'(?:, '[0-9a-f-]{36}')*\]\)",
+        r"in(\1, ['00000000-0000-0000-0000-000000000000' /* ... */])",
+        query,
+    )
+
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
         r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
@@ -279,6 +296,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
+
+    # remove version suffix from the restricted-property blob-strip UDF
+    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -935,6 +955,43 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
+def _follow_environments_redirect(original_generic):
+    """Make a test client's `generic` follow the /api/environments → /api/projects 307.
+
+    EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
+    `api-environments-redirect` flag evaluates true — which in tests happens whenever a
+    test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
+    the same method and body to the projects path, so test clients do too: tests receive
+    the end response, not the redirect hop. Set `client.follow_environments_redirect =
+    False` to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
+    """
+
+    @functools.wraps(original_generic)
+    def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
+        response = original_generic(self, method, path, data, content_type, secure, **extra)
+        if (
+            getattr(self, "follow_environments_redirect", True)
+            # RequestFactory shares this method but returns requests, not responses
+            and getattr(response, "status_code", None) in (307, 308)
+            and isinstance(path, str)
+            and path.startswith("/api/environments")
+            and response.headers.get("Location", "").startswith("/api/projects")
+        ):
+            response = original_generic(self, method, response.headers["Location"], data, content_type, secure, **extra)
+        return response
+
+    generic._follows_environments_redirect = True  # type: ignore[attr-defined]
+    return generic
+
+
+# Cover every test client, including ones instantiated by hand in product suites —
+# Django's Client inherits `generic` from RequestFactory, so shadow it on the class.
+if not getattr(APIClient.generic, "_follows_environments_redirect", False):
+    APIClient.generic = _follow_environments_redirect(APIClient.generic)  # type: ignore[method-assign]
+if not getattr(DjangoTestClient.generic, "_follows_environments_redirect", False):
+    DjangoTestClient.generic = _follow_environments_redirect(DjangoTestClient.generic)  # type: ignore[method-assign]
+
+
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
@@ -1560,14 +1617,7 @@ def _create_person(*args, **kwargs):
     if kwargs.get("immediate") or (
         hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
     ):
-        if kwargs.get("immediate"):
-            del kwargs["immediate"]
-        create_person(
-            team_id=kwargs.get("team_id") or kwargs["team"].pk,
-            properties=kwargs.get("properties"),
-            uuid=kwargs["uuid"],
-            version=kwargs.get("version", 0),
-        )
+        kwargs.pop("immediate", None)
         return Person.objects.create(**kwargs)
     if len(args) > 0:
         kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")

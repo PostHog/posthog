@@ -7,7 +7,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectsEqual, pluralize } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -20,6 +21,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
@@ -559,6 +561,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 return schemas
             },
+        ],
+        // Multi-schema SQL sources have qualified schema names (`namespace.table`); group them by
+        // namespace so the Schemas tab matches the wizard's grouping. Single-namespace sources
+        // produce one group and render as a flat table.
+        groupedFilteredSchemas: [
+            (s) => [s.filteredSchemas, s.source],
+            (filteredSchemas, source): { schemaName: string; tables: ExternalDataSourceSchema[] }[] =>
+                groupTablesBySchema(
+                    filteredSchemas,
+                    (schema) => schema.name,
+                    typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+                ),
         ],
         // Distinct values present across the source's schemas, for populating the filter dropdowns.
         schemaFilterOptions: [

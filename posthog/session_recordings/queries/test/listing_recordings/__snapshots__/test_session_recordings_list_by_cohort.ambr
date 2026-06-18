@@ -58,7 +58,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_1 ON equals(cohort_1.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE or(ifNull(equals(cohort_0.matched, 1), 0), ifNull(equals(cohort_1.matched, 1), 0)))))
+                                                                                                                                                                                                                                     WHERE or(equals(cohort_0.matched, 1), equals(cohort_1.matched, 1)))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -180,7 +180,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -352,7 +352,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -423,7 +423,7 @@
                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                                                      WHERE ifNull(equals(cohort_0.matched, 1), 0)))))
+                                                                                                                                                                                                                                                                      WHERE equals(cohort_0.matched, 1)))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -484,7 +484,7 @@
                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                                                      WHERE ifNull(equals(cohort_0.matched, 1), 0)))))
+                                                                                                                                                                                                                                                                      WHERE equals(cohort_0.matched, 1)))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -548,7 +548,7 @@
                                                                                                                                                                                                                                        (SELECT person_static_cohort.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM person_static_cohort
                                                                                                                                                                                                                                         WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -656,7 +656,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -1247,7 +1247,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -1365,7 +1365,7 @@
                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id, 1 AS matched
                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS cohort_0 ON equals(cohort_0.person_id, pdi.person_id)
-                                                                                                                                                                                                                                     WHERE ifNull(equals(cohort_0.matched, 1), 0))))
+                                                                                                                                                                                                                                     WHERE equals(cohort_0.matched, 1))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,

@@ -21,7 +21,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 1), 0)
+  WHERE greaterOrEquals(num_intervals, 1)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -58,7 +58,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 2), 0)
+  WHERE greaterOrEquals(num_intervals, 2)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -95,7 +95,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 3), 0)
+  WHERE greaterOrEquals(num_intervals, 3)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -132,7 +132,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 1), 0)
+  WHERE equals(num_intervals, 1)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -169,7 +169,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 2), 0)
+  WHERE equals(num_intervals, 2)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -206,7 +206,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 3), 0)
+  WHERE equals(num_intervals, 3)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -290,7 +290,7 @@
            FROM
              (SELECT e.id AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.created, 'UTC'), toIntervalDay(1)) AS start_of_interval
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `prop_1` String, `prop_2` String') AS e
               WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
               GROUP BY aggregation_target,
                        start_of_interval

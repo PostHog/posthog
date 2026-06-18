@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { isOperatorMulti } from 'lib/utils'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { isOperatorMulti } from 'lib/utils/operators'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import type { GroupTypeIndex, PropertyFilterValue, PropertyOperator } from '~/types'
 
+import { GroupInfoCard, GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
 import { groupKeySelectLogic } from './groupKeySelectLogic'
 
 export interface GroupKeySelectProps {
@@ -33,22 +35,36 @@ export function GroupKeySelect({
     )
 
     const logic = groupKeySelectLogic({ groupTypeIndex, value: currentValues })
-    const { groupOptions, groupsLoading, resolvedNames, searchQuery } = useValues(logic)
+    const { groups, groupsLoading, resolvedNames, searchQuery } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
 
     const options = useMemo(() => {
-        const optionMap = new Map<string, { key: string; label: string }>()
-        for (const opt of groupOptions) {
-            optionMap.set(opt.key, opt)
+        const optionMap = new Map<string, LemonInputSelectOption>()
+        for (const group of groups) {
+            optionMap.set(group.group_key, {
+                key: group.group_key,
+                label: groupDisplayId(group.group_key, group.group_properties),
+                tooltip: <GroupInfoCard group={group} />,
+            })
         }
         for (const v of currentValues) {
             if (!optionMap.has(v)) {
-                optionMap.set(v, { key: v, label: resolvedNames[v] ?? v })
+                optionMap.set(v, {
+                    key: v,
+                    label: resolvedNames[v] ?? v,
+                    tooltip: (
+                        <GroupKeyFilterTooltip
+                            groupTypeIndex={groupTypeIndex}
+                            groupKey={v}
+                            fallbackLabel={resolvedNames[v] ?? v}
+                        />
+                    ),
+                })
             }
         }
         return Array.from(optionMap.values())
-    }, [groupOptions, currentValues, resolvedNames])
+    }, [groups, currentValues, resolvedNames, groupTypeIndex])
 
     return (
         <LemonInputSelect

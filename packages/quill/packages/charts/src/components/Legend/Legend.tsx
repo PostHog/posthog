@@ -5,6 +5,8 @@ export interface LegendItem {
     key: string
     label: string
     color: string
+    /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
+    secondaryLabel?: string
 }
 
 export interface LegendProps {
@@ -50,6 +52,11 @@ export function Legend({
                             style={{ backgroundColor: item.color }}
                         />
                         <span className="truncate">{item.label}</span>
+                        {item.secondaryLabel != null && item.secondaryLabel !== '' && (
+                            <span className="shrink-0 text-muted" data-attr="hog-chart-legend-secondary">
+                                {item.secondaryLabel}
+                            </span>
+                        )}
                     </>
                 )
                 return onItemClick ? (

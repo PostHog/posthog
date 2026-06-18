@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, cast
 
-from posthog.schema import PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
@@ -16,6 +14,7 @@ from posthog.hogql.errors import (
     QueryError,
     ResolutionError,
 )
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -32,8 +31,9 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.property import PropertyName, TableColumn
+from posthog.schema_enums import PropertyGroupsMode
 
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class PropertyScope(StrEnum):
@@ -163,24 +163,8 @@ def is_property_type_restricted(property_type: ast.PropertyType, context: HogQLC
 
 
 def get_restricted_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
-    if not isinstance(table_type, ast.BaseTableType):
-        return set()
-
-    try:
-        table = table_type.resolve_database_table(context)
-    except Exception:
-        return set()
-
-    if isinstance(table, EventsPersonSubTable):
-        prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, EventsTable):
-        prop_def_type = PropertyDefinition.Type.EVENT
-    elif isinstance(table, (PersonsTable, RawPersonsTable)):
-        prop_def_type = PropertyDefinition.Type.PERSON
-    else:
-        return set()
-
-    return {name for name, property_type in context.restricted_properties or set() if property_type == prop_def_type}
+    # Delegates to the single source of truth for property-level access control; see its docstring.
+    return restricted_property_keys_for_table_type(table_type, context)
 
 
 def _build_property_comparison_plan(

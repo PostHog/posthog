@@ -11,9 +11,7 @@
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
-               steps AS steps,
-               final_timestamp,
-               first_timestamp
+               steps AS steps
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
@@ -126,9 +124,7 @@
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[3][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
-               steps AS steps,
-               final_timestamp,
-               first_timestamp
+               steps AS steps
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                   [''] AS prop,
@@ -242,9 +238,7 @@
                (matched_events_array[1][1]).1 AS timestamp,
                nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
                (matched_events_array[1][1]).1 AS first_timestamp,
-               steps AS steps,
-               final_timestamp,
-               first_timestamp
+               steps AS steps
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,

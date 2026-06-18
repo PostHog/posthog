@@ -2687,6 +2687,22 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface ContextGenerationApi {
+    /**
+     * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface ContextGenerationSetApi {
+    /**
+     * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+     * @nullable
+     */
+    task_id: string | null
+}
+
 export interface FolderInstructionsApi {
     /** Unique identifier for this instructions version. */
     readonly id: string

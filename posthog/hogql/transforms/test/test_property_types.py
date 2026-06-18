@@ -18,9 +18,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.modifiers import HogQLQueryModifiers
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_planner import (
@@ -31,7 +33,9 @@ from posthog.hogql.property_planner import (
     plan_property_comparison,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.transforms.property_types import build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.models import PropertyDefinition
@@ -127,11 +131,31 @@ class TestPropertyTypes(BaseTest):
         select: str,
         restricted_properties: set[tuple[str, int]] | None = None,
     ) -> PropertyComparisonPlan:
-        context, prepared = self._prepare_select(select, restricted_properties=restricted_properties)
-        comparison = cast(ast.CompareOperation, prepared.where)
+        context, resolved = self._resolve_select(select, restricted_properties=restricted_properties)
+        comparison = cast(ast.CompareOperation, resolved.where)
         plan = plan_property_comparison(comparison, context)
         assert plan is not None
         return plan
+
+    def _resolve_select(
+        self,
+        select: str,
+        restricted_properties: set[tuple[str, int]] | None = None,
+    ) -> tuple[HogQLContext, ast.SelectQuery]:
+        """Resolve types and build the property-swapper registry without preparing further.
+
+        The planner is an analysis over the resolved AST; the prepared AST has already been lowered past the point
+        where property reads are recognizable (they become bare physical-column expressions), so the planner must be
+        fed its actual pipeline-position input.
+        """
+        expr = parse_select(select)
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        if restricted_properties is not None:
+            context.restricted_properties = restricted_properties
+        context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=context.team)
+        node = cast(ast.SelectQuery, resolve_types(expr, context, dialect="clickhouse"))
+        build_property_swapper(node, context)
+        return context, node
 
     def _prepare_select(
         self,
@@ -257,8 +281,8 @@ class TestPropertyTypes(BaseTest):
         assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
 
     def test_property_type_resolve_constant_type_uses_property_metadata(self) -> None:
-        context, prepared = self._prepare_select("select count() from events where properties.$screen_width < 5")
-        comparison = cast(ast.CompareOperation, prepared.where)
+        context, resolved = self._resolve_select("select count() from events where properties.$screen_width < 5")
+        comparison = cast(ast.CompareOperation, resolved.where)
         plan = plan_property_comparison(comparison, context)
         assert plan is not None
 
@@ -349,7 +373,7 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
         assert (
-            "SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)))"
+            "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
 
