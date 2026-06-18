@@ -28,6 +28,12 @@ EOF
     exit 1
 fi
 
+# Pin the sibling gateway's compose project to its own name — PostHog's dev env
+# exports COMPOSE_PROJECT_NAME=posthog, which would otherwise scope the
+# gateway's containers under the posthog project. Inherited by setup-gateway-e2e
+# and the sibling's `bin/start gateway` below.
+export COMPOSE_PROJECT_NAME=ai-gateway
+
 # Provision the credential end to end. Retries until PostHog's DB/migrations
 # are ready; setup-gateway-e2e is idempotent so re-runs are cheap.
 for i in $(seq 1 10); do

@@ -29,6 +29,12 @@ DEV_PHS="${DEV_GATEWAY_PHS:-phs_localgatewaye2elocalgatewaye2e0001}"
 TOPUP_USD="${AI_GATEWAY_DEV_TOPUP_USD:-100.00}"
 ENV_LOCAL="$REPO_ROOT/.env.local"
 
+# Pin the sibling gateway's compose project to its own name. PostHog's dev env
+# exports COMPOSE_PROJECT_NAME=posthog, which outranks the sibling compose's
+# `name: ai-gateway` and would scope the gateway's postgres/valkey under the
+# posthog project (wrong, and collides with the posthog stack).
+export COMPOSE_PROJECT_NAME=ai-gateway
+
 log() { printf '[setup-gateway-e2e] %s\n' "$*"; }
 
 if [ ! -d "$AI_GATEWAY_REPO" ]; then
