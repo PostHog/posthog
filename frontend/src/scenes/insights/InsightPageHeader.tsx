@@ -60,6 +60,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     // B branch of the add-to-dashboard A/A/B test (control + control_2 keep current behavior).
     const isAddToDashboardTest = useFeatureFlag('INSIGHT_ADD_TO_DASHBOARD_AAB', 'test')
 
+    // New insights need a target folder; existing ones save in place. Shared by every save trigger in this header.
+    const saveInsightToFolder = (redirectToViewMode?: boolean): void => {
+        if (insight.short_id) {
+            saveInsight(redirectToViewMode)
+        } else {
+            saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
+        }
+    }
+
     const { query, queryChanged, insightQuery, generatedInsightMetadataLoading } = useValues(
         insightDataLogic(insightProps)
     )
@@ -216,23 +225,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
-                                saveInsight={(redirectToViewMode) =>
-                                    insight.short_id
-                                        ? saveInsight(redirectToViewMode)
-                                        : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
-                                }
+                                saveInsight={saveInsightToFolder}
                                 isSaved={isSavedInsight}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
+                                // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
+                                // insight id, so saving a brand-new insight navigates to its real id and re-keys the
+                                // modal logic, dropping the open state. Saved insights keep the same key, so opening the
+                                // modal right after the in-place save is safe. New insights use the view-mode button.
                                 onSaveAndAddToDashboard={
-                                    isAddToDashboardTest
+                                    isAddToDashboardTest && isSavedInsight
                                         ? () => {
-                                              if (insight.short_id) {
-                                                  saveInsight(false)
-                                              } else {
-                                                  saveInsight(false, getLastNewFolder() ?? 'Unfiled/Insights')
-                                              }
+                                              saveInsightToFolder(false)
                                               openAddToDashboardModal()
                                           }
                                         : undefined
