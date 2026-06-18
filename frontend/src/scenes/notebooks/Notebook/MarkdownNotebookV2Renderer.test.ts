@@ -1,4 +1,4 @@
-import { getNotebookAICaretPosition } from './MarkdownNotebookV2Renderer'
+import { getNotebookAICaretPosition, getNotebookAIPromptCaretPosition } from './MarkdownNotebookV2Renderer'
 
 describe('MarkdownNotebookV2Renderer', () => {
     it('places the AI caret at the end of a paragraph response', () => {
@@ -28,5 +28,20 @@ describe('MarkdownNotebookV2Renderer', () => {
             nodeIndex: 1,
             offset: 'Generated text'.length,
         })
+    })
+
+    it('keeps the AI caret before the latest follow-up prompt', () => {
+        expect(
+            getNotebookAIPromptCaretPosition(
+                '# Notebook\n\nFirst answer\n\n<Prompt question="" />\n\nSecond answer\n\n<Prompt question="" />'
+            )
+        ).toEqual({
+            nodeIndex: 3,
+            offset: 'Second answer'.length,
+        })
+    })
+
+    it('does not anchor retained AI presence to a prompt with no response before it', () => {
+        expect(getNotebookAIPromptCaretPosition('<Prompt question="" />')).toBeNull()
     })
 })

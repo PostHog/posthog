@@ -54,6 +54,8 @@ export function MarkdownNotebookV2(): JSX.Element {
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
     const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
     const activeInlineAIRequestIdsRef = useRef<Set<string>>(new Set())
+    const aiPromptPresenceTrackingEnabledRef = useRef(false)
+    const aiPresenceRetainedByPromptRef = useRef(false)
     const aiPresenceActivityVersionRef = useRef(0)
     const aiPresenceDepartureTimeoutRef = useRef<number | null>(null)
     const [focusAIPromptRequest, setFocusAIPromptRequest] = useState<number | undefined>(undefined)
@@ -84,7 +86,7 @@ export function MarkdownNotebookV2(): JSX.Element {
 
     const scheduleAIPresenceDeparture = useCallback((): void => {
         clearAIPresenceDepartureTimeout()
-        if (activeInlineAIRequestIdsRef.current.size > 0) {
+        if (activeInlineAIRequestIdsRef.current.size > 0 || aiPresenceRetainedByPromptRef.current) {
             return
         }
 
@@ -93,7 +95,8 @@ export function MarkdownNotebookV2(): JSX.Element {
             aiPresenceDepartureTimeoutRef.current = null
             if (
                 scheduledActivityVersion !== aiPresenceActivityVersionRef.current ||
-                activeInlineAIRequestIdsRef.current.size > 0
+                activeInlineAIRequestIdsRef.current.size > 0 ||
+                aiPresenceRetainedByPromptRef.current
             ) {
                 return
             }
@@ -113,6 +116,22 @@ export function MarkdownNotebookV2(): JSX.Element {
         [clearAIPresenceDepartureTimeout, setMarkdownAIPresenceActive]
     )
 
+    const retainAIPresenceForPrompt = useCallback((): void => {
+        aiPromptPresenceTrackingEnabledRef.current = true
+        const promptCaretPosition = getNotebookAIPromptCaretPosition(markdownEditorValueRef.current)
+        if (!promptCaretPosition) {
+            return
+        }
+
+        if (!aiPresenceRetainedByPromptRef.current) {
+            aiPresenceActivityVersionRef.current += 1
+        }
+        aiPresenceRetainedByPromptRef.current = true
+        clearAIPresenceDepartureTimeout()
+        setAICaretPosition(promptCaretPosition)
+        setMarkdownAIPresenceActive(true)
+    }, [clearAIPresenceDepartureTimeout, setMarkdownAIPresenceActive])
+
     const markAIPresenceInactive = useCallback(
         (chatId: string): void => {
             activeInlineAIRequestIdsRef.current.delete(chatId)
@@ -125,10 +144,37 @@ export function MarkdownNotebookV2(): JSX.Element {
 
     useEffect(
         () => () => {
+            aiPromptPresenceTrackingEnabledRef.current = false
+            aiPresenceRetainedByPromptRef.current = false
             setMarkdownAIPresenceActive(false)
         },
         [setMarkdownAIPresenceActive]
     )
+
+    useEffect(() => {
+        if (!aiPromptPresenceTrackingEnabledRef.current) {
+            return
+        }
+
+        const promptCaretPosition = getNotebookAIPromptCaretPosition(markdownEditorValue)
+        if (promptCaretPosition) {
+            if (!aiPresenceRetainedByPromptRef.current) {
+                aiPresenceActivityVersionRef.current += 1
+            }
+            aiPresenceRetainedByPromptRef.current = true
+            clearAIPresenceDepartureTimeout()
+            setAICaretPosition(promptCaretPosition)
+            setMarkdownAIPresenceActive(true)
+            return
+        }
+
+        if (!aiPresenceRetainedByPromptRef.current) {
+            return
+        }
+
+        aiPresenceRetainedByPromptRef.current = false
+        scheduleAIPresenceDeparture()
+    }, [clearAIPresenceDepartureTimeout, markdownEditorValue, scheduleAIPresenceDeparture, setMarkdownAIPresenceActive])
 
     const aiCarets = useMemo<RemoteNotebookCaret[]>(
         () =>
@@ -300,6 +346,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                     NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN
                 )
             )
+            retainAIPresenceForPrompt()
             setFocusAIPromptRequest((currentRequest) => (currentRequest ?? 0) + 1)
 
             window.setTimeout(() => {
@@ -311,7 +358,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                 )
             }, 0)
         },
-        [markAIPresenceInactive, updateMarkdownEditorValue]
+        [markAIPresenceInactive, retainAIPresenceForPrompt, updateMarkdownEditorValue]
     )
 
     const handleInlineAIError = useCallback(
@@ -396,6 +443,27 @@ export function getNotebookAICaretPosition(
 
     const nodeIndex = Math.max(0, Math.min(responseNodeIndex, nodes.length - 1))
     return getNotebookNodeEndCaretPosition(nodes[nodeIndex], nodeIndex)
+}
+
+export function getNotebookAIPromptCaretPosition(markdown: string): MarkdownNotebookCaretPosition | null {
+    const nodes = parseMarkdownNotebook(markdown).nodes
+    for (let promptNodeIndex = nodes.length - 1; promptNodeIndex >= 0; promptNodeIndex--) {
+        if (!isNotebookAIPromptNode(nodes[promptNodeIndex])) {
+            continue
+        }
+
+        for (let nodeIndex = promptNodeIndex - 1; nodeIndex >= 0; nodeIndex--) {
+            if (!isNotebookAIPromptNode(nodes[nodeIndex])) {
+                return getNotebookNodeEndCaretPosition(nodes[nodeIndex], nodeIndex)
+            }
+        }
+    }
+
+    return null
+}
+
+function isNotebookAIPromptNode(node: NotebookBlockNode): boolean {
+    return node.type === 'component' && node.tagName === 'Prompt'
 }
 
 function getNotebookNodeEndCaretPosition(node: NotebookBlockNode, nodeIndex: number): MarkdownNotebookCaretPosition {
