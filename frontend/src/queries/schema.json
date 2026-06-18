@@ -2545,8 +2545,27 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantStickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantPathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantLifecycleQuery"
+                        }
+                    ],
+                    "description": "Product analytics query object. The `kind` field selects the query type and the display/filter options valid for it."
                 }
             },
             "required": ["kind", "source"],

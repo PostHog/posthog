@@ -1545,8 +1545,14 @@ export interface AssistantRecordingsQuery {
 
 export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
-    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
-    source: Record<string, any>
+    /** Product analytics query object. The `kind` field selects the query type and the display/filter options valid for it. */
+    source:
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
 }
 
 /**
