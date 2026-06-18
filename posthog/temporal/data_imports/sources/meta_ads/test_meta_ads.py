@@ -780,6 +780,9 @@ class TestNonRetryableErrors:
         [
             # Token refresh failure raised by get_integration.
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            # Integration row deleted/de-authorized while the source still references it —
+            # get_integration raises Django's Integration.DoesNotExist with this message.
+            "Integration matching query does not exist.",
             # 400 from Meta when the ad account no longer belongs to the authorised user.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.

@@ -304,6 +304,7 @@ async def select_repository(
     *,
     origin_product: Task.OriginProduct,
     step_name: str = "repo_selection",
+    signal_report_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -376,6 +377,8 @@ async def select_repository(
         verbose=verbose,
         output_fn=output_fn,
         origin_product=origin_product,
+        signal_report_id=signal_report_id,
+        ai_stage="repo_selection",
         internal=True,
     )
     # Track repo discovery execution (for example, for Slack)

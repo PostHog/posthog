@@ -94,6 +94,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             dashboard_names,
         )
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard read",
+            {"dashboard_id": dashboard_id, "creation_mode": "default"},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_web_retrieve_does_not_fire_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+
+        read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("dashboard read",)]
+        self.assertEqual(read_calls, [])
+
     def test_retrieve_dashboard_list_includes_other_environments(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
         _, team_in_other_project = Project.objects.create_with_team(
@@ -406,6 +431,46 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert results_by_id[dashboard_recent_id]["last_viewed_at"] is not None
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
+
+    def test_list_includes_folder_from_filesystem(self):
+        filed_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        unfiled_id, _ = self.dashboard_api.create_dashboard({"name": "Unfiled dashboard"})
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        results_by_id = {dashboard["id"]: dashboard for dashboard in response["results"]}
+
+        # The folder is the file system path without the dashboard's own name
+        assert results_by_id[filed_id]["folder"] == "Marketing/Website"
+        # Dashboards created without an explicit folder land in the default unfiled folder
+        assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
+
+    @parameterized.expand(
+        [
+            # The named folder matches only the dashboard filed directly in it — nested sub-folders excluded
+            ("named_folder", "Marketing/Website", "in_folder"),
+            # The empty string is the project root (the `depth=1`, no-prefix branch of _apply_folder_filter)
+            ("project_root", "", "root"),
+        ]
+    )
+    def test_list_filters_by_folder(self, _name: str, folder: str, expected_key: str):
+        ids = {
+            "in_folder": self.dashboard_api.create_dashboard(
+                {"name": "In folder", "_create_in_folder": "Marketing/Website"}
+            )[0],
+            "nested": self.dashboard_api.create_dashboard(
+                {"name": "Nested deeper", "_create_in_folder": "Marketing/Website/Landing"}
+            )[0],
+            "other": self.dashboard_api.create_dashboard({"name": "Other folder", "_create_in_folder": "Product"})[0],
+            "root": self.dashboard_api.create_dashboard({"name": "Root dashboard", "_create_in_folder": ""})[0],
+        }
+
+        response = self.dashboard_api.list_dashboards(parent="environment", query_params={"folder": folder})
+        result_ids = {dashboard["id"] for dashboard in response["results"]}
+
+        # Set equality asserts the match is exact — every other dashboard (nested, other folder, root/named) is excluded
+        assert result_ids == {ids[expected_key]}
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):

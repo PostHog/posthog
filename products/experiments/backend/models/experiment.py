@@ -143,6 +143,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
 
+    @property
+    def status_label(self) -> str:
+        """Public status string (draft/running/paused/stopped) — single source for the API
+        serializer and dashboard widgets."""
+        if self.is_paused:
+            return "paused"
+        return self.status or self.computed_status.value
+
     def get_feature_flag_key(self):
         # Strip the soft-delete tombstone so the API and analytics surface the original
         # key, matching what the query runners resolve against historical events.
@@ -374,9 +382,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
     metric_uuids = models.JSONField(default=list)
 
-    # Internal: single data-window end shared by all metrics in the run. Set once when the run starts; every metric
+    # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric
     # (including retries) uses this value so all metrics cover the same window and retries overwrite rather than
-    # orphan rows. Not exposed by the API serializer.
+    # orphan rows. Exposed by the API serializer as the data freshness cutoff for the run's results.
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

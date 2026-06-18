@@ -47,7 +47,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
-from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    flag_payload_codec,
+    get_decrypted_flag_payload,
+)
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -2096,6 +2100,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    # Encrypted remote config payloads are decrypted only for personal API keys; project
+    # secret keys get the redacted marker. This is the parity oracle for the Rust port,
+    # which must replicate both.
+    @parameterized.expand(
+        [
+            ("project_secret_key", False),
+            ("personal_api_key", True),
+        ]
+    )
+    def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
+        plaintext = '{"secret": "value"}'
+        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        self._create_encrypted_flag(stored_payload=token)
+
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        else:
+            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            secret_token = self.team.secret_api_token
+            assert secret_token is not None
+            auth_token = secret_token
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
@@ -10699,6 +10736,59 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    # (name, filters, expected_rollout) — exercises the rollout summary end-to-end through the serializer.
+    @parameterized.expand(
+        [
+            (
+                "full_rollout",
+                {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": False,
+                },
+            ),
+            (
+                "targeted",
+                {"groups": [{"rollout_percentage": 50, "properties": [{"key": "email", "value": "x"}]}]},
+                {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": True,
+                    "max_rollout_percentage": 50,
+                    "is_multivariate": False,
+                },
+            ),
+            # Multivariate flag guards the is_multivariate field through the serializer path.
+            (
+                "multivariate",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                },
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": True,
+                },
+            ),
+        ]
+    )
+    def test_flag_status_includes_rollout_summary(self, name, filters, expected_rollout):
+        """The status response exposes a rollout summary so callers can determine full rollout / GA."""
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters=filters,
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["rollout"], expected_rollout)
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()
@@ -11233,6 +11323,16 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Empty-variants block routes through the boolean branch: a 100% group is fully rolled out.
+        empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_variants",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": []},
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -11242,13 +11342,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     zero_rollout.id,
                     partial.id,
                     multivariate.id,
+                    empty_variants.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 4
+        assert len(data["deleted"]) == 5
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -11263,6 +11364,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
         assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+        assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["empty_variants"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""

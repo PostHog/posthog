@@ -122,10 +122,10 @@ class TestTrafficTypeIntegration(BaseTest):
         response = self._query_tagged(
             """
                 properties.$user_agent as ua,
-                __preview_isBot(properties.$user_agent) as is_bot,
-                __preview_getTrafficType(properties.$user_agent) as traffic_type,
-                __preview_getTrafficCategory(properties.$user_agent) as category,
-                __preview_getBotName(properties.$user_agent) as bot_name
+                isLikelyBot(properties.$user_agent) as is_bot,
+                getTrafficType(properties.$user_agent) as traffic_type,
+                getTrafficCategory(properties.$user_agent) as category,
+                getBotName(properties.$user_agent) as bot_name
             """,
             tag,
         )
