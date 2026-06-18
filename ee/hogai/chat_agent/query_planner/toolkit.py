@@ -370,7 +370,7 @@ class TaxonomyAgentToolkit:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
             is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
+                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name].get("type") == PropertyType.String
             )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."

@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
 from posthog.models.group.util import create_group
@@ -196,6 +198,22 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
+
+    @parameterized.expand(
+        [
+            # String type is quoted so the LLM can infer the type.
+            (
+                "$last_external_click_url",
+                '"https://example.com/interesting-article?parameter=true" and many more distinct values.',
+            ),
+            # Numeric type is left unquoted.
+            ("$vitals_lcp", "2.2 and many more distinct values."),
+        ]
+    )
+    def test_retrieve_session_property_values_with_examples(self, property_name: str, expected: str):
+        # Regression: session properties that declare "examples" but omit "type" must not raise KeyError.
+        toolkit = DummyToolkit(self.team, self.user)
+        self.assertEqual(toolkit.retrieve_entity_property_values("session", property_name), expected)
 
     def test_retrieve_entity_property_values_virtual_person_property_with_examples(self):
         toolkit = DummyToolkit(self.team, self.user)
