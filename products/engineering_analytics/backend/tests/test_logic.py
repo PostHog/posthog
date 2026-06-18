@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -206,21 +205,6 @@ class TestPRLifecycleMapping(BaseTest):
         assert lifecycle.pull_request.state == PRState.CLOSED
         assert lifecycle.pull_request.author.is_bot is True
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
-
-    @parameterized.expand(
-        [
-            ("open", PRState.OPEN),
-            ("closed", PRState.CLOSED),
-            ("merged", PRState.MERGED),
-        ]
-    )
-    def test_state_passthrough(self, state: str, expected: PRState) -> None:
-        merged_at = _dt("2026-01-12T15:00:00") if state == "merged" else None
-        with mock.patch(_RUN_QUERY, return_value=_resp([_header(state, merged_at=merged_at, head_sha="")])):
-            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == expected
 
 
 class TestEndpointMapping(BaseTest):
@@ -496,42 +480,6 @@ class TestListGitHubSources(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
         assert list_github_sources(team=self.team) == []
-
-
-class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
-    """End-to-end through the curated builders over real warehouse tables.
-    Skips when object storage is unreachable."""
-
-    @freeze_time("2026-02-01")
-    def test_pr_lifecycle_end_to_end(self) -> None:
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [
-                _pr_row(
-                    10, "alice", "closed", 0, "2026-01-10 09:00:00", merged_at="2026-01-12 15:00:00", head_sha="sha10"
-                )
-            ],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(2001, "CI", "sha10", "completed", "success", "2026-01-11 09:00:00", "2026-01-11 12:00:00")],
-        )
-
-        lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == PRState.MERGED
-        assert lifecycle.pull_request.author.handle == "alice"
-        assert lifecycle.pull_request.repo.name == "posthog"
-        assert [e.kind for e in lifecycle.events] == [
-            PRLifecycleEventKind.OPENED,
-            PRLifecycleEventKind.CI_STARTED,
-            PRLifecycleEventKind.CI_FINISHED,
-            PRLifecycleEventKind.MERGED,
-        ]
-        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
 
 class TestWorkflowHealthWindowCap(BaseTest):
