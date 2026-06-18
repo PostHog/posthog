@@ -1,4 +1,5 @@
 import time
+import signal
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -10,6 +11,17 @@ from prometheus_client import CollectorRegistry, Counter, Gauge
 
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.worker import get_free_port
+
+
+@pytest.fixture(autouse=True)
+def _ignore_sigpipe():
+    # The mock HTTP servers below write to client sockets that the timeout tests
+    # intentionally abandon, and their handler threads can outlive the test and
+    # write to a closed socket. That must raise BrokenPipeError (Python's default
+    # SIG_IGN), not kill the process. A Rust extension's runtime in an earlier
+    # shard test can leave SIGPIPE as SIG_DFL, so re-assert SIG_IGN here. Leave it
+    # set (don't restore) — SIG_IGN is the correct disposition for this process.
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
 
 def create_mock_temporal_server(port: int, metrics_content: bytes) -> HTTPServer:
