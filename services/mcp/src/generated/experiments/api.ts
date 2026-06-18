@@ -1452,6 +1452,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2444,6 +2450,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -3805,6 +3817,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4801,6 +4819,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -6210,6 +6234,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7206,6 +7236,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod

@@ -65,6 +65,7 @@ function verifySignature(payload: string, signature: string): boolean {
 type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
     parentRunId?: string | null
     state?: { actionId?: string }
+    distinctId?: string
 }
 
 export type TrackingCodeFormat = 'signed' | 'unsigned'
@@ -78,6 +79,7 @@ export const parseEmailTrackingCode = (
     actionId?: string
     parentRunId?: string
     isTest: boolean
+    distinctId?: string
     format: TrackingCodeFormat
 } | null => {
     if (!encodedTrackingCode) {
@@ -100,7 +102,8 @@ export const parseEmailTrackingCode = (
 
     try {
         const decoded = fromBase64UrlSafe(payloadB64)
-        const [functionId, invocationId, teamId, actionId, parentRunId, isTest] = decoded.split(':')
+        // distinctId is the trailing segment and may itself contain colons, so rejoin everything past it.
+        const [functionId, invocationId, teamId, actionId, parentRunId, isTest, ...distinctIdParts] = decoded.split(':')
         if (!functionId || !invocationId) {
             return null
         }
@@ -111,6 +114,11 @@ export const parseEmailTrackingCode = (
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
             isTest: isTest === '1',
+            // Only trust distinct_id from a signed code — the HMAC is its integrity guarantee. The
+            // legitimate unsigned tag never carries a distinct_id, so an unsigned code with one is
+            // forged; honoring it would let a crafted ph_id inject engagement events for any team.
+            distinctId:
+                format === 'signed' && distinctIdParts.length > 0 ? distinctIdParts.join(':') || undefined : undefined,
             format,
         }
     } catch {
@@ -124,10 +132,12 @@ export const parseEmailTrackingCode = (
 export const generateEmailTrackingCode = (invocation: TrackingInvocation, isTest = false): string => {
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
-    // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording
-    // their metrics — keeping test traffic out of the production Metrics tab.
+    const distinctId = invocation.distinctId ?? ''
+    // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording their
+    // metrics — keeping test traffic out of the production Metrics tab. distinctId is appended last
+    // because it may contain colons; it attributes engagement events.
     const payload = toBase64UrlSafe(
-        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}`
+        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}:${distinctId}`
     )
     const keys = getSigningKeys()
     if (keys.length === 0) {
