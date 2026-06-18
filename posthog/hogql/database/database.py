@@ -1154,8 +1154,9 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
+                        # created_by for the access-control creator check
+                        .select_related("table", "managed_viewset", "created_by")
                         # credential attached in bulk below, not joined per row
-                        .select_related("table", "managed_viewset")
                     )
                     if not is_managed_viewset_enabled:
                         queryset = queryset.filter(managed_viewset__isnull=True)
@@ -1169,8 +1170,9 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
                         .exclude(deleted=True)
+                        # created_by for the access-control creator check
+                        .select_related("table", "created_by")
                         # credential attached in bulk below, not joined per row
-                        .select_related("table")
                     )
                 except Exception as e:
                     capture_exception(e)
@@ -1195,6 +1197,8 @@ class Database(BaseModel):
                     # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .queryable()
+                    # created_by is hydrated for the warehouse access-control creator check
+                    .select_related("created_by")
                     # credential/external_data_source attached in bulk below, not joined per row; the
                     # access_method filter still joins the source for its WHERE without hydrating it.
                     # Deterministic tiebreak when two live tables share a name: newest wins, since
