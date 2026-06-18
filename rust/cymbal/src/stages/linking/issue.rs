@@ -173,7 +173,9 @@ async fn load_and_maybe_reopen(
     fingerprint: &str,
     event_properties: &ExceptionProperties,
 ) -> Result<Option<Issue>, UnhandledError> {
-    let mut conn = context.posthog_pool.acquire().await?;
+    let mut conn =
+        crate::db::acquire_with_retry(&context.posthog_pool, context.config.pg_acquire_max_retries)
+            .await?;
     let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
         return Ok(None);
     };
@@ -227,7 +229,9 @@ async fn resolve_issue(
         .clone()
         .ok_or(UnhandledError::Other("Missing fingerprint".into()))?;
 
-    let mut conn = context.posthog_pool.acquire().await?;
+    let mut conn =
+        crate::db::acquire_with_retry(&context.posthog_pool, context.config.pg_acquire_max_retries)
+            .await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {

@@ -17,6 +17,7 @@ use crate::{
 pub struct GroupingStage {
     pub connection: PgPool,
     pub team_manager: TeamManager,
+    pub pg_acquire_max_retries: u32,
 }
 
 impl From<&Arc<AppContext>> for GroupingStage {
@@ -24,6 +25,7 @@ impl From<&Arc<AppContext>> for GroupingStage {
         Self {
             connection: ctx.posthog_pool.clone(),
             team_manager: ctx.team_manager.clone(),
+            pg_acquire_max_retries: ctx.config.pg_acquire_max_retries,
         }
     }
 }

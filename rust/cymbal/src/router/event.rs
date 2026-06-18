@@ -17,7 +17,7 @@ use crate::{
     error::UnhandledError,
     metric_consts::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_SECONDS,
+        PROCESS_REQUEST_DURATION_SECONDS, TRANSIENT_PIPELINE_ERROR,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
@@ -214,14 +214,26 @@ pub async fn process_events(
         Ok(batch) => Ok(batch),
         Err(err) => {
             let err = Arc::new(err);
-            common_posthog::capture_exception(
-                err.clone(),
-                [
-                    ("request_id", json!(request_id)),
-                    ("batch_event_count", json!(batch_event_count)),
-                    ("team_count", json!(team_count)),
-                ],
-            );
+            // Transient infra blips (e.g. a pooled Postgres connection closed server-side)
+            // are one-off and not actionable. Skip capturing them as error-tracking issues
+            // so they don't land in the inbox — the request still returns 5xx and is retried.
+            if err.is_transient() {
+                metrics::counter!(TRANSIENT_PIPELINE_ERROR, "kind" => err.kind()).increment(1);
+                warn!(
+                    request_id = %request_id,
+                    error = %err,
+                    "Skipping capture of transient pipeline error"
+                );
+            } else {
+                common_posthog::capture_exception(
+                    err.clone(),
+                    [
+                        ("request_id", json!(request_id)),
+                        ("batch_event_count", json!(batch_event_count)),
+                        ("team_count", json!(team_count)),
+                    ],
+                );
+            }
             Err(ProcessEventsError::Unhandled(err))
         }
     }

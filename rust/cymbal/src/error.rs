@@ -55,6 +55,34 @@ pub enum UnhandledError {
     Other(String),
 }
 
+impl UnhandledError {
+    /// True for transient infra blips — chiefly a pooled Postgres connection closed
+    /// server-side that fails on use. These are one-off and not actionable, so the
+    /// pipeline emits a metric + warning for them instead of capturing them as
+    /// error-tracking issues (the request still fails, so the caller can retry).
+    pub fn is_transient(&self) -> bool {
+        match self {
+            UnhandledError::SqlxError(e) => common_database::is_transient_error(e),
+            _ => false,
+        }
+    }
+
+    /// A short, low-cardinality label describing the error variant, for metrics.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            UnhandledError::ConfigError(_) => "config",
+            UnhandledError::KafkaError(_) => "kafka",
+            UnhandledError::KafkaProduceError(_) => "kafka_produce",
+            UnhandledError::SqlxError(_) => "sqlx",
+            UnhandledError::S3Error(_) => "s3",
+            UnhandledError::ByteStreamError(_) => "bytestream",
+            UnhandledError::SerdeError(_) => "serde",
+            UnhandledError::RedisError(_) => "redis",
+            UnhandledError::Other(_) => "other",
+        }
+    }
+}
+
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
 // which are handled by the store - this is the error type that's handed to the frame to see
 // if it can still make something useful out of it.
@@ -398,5 +426,30 @@ impl From<UnhandledError> for PipelineFailure {
             index: 0,
             error: Arc::new(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transient_sqlx_connection_errors_are_classified_transient() {
+        let eof = UnhandledError::SqlxError(sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "expected to read 5 bytes, got 0 bytes at EOF",
+        )));
+        assert!(eof.is_transient());
+        assert_eq!(eof.kind(), "sqlx");
+    }
+
+    #[test]
+    fn systemic_and_non_sqlx_errors_are_not_transient() {
+        // Pool exhaustion is systemic, not a one-off blip — retrying amplifies load.
+        assert!(!UnhandledError::SqlxError(sqlx::Error::PoolTimedOut).is_transient());
+        // A row-not-found is a logic error, not infra.
+        assert!(!UnhandledError::SqlxError(sqlx::Error::RowNotFound).is_transient());
+        // Non-sqlx errors are never treated as transient infra blips.
+        assert!(!UnhandledError::Other("boom".to_string()).is_transient());
     }
 }

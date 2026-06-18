@@ -88,6 +88,13 @@ pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_durat
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
+// Postgres connection health metrics
+pub const PG_ACQUIRE_RETRY: &str = "cymbal_pg_acquire_retry";
+pub const PG_ACQUIRE_RETRY_EXHAUSTED: &str = "cymbal_pg_acquire_retry_exhausted";
+// Transient pipeline errors (e.g. a server-closed Postgres connection) that we
+// deliberately skip capturing as error-tracking issues, labeled with `kind`.
+pub const TRANSIENT_PIPELINE_ERROR: &str = "cymbal_transient_pipeline_error";
+
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";

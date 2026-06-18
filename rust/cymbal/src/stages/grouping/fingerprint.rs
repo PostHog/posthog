@@ -31,7 +31,8 @@ impl ValueOperator for FingerprintGenerator {
     ) -> OperatorResult<Self> {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules)
         let props = serde_json::to_value(&input)?;
-        let mut conn = ctx.connection.acquire().await?;
+        let mut conn =
+            crate::db::acquire_with_retry(&ctx.connection, ctx.pg_acquire_max_retries).await?;
         let fingerprint: Fingerprint =
             match evaluate_grouping_rules(&mut conn, input.team_id, &ctx.team_manager, props)
                 .await?

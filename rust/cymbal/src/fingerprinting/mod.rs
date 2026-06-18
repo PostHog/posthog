@@ -19,7 +19,8 @@ pub async fn resolve_fingerprint(
     team_id: TeamId,
     props: &RawErrProps,
 ) -> Result<Fingerprint, UnhandledError> {
-    let mut conn = ctx.posthog_pool.acquire().await?;
+    let mut conn =
+        crate::db::acquire_with_retry(&ctx.posthog_pool, ctx.config.pg_acquire_max_retries).await?;
     let team_manager = &ctx.team_manager;
     if let Some(rule) = try_grouping_rules(&mut conn, team_id, team_manager, props).await? {
         Ok(Fingerprint::from_rule(rule))

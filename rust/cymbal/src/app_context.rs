@@ -73,6 +73,21 @@ impl Drop for AppContext {
     }
 }
 
+/// Pool options for the main Postgres pool, shared by every cymbal service.
+///
+/// A pooled connection can be closed by the server (Postgres/pgbouncer idle timeout)
+/// while sitting idle in our pool, and then fail on first use with an EOF read error.
+/// We retire connections before that can happen (`max_lifetime`/`idle_timeout`, both
+/// kept shorter than the server-side idle timeout) and health-check them on acquire
+/// (`test_before_acquire`), so the `/process` pipeline is never handed a dead socket.
+pub fn posthog_pool_options(config: &Config) -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(config.max_pg_connections)
+        .max_lifetime(Duration::from_secs(config.pg_max_lifetime_secs))
+        .idle_timeout(Duration::from_secs(config.pg_idle_timeout_secs))
+        .test_before_acquire(true)
+}
+
 /// Build just the symbol-resolution stack from env config: connects to
 /// Postgres, builds the S3 client, calls [`init_global_state`], and
 /// returns a fully-wired `SymbolResolver`. **Does not** start Kafka
@@ -87,8 +102,9 @@ pub async fn build_symbol_resolver(
     config: &Config,
 ) -> Result<Arc<dyn SymbolResolver>, UnhandledError> {
     init_global_state(config);
-    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-    let posthog_pool = options.connect(&config.database_url).await?;
+    let posthog_pool = posthog_pool_options(config)
+        .connect(&config.database_url)
+        .await?;
     let s3 = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
     let s3_client: Arc<dyn BlobClient> = Arc::new(S3Client::new(s3));
     s3_client.ping_bucket(&config.object_storage_bucket).await?;
@@ -175,8 +191,9 @@ fn build_catalog(
 
 impl AppContext {
     pub async fn from_config(config: &Config) -> Result<Self, UnhandledError> {
-        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let posthog_pool = options.connect(&config.database_url).await?;
+        let posthog_pool = posthog_pool_options(config)
+            .connect(&config.database_url)
+            .await?;
 
         let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
         let s3_client = S3Client::new(s3_client);

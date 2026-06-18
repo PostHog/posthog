@@ -58,6 +58,21 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
 
+    // A pooled connection can be closed server-side (Postgres/pgbouncer idle timeout) while
+    // it sits idle in our pool, and then fail on first use with an EOF read error. Recycle
+    // connections proactively — keep both bounds shorter than the server-side idle timeout —
+    // and health-check on acquire (see `app_context::posthog_pool_options`).
+    #[envconfig(default = "300")]
+    pub pg_max_lifetime_secs: u64,
+
+    #[envconfig(default = "60")]
+    pub pg_idle_timeout_secs: u64,
+
+    // Times to retry acquiring a pooled connection when it fails with a transient
+    // connection error, before giving up.
+    #[envconfig(default = "2")]
+    pub pg_acquire_max_retries: u32,
+
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default
     #[envconfig(default = "false")]
     pub allow_internal_ips: bool,
