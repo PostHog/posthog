@@ -117,7 +117,13 @@ class TestAgentRevisionEnvKeys(APIBaseTest):
         )
         assert res.status_code == 200, res.content
         rev.refresh_from_db()
-        assert json.loads(rev.encrypted_env)["ANTHROPIC_KEY"] == "sk-rotated"
+        # Rotating an existing key must replace just that key — sibling keys
+        # are a separate codepath in the merge (update vs insert) and the
+        # upserts-and-preserves-siblings test only covers the insert case.
+        assert json.loads(rev.encrypted_env) == {
+            "ANTHROPIC_KEY": "sk-rotated",
+            "SLACK_TOKEN": "xoxb-old",
+        }
 
     def test_delete_removes_one_key_and_preserves_siblings(self) -> None:
         app, rev = self._seeded()
@@ -127,6 +133,21 @@ class TestAgentRevisionEnvKeys(APIBaseTest):
 
         rev.refresh_from_db()
         assert json.loads(rev.encrypted_env) == {"SLACK_TOKEN": "xoxb-old"}
+
+    def test_delete_unset_key_is_idempotent(self) -> None:
+        """`pop(key, None)` is a no-op when the key isn't there — DELETE on a
+        never-set key still returns the standard `{is_set: False}` shape and
+        leaves every other key untouched."""
+        app, rev = self._seeded()
+        res = self.client.delete(self._url(app, rev, "env_keys/NEVER_SET/"))
+        assert res.status_code == 200
+        assert res.json() == {"key": "NEVER_SET", "is_set": False}
+
+        rev.refresh_from_db()
+        assert json.loads(rev.encrypted_env) == {
+            "ANTHROPIC_KEY": "sk-old",
+            "SLACK_TOKEN": "xoxb-old",
+        }
 
     def test_editing_one_revision_does_not_touch_another(self) -> None:
         app = self._app()
