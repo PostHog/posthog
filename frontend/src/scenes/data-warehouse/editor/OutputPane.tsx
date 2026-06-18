@@ -30,6 +30,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -54,7 +55,13 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, type ExportContext, ExporterFormat } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ChartDisplayType,
+    type ExportContext,
+    ExporterFormat,
+} from '~/types'
 
 import {
     copyTableToCsv,
@@ -434,6 +441,12 @@ function ResultsActions({
     isEmbeddedMode,
     onShareTab,
 }: ResultsActionsProps): JSX.Element {
+    // Copying or exporting results requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     return (
         <>
             <LemonMenu
@@ -451,7 +464,11 @@ function ResultsActions({
             >
                 <LemonButton
                     id="sql-editor-copy-dropdown"
-                    disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
+                    disabledReason={
+                        (!response?.columns || !rows.length ? 'No results to copy' : undefined) ??
+                        exportAccessControlDisabledReason ??
+                        undefined
+                    }
                     type="secondary"
                     size="small"
                     icon={<IconCopy />}
