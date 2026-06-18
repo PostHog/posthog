@@ -67,8 +67,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Teams channel settings
         connectTeams: (nextPath: string) => ({ nextPath }),
         disconnectTeams: true,
-        setTeamsTeam: (teamId: string | null, teamName: string | null) => ({ teamId, teamName }),
-        setTeamsChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
         loadTeamsTeamsWithToken: true,
         loadTeamsChannelsForTeam: (teamId: string) => ({ teamId }),
         installTeamsApp: (teamId: string) => ({ teamId }),
@@ -76,6 +74,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             status: 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
             teamId: string | null = null
         ) => ({ status, teamId }),
+        // Multi-channel Teams actions
+        addTeamsChannelPair: (teamId: string, channelId: string) => ({ teamId, channelId }),
+        removeTeamsChannelPair: (channelId: string) => ({ channelId }),
+        setTeamsChannelPairLoading: (channelId: string | null) => ({ channelId }),
+        cacheTeamsChannelsForTeam: (teamId: string, channels: { id: string; name: string }[]) => ({ teamId, channels }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -247,6 +250,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 disconnectTeams: () => null,
             },
         ],
+        teamsChannelsCache: [
+            {} as Record<string, { id: string; name: string }[]>,
+            {
+                cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({ ...state, [teamId]: channels }),
+                disconnectTeams: () => ({}),
+            },
+        ],
+        teamsChannelPairLoading: [
+            null as string | null,
+            {
+                setTeamsChannelPairLoading: (_, { channelId }) => channelId,
+                addTeamsChannelPair: (_, { channelId }) => channelId,
+                removeTeamsChannelPair: (_, { channelId }) => channelId,
+            },
+        ],
         aiSuggestionsLoading: [
             false,
             {
@@ -274,7 +292,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         githubIntegrations: [
             [] as { id: number; name: string }[],
             {
@@ -341,13 +359,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         teamsChannels: [
             [] as { id: string; name: string }[],
             {
-                loadTeamsChannelsForTeam: async ({ teamId }) => {
+                loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
                         // nosemgrep: prefer-codegen-api
                         const response = await api.create('api/conversations/v1/teams/channels', {
                             team_id: teamId,
                         })
-                        return response.channels || []
+                        const channels = response.channels || []
+                        // Also cache for multi-channel UI
+                        actions.cacheTeamsChannelsForTeam(teamId, channels)
+                        return channels
                     } catch {
                         lemonToast.error('Failed to load Teams channels')
                         return values.teamsChannels
@@ -427,6 +448,29 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         teamsChannelName: [
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_name ?? null,
+        ],
+        teamsChannelPairs: [
+            (s) => [s.currentTeam],
+            (
+                currentTeam
+            ): { team_id: string; team_name?: string | null; channel_id: string; channel_name?: string | null }[] => {
+                const cs = currentTeam?.conversations_settings
+                if (Array.isArray(cs?.teams_channels) && cs.teams_channels.length > 0) {
+                    return cs.teams_channels
+                }
+                // Fallback to legacy scalar fields
+                if (cs?.teams_team_id && cs?.teams_channel_id) {
+                    return [
+                        {
+                            team_id: cs.teams_team_id,
+                            team_name: cs.teams_team_name,
+                            channel_id: cs.teams_channel_id,
+                            channel_name: cs.teams_channel_name,
+                        },
+                    ]
+                }
+                return []
+            },
         ],
         githubConnected: [
             (s) => [s.currentTeam],
@@ -744,23 +788,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.loadCurrentTeam()
             lemonToast.success('Microsoft Teams disconnected')
         },
-        setTeamsTeam: async ({ teamId }) => {
-            try {
-                // nosemgrep: prefer-codegen-api
-                await api.create('api/conversations/v1/teams/select-channel', {
-                    teams_team_id: teamId,
-                })
-            } catch {
-                lemonToast.error('Failed to save the selected Teams group')
-                return
-            }
-            actions.loadCurrentTeam()
-            if (teamId) {
-                actions.installTeamsApp(teamId)
-            } else {
-                actions.setTeamsInstallStatus('idle')
-            }
-        },
         installTeamsApp: async ({ teamId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
@@ -791,23 +818,43 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to install SupportHog in the selected Teams group')
             }
         },
-        setTeamsChannel: async ({ channelId }) => {
-            const teamsTeamId = values.currentTeam?.conversations_settings?.teams_team_id
-            if (!teamsTeamId) {
-                lemonToast.error('Select a Microsoft Teams group before choosing a channel')
-                return
-            }
+        addTeamsChannelPair: async ({ teamId, channelId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/teams/select-channel', {
-                    teams_team_id: teamsTeamId,
-                    teams_channel_id: channelId,
+                    action: 'add',
+                    team_id: teamId,
+                    channel_id: channelId,
                 })
-            } catch {
-                lemonToast.error('Failed to save the selected Teams channel')
+            } catch (err: any) {
+                const detail = err?.data?.error ?? ''
+                if (detail === 'max_channels_exceeded') {
+                    lemonToast.error('Maximum number of Teams channels reached')
+                } else {
+                    lemonToast.error('Failed to add Teams channel')
+                }
+                actions.setTeamsChannelPairLoading(null)
                 return
             }
             actions.loadCurrentTeam()
+            actions.setTeamsChannelPairLoading(null)
+            // Install app in the team group if not already installed
+            actions.installTeamsApp(teamId)
+        },
+        removeTeamsChannelPair: async ({ channelId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    action: 'remove',
+                    channel_id: channelId,
+                })
+            } catch {
+                lemonToast.error('Failed to remove Teams channel')
+                actions.setTeamsChannelPairLoading(null)
+                return
+            }
+            actions.loadCurrentTeam()
+            actions.setTeamsChannelPairLoading(null)
         },
         setAiSuggestionsEnabled: ({ enabled }) => {
             actions.setAiSuggestionsLoading(true)

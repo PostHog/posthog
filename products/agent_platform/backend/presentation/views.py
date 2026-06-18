@@ -80,6 +80,7 @@ from .serializers import (
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
+    PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
@@ -512,6 +513,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # don't want the scope to drift between methods.
         "env_keys_key",
         "approvals_decide",
+        # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
+        # feeds, or kills a draft session, driving the agent's configured
+        # tools and incurring inference cost. That's a write-class capability,
+        # so it lives here even though it targets a non-live revision. The GET
+        # `listen` counterpart (read-only SSE tail) stays in read actions.
+        "preview_proxy",
     ]
     scope_object_read_actions = [
         "list",
@@ -521,10 +528,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "session_logs",
         "stats",
         "env_keys_list",
-        # POST → `preview_proxy`, GET (SSE `listen`) → `preview_proxy_get`.
-        # DRF uses the bound function name as `view.action`, so the GET
-        # variant is its own entry in the scope-check map.
-        "preview_proxy",
+        # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
+        # name as `view.action`, so the GET variant is its own scope-map entry;
+        # the mutating POST sibling (`preview_proxy`) is a write action above.
         "preview_proxy_get",
         "preview_token",
         "approvals_list",
@@ -741,7 +747,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="agent_applications_preview_proxy",
         parameters=_PREVIEW_PROXY_PARAMETERS,
-        request=None,
+        # Document the forwarded body (`run`/`send` carry `message`) so the
+        # generated MCP tool exposes it — without this the tool had no way to
+        # pass a chat message. SCHEMA-ONLY: the action never validates against
+        # this serializer; the raw body is forwarded to ingress verbatim (shape
+        # varies by `rest`, extra keys pass through). It exists purely to shape
+        # the generated tool / OpenAPI. Response is the ingress SSE stream.
+        request=PreviewProxyInvokeRequestSerializer,
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
     )
     @action(
         detail=True,
@@ -761,7 +774,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         this proxy attaches it after authenticating the Django caller.
 
         URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
-        Auth: standard PAT / session — `agents:read` scope.
+        Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+        is a mutating invoke; the read-only `listen` GET is `agents:read`).
         """
         application = self.get_object()
         if application is None:
@@ -1621,11 +1635,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application = self.get_application()
         # Fresh revisions start in `draft`. Parent revision is optional — if
         # set, this revision can later be diff'd against it for review.
+        # bundle_uri is optional metadata; fill the `fs://<slug>/` convention
+        # when the caller leaves it blank so a no-source create "just works".
+        bundle_uri = serializer.validated_data.get("bundle_uri") or f"fs://{application.slug}/"
         serializer.save(
             application=application,
             team_id=application.team_id,
             state="draft",
             created_by_id=self.request.user.id,
+            bundle_uri=bundle_uri,
         )
 
     def update(self, request: Request, *args, **kwargs) -> Response:
