@@ -125,7 +125,7 @@ capabilities:
         docker_profiles: []
 
     ai_gateway:
-        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) — routes agent model calls; auto-provisions a phs_ credential + funds the ledger'
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes agent model calls'
         requires: [agent_runtime]
         docker_profiles: []
 
