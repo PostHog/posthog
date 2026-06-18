@@ -148,6 +148,13 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "connection to server was lost",
     "connection to server was closed",
     "consuming input failed",
+    # The SSL-flavoured drop: an established TLS connection closed mid-handshake or mid-stream
+    # (pooler/firewall idle cull, failover, network blip). libpq surfaces it bare as "... failed:
+    # SSL connection has been closed unexpectedly" — no "consuming input failed" prefix — so the
+    # substring above doesn't catch it. Same transient class; recover by reconnecting. A genuine
+    # no-SSL-support source fails with a different message ("server does not support SSL") and, on
+    # require_ssl sources, is converted to SSLRequiredError before reaching this check.
+    "ssl connection has been closed unexpectedly",
     "no connection to the server",
     "terminating connection due to",
     # psycopg's own message when libpq finds the socket already gone (PGconn.socket

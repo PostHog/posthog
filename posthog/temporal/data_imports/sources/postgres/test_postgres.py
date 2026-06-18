@@ -676,6 +676,13 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("connection to server was lost"),
             psycopg.OperationalError("connection to server was closed unexpectedly"),
             psycopg.OperationalError("consuming input failed: EOF detected"),
+            # libpq's bare SSL drop, exactly as it reaches the discovery/setup connect — no
+            # "consuming input failed" prefix. A transient TLS close (pooler/firewall idle cull,
+            # failover) the in-process reconnect must catch, not the permanent no-SSL-support case.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "SSL connection has been closed unexpectedly"
+            ),
             psycopg.OperationalError("terminating connection due to administrator command"),
             # psycopg's message when libpq finds the socket already gone (raised from
             # PGconn.socket inside the commit at the end of get_connection). A transient
@@ -1514,14 +1521,22 @@ class TestPostgresSchemaDiscovery:
         for dropped in dropping_connections:
             dropped.close.assert_called_once()
 
-    def test_get_schemas_retries_transient_connection_drop_on_connect(self):
-        # A transient drop on the discovery connect ("server closed the connection unexpectedly")
-        # is the same class of error the import read path already recovers from. Discovery must
-        # retry the connect in-process and recover instead of failing the whole run — and surfacing
-        # as captured error-tracking noise — on the first blip.
+    @pytest.mark.parametrize(
+        "drop_message",
+        [
+            "server closed the connection unexpectedly",
+            # The SSL-flavoured sibling, exactly as it reached discovery in production. Before the
+            # fix it wasn't in `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`, so the retry didn't catch it
+            # and the first blip surfaced as captured error-tracking noise.
+            "SSL connection has been closed unexpectedly",
+        ],
+    )
+    def test_get_schemas_retries_transient_connection_drop_on_connect(self, drop_message):
+        # A transient drop on the discovery connect is the same class of error the import read path
+        # already recovers from. Discovery must retry the connect in-process and recover instead of
+        # failing the whole run — and surfacing as captured error-tracking noise — on the first blip.
         drop = psycopg.OperationalError(
-            'connection failed: connection to server at "66.33.22.246", port 11212 failed: '
-            "server closed the connection unexpectedly"
+            f'connection failed: connection to server at "66.33.22.246", port 11212 failed: {drop_message}'
         )
         connection = self._mock_connection(
             [("public", "users")],
