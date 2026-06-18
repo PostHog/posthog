@@ -15,7 +15,7 @@ Use to answer:
 - "How many errors did the checkout service emit in the last day?"
 - "Did `POST /orders` get slower this week vs last week?" (with `compareFilter`)
 
-For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead.
+For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead. For time-bucketed trends ("when did it change?"), use `apm-spans-sparkline` instead — `compareFilter` only contrasts two static windows.
 
 All parameters must be nested inside a `query` object.
 

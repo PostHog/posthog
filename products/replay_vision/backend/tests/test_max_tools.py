@@ -13,6 +13,7 @@ from parameterized import parameterized
 from products.replay_vision.backend.max_tools import (
     DraftReplayVisionScannerPromptTool,
     SearchReplayVisionObservationsTool,
+    _ObservationFilters,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -20,6 +21,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.tags import slugify_tag
 
 _FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
@@ -140,7 +142,9 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
             if "verdict" in placeholders and output.get("verdict") not in placeholders["verdict"].value:
                 return False
             if "tags" in placeholders:
-                obs_tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
+                # Mirror the real query: it slugifies the stored metadata tags before `hasAny`, and the tool
+                # passes already-slugified values in the placeholder.
+                obs_tags = {slugify_tag(t) for t in (*(output.get("tags") or []), *(output.get("tags_freeform") or []))}
                 if not any(tag in obs_tags for tag in placeholders["tags"].value):
                     return False
             score = output.get("score")
@@ -274,6 +278,24 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_verdict_filter_is_case_insensitive(self):
+        # Verdicts are stored lowercase; a casing slip from Max ("Yes") must still match.
+        scanner = await self._scanner(scanner_type=ScannerType.MONITOR)
+        obs_yes = await self._monitor_observation(scanner, "sess-yes", "user hit the broken button", verdict="yes")
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
+            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_yes, 0.1)])),
+        ):
+            _, artifact = await self._tool()._arun_impl(
+                query="broken button", scanner_id=str(scanner.id), verdict=["Yes"]
+            )
+
+        assert artifact["observation_ids"] == [str(obs_yes.id)]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_tag_filter_keeps_only_matching_results(self):
         scanner = await self._scanner(scanner_type=ScannerType.CLASSIFIER)
         obs_abandoned = await self._create_observation_async(
@@ -298,6 +320,35 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         assert artifact["observation_ids"] == [str(obs_abandoned.id)]
         assert "sess-abandoned" in content and "sess-completed" not in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_tag_filter_matches_normalized_form(self):
+        # The reported bug: Max passes the user's phrasing ("Frustrated Or Confused") while the stored tag is
+        # the slug `frustrated_or_confused`. Matching must be case/format-insensitive.
+        scanner = await self._scanner(scanner_type=ScannerType.CLASSIFIER)
+        obs = await self._create_observation_async(
+            scanner,
+            "sess-frustrated",
+            {
+                "scanner_type": "classifier",
+                "tags": ["frustrated_or_confused"],
+                "reasoning": "user looked lost",
+                "confidence": 0.8,
+            },
+        )
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
+            patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs, 0.1)])),
+        ):
+            content, artifact = await self._tool()._arun_impl(
+                query="lost users", scanner_id=str(scanner.id), tags=["Frustrated Or Confused"]
+            )
+
+        assert artifact["observation_ids"] == [str(obs.id)]
+        assert "sess-frustrated" in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -372,3 +423,27 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         assert artifact["error"] == "not_enabled"
         assert "not enabled" in content
+
+
+class TestObservationFiltersTagClause:
+    """Pure-logic clause construction — no DB/ClickHouse, so it runs without the full test stack."""
+
+    @parameterized.expand(
+        [
+            ("single", ["frustrated_or_confused"]),
+            ("multiple", ["abandoned", "completed"]),
+            # `_ObservationFilters` registers values verbatim — pre-slugifying is the caller's (tool's) job. The
+            # SQL slugifies the *stored* side; passing a non-slug here proves the value is not re-normalized.
+            ("verbatim_not_renormalized", ["Frustrated Or Confused"]),
+        ]
+    )
+    def test_tags_clause_normalizes_stored_side_and_registers_values(self, _name: str, tags: list[str]) -> None:
+        placeholders: dict = {}
+        clauses = _ObservationFilters(tags=tags).where_clauses(placeholders)
+
+        assert len(clauses) == 1
+        # Stored metadata tags are slugified inside the clause (arrayMap) so verbatim-stored tags still match.
+        assert clauses[0].startswith("hasAny(")
+        assert "arrayMap" in clauses[0]
+        # The clause carries no inlined tag value — it lives only in the parameterized placeholder, verbatim.
+        assert placeholders["tags"].value == tags

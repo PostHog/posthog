@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
+    type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { type DailyActivity } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -16,11 +17,13 @@ export function ActivityChart({
     loading,
     theme,
     timezone,
+    interval,
 }: {
     daily: DailyActivity
     loading: boolean
     theme: ChartTheme
     timezone: string
+    interval: TimeInterval
 }): JSX.Element {
     const series = useMemo<Series[]>(() => {
         const totals = daily.successes.map((s, i) => s + (daily.errors[i] ?? 0))
@@ -34,19 +37,19 @@ export function ActivityChart({
         () => ({
             yAxis: { showGrid: false },
             showAxisLines: true,
-            xAxis: { interval: 'day', timezone },
+            xAxis: { interval, timezone },
             showCrosshair: true,
             tooltip: { placement: 'cursor' },
         }),
-        [timezone]
+        [timezone, interval]
     )
 
     return (
-        <Card className="flex flex-1 flex-col" title="Daily tool calls and errors">
+        <Card className="flex flex-1 flex-col" title="Tool calls and errors">
             <CardState
                 loading={loading}
                 isEmpty={daily.labels.length === 0}
-                skeleton={<LemonSkeleton className="min-h-[300px] flex-1" />}
+                skeleton={<Skeleton className="min-h-[300px] flex-1" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
                         No activity yet.

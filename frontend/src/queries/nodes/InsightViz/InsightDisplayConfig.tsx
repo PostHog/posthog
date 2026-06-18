@@ -16,8 +16,8 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
-import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
+import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
@@ -115,14 +115,21 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
+    // The slope graph shows the first vs last interval, so it keeps the group-by interval picker but
+    // drops the options that need the points between them (compare, smoothing, multiple axes,
+    // alert/annotation overlays, statistical analysis).
+    const isSlopeGraph = display === ChartDisplayType.SlopeGraph
 
+    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
             display !== ChartDisplayType.CalendarHeatmap &&
-            display !== ChartDisplayType.BoxPlot) ||
+            display !== ChartDisplayType.BoxPlot &&
+            !isSlopeGraph) ||
         isStickiness ||
-        isWebAnalyticsInsightQuery(querySource)
+        isWebAnalyticsInsightQuery(querySource) ||
+        (funnelsCompareEnabled && (isTrendsFunnel || isTimeToConvertFunnel))
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -133,18 +140,14 @@ export function InsightDisplayConfig(): JSX.Element {
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
-    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay && !isSlopeGraph
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay && !isSlopeGraph
+    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay && !isSlopeGraph) || isTrendsFunnel
     const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
-    const showAxisLabelsConfig =
-        isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
-    const showFunnelLegendConfig =
-        isTrendsFunnel &&
-        hasBreakdownFilter(breakdownFilter) &&
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]
+    const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
+    const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
@@ -217,34 +220,42 @@ export function InsightDisplayConfig(): JSX.Element {
                                     ),
                                 },
                             ]
-                          : [
-                                ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
-                                ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                                ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
-                                ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                                ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
-                                ...(hasLegend || showFunnelLegendConfig ? [{ label: () => <ShowLegendFilter /> }] : []),
-                                ...(display === ChartDisplayType.ActionsPie
-                                    ? [{ label: () => <ShowPieTotalFilter /> }]
-                                    : []),
-                                ...(showAlertThresholdLinesConfig
-                                    ? [
-                                          { label: () => <ShowAlertThresholdLinesFilter /> },
-                                          { label: () => <ShowAlertAnomalyPointsFilter /> },
-                                      ]
-                                    : []),
-                                ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                                ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
-                                    ? [{ label: () => <ShowTrendLinesFilter /> }]
-                                    : []),
-                                ...(isTrendsFunnel && !isNonTimeSeriesDisplay
-                                    ? [{ label: () => <HideIncompleteConversionWindowPeriodsFilter /> }]
-                                    : []),
-                                ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
-                                    ? [{ label: () => <HideWeekendsFilter /> }]
-                                    : []),
-                                ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
-                            ],
+                          : isSlopeGraph
+                            ? // A slope only shows the first vs last interval of each series — the
+                              // legend (when there are multiple series) is the only display option that applies.
+                              hasLegend
+                                ? [{ label: () => <ShowLegendFilter /> }]
+                                : []
+                            : [
+                                  ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
+                                  ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                  ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
+                                  ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                  ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
+                                  ...(hasLegend || showFunnelLegendConfig
+                                      ? [{ label: () => <ShowLegendFilter /> }]
+                                      : []),
+                                  ...(display === ChartDisplayType.ActionsPie
+                                      ? [{ label: () => <ShowPieTotalFilter /> }]
+                                      : []),
+                                  ...(showAlertThresholdLinesConfig
+                                      ? [
+                                            { label: () => <ShowAlertThresholdLinesFilter /> },
+                                            { label: () => <ShowAlertAnomalyPointsFilter /> },
+                                        ]
+                                      : []),
+                                  ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                                  ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                                      ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                      : []),
+                                  ...(isTrendsFunnel && !isNonTimeSeriesDisplay
+                                      ? [{ label: () => <HideIncompleteConversionWindowPeriodsFilter /> }]
+                                      : []),
+                                  ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                                      ? [{ label: () => <HideWeekendsFilter /> }]
+                                      : []),
+                                  ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
+                              ],
                   },
               ]
             : []),
@@ -273,7 +284,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap && !isSlopeGraph
             ? [
                   {
                       title: 'Y-axis scale',

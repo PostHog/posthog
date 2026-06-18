@@ -2,8 +2,8 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
 import { isLaunched } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 

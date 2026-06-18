@@ -164,6 +164,35 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LinkedSignalReportSerializer(serializers.Serializer):
+    """Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+    for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+    the full report itself."""
+
+    id = serializers.UUIDField(help_text="UUID of the linked `SignalReport`.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="LLM-generated report title, or null if the report hasn't been summarised yet.",
+    )
+    status = serializers.CharField(help_text="Current report status (e.g. `potential`, `ready`, `resolved`).")
+
+
+class ScoutEmissionReportLinkSerializer(serializers.Serializer):
+    """One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+
+    Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+    grouped into a report yet, was de-duplicated away, or its signal was deleted."""
+
+    finding_id = serializers.CharField(help_text="Stable id the finding was emitted under.")
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store.",
+    )
+    report = LinkedSignalReportSerializer(
+        allow_null=True,
+        help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
@@ -976,6 +1005,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "on the team or carries no description."
         ),
     )
+    scout_origin = serializers.SerializerMethodField(
+        help_text=(
+            "Where this scout came from: `canonical` for a scout PostHog ships and maintains "
+            "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
+            "on this project. Use it to badge built-in vs custom scouts instead of a hardcoded "
+            "name list. Defaults to `custom` if the skill is not currently present on the team."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -998,10 +1035,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
-        # Resolved by the view into `skill_descriptions` (skill_name -> description) so the
+        # Resolved by the view into `skill_info` (skill_name -> _ScoutSkillInfo) so the
         # list endpoint stays a single LLMSkill query rather than one lookup per config row.
-        descriptions = self.context.get("skill_descriptions") or {}
-        return descriptions.get(obj.skill_name, "")
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.description if info else ""
+
+    @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
+    def get_scout_origin(self, obj: SignalScoutConfig) -> str:
+        # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
+        # the skill row is absent — a config with no skill row isn't a canonical scout.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.origin if info else "custom"
 
     class Meta:
         model = SignalScoutConfig
@@ -1009,6 +1053,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "scout_origin",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -1047,7 +1092,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         required=False,
         min_value=10,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+        help_text="Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:

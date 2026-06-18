@@ -488,6 +488,14 @@ export const CategoryConfigSchema = z
         category: z.string(),
         feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
         url_prefix: z.string(),
+        /**
+         * Category-level feature flag gate, inherited by every tool that doesn't
+         * set its own `feature_flag`. Use to hide a whole not-yet-GA product
+         * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
+         */
+        feature_flag: z.string().optional(),
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        feature_flag_variant: z.string().optional(),
         tools: z.record(
             z
                 .string()

@@ -2,9 +2,17 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { buildIntegerMatcher } from '../../config/config'
 import { Person, Team } from '../../types'
+import { normalizeProcessPerson } from '../../utils/event'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
+import {
+    hasInsertedPersonlessDistinctId,
+    markPersonlessDistinctIdInserted,
+    personlessDistinctIdCacheOperationsCounter,
+} from '../../worker/ingestion/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
+import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '../config'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -13,6 +21,7 @@ export type ProcessPersonlessInput = {
     team: Team
     timestamp: DateTime
     processPerson: boolean
+    processPersonExplicitlyTrue: boolean
     forceDisablePersonProcessing: boolean
     personsStoreForBatch: PersonsStoreForBatch
 }
@@ -21,24 +30,55 @@ export type ProcessPersonlessOutput = {
     personlessPerson?: Person
 }
 
+const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+
+/**
+ * Group-keyed experiment exposure queries read the $group_N columns from the exposure
+ * event, and createEvent strips those for personless events. Events carrying group keys
+ * must stay personful or their exposures disappear from group-aggregated experiments.
+ * Checking $groups alone is sufficient: SDKs only ever send group keys as $groups, and
+ * $group_N is an internal representation the groups step derives from $groups (and only
+ * when processPerson stays true), so it never arrives here pre-expanded from a client.
+ */
+function eventHasGroups(properties: PluginEvent['properties']): boolean {
+    const groups = properties?.$groups
+    return typeof groups === 'object' && groups !== null && !Array.isArray(groups) && Object.keys(groups).length > 0
+}
+
 /**
  * Pipeline step that handles personless event processing checks.
  *
- * When processPerson=false, this step:
+ * Runs when processPerson=false, and also for $feature_flag_called events that did not
+ * explicitly set $process_person_profile=true — so server-side flag evaluation does not
+ * create orphan person profiles (see #60581). Flag-called events that find an existing
+ * person, or that carry group keys, stay personful; the rest are defaulted to personless.
+ *
+ * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
  * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsBatchStep)
  * 3. Calculates force_upgrade flag
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
-export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(): ProcessingStep<
-    TInput,
-    TInput & ProcessPersonlessOutput
-> {
+export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
+): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
+    const flagCalledDefaultEnabledForTeam = buildIntegerMatcher(flagCalledPersonlessDefaultTeams.trim(), true)
+
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
         if (input.processPerson) {
-            return ok(input)
+            const mayDefaultFlagCalledToPersonless =
+                input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT &&
+                !input.processPersonExplicitlyTrue &&
+                !eventHasGroups(input.normalizedEvent.properties) &&
+                flagCalledDefaultEnabledForTeam(input.team.id)
+
+            if (!mayDefaultFlagCalledToPersonless) {
+                return ok(input)
+            }
+
+            return await applyFeatureFlagCalledPersonlessDefault(input, input.personsStoreForBatch)
         }
 
         const { normalizedEvent, team, timestamp, forceDisablePersonProcessing, personsStoreForBatch } = input
@@ -88,6 +128,61 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
 
         return ok({ ...input, personlessPerson: createFakePerson(team.id, distinctId) })
     }
+}
+
+/**
+ * Defaults a $feature_flag_called event to personless unless a person already exists for
+ * its distinct ID, so server-side flag evaluation does not create orphan person profiles.
+ */
+async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPersonlessInput>(
+    input: TInput,
+    personsStore: PersonsStoreForBatch
+): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
+    const { normalizedEvent, team } = input
+    const distinctId = normalizedEvent.distinct_id
+
+    let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
+
+    if (!existingPerson) {
+        let personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
+
+        if (personIsMerged === undefined) {
+            if (hasInsertedPersonlessDistinctId(team.id, distinctId)) {
+                // The LRU keeps repeat distinct IDs from re-inserting on every event; a stale
+                // hit just means the event goes personless, the same trade-off the batch step
+                // accepts.
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'flag_called' })
+            } else {
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'flag_called' })
+                // The batch step (processPersonlessDistinctIdsBatchStep) only inserts rows for
+                // events with explicit $process_person_profile=false, so record this distinct ID
+                // here. Without the row, a later identify/merge would never re-point these
+                // events at the merged person.
+                personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
+                markPersonlessDistinctIdInserted(team.id, distinctId)
+            }
+        }
+
+        if (personIsMerged) {
+            // The posthog_personlessdistinctid row was updated by a merge, so fetch the
+            // person again (using the leader) to associate this event with the merge target.
+            existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
+        }
+    }
+
+    if (existingPerson) {
+        // A person already exists for this distinct ID, so keep the event personful.
+        return ok(input)
+    }
+
+    return ok({
+        ...input,
+        // The event was normalized as personful upstream, so re-normalize it to strip
+        // $set/$set_once and stamp $process_person_profile=false.
+        normalizedEvent: normalizeProcessPerson(normalizedEvent, false),
+        processPerson: false,
+        personlessPerson: createFakePerson(team.id, distinctId),
+    })
 }
 
 /**

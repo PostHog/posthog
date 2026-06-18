@@ -577,6 +577,8 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 </Popover>
 ```
 
+`PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
+
 ### Tooltip
 
 ```tsx

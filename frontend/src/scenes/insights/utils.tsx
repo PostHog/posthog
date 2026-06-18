@@ -7,13 +7,16 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -563,7 +566,7 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     return query ? urls.insightNew({ query }) : undefined
 }
 
-export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyType }): string {
     const breakdown_value =
         Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
             ? dataset.breakdown_value[0]

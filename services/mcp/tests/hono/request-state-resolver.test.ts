@@ -40,7 +40,7 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation((_redis, _env, props: { mcpSessionId?: string } = {}) => {
+        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
             const sessionCache = makeCache(mockSessionStore)
             return {
                 tokenCache: makeCache(mockTokenStore),

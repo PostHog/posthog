@@ -70,6 +70,7 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
@@ -147,6 +148,8 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                // The explicit-true capture happens before the header override.
+                expect(result.value.processPersonExplicitlyTrue).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(true)
             }
         })
@@ -182,16 +185,22 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
 
-        it('keeps processPerson=true when $process_person_profile=true explicitly', async () => {
+        it('leaves $feature_flag_called events personful when no $process_person_profile property is set', async () => {
             const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
-                    properties: { $process_person_profile: true },
+                    event: '$feature_flag_called',
+                    properties: {
+                        $feature_flag: 'new-homepage',
+                        $feature_flag_response: 'test',
+                        $set: { email: 'user@example.com' },
+                    },
                 },
             }
 
@@ -200,8 +209,34 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
+                expect(result.value.event.properties?.$process_person_profile).toBeUndefined()
+                expect(result.value.event.properties?.$set).toEqual({ email: 'user@example.com' })
             }
         })
+
+        it.each(['$pageview', '$feature_flag_called'])(
+            'keeps %s personful when $process_person_profile=true explicitly',
+            async (eventName) => {
+                const input: StepInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: eventName,
+                        properties: { $process_person_profile: true },
+                    },
+                }
+
+                const result = await normalizeStep(input)
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                if (result.type === PipelineResultType.OK) {
+                    expect(result.value.processPerson).toBe(true)
+                    expect(result.value.processPersonExplicitlyTrue).toBe(true)
+                    expect(result.value.forceDisablePersonProcessing).toBe(false)
+                }
+            }
+        )
     })
 })

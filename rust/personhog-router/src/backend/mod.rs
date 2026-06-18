@@ -32,9 +32,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -112,6 +112,12 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: DeletePersonsBatchForTeamRequest,
     ) -> Result<DeletePersonsBatchForTeamResponse, Status>;
+
+    // Person split
+    async fn split_person(
+        &self,
+        request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status>;
 
     // Cohort membership
     async fn check_cohort_membership(

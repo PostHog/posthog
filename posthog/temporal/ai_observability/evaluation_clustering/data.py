@@ -3,8 +3,9 @@
 Two queries:
 
 - ``fetch_evaluation_embeddings`` — pulls accumulated eval embeddings for a job
-  via ``endsWith(rendering, '_{job_id}')``, matching the Stage A rendering
-  convention ``{team_id}_{run_ts}_{job_id}``.
+  via ``JSONExtractString(metadata, 'job_id')``, matching the Stage A metadata
+  convention ``{"job_id": ...}`` (with a transitional suffix match on legacy
+  ``rendering`` values — see the function docstring).
 - ``fetch_evaluation_metadata`` — joins the sampled $ai_evaluation rows to their
   target $ai_generation (via $ai_target_event_id) to surface both
   eval-specific metadata (name/result/runtime/reasoning/judge_cost) and
@@ -90,10 +91,14 @@ def fetch_evaluation_embeddings(
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
-    Stage A writes a new row every hour tagged with
-    ``rendering = {team_id}_{run_ts}_{job_id}``; we match by suffix since only the
-    job id is stable across runs. Random-order sampling keeps the read size bounded
-    when a job has accumulated far more than ``max_samples`` over time.
+    Stage A scopes each embedding to its job via ``metadata.job_id``; we read that back
+    with ``JSONExtractString(metadata, 'job_id')``. Random-order sampling keeps the read
+    size bounded when a job has accumulated far more than ``max_samples`` over time.
+
+    Transitional dual-match: rows written before the metadata migration carry the job id
+    in ``rendering`` as ``{team_id}_{run_ts}_{job_id}`` (matched by suffix). Both predicates
+    are OR'd so no in-window embeddings are dropped while old rows age out under the table's
+    3-month TTL. Drop the ``endsWith(rendering, ...)`` arm once that TTL has fully elapsed.
 
     ``window_start``/``window_end`` must align with the Stage B metadata lookup
     window — otherwise the random sample can return older eval ids that the
@@ -113,7 +118,7 @@ def fetch_evaluation_embeddings(
             FROM raw_document_embeddings
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
-                AND endsWith(rendering, {job_id_suffix})
+                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
                 AND length(embedding) > 0
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
@@ -128,7 +133,7 @@ def fetch_evaluation_embeddings(
             FROM raw_document_embeddings
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
-                AND endsWith(rendering, {job_id_suffix})
+                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
                 AND length(embedding) > 0
             ORDER BY rand()
             LIMIT {max_samples}
@@ -138,6 +143,7 @@ def fetch_evaluation_embeddings(
     placeholders: dict[str, ast.Expr] = {
         "document_type": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE),
         "model_name": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL),
+        "job_id": ast.Constant(value=job_id),
         "job_id_suffix": ast.Constant(value=f"_{job_id}"),
         "max_samples": ast.Constant(value=max_samples),
     }

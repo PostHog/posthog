@@ -3293,6 +3293,21 @@ export function MarkdownNotebook({
         window.setTimeout(() => element.classList.remove('MarkdownNotebook__component-shell--comment-flash'), 1600)
     }
 
+    const focusDiscussionCommentComposer = (nodeId: string): void => {
+        window.setTimeout(() => {
+            const element = blockRefs.current[nodeId]
+            const textarea = element?.querySelector(
+                '[data-attr="notebook-discussion-comment-input"] textarea, textarea[data-attr="notebook-discussion-comment-input"]'
+            )
+            if (textarea instanceof HTMLTextAreaElement) {
+                textarea.focus()
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                return
+            }
+            element?.focus()
+        }, 0)
+    }
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
         const refId = refElement?.getAttribute('data-notebook-ref')
@@ -3311,13 +3326,23 @@ export function MarkdownNotebook({
             return
         }
 
+        const insertIndex = Math.max(targetIndex, 1)
+        const existingCommentNode = nodes[insertIndex - 1]
+        if (
+            existingCommentNode &&
+            isDiscussionCommentNode(existingCommentNode) &&
+            !getDiscussionCommentRefId(existingCommentNode)
+        ) {
+            focusDiscussionCommentComposer(existingCommentNode.id)
+            return
+        }
+
         const commentNode: NotebookComponentBlockNode = {
             id: makeEmptyParagraph(`comment-${nodeId}`).id,
             type: 'component',
             tagName: 'Comment',
             props: { replies: [] },
         }
-        const insertIndex = Math.max(targetIndex, 1)
         markNotebookNodeFreshlyInserted(commentNode.id)
         commitDocument({
             ...currentDocument,
@@ -4818,6 +4843,27 @@ export function MarkdownNotebook({
         )
     }
 
+    const renderDebugToolbar = (): JSX.Element | null => {
+        if (!showDebug) {
+            return null
+        }
+
+        return (
+            <div className="MarkdownNotebook__debug-toolbar" contentEditable={false}>
+                <LemonButton
+                    size="small"
+                    icon={<IconCode />}
+                    active={isDebugOpen}
+                    tooltip="Edit markdown source"
+                    aria-label="Edit markdown source"
+                    aria-controls={debugDrawerId}
+                    aria-expanded={isDebugOpen}
+                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                />
+            </div>
+        )
+    }
+
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
@@ -5025,11 +5071,14 @@ export function MarkdownNotebook({
         )
     }
 
+    const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
+
     return (
         <div
             className={clsx(
                 'MarkdownNotebook',
                 isDebugOpen && 'MarkdownNotebook--debug-open',
+                mode === 'edit' && 'MarkdownNotebook--edit',
                 hasDiscussionComments &&
                     (fitsCommentGutter ? 'MarkdownNotebook--comments-margin' : 'MarkdownNotebook--comments-inline'),
                 className
@@ -5043,20 +5092,6 @@ export function MarkdownNotebook({
         >
             <div className="MarkdownNotebook__debug-layout">
                 <div className="MarkdownNotebook__main" ref={mainRef} onMouseDown={handleMainMouseDown}>
-                    {showDebug ? (
-                        <div className="MarkdownNotebook__debug-toolbar">
-                            <LemonButton
-                                size="small"
-                                icon={<IconCode />}
-                                active={isDebugOpen}
-                                tooltip="Edit markdown source"
-                                aria-label="Edit markdown source"
-                                aria-controls={debugDrawerId}
-                                aria-expanded={isDebugOpen}
-                                onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
-                            />
-                        </div>
-                    ) : null}
                     {document.errors.length ? (
                         <div className="MarkdownNotebook__parse-errors">
                             {document.errors.map((error) => (
@@ -5096,7 +5131,15 @@ export function MarkdownNotebook({
 
                                 return (
                                     <Fragment key={group.key}>
-                                        <div className="MarkdownNotebook__text-group">
+                                        <div
+                                            className={clsx(
+                                                'MarkdownNotebook__text-group',
+                                                group.key === firstTextGroupKey &&
+                                                    showDebug &&
+                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
+                                            )}
+                                        >
+                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
                                             {chunks.map((chunk) => {
                                                 const chunkLastIndex = chunk.items[chunk.items.length - 1].index
                                                 const rows = chunk.items.map(({ node, index }) => (

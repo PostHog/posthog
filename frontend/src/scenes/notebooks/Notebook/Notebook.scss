@@ -550,7 +550,11 @@
             flex: 1;
 
             // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
+            padding-bottom: 6rem;
+        }
+
+        .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+            padding-bottom: 6rem;
         }
 
         .NotebookColumn--left.NotebookColumn--showing {

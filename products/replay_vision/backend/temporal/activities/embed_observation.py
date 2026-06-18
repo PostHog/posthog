@@ -24,6 +24,7 @@ from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
@@ -65,7 +66,10 @@ def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:
     if isinstance(model_output, ScorerOutput):
         return {"score": model_output.score}
     if isinstance(model_output, ClassifierOutput):
-        return {"tags": [*model_output.tags, *model_output.tags_freeform]}
+        # Slugify fixed-vocab tags too (freeform are already slug) so the stored side is canonical and search
+        # filters match case/format-insensitively. Order-preserving dedup across both lists.
+        tags = [*model_output.tags, *model_output.tags_freeform]
+        return {"tags": list(dict.fromkeys(s for t in tags if (s := slugify_tag(t))))}
     return {}
 
 

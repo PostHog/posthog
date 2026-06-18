@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DEEL,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Deel",
             caption="""Enter your Deel API token to pull your Deel workforce and payroll data into the PostHog Data warehouse.
 

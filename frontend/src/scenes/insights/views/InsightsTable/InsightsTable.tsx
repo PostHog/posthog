@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'

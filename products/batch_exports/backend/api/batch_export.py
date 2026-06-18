@@ -943,6 +943,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "Delete this batch export and create a new one with the new destination type."
             )
 
+        # The legacy `S3` type is retained only for existing rows; new destinations must use the
+        # refined `AwsS3` or `S3Compatible` types. `instance is None` means we're creating.
+        if instance is None and destination_type == BatchExportDestination.Destination.S3:
+            raise serializers.ValidationError(
+                "The 'S3' destination type is deprecated and can no longer be created. "
+                "Use 'AwsS3' for AWS S3, or 'S3Compatible' for S3-compatible storage."
+            )
+
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports

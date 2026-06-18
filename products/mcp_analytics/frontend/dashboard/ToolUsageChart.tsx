@@ -1,7 +1,13 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { type ChartTheme, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import {
+    type ChartTheme,
+    type Series,
+    type TimeInterval,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -11,11 +17,13 @@ export function ToolUsageChart({
     loading,
     theme,
     timezone,
+    interval,
 }: {
     data: ToolDailySeries
     loading: boolean
     theme: ChartTheme
     timezone: string
+    interval: TimeInterval
 }): JSX.Element {
     const series = useMemo<Series[]>(
         () =>
@@ -33,18 +41,18 @@ export function ToolUsageChart({
             barCornerRadius: 2,
             yAxis: { showGrid: false },
             showAxisLines: true,
-            xAxis: { interval: 'day', timezone },
+            xAxis: { interval, timezone },
             tooltip: { placement: 'cursor' },
         }),
-        [timezone]
+        [timezone, interval]
     )
 
     return (
-        <Card title="Daily breakdown of tool calls">
+        <Card title="Tool call breakdown">
             <CardState
                 loading={loading}
                 isEmpty={data.labels.length === 0}
-                skeleton={<LemonSkeleton className="h-[260px] w-full" />}
+                skeleton={<Skeleton className="h-[260px] w-full" />}
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
             >
                 <div className="flex h-[260px] flex-col">

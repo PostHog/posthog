@@ -25,11 +25,12 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { pluralize, toParams } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { toParams } from 'lib/utils/url'
 import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
 import { NotificationsPane } from 'scenes/hog-functions/list/NotificationsPane'
 import { projectLogic } from 'scenes/projectLogic'
@@ -337,6 +338,12 @@ export const scene: SceneExport = {
     productKey: ProductKey.FEATURE_FLAGS,
 }
 
+const RUNTIME_LABELS: Record<FeatureFlagEvaluationRuntime, string> = {
+    [FeatureFlagEvaluationRuntime.ALL]: 'All',
+    [FeatureFlagEvaluationRuntime.CLIENT]: 'Client',
+    [FeatureFlagEvaluationRuntime.SERVER]: 'Server',
+}
+
 export function OverviewTab({
     flagPrefix = '',
     searchPlaceholder = 'Search for feature flags (or experiment keys)',
@@ -487,29 +494,19 @@ export function OverviewTab({
                 return <FeatureFlagStatusCell featureFlag={featureFlag} />
             },
         },
-        ...(enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
-            ? [
-                  {
-                      title: 'Runtime',
-                      dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
-                      width: 120,
-                      render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
-                          const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
-                          return (
-                              <LemonTag type="default" className="uppercase">
-                                  {runtime === FeatureFlagEvaluationRuntime.ALL
-                                      ? 'All'
-                                      : runtime === FeatureFlagEvaluationRuntime.CLIENT
-                                        ? 'Client'
-                                        : runtime === FeatureFlagEvaluationRuntime.SERVER
-                                          ? 'Server'
-                                          : 'All'}
-                              </LemonTag>
-                          )
-                      },
-                  },
-              ]
-            : []),
+        {
+            title: 'Runtime',
+            dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
+            width: 120,
+            render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
+                const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
+                return (
+                    <LemonTag type="default" className="uppercase">
+                        {RUNTIME_LABELS[runtime] ?? RUNTIME_LABELS[FeatureFlagEvaluationRuntime.ALL]}
+                    </LemonTag>
+                )
+            },
+        },
         {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -711,7 +708,6 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
-    const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
     return (
         <SceneContent className="feature_flags">
@@ -767,15 +763,11 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
-                    ...(showProjectsTab
-                        ? [
-                              {
-                                  key: FeatureFlagsTab.PROJECTS,
-                                  label: 'Projects',
-                                  content: <ProjectsGrid />,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: FeatureFlagsTab.PROJECTS,
+                        label: 'Projects',
+                        content: <ProjectsGrid />,
+                    },
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',

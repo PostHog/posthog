@@ -1,6 +1,11 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
-import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
+import {
+    buildToolResultPayload,
+    estimateResponseTokens,
+    isToolCallPayload,
+    type ToolResultPayload,
+} from '@/lib/build-tool-result'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -11,6 +16,7 @@ import {
     findPostHogPermissionError,
     findRecoverableApiError,
 } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { createRenderUiTool } from '@/tools/render-ui'
@@ -140,24 +146,32 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
             stop({ status: 'success' })
 
-            void trackToolCall(tool.name, Date.now() - startMs, false, state)
+            const duration = Date.now() - startMs
 
+            let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
-                return handlerResult
+                response = handlerResult
+            } else {
+                const hasUiResource = !!tool._meta?.ui?.resourceUri
+                const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
+                const distinctId = needsDistinctId ? state.distinctId : undefined
+
+                response = buildToolResultPayload({
+                    handlerResult,
+                    toolMeta: tool._meta,
+                    toolName: tool.name,
+                    params: validation.data,
+                    suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                    distinctId,
+                })
             }
 
-            const hasUiResource = !!tool._meta?.ui?.resourceUri
-            const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
-            const distinctId = needsDistinctId ? state.distinctId : undefined
-
-            return buildToolResultPayload({
-                handlerResult,
-                toolMeta: tool._meta,
-                toolName: tool.name,
-                params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
-                distinctId,
+            void trackToolCall(tool.name, duration, false, state, {
+                input_tokens: estimateTokens(validation.data),
+                output_tokens: estimateResponseTokens(response),
             })
+
+            return response
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -188,21 +202,25 @@ export class ToolExecutor {
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
+            const duration = Date.now() - startMs
 
-            void trackToolCall('exec', Date.now() - startMs, false, state)
+            const response = isToolCallPayload(handlerResult)
+                ? handlerResult
+                : buildToolResultPayload({
+                      handlerResult,
+                      toolMeta: resolved._meta,
+                      toolName: 'exec',
+                      params: validation.data,
+                      suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                      distinctId: undefined,
+                  })
 
-            if (isToolCallPayload(handlerResult)) {
-                return handlerResult
-            }
-
-            return buildToolResultPayload({
-                handlerResult,
-                toolMeta: resolved._meta,
-                toolName: 'exec',
-                params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
-                distinctId: undefined,
+            void trackToolCall('exec', duration, false, state, {
+                input_tokens: estimateTokens(validation.data),
+                output_tokens: estimateResponseTokens(response),
             })
+
+            return response
         } catch (error: unknown) {
             const metricTool = execMetrics.innerToolName ?? 'exec'
             if (!execMetrics.innerToolName) {

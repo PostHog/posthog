@@ -11,23 +11,28 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookHistory } from './NotebookHistory'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTableOfContents } from './NotebookTableOfContents'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
+    const { content, editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
         useValues(notebookLogic)
+    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebookContent(content)
+    const isShowingEffectiveLeftColumn =
+        isShowingLeftColumn &&
+        (editingNodeLogicsForLeft.length > 0 || showHistory || shouldShowTableOfContents || showKernelInfo)
 
     return (
         <div
             className={clsx('NotebookColumn NotebookColumn--left', {
-                'NotebookColumn--showing': isShowingLeftColumn,
+                'NotebookColumn--showing': isShowingEffectiveLeftColumn,
             })}
         >
             <div className="NotebookColumn__content">
-                {isShowingLeftColumn ? (
+                {isShowingEffectiveLeftColumn ? (
                     <>
                         {editingNodeLogicsForLeft.map((logic) => (
                             <div key={logic.values.nodeId}>
@@ -36,7 +41,7 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                             </div>
                         ))}
                         {showHistory ? <NotebookHistory /> : null}
-                        {showTableOfContents ? <NotebookTableOfContents /> : null}
+                        {shouldShowTableOfContents ? <NotebookTableOfContents /> : null}
                         {showKernelInfo ? <NotebookKernelInfo /> : null}
                     </>
                 ) : null}

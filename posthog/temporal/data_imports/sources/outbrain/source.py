@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OUTBRAIN,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Outbrain",
             caption="""Connect your Outbrain Amplify account to pull your advertising data into the PostHog Data warehouse.
 

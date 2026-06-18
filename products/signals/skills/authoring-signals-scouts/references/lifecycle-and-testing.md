@@ -8,7 +8,7 @@ exact mechanics; and how to test a scout in each.
 - **Discovery.** The harness globs `signals-scout-*` over the project's skills (`LLMSkill`
   rows). Any matching skill is a scout. No registration step.
 - **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying
-  `run_interval_minutes` (default 60), `enabled`, `emit`, and a `last_run_at` stamp. A
+  `run_interval_minutes` (default 180), `enabled`, `emit`, and a `last_run_at` stamp. A
   config is **auto-registered** the first time the coordinator sees a `signals-scout-*`
   skill without one — authoring the skill is enough to get a scout. To configure a fresh
   scout immediately (instead of waiting for the tick), register the config yourself with
@@ -37,27 +37,27 @@ the harness globs it in on the next tick.
 
 ```text
 # List existing scouts and other skills
-posthog:llma-skill-list {"search": "signals-scout"}
+posthog:skill-list {"search": "signals-scout"}
 
 # Read a canonical scout to use as a template
-posthog:llma-skill-get {"skill_name": "signals-scout-error-tracking"}
+posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
 # New scout from scratch
-posthog:llma-skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
+posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
 
 # Register its config immediately with the schedule you want (otherwise the coordinator
-# auto-registers an hourly default on its next tick)
+# auto-registers the default every-3-hours schedule on its next tick)
 posthog:signals-scout-config-create {"skill_name": "signals-scout-<scope>", "run_interval_minutes": 120}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
-posthog:llma-skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
-posthog:llma-skill-update {"skill_name": "signals-scout-<scope>", "base_version": N, "edits": [{"old": "...", "new": "..."}]}
+posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
+posthog:skill-update {"skill_name": "signals-scout-<scope>", "base_version": N, "edits": [{"old": "...", "new": "..."}]}
 
 # Duplicate a canonical scout into a new per-team scout you then edit (keeps the canonical intact)
-posthog:llma-skill-duplicate {"skill_name": "signals-scout-general", "new_name": "signals-scout-<scope>"}
+posthog:skill-duplicate {"skill_name": "signals-scout-general", "new_name": "signals-scout-<scope>"}
 
 # Bundle a reference file onto a per-team scout
-posthog:llma-skill-file-create {"skill_name": "signals-scout-<scope>", "path": "references/cookbook.md", "content": "...", "content_type": "text/markdown", "base_version": N}
+posthog:skill-file-create {"skill_name": "signals-scout-<scope>", "path": "references/cookbook.md", "content": "...", "content_type": "text/markdown", "base_version": N}
 ```
 
 Notes:
@@ -91,7 +91,7 @@ hogli unsync:skill -- --name signals-scout-<scope>
 
 Authoring a new canonical scout is just creating `signals-scout-<scope>/SKILL.md` and
 merging — the next tick discovers it, seeds it onto enrolled teams, and auto-registers an
-enabled hourly config. **If you change the fleet shape (add/rename a scout, change the
+enabled config on the default every-3-hours schedule. **If you change the fleet shape (add/rename a scout, change the
 SKILL.md schema), update `products/signals/skills/AGENTS.md`.** On master, CI builds and
 publishes `dist/skills.zip` to the downstream distribution repos (the `ai-plugin` bundle and
 the standalone skills repo) automatically.
@@ -110,9 +110,9 @@ and calibrate against what actually lands.
    - `posthog:signals-scout-runs-retrieve` — the full reasoning for one run.
    - `posthog:signals-scout-scratchpad-search` — the durable memory it wrote.
 3. Refine the body for whatever it false-positived or missed — tighten the discriminator,
-   add disqualifiers, fix emit calibration. Re-edit via `llma-skill-update`.
+   add disqualifiers, fix emit calibration. Re-edit via `skill-update`.
 4. Once it's landing the right findings, `config-update` to restore a sustainable interval
-   (hourly or slower).
+   (the 3h default or slower).
 
 **Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive,
 or high-stakes, set `emit=false` so it runs and logs what it _would_ have emitted (visible in

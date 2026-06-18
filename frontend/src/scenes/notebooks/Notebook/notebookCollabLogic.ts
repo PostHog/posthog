@@ -1,19 +1,26 @@
 import { EventSourceMessage } from '@microsoft/fetch-event-source'
 import { getVersion, receiveTransaction, sendableSteps } from '@tiptap/pm/collab'
 import { Step } from '@tiptap/pm/transform'
-import { actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { JSONContent, TTEditor } from 'lib/components/RichContentEditor/types'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
+import {
+    getNotebookRemoteParticipants,
+    type NotebookRemoteParticipant,
+    pruneNotebookRemotePresence,
+} from './notebookPresence'
 import { ClientPresence, REMOTE_PRESENCE_META } from './RemotePresenceExtension'
 
+const PRESENCE_TTL_MS = 30_000
+const PRESENCE_PRUNE_INTERVAL_MS = 5_000
 const PRESENCE_HEARTBEAT_MS = 10_000
 const PRESENCE_PUBLISH_DEBOUNCE_MS = 250
 
@@ -98,6 +105,8 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         rebaseFailed: (params: { localContent: JSONContent; localText: string }) => params,
         /** Broadcast the local caret so it moves for others even without typing. */
         publishPresence: true,
+        handleRemotePresence: (presence: ClientPresence) => ({ presence }),
+        pruneRemotePresence: (now: number = Date.now()) => ({ now }),
         connectStream: true,
         disconnectStream: true,
         streamOpened: true,
@@ -139,11 +148,27 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 disconnectStream: () => null,
             },
         ],
+        remotePresence: [
+            {} as Record<string, ClientPresence>,
+            {
+                handleRemotePresence: (state, { presence }) => ({ ...state, [presence.clientId]: presence }),
+                pruneRemotePresence: (state, { now }) => pruneNotebookRemotePresence(state, now, PRESENCE_TTL_MS),
+                unbindEditor: () => ({}),
+            },
+        ],
+    }),
+
+    selectors({
+        remoteParticipants: [
+            (s) => [s.remotePresence],
+            (remotePresence): NotebookRemoteParticipant[] => getNotebookRemoteParticipants(remotePresence),
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
         bindEditor: ({ editor }) => {
             actions.connectStream()
+            actions.publishPresence()
 
             cache.disposables.add(() => {
                 const onSelectionUpdate = (): void => actions.publishPresence()
@@ -159,12 +184,18 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 const intervalId = window.setInterval(() => actions.publishPresence(), PRESENCE_HEARTBEAT_MS)
                 return () => window.clearInterval(intervalId)
             }, 'presenceHeartbeat')
+
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => actions.pruneRemotePresence(), PRESENCE_PRUNE_INTERVAL_MS)
+                return () => window.clearInterval(intervalId)
+            }, 'presencePrune')
         },
 
         unbindEditor: () => {
             actions.disconnectStream()
             cache.disposables.dispose('presenceSelectionUpdate')
             cache.disposables.dispose('presenceHeartbeat')
+            cache.disposables.dispose('presencePrune')
         },
 
         publishPresence: async (_, breakpoint) => {
@@ -233,6 +264,13 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     continue
                 }
                 try {
+                    if (remote.presence) {
+                        actions.handleRemotePresence({
+                            clientId: remote.clientId,
+                            ...remote.presence,
+                            lastSeenAt: Date.now(),
+                        })
+                    }
                     applyRemoteStep(editor, remote)
                 } catch (e) {
                     posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })
@@ -276,6 +314,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                             head: payload.cursor.head,
                             lastSeenAt: Date.now(),
                         }
+                        actions.handleRemotePresence(presence)
                         // The extension clamps positions, so a briefly skewed version is safe.
                         editor.view.dispatch(editor.state.tr.setMeta(REMOTE_PRESENCE_META, presence))
                     } catch (e) {
@@ -311,15 +350,21 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 const localContent = editor.getJSON()
                 const localText = editor.getText()
                 try {
+                    const remotePresence = {
+                        userId: parsed.user_id,
+                        userName: parsed.user_name,
+                        head: parsed.cursor_head,
+                    }
+                    actions.handleRemotePresence({
+                        clientId: parsed.client_id,
+                        ...remotePresence,
+                        lastSeenAt: Date.now(),
+                    })
                     applyRemoteStep(editor, {
                         step: parsed.step,
                         clientId: parsed.client_id,
                         version,
-                        presence: {
-                            userId: parsed.user_id,
-                            userName: parsed.user_name,
-                            head: parsed.cursor_head,
-                        },
+                        presence: remotePresence,
                     })
                 } catch (e) {
                     posthog.captureException(e as Error, { action: 'notebook collab apply remote step' })

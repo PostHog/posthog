@@ -30,7 +30,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -44,6 +45,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -60,7 +62,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -101,7 +103,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -115,6 +118,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -131,7 +135,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -190,7 +194,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -205,6 +210,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -221,7 +227,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -258,11 +264,12 @@
             argMin(t.exposure_event_uuid, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_event_uuid,
             argMin(t.exposure_session_id, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_session_id
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -277,6 +284,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -293,7 +301,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -352,7 +360,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -367,6 +376,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -383,7 +393,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -420,11 +430,12 @@
             argMin(t.exposure_event_uuid, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_event_uuid,
             argMin(t.exposure_session_id, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_session_id
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -439,6 +450,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -455,7 +467,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -514,7 +526,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -529,6 +542,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -545,7 +559,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -582,11 +596,12 @@
             argMin(t.exposure_event_uuid, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_event_uuid,
             argMin(t.exposure_session_id, toTimeZone(t.first_exposure_time, 'UTC')) AS exposure_session_id
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -601,6 +616,7 @@
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -617,7 +633,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -676,7 +692,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -690,6 +707,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -706,7 +724,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(0))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(0)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(86400)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(86400)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -747,7 +765,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -761,6 +780,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -777,7 +797,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(0))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(0)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(86400)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(86400)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -836,7 +856,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -850,6 +871,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -866,7 +888,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -924,7 +946,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMax(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -938,6 +961,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -954,7 +978,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1012,7 +1036,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1026,6 +1051,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1042,7 +1068,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1100,7 +1126,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMax(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1114,6 +1141,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1130,7 +1158,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1188,7 +1216,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1202,6 +1231,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1218,7 +1248,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfHour(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfHour(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalHour(0))), lessOrEquals(toStartOfHour(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfHour(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalHour(0)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(3600)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(3600)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1259,7 +1289,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1273,6 +1304,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1289,7 +1321,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfHour(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfHour(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalHour(0))), lessOrEquals(toStartOfHour(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfHour(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalHour(0)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(3600)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(3600)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1348,7 +1380,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1362,6 +1395,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1378,7 +1412,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1419,7 +1453,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1433,6 +1468,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1449,7 +1485,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1508,7 +1544,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1522,6 +1559,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1538,7 +1576,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1579,7 +1617,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1593,6 +1632,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1609,7 +1649,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1668,7 +1708,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1682,6 +1723,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1698,7 +1740,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1739,7 +1781,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1753,6 +1796,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1769,7 +1813,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1828,7 +1872,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1842,6 +1887,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1858,7 +1904,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -1916,7 +1962,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1930,6 +1977,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1946,7 +1994,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2004,7 +2052,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2018,6 +2067,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2034,7 +2084,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2075,7 +2125,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2089,6 +2140,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2105,7 +2157,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(691200)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2164,7 +2216,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2178,6 +2231,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2194,7 +2248,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(14)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(1296000)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(1296000)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2235,7 +2289,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2249,6 +2304,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2265,7 +2321,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(7))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(14)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(1296000)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(1296000)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2324,7 +2380,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2338,6 +2395,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2354,7 +2412,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(3)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(345600)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(345600)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2395,7 +2453,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
-            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
+            min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS start_uuid
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -2409,6 +2468,7 @@
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            events.uuid AS completion_uuid,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -2425,7 +2485,7 @@
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(1))), lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(toTimeZone(start_events.start_timestamp, 'UTC')), toIntervalDay(3)))), 1, 0)) AS value
      FROM exposures
      INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(345600)))))
+     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), toTimeZone(start_events.start_timestamp, 'UTC')), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(toTimeZone(start_events.start_timestamp, 'UTC'), toIntervalSecond(345600)))), notEquals(completion_events.completion_uuid, start_events.start_uuid))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
