@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonDivider,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -34,18 +43,34 @@ export function TeamsSection(): JSX.Element {
 }
 
 interface TeamsChannelRowProps {
-    pair: { team_id: string; team_name?: string | null; channel_id: string; channel_name?: string | null }
+    pair: {
+        team_id: string
+        team_name?: string | null
+        channel_id: string
+        channel_name?: string | null
+        membership_type?: string | null
+    }
     onRemove: () => void
     isLoading: boolean
     adminRestrictionReason: string | null
 }
 
 function TeamsChannelRow({ pair, onRemove, isLoading, adminRestrictionReason }: TeamsChannelRowProps): JSX.Element {
+    const isShared = pair.membership_type === 'shared'
     return (
         <div className="flex items-center justify-between gap-2 py-2 px-3 border rounded">
             <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{pair.team_name || pair.team_id}</div>
-                <div className="text-xs text-muted-alt truncate">#{pair.channel_name || pair.channel_id}</div>
+                <div className="flex items-center gap-2">
+                    <div className="text-xs text-muted-alt truncate">#{pair.channel_name || pair.channel_id}</div>
+                    {isShared && (
+                        <Tooltip title="Shared channels don't push messages to bots, so PostHog polls them via Microsoft Graph every minute to pick up new messages.">
+                            <LemonTag type="completion" size="small">
+                                Shared · polled
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                </div>
             </div>
             <LemonButton
                 icon={<IconTrash />}
@@ -178,10 +203,12 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                             value={null}
                             options={[
                                 { value: null, label: 'Select channel...' },
-                                ...selectedTeamChannels.map((c: { id: string; name: string }) => ({
-                                    value: c.id,
-                                    label: `#${c.name}`,
-                                })),
+                                ...selectedTeamChannels.map(
+                                    (c: { id: string; name: string; membership_type?: string | null }) => ({
+                                        value: c.id,
+                                        label: c.membership_type === 'shared' ? `#${c.name} (shared)` : `#${c.name}`,
+                                    })
+                                ),
                             ]}
                             onChange={handleChannelSelect}
                             loading={teamsChannelsLoading || !!teamsChannelPairLoading}

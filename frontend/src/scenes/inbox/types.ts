@@ -221,6 +221,8 @@ export interface SignalScoutRunSummary {
     skill_name: string
     skill_version: number
     status: SignalScoutRunStatus
+    /** Bridge-row creation timestamp — the field the runs endpoint filters/orders on (the pagination cursor). */
+    created_at: string
     started_at: string
     completed_at: string | null
     task_id?: string | null

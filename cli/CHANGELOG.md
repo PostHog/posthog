@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.7.27 — 2026-06-18
+
+### Patch changes
+
+- [7be64cbe1e](https://github.com/PostHog/posthog/commit/7be64cbe1e982e27c1d863146a6268986b7a3ca3) Fix the post-login hint so `posthog-cli login` suggests a valid next command based on the scopes authorized for the generated key. — Thanks @cvolzer3!
+
+## 0.7.26 — 2026-06-18
+
+### Patch changes
+
+- [801e9a763c](https://github.com/PostHog/posthog/commit/801e9a763c5247540106db6740fe71ba6798bd7f) Fix CLI login for agent workflows by adding the Agent CLI preset, using the supported agent scope set, and showing clearer messages about what the generated key can do. — Thanks @cvolzer3!
+
 ## 0.7.25 — 2026-06-17
 
 ### Patch changes

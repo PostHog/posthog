@@ -3,7 +3,6 @@ import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
-import { defaultConfig } from '~/config/config'
 import { isDevEnv, isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -15,12 +14,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
-import {
-    generateEmailTrackingCode,
-    generateEmailTrackingPixelUrl,
-    parseEmailTrackingCode,
-    trackingCodeFormatCounter,
-} from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -67,18 +61,6 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
-export const generateTrackingRedirectUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
-        parentRunId?: string | null
-        state?: { actionId?: string }
-        distinctId?: string
-    },
-    targetUrl: string,
-    isTest = false
-): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
-}
-
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -100,6 +82,7 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
+    signer: EmailTrackingCodeSigner,
     isTest = false
 ): string => {
     // Only carry distinct_id in the in-email pixel/redirect URLs in dev/test, where those handlers
@@ -108,7 +91,7 @@ export const addTrackingToEmail = (
     // a tracked-link click could leak the recipient identifier to the destination via the Referer.
     const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
     const trackingInvocation = { ...invocation, distinctId }
-    const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation, isTest)
+    const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
@@ -117,7 +100,7 @@ export const addTrackingToEmail = (
         if (/^\s*javascript:/i.test(href)) {
             return m
         }
-        const tracked = generateTrackingRedirectUrl(trackingInvocation, href, isTest)
+        const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -137,9 +120,10 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        private recipientsManager: RecipientsManagerService
+        private recipientsManager: RecipientsManagerService,
+        private trackingCodeSigner: EmailTrackingCodeSigner
     ) {
-        this.sesWebhookHandler = new SesWebhookHandler()
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
     }
 
     public async trackMetric({
@@ -307,7 +291,7 @@ export class EmailTrackingService {
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
-            const parsed = parseEmailTrackingCode(query.ph_id as string)
+            const parsed = this.trackingCodeSigner.parse(query.ph_id as string)
             if (parsed) {
                 trackingCodeFormatCounter.inc({ format: parsed.format, source: 'tracking' })
             }

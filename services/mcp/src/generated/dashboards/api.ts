@@ -17,6 +17,12 @@ export const DashboardsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
+    folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
+        ),
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

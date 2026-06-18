@@ -56,7 +56,4 @@ class RetentionBaseQueryVariantComparisonMixin:
         if query.get("breakdownFilter"):
             return True
 
-        if query.get("samplingFactor") is not None:
-            return True
-
         return False
