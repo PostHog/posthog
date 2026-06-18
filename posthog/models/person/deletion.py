@@ -62,7 +62,7 @@ def _get_version_for_distinct_id(team_id: int, distinct_id: str) -> int:
 
 
 def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, int]]):
-    # Determine the correct database for PersonDistinctId writes (handles persons_db_writer routing in production)
+    # DB alias for the ORM-fallback person-version write below (handles persons_db_writer routing in production)
     db_alias = router.db_for_write(PersonDistinctId) or "default"
     reset_person_uuids: set[str] = set()
 
@@ -72,8 +72,10 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
 
-        with transaction.atomic(using=db_alias):
-            person = _update_distinct_id_in_postgres(distinct_id, version, team_id)
+        # No transaction here: the write goes through personhog (an external RPC that
+        # can't join a Postgres transaction) or, on fallback, an ORM write that scopes
+        # its own atomic block. See _set_distinct_id_version_floor_via_orm.
+        person = _update_distinct_id_in_postgres(distinct_id, version, team_id)
 
         # Update ClickHouse via Kafka message
         if person:
@@ -131,19 +133,25 @@ def _set_distinct_id_version_floor_via_personhog(team_id: int, distinct_id: str,
 
 
 def _set_distinct_id_version_floor_via_orm(team_id: int, distinct_id: str, version: int) -> Optional[Person]:
-    person_distinct_id = (
-        PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id)  # nosemgrep: no-direct-persons-db-orm
-        .select_related("person")
-        .first()  # nosemgrep: no-direct-persons-db-orm
-    )
-    if person_distinct_id is None:
-        logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
-        return None
-    # Guarded floor: never lower the stored version (matches the RPC semantics).
-    if person_distinct_id.version is None or person_distinct_id.version < version:
-        person_distinct_id.version = version
-        person_distinct_id.save()
-    return person_distinct_id.person
+    # Scope the transaction to exactly this local read+write. The personhog path makes
+    # no Postgres writes, so the caller must not wrap the routed call in an atomic block.
+    db_alias = router.db_for_write(PersonDistinctId) or "default"
+    with transaction.atomic(using=db_alias):
+        person_distinct_id = (
+            PersonDistinctId.objects.filter(
+                team_id=team_id, distinct_id=distinct_id
+            )  # nosemgrep: no-direct-persons-db-orm
+            .select_related("person")
+            .first()  # nosemgrep: no-direct-persons-db-orm
+        )
+        if person_distinct_id is None:
+            logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
+            return None
+        # Guarded floor: never lower the stored version (matches the RPC semantics).
+        if person_distinct_id.version is None or person_distinct_id.version < version:
+            person_distinct_id.version = version
+            person_distinct_id.save()
+        return person_distinct_id.person
 
 
 def _get_person_version_if_deleted(team_id: int, person_uuid: str) -> Optional[int]:
