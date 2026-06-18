@@ -77,6 +77,12 @@ export interface FilterBarProps {
     showSearch?: boolean
     /** What free-text search applies to — drives the placeholder and search action label. */
     searchSubject?: string
+    /**
+     * Presentation: `bar` is the default filled/bordered pill. `inline` deconstructs it into
+     * zones (date + reload left, filter button + pills floating in the middle with no background,
+     * sort right) for a lighter, Linear-style toolbar.
+     */
+    variant?: 'bar' | 'inline'
     className?: string
 }
 
@@ -99,6 +105,7 @@ export function FilterBar({
     showIssueControls = true,
     showSearch = true,
     searchSubject = 'issues',
+    variant = 'bar',
     className,
 }: FilterBarProps): JSX.Element {
     const { filterGroup } = useValues(issueFiltersLogic)
@@ -121,6 +128,7 @@ export function FilterBar({
                 showIssueControls={showIssueControls}
                 showSearch={showSearch}
                 searchSubject={searchSubject}
+                variant={variant}
                 className={className}
             />
         </UniversalFilters>
@@ -128,7 +136,7 @@ export function FilterBar({
 }
 
 type BarProps = Required<
-    Pick<FilterBarProps, 'taxonomicGroupTypes' | 'showIssueControls' | 'showSearch' | 'searchSubject'>
+    Pick<FilterBarProps, 'taxonomicGroupTypes' | 'showIssueControls' | 'showSearch' | 'searchSubject' | 'variant'>
 > &
     Pick<FilterBarProps, 'reload' | 'logicKey' | 'quickFilterContext' | 'className'>
 
@@ -165,6 +173,10 @@ const Bar = (props: BarProps): JSX.Element => {
 
 const Separator = (): JSX.Element => <div className="w-px h-5 bg-border shrink-0 mx-1" />
 
+// Filled pill matching the default bar's surface — wraps the side clusters (date/reload, sort)
+// in the inline variant so they still read as grouped buttons while the filters float between them.
+const INLINE_CLUSTER = 'rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm px-1'
+
 const BarContents = ({
     reload,
     logicKey,
@@ -173,11 +185,14 @@ const BarContents = ({
     showIssueControls,
     showSearch,
     searchSubject,
+    variant,
     className,
 }: BarProps): JSX.Element => {
     const { searchQuery: panelQuery } = useTaxonomicFilterContext()
     const { searchQuery } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(issueFiltersLogic)
+
+    const isInline = variant === 'inline'
 
     const trimmed = panelQuery.trim()
     const searchEntries = useMemo<MenuFilterEntry[]>(() => {
@@ -197,16 +212,18 @@ const BarContents = ({
     return (
         <div
             className={cn(
-                'flex items-center min-h-11 pr-1.5 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm',
+                isInline
+                    ? 'flex items-center gap-2'
+                    : 'flex items-center min-h-11 pr-1.5 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm',
                 className
             )}
         >
-            <div className="flex items-center gap-0.5 pl-1.5 shrink-0">
+            <div className={cn('flex items-center gap-0.5 shrink-0', isInline ? INLINE_CLUSTER : 'pl-1.5')}>
                 {reload}
                 <DateRangeFilter size="small" type="tertiary" />
             </div>
-            <Separator />
-            <div className="flex-1 min-w-0 flex items-center flex-wrap gap-1 px-1">
+            {!isInline && <Separator />}
+            <div className={cn('flex-1 min-w-0 flex items-center flex-wrap gap-1', !isInline && 'px-1')}>
                 <TaxonomicFilterMenu
                     placeholder={
                         showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
@@ -237,7 +254,9 @@ const BarContents = ({
                             icon={<IconFilter />}
                             active={open}
                             tooltip={showSearch ? `Search and filter ${searchSubject}` : 'Filter by property'}
-                        />
+                        >
+                            {isInline ? 'Filter' : undefined}
+                        </LemonButton>
                     )}
                 />
                 <FilterOperatorToggle />
@@ -251,8 +270,8 @@ const BarContents = ({
             </div>
             {showIssueControls && (
                 <>
-                    <Separator />
-                    <div className="flex items-center gap-0.5 shrink-0">
+                    {!isInline && <Separator />}
+                    <div className={cn('flex items-center gap-0.5 shrink-0', isInline && INLINE_CLUSTER)}>
                         <SortControl />
                     </div>
                 </>

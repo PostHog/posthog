@@ -133,6 +133,7 @@ const IssuesRedesignedTab = (): JSX.Element => {
                 {banners}
                 <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
                     <FilterBar
+                        variant="inline"
                         reload={<IssueReloadButton />}
                         logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                         quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}

@@ -13,11 +13,11 @@ import {
     ErrorTrackingQueryOrderDirection,
     issueQueryOptionsLogic,
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
-import { IssueListTitleColumn } from 'products/error_tracking/frontend/components/TableColumns'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 
 import { IssueCountCell, IssueVolumeCell } from './issueListCells'
+import { IssueRowRedesigned } from './IssueRowRedesigned'
 
 // Title takes the remaining space; the sparkline + three counts get fixed tracks so
 // every row lines up without any table chrome.
@@ -25,7 +25,7 @@ const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_13rem_5rem_5rem_5rem] items-cent
 
 /**
  * Table-less issues list. Renders each issue as a plain hover row (Linear-style) instead of the
- * DataTable, reusing the same title block and volume/count cells so individual issues look unchanged.
+ * DataTable: a fresh, compact title block (IssueRowRedesigned) plus the shared volume/count cells.
  * Expects an `issuesDataNodeLogic` provided by the surrounding scene.
  */
 export function IssuesListRedesigned(): JSX.Element {
@@ -126,7 +126,7 @@ const IssueRow = ({
             )}
         >
             <div className="min-w-0">
-                <IssueListTitleColumn results={results} record={record} recordIndex={recordIndex} />
+                <IssueRowRedesigned results={results} record={record} recordIndex={recordIndex} />
             </div>
             <IssueVolumeCell record={record} />
             <div className="text-center">
