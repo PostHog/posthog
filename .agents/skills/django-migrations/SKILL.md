@@ -16,11 +16,21 @@ If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
 
 ## Workflow
 
-1. **Classify** the change as additive (new nullable column, new table) or risky (drop/rename, `NOT NULL`, indexes, constraints, large data updates, model moves). See also the [cross-language `NOT NULL` hazard](#cross-language-not-null-hazard) below.
+1. **Classify** the change as additive (new nullable column, new table) or risky (drop/rename, `NOT NULL`, indexes, constraints, large data updates, model moves). A change is also risky if it touches a [hot table](#hot-table-hazard), regardless of how additive it looks. See also the [cross-language `NOT NULL` hazard](#cross-language-not-null-hazard) below.
 2. **Generate**: `DEBUG=1 ./manage.py makemigrations [app_label]`.
    For merge conflicts: `python manage.py rebase_migration <app> && git add <app>/migrations` (`posthog` or `ee`).
 3. **Apply safety rules** from `safe-django-migrations.md` — the doc covers multi-phase rollouts, `SeparateDatabaseAndState`, concurrent operations, idempotency, and all risky patterns in detail.
 4. **Validate**: `./manage.py sqlmigrate <app> <migration_number>`, run tests, confirm linear migration sequence.
+
+## Hot table hazard
+
+`posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Any `ALTER TABLE` on them — including a plain nullable `AddField`, which is "safe" everywhere else — needs an `ACCESS EXCLUSIVE` lock, and while that lock request waits behind in-flight queries, every later query on the table queues behind it. Even a metadata-only `ADD COLUMN` can stall site-wide traffic in waves (one per `bin/migrate` retry) until the ALTER wins the lock race. This has caused production 5xx incidents.
+
+Before writing a migration that touches one of these models:
+
+- For `Team`: put domain-specific fields on a Team extension model instead — `posthog/models/team/README.md`. That's a `CREATE TABLE`, no lock on `posthog_team`.
+- `CREATE INDEX CONCURRENTLY` (via `CreateIndexConcurrently`) is fine — `SHARE UPDATE EXCLUSIVE` doesn't block reads or writes.
+- If the field genuinely belongs on the hot table (core identity, cross-product settings, SDK config), the `HotTableAlterPolicy` analyzer blocks the migration in CI until `<app_label>.<migration_name>` is added to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt`. That acknowledgment also means coordinating the deploy with infra for a low-traffic window.
 
 ## Cross-language `NOT NULL` hazard
 

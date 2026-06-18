@@ -151,6 +151,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "conversations": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
 }
 
 

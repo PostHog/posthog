@@ -115,6 +115,11 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
+# All dialects that compile to an external SQL database queried directly (as opposed to
+# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
+# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
+_DIRECT_SQL_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -1575,19 +1580,19 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
-            if node.name == "__preview_isBot":
+            if node.name in ("isLikelyBot", "__preview_isBot"):
                 return self.visit(is_bot(node=node, args=node.args))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
-            if node.name == "__preview_getTrafficType":
+            if node.name in ("getTrafficType", "__preview_getTrafficType"):
                 return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
-            if node.name == "__preview_getTrafficCategory":
+            if node.name in ("getTrafficCategory", "__preview_getTrafficCategory"):
                 return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
-            if node.name == "__preview_getBotType":
+            if node.name in ("getBotType", "__preview_getBotType"):
                 return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
-            if node.name == "__preview_getBotName":
+            if node.name in ("getBotName", "__preview_getBotName"):
                 return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
-            if node.name == "__preview_getBotOperator":
+            if node.name in ("getBotOperator", "__preview_getBotOperator"):
                 return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
 
         if self._is_higher_order_array_call(node):
@@ -1863,7 +1868,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
+        if self.dialect in _DIRECT_SQL_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1906,7 +1911,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _POSTGRES_FAMILY
+            and self.dialect in _DIRECT_SQL_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

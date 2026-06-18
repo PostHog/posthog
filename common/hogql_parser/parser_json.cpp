@@ -1890,6 +1890,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprNullSafeEq) {
+    // MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b`
+    Json json = Json::object();
+    json["node"] = "IsDistinctFrom";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["left"] = visitAsJSON(ctx->columnExpr(0));
+    json["right"] = visitAsJSON(ctx->columnExpr(1));
+    json["negated"] = true;
+    return json;
+  }
+
   VISIT(ColumnExprTrim) {
     const char* name;
     if (ctx->LEADING()) {

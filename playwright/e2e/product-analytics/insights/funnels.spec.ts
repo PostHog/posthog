@@ -236,8 +236,6 @@ test.describe('Funnel insights', () => {
         await test.step('switch back to Sequential', async () => {
             await insight.funnels.selectStepOrder('Sequential')
             await insight.funnels.waitForChart()
-            // Without this check a silently failed switch gets saved below, and any
-            // test reading this insight afterwards runs against the wrong step order.
             await expect(insight.funnels.stepOrderFilter).toContainText('Sequential')
         })
 
@@ -255,8 +253,10 @@ test.describe('Funnel insights', () => {
 
             const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })
-            // The actors query can take well over the local 10s expect default under load
-            await expect(modal).toContainText('firefox-user-1', { timeout: 30000 })
+            // The actors query can take well over the local 10s expect default under load.
+            // Depending on person merge/deletion state, actors can show as named users or Anonymous.
+            await expect(modal.locator('[data-attr^="persons-modal-expand-"]').first()).toBeVisible({ timeout: 30000 })
+            await expect(modal).toContainText(/firefox-user-1|Anonymous/, { timeout: 30000 })
 
             await modal.getByRole('button', { name: 'close' }).click()
             await expect(modal).not.toBeVisible()

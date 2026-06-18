@@ -46,7 +46,7 @@ from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_e
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
@@ -5743,6 +5743,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "green_button"
 
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_keys)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"red_button", "blue_button"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"red_button", "orange_button"}),
+            ("single_id", lambda ids: str(ids[1]), {"blue_button"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_get_flags_with_multiple_created_by_id_filter(self, _name, format_filter, expected_keys):
+        another_user = User.objects.create(email="foo@bar.com")
+        third_user = User.objects.create(email="baz@bar.com")
+        unrelated_user = User.objects.create(email="nobody@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=third_user, key="orange_button")
+
+        ids = [self.user.id, another_user.id, third_user.id, unrelated_user.id]
+        response = self.client.get(f"/api/projects/@current/feature_flags?created_by_id={format_filter(ids)}")
+        assert {flag["key"] for flag in response.json()["results"]} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("bool_true", True, []),
+            ("int", 42, [42]),
+            ("single_str", "42", [42]),
+            ("empty_str", "", []),
+            ("comma_separated", "1,2", [1, 2]),
+            ("comma_with_invalid", "1,abc,3", [1, 3]),
+            ("json_list", "[1, 2]", [1, 2]),
+            ("non_numeric", "abc", []),
+            ("malformed_json", "[5", []),
+        ]
+    )
+    def test_parse_created_by_ids(self, _name, value, expected):
+        assert parse_created_by_ids(value) == expected
+
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(
@@ -10753,6 +10791,59 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    # (name, filters, expected_rollout) — exercises the rollout summary end-to-end through the serializer.
+    @parameterized.expand(
+        [
+            (
+                "full_rollout",
+                {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": False,
+                },
+            ),
+            (
+                "targeted",
+                {"groups": [{"rollout_percentage": 50, "properties": [{"key": "email", "value": "x"}]}]},
+                {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": True,
+                    "max_rollout_percentage": 50,
+                    "is_multivariate": False,
+                },
+            ),
+            # Multivariate flag guards the is_multivariate field through the serializer path.
+            (
+                "multivariate",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                },
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": True,
+                },
+            ),
+        ]
+    )
+    def test_flag_status_includes_rollout_summary(self, name, filters, expected_rollout):
+        """The status response exposes a rollout summary so callers can determine full rollout / GA."""
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters=filters,
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["rollout"], expected_rollout)
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()
@@ -11287,6 +11378,16 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Empty-variants block routes through the boolean branch: a 100% group is fully rolled out.
+        empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_variants",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": []},
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -11296,13 +11397,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     zero_rollout.id,
                     partial.id,
                     multivariate.id,
+                    empty_variants.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 4
+        assert len(data["deleted"]) == 5
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -11317,6 +11419,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
         assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+        assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["empty_variants"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""

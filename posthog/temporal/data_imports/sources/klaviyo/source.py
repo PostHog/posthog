@@ -68,6 +68,16 @@ Make sure to grant the following read permissions:
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # An invalid, revoked, or insufficiently-scoped Klaviyo API key surfaces as a requests
+            # HTTPError when `fetch_page` calls `raise_for_status()`. Retrying can never satisfy a
+            # credential problem, so stop the sync. Match the stable status text and base host, not
+            # the per-request path/query/timestamp.
+            "401 Client Error: Unauthorized for url: https://a.klaviyo.com": "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your Klaviyo account settings, then reconnect.",
+            "403 Client Error: Forbidden for url: https://a.klaviyo.com": "Your Klaviyo API key is missing the read permissions needed to sync this data. Grant the required read scopes in your Klaviyo account settings, then reconnect.",
+        }
+
     def get_schemas(
         self,
         config: KlaviyoSourceConfig,

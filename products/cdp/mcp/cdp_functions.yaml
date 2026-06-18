@@ -26,19 +26,21 @@ tools:
             their values. Use 'filters' to control which events trigger the function. Transformations run during
             ingestion and have an 'execution_order' field.
 
-            Recipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update
-            point here):
+            Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
+            alert-update point here):
 
             1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration
                id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user
-               provides the destination URL directly.
+               provides the destination URL directly. For Discord, the user provides an incoming webhook URL
+               (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.
 
             2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
                response now includes filters. Look for an existing function whose filters.properties has an entry
                with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on
                that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)
 
-            3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:
+            3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or
+               template-discord), and:
                  filters = {
                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
                    "properties": [{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]
@@ -69,6 +71,15 @@ tools:
                  }
                  # Webhook — must be an https:// URL.
                  inputs = {"url": {"value": "<destination_url>"}}
+                 # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.
+                 # Override content with the same shape the alert-wizard UI uses, so agent-created and
+                 # UI-created alerts produce identical Discord messages.
+                 # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for
+                 # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.
+                 inputs = {
+                   "webhookUrl": {"value": "<discord_webhook_url>"},
+                   "content": {"value": "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n{event.properties.breaches}\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"}
+                 }
 
             4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,
                insight_id (short_id), state (always "Firing" — the event is only emitted on a firing transition,

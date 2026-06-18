@@ -22,6 +22,7 @@ Product = Literal[
     "product_analytics",
     "subscriptions",
     "signals",
+    "conversations",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
