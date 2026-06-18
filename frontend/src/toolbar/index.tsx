@@ -14,7 +14,7 @@ import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
@@ -88,13 +88,13 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
-        // Validate with canonicalizeApiHost so an attacker-controlled apiURL in
+        // Validate with canonicalizeHost so an attacker-controlled apiURL in
         // the hash can't receive the credentialed request (the flags key is
         // low-impact on its own, but `credentials: 'include'` would send any
         // cookies for the attacker's origin alongside it).
         const trimmedHost =
-            canonicalizeApiHost(posthog.config?.api_host) ||
-            canonicalizeApiHost(toolbarParams.apiURL) ||
+            canonicalizeHost(posthog.config?.api_host) ||
+            canonicalizeHost(toolbarParams.apiURL) ||
             window.location.origin
         await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
             credentials: 'include',

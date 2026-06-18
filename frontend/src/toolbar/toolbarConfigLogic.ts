@@ -102,15 +102,19 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // PostHog app URL used for OAuth and navigation links.
         //
         // Every candidate (props.uiHost, requestRouter, config.ui_host, apiURL) is
-        // sanitized via canonicalizeUiHost — it rejects non-http(s) schemes, URLs with
+        // sanitized via canonicalizeHost — it rejects non-http(s) schemes and URLs with
         // userinfo (which can visually spoof the target in confirmation dialogs), and
-        // returns the canonical `origin` (lowercased hostname, no trailing slash, no
-        // path/query/hash). This keeps every downstream comparison and display string
-        // byte-for-byte consistent regardless of which branch resolved.
+        // returns the canonical origin plus any path prefix (lowercased hostname, no
+        // trailing slash, no query/hash). The path prefix is preserved on purpose:
+        // reverse-proxy deployments expose PostHog under a path (e.g.
+        // `https://proxy/api/v1/s`), and the toolbar appends `/toolbar_oauth/check`,
+        // `/toolbar_oauth/authorize/`, `/oauth/token/`, and the authenticated `/api/...`
+        // calls to uiHost — dropping the prefix points all of those at the customer's
+        // bare domain, which 404s.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                const propsUiHost = canonicalizeUiHost(props.uiHost)
+                const propsUiHost = canonicalizeHost(props.uiHost)
                 if (propsUiHost) {
                     return propsUiHost
                 }
@@ -119,20 +123,20 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 }
 
                 // requestRouter.uiHost honours explicit ui_host config and derives from
-                // api_host for Cloud (strips the .i. ingestion infix).
-                const fromRouter = canonicalizeUiHost(
-                    (props.posthog as any)?.requestRouter?.uiHost as string | undefined
-                )
+                // api_host for Cloud (strips the .i. ingestion infix). For reverse-proxy
+                // deployments without an explicit ui_host it returns the proxied api_host
+                // verbatim, including its path prefix.
+                const fromRouter = canonicalizeHost((props.posthog as any)?.requestRouter?.uiHost as string | undefined)
                 if (fromRouter) {
                     return fromRouter
                 }
 
                 // Fallback for old posthog-js without requestRouter.
-                const fromConfig = canonicalizeUiHost(props.posthog?.config?.ui_host)
+                const fromConfig = canonicalizeHost(props.posthog?.config?.ui_host)
                 if (fromConfig) {
                     return fromConfig
                 }
-                const fromApi = canonicalizeUiHost(props.apiURL)
+                const fromApi = canonicalizeHost(props.apiURL)
                 if (fromApi) {
                     return fromApi
                 }
@@ -145,7 +149,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // apiHost is not, so sending bearer tokens here would let an attacker
         // redirect them via the apiURL hash param.
         //
-        // Candidates are run through canonicalizeApiHost which rejects
+        // Candidates are run through canonicalizeHost which rejects
         // non-http(s) schemes and userinfo URLs (blocks `javascript:` reaching
         // a <link href>), while preserving the URL path so reverse-proxy
         // deployments like `https://proxy/ingest` keep working.
@@ -158,7 +162,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps): { host: string; source: ApiHostSource } => {
                 const rawConfig = props.posthog?.config?.api_host
-                const fromConfig = canonicalizeApiHost(rawConfig)
+                const fromConfig = canonicalizeHost(rawConfig)
                 if (fromConfig) {
                     return { host: fromConfig, source: 'posthog_api_host' }
                 }
@@ -168,7 +172,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     })
                 }
                 const rawApi = props.apiURL
-                const fromApi = canonicalizeApiHost(rawApi)
+                const fromApi = canonicalizeHost(rawApi)
                 if (fromApi) {
                     return { host: fromApi, source: 'api_url' }
                 }
@@ -399,42 +403,27 @@ export function isPostHogCloudHost(uiHost: string): boolean {
 }
 
 /**
- * Sanitize a uiHost candidate: returns the canonical `origin` (lowercased hostname,
- * no trailing slash, no path/query/hash) when valid, or null when invalid.
+ * Sanitize a host candidate (uiHost or apiHost): returns the canonical origin plus
+ * any path prefix (lowercased hostname, no trailing slash, no query/hash) when valid,
+ * or null when invalid.
+ *
+ * The path prefix is preserved so reverse-proxy deployments keep working: both hosts
+ * are concatenated with fixed sub-paths — apiHost with `/static/toolbar.css` and
+ * `/i/v1/logs`, uiHost with `/toolbar_oauth/check`, `/toolbar_oauth/authorize/`,
+ * `/oauth/token/`, and the authenticated `/api/...` calls. A customer who serves
+ * PostHog behind `https://proxy/api/v1/s` needs that `/api/v1/s` prefix to survive,
+ * otherwise every one of those requests 404s on the customer's bare domain.
  *
  * Rejects:
  * - non-http(s) schemes (javascript:, data:, blob:, //protocol-relative, etc.)
  * - URLs with userinfo like `https://us.posthog.com@evil.com` — these display
  *   misleadingly in confirmation dialogs where a hurried user may skim for "us.posthog.com"
  *
- * Using `.origin` ensures stored-vs-current comparisons are normalization-insensitive
- * (handles trailing slashes, case differences, default ports).
+ * Cross-origin token leakage is bounded by the origin (scheme + host + port), which is
+ * fully validated here; the path is within-origin routing, so preserving it does not
+ * widen the trust boundary that uiHost-bound OAuth tokens rely on.
  */
-export function canonicalizeUiHost(candidate: string | undefined | null): string | null {
-    if (!candidate) {
-        return null
-    }
-    try {
-        const parsed = new URL(candidate)
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return null
-        }
-        if (parsed.username || parsed.password) {
-            return null
-        }
-        return parsed.origin
-    } catch {
-        return null
-    }
-}
-
-/**
- * Sanitize an apiHost candidate. Like canonicalizeUiHost, but preserves the URL
- * path so reverse-proxy deployments (e.g. `https://proxy/ingest`) keep working
- * — apiHost is concatenated with `/static/toolbar.css` and `/i/v1/logs`, so the
- * path prefix must survive. Query and fragment are still dropped.
- */
-export function canonicalizeApiHost(candidate: string | undefined | null): string | null {
+export function canonicalizeHost(candidate: string | undefined | null): string | null {
     if (!candidate) {
         return null
     }
@@ -510,7 +499,7 @@ function restoreOAuthTokens(
     // which canonicalizes, but storedUiHost may have been written by an older
     // toolbar version that only trimmed trailing slashes.
     const canonicalStoredUiHost =
-        typeof storedUiHost === 'string' && storedUiHost ? canonicalizeUiHost(storedUiHost) : null
+        typeof storedUiHost === 'string' && storedUiHost ? canonicalizeHost(storedUiHost) : null
     if (canonicalStoredUiHost && canonicalStoredUiHost !== values.uiHost) {
         // Stored tokens were issued for a different PostHog app — an attacker may
         // have injected a malicious uiHost via crafted hash params hoping to receive
@@ -595,12 +584,34 @@ function initInstrumentation(
     })
 }
 
+/**
+ * Thrown when the uiHost reachability HEAD check resolves with a non-ok status.
+ *
+ * Carries a stable `name` and `message` so Error tracking groups every occurrence
+ * under one descriptive fingerprint instead of the opaque `Error: HTTP 404` that
+ * collided with every other 404 in the app. The dynamic status code and resolved
+ * host travel as captured properties (see the catch block below), never in the
+ * message, so the fingerprint stays stable across customers.
+ */
+class ToolbarUiHostUnreachableError extends Error {
+    readonly status: number
+
+    constructor(status: number) {
+        super('ui_host_unreachable: toolbar reachability check to uiHost did not return ok')
+        this.name = 'ToolbarUiHostUnreachableError'
+        this.status = status
+    }
+}
+
 function classifyFetchError(error: unknown): string {
     if (error instanceof DOMException && error.name === 'AbortError') {
         return 'timeout'
     }
     if (error instanceof TypeError) {
         return 'network_or_cors'
+    }
+    if (error instanceof ToolbarUiHostUnreachableError) {
+        return 'http_error'
     }
     if (error instanceof Error && error.message.startsWith('HTTP ')) {
         return 'http_error'
@@ -629,22 +640,25 @@ function verifyUiHostReachability(
             ? 'posthog_api_host'
             : 'window_origin'
 
+    // Snapshot uiHost up front: the .then/.catch callbacks resolve asynchronously and
+    // must not read `values.uiHost` (a live kea getter) after the logic may have unmounted.
+    const uiHost = values.uiHost
     const checkBaseProps = {
-        ui_host: values.uiHost,
+        ui_host: uiHost,
         api_host: values.apiHost,
         ui_host_source: uiHostSource,
         is_authenticated: values.isAuthenticated,
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+    void fetch(`${uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                throw new ToolbarUiHostUnreachableError(response.status)
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
@@ -654,18 +668,27 @@ function verifyUiHostReachability(
             })
 
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(uiHost, authParams, actions)
             }
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
+            const errorType = classifyFetchError(error)
+            const httpStatus = error instanceof ToolbarUiHostUnreachableError ? error.status : undefined
+            // Attach the resolved host and how we derived it so the Error-tracking
+            // fingerprint is actionable — most of these are reverse-proxy setups whose
+            // uiHost does not serve `/toolbar_oauth/check`.
             captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
+                error_type: errorType,
+                ui_host: uiHost,
+                ui_host_source: uiHostSource,
+                http_status: httpStatus,
             })
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
+                http_status: httpStatus,
                 duration_ms: Date.now() - checkStart,
             })
 

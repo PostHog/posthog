@@ -1,13 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeHost, toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -352,15 +347,67 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
-    describe('canonicalizeUiHost', () => {
+    describe('reverse-proxy uiHost reachability', () => {
+        it('preserves the reverse-proxy path prefix so the check targets the proxied PostHog route', () => {
+            // posthog-js returns the proxied api_host (path and all) as requestRouter.uiHost
+            // when no explicit ui_host is configured. The prefix must survive so the check
+            // reaches `${proxy}/api/v1/s/toolbar_oauth/check` instead of the bare domain (which 404s).
+            const logic = toolbarConfigLogic.build({
+                posthog: { requestRouter: { uiHost: 'https://proxy.example.com/api/v1/s' }, config: {} } as any,
+            } as any)
+            logic.mount()
+
+            expect(logic.values.uiHost).toBe('https://proxy.example.com/api/v1/s')
+            const checkCall = (global.fetch as jest.Mock).mock.calls.find(
+                (c) => typeof c[0] === 'string' && c[0].includes('/toolbar_oauth/check')
+            )
+            expect(checkCall?.[0]).toBe('https://proxy.example.com/api/v1/s/toolbar_oauth/check')
+        })
+
+        it('captures a descriptive, pre-classified exception with host context when the check is not ok', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.resolve({ ok: false, status: 404 })
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
+            )
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { requestRouter: { uiHost: 'https://proxy.example.com/api/v1/s' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const checkException = captureExceptionSpy.mock.calls.find(
+                ([, props]) => (props as any)?.toolbar_context === 'ui_host_check'
+            )
+            expect(checkException).not.toBeUndefined()
+            const [error, props] = checkException!
+            // Distinct, descriptive fingerprint instead of the opaque `Error: HTTP 404`.
+            expect((error as Error).name).toBe('ToolbarUiHostUnreachableError')
+            expect((error as Error).message).toContain('ui_host_unreachable')
+            expect(props).toMatchObject({
+                error_type: 'http_error',
+                ui_host: 'https://proxy.example.com/api/v1/s',
+                ui_host_source: 'request_router',
+                http_status: 404,
+            })
+            captureExceptionSpy.mockRestore()
+        })
+    })
+
+    describe('canonicalizeHost', () => {
         it.each([
-            // valid
+            // valid — origin preserved, trailing slash / default port / case normalized
             ['https://us.posthog.com', 'https://us.posthog.com'],
             ['https://us.posthog.com/', 'https://us.posthog.com'],
             ['HTTPS://US.POSTHOG.COM', 'https://us.posthog.com'], // lowercased
             ['https://us.posthog.com:443', 'https://us.posthog.com'], // default port stripped
-            ['https://us.posthog.com/some/path?q=1#hash', 'https://us.posthog.com'], // origin only
             ['http://localhost:8000', 'http://localhost:8000'],
+            // reverse-proxy path prefixes are preserved (query/fragment still dropped)
+            ['https://proxy.example.com/api/v1/s', 'https://proxy.example.com/api/v1/s'],
+            ['https://proxy.example.com/api/v1/s/', 'https://proxy.example.com/api/v1/s'],
+            ['https://us.posthog.com/some/path?q=1#hash', 'https://us.posthog.com/some/path'],
             // rejected (returns null)
             ['', null],
             [undefined, null],
@@ -371,8 +418,8 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://user:pass@us.posthog.com', null], // userinfo rejected
             ['not a url', null],
             ['//protocol-relative.example.com', null],
-        ])('canonicalizeUiHost(%p) === %p', (input, expected) => {
-            expect(canonicalizeUiHost(input as any)).toBe(expected)
+        ])('canonicalizeHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeHost(input as any)).toBe(expected)
         })
     })
 
@@ -1318,25 +1365,6 @@ describe('toolbar toolbarConfigLogic', () => {
             const logic = toolbarConfigLogic.build({} as any)
             logic.mount()
             expect(logic.values.apiHostResolution.source).toBe('fallback_absent')
-        })
-    })
-
-    describe('canonicalizeApiHost', () => {
-        it.each([
-            // preserves path
-            ['https://proxy.example.com/ingest', 'https://proxy.example.com/ingest'],
-            ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
-            ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
-            ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
-            // rejected
-            ['javascript:alert(1)', null],
-            ['https://user:pass@host/path', null],
-            ['https://host@evil.com/path', null],
-            ['', null],
-            [undefined, null],
-            ['not a url', null],
-        ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
-            expect(canonicalizeApiHost(input as any)).toBe(expected)
         })
     })
 
