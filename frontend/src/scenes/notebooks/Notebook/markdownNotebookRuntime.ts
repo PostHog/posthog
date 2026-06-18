@@ -48,8 +48,8 @@ export function getNotebookAIChatUIContext({
     notebookTitle,
     markdown,
     chatId,
-    // The chat tag accumulates props (lastAnswer, title) over time, so the marker the AI is
-    // told about must be the tag as it actually appears in the markdown it receives.
+    // Legacy chat tags accumulate props (lastAnswer, title) over time, so when callers do
+    // use a Chat marker it must match the tag as it appears in the markdown the AI receives.
     chatMarker = findNotebookAIChatTag(markdown, chatId)?.tag ?? getNotebookAIChatMarker(chatId),
 }: {
     notebookShortId: string | null

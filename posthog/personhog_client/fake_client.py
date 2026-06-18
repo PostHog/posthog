@@ -27,7 +27,12 @@ from typing import Any
 from unittest.mock import patch
 
 from posthog.models.person.missing_person import uuidFromDistinctId
-from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, group_pb2, person_pb2
+from posthog.personhog_client.proto.generated.personhog.types.v1 import (
+    cohort_pb2,
+    feature_flag_pb2,
+    group_pb2,
+    person_pb2,
+)
 
 
 @dataclass
@@ -540,6 +545,15 @@ class FakePersonHogClient:
                 break
         return group_pb2.DeleteGroupTypeMappingsBatchForTeamResponse(deleted_count=deleted)
 
+    # ── Feature flag hash key overrides ───────────────────────────────
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: feature_flag_pb2.DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse:
+        # The fake does not track hash key overrides; record the call and report nothing deleted.
+        self.calls.append(_Call("delete_hash_key_overrides_by_teams", request))
+        return feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse(deleted_count=0)
+
     # ── Person deletes ────────────────────────────────────────────────
 
     def delete_persons(
@@ -579,6 +593,15 @@ class FakePersonHogClient:
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
+        return response
+
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: person_pb2.DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse:
+        # The fake does not model personless distinct IDs, so this records the
+        # call for assertions and reports nothing deleted.
+        response = person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0)
+        self.calls.append(_Call("delete_personless_distinct_ids_batch_for_team", request, response))
         return response
 
     # ── Person split ──────────────────────────────────────────────────

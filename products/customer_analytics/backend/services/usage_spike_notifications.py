@@ -5,6 +5,7 @@ import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 
+from products.customer_analytics.backend.account_urls import build_account_deeplink
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.models import Account
 from products.notifications.backend.facade.api import (
@@ -64,8 +65,8 @@ def notify_managers_of_usage_spike(
 
         title = f"Usage spike: {account.name}"[:TITLE_MAX_LENGTH]
         body = _build_body(spikes, detected_at)[:BODY_MAX_LENGTH]
-        # No per-account detail route exists, so deep-link to the accounts list.
-        source_url = f"/project/{account.team.project_id}/customer_analytics/accounts"
+        # Project-relative; the notifications side panel adds the project prefix on navigation.
+        source_url = build_account_deeplink(account_id=str(account.id), tab="usage")
 
         for user_id in manager_user_ids:
             _notify_manager(

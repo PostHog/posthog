@@ -69,7 +69,7 @@ export function useHoverAnimation({
             cancelAnimationFrame(hoverRafRef.current)
             hoverRafRef.current = null
         }
-        if (!overlayCtx || !dimensions || !scales) {
+        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
             return
         }
         // Restart the fade on hoverIndex change — invalidate drewVisible too so the next

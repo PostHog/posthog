@@ -19,15 +19,16 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
@@ -408,6 +409,31 @@ impl PersonHogReplica for PersonHogReplicaService {
         Ok(Response::new(DeletePersonsResponse { deleted_count }))
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
+            )));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_personless_distinct_ids_batch_for_team(req.team_id, req.batch_size)
+            .await
+            .map_err(|e| {
+                log_and_convert_error(e, "delete_personless_distinct_ids_batch_for_team")
+            })?;
+
+        Ok(Response::new(
+            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count },
+        ))
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         request: Request<DeletePersonsBatchForTeamRequest>,
@@ -512,9 +538,15 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<DeleteHashKeyOverridesByTeamsResponse>, Status> {
         let req = request.into_inner();
 
+        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
+            )));
+        }
+
         let deleted_count = self
             .storage
-            .delete_hash_key_overrides_by_teams(&req.team_ids)
+            .delete_hash_key_overrides_by_teams(&req.team_ids, req.batch_size)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_hash_key_overrides_by_teams"))?;
 

@@ -37,6 +37,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",
     "DeleteHashKeyOverridesByTeams",
+    "DeletePersonlessDistinctIdsBatchForTeam",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "GetDistinctIdsForPerson",
