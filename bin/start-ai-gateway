@@ -34,13 +34,22 @@ export COMPOSE_PROJECT_NAME=ai-gateway
 
 # Provision (deps + resolver mode + phs_ + blob; ledger funding is best-effort
 # until the gateway has booted once). Retry until PostHog's DB/migrations ready.
+provisioned=false
 for i in $(seq 1 10); do
     if "$REPO_ROOT/bin/setup-gateway-e2e"; then
+        provisioned=true
         break
     fi
     echo "[start-ai-gateway] waiting for PostHog (db/migrations) before provisioning (attempt $i/10)..."
     sleep 3
 done
+
+# Don't start the gateway without a credential — it would boot in resolver mode
+# and 401 every request with no signal. Fail loud instead.
+if [ "$provisioned" != true ]; then
+    echo "[start-ai-gateway] provisioning failed after 10 attempts (see Django output above) — aborting." >&2
+    exit 1
+fi
 
 # Once the gateway is listening — it migrates the ledger schema before serving —
 # re-run setup so the topup lands (a no-op once the team is already funded). Runs
