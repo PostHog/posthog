@@ -1,6 +1,7 @@
 import { v4 } from 'uuid'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+
 import { ProjectId, Team } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { PrefetchHogFunctionsStepInput, createPrefetchHogFunctionsStep } from './prefetch-hog-functions-step'
@@ -33,114 +34,52 @@ const createTestInput = (team: Team): PrefetchHogFunctionsStepInput => ({
 })
 
 describe('prefetchHogFunctionsStep', () => {
-    let mockHogTransformer: jest.Mocked<HogTransformerService>
-    let mockGetHogFunctionIdsForTeams: jest.Mock
+    // The step only depends on the HogTransformer contract; it delegates the actual clear/fetch/cache
+    // work to prefetchTransformationStatesForTeams (covered by the hog-transformer service tests).
+    let prefetchTransformationStatesForTeams: jest.Mock
+    let mockHogTransformer: HogTransformer
 
     beforeEach(() => {
-        mockGetHogFunctionIdsForTeams = jest.fn()
-        mockHogTransformer = {
-            clearHogFunctionStates: jest.fn(),
-            fetchAndCacheHogFunctionStates: jest.fn(),
-            hogFunctionManager: {
-                getHogFunctionIdsForTeams: mockGetHogFunctionIdsForTeams,
-            },
-        } as unknown as jest.Mocked<HogTransformerService>
+        prefetchTransformationStatesForTeams = jest.fn().mockResolvedValue(undefined)
+        mockHogTransformer = { prefetchTransformationStatesForTeams } as unknown as HogTransformer
     })
 
-    it('clears cached hog function states before processing', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({})
-
+    it('refreshes transformation states for the batch team IDs', async () => {
         const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-        const input = createTestInput(createTestTeam())
 
-        await step([input])
+        await step([createTestInput(createTestTeam({ id: 1 }))])
 
-        expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalledTimes(1)
+        expect(prefetchTransformationStatesForTeams).toHaveBeenCalledWith([1])
     })
 
-    it('returns events unchanged when no events provided', async () => {
+    it('returns an empty array and still refreshes with no team IDs when no events provided', async () => {
         const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
 
         const results = await step([])
 
         expect(results).toEqual([])
-        expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalledTimes(1)
-        expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
+        expect(prefetchTransformationStatesForTeams).toHaveBeenCalledWith([])
     })
 
-    it('extracts unique team IDs and fetches hog function IDs', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({ 1: ['func-1', 'func-2'] })
-        mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
-
-        const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-        const team = createTestTeam({ id: 1 })
-        const inputs = [createTestInput(team), createTestInput(team), createTestInput(team)]
-
-        await step(inputs)
-
-        expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalledWith([1], ['transformation'])
-    })
-
-    it('handles multiple teams and deduplicates team IDs', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({
-            1: ['func-1'],
-            2: ['func-2'],
-            3: ['func-3'],
-        })
-        mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
-
+    it('deduplicates team IDs across the batch', async () => {
         const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
         const team1 = createTestTeam({ id: 1 })
         const team2 = createTestTeam({ id: 2 })
         const team3 = createTestTeam({ id: 3 })
-        const inputs = [
+
+        await step([
             createTestInput(team1),
             createTestInput(team1),
             createTestInput(team2),
             createTestInput(team3),
             createTestInput(team2),
-        ]
+        ])
 
-        await step(inputs)
-
-        expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalledTimes(1)
-        const calledTeamIds = mockGetHogFunctionIdsForTeams.mock.calls[0][0]
-        expect(calledTeamIds).toHaveLength(3)
-        expect(calledTeamIds).toContain(1)
-        expect(calledTeamIds).toContain(2)
-        expect(calledTeamIds).toContain(3)
-    })
-
-    it('fetches and caches hog function states when functions exist', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({
-            1: ['func-1', 'func-2'],
-            2: ['func-3'],
-        })
-        mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
-
-        const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-        const inputs = [createTestInput(createTestTeam({ id: 1 })), createTestInput(createTestTeam({ id: 2 }))]
-
-        await step(inputs)
-
-        expect(mockHogTransformer.fetchAndCacheHogFunctionStates).toHaveBeenCalledWith(['func-1', 'func-2', 'func-3'])
-    })
-
-    it('does not fetch hog function states when no functions exist', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({})
-
-        const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-        const inputs = [createTestInput(createTestTeam({ id: 1 }))]
-
-        await step(inputs)
-
-        expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
+        expect(prefetchTransformationStatesForTeams).toHaveBeenCalledTimes(1)
+        expect(prefetchTransformationStatesForTeams).toHaveBeenCalledWith([1, 2, 3])
     })
 
     it('returns all events as OK results unchanged', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({ 1: ['func-1'] })
-        mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
-
         const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
         const team = createTestTeam({ id: 1 })
         const inputs = [
@@ -159,20 +98,6 @@ describe('prefetchHogFunctionsStep', () => {
         }
     })
 
-    it('handles teams with empty hog function arrays', async () => {
-        mockGetHogFunctionIdsForTeams.mockResolvedValue({
-            1: [],
-            2: [],
-        })
-
-        const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-        const inputs = [createTestInput(createTestTeam({ id: 1 })), createTestInput(createTestTeam({ id: 2 }))]
-
-        await step(inputs)
-
-        expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
-    })
-
     describe('sampling rate', () => {
         let mockRandom: jest.SpyInstance
 
@@ -186,69 +111,54 @@ describe('prefetchHogFunctionsStep', () => {
 
         it('prefetches when random value is below sample rate', async () => {
             mockRandom.mockReturnValue(0.2)
-            mockGetHogFunctionIdsForTeams.mockResolvedValue({ 1: ['func-1'] })
-            mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0.3)
-            const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
-            await step(inputs)
+            await step([createTestInput(createTestTeam({ id: 1 }))])
 
-            expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalled()
-            expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalled()
-            expect(mockHogTransformer.fetchAndCacheHogFunctionStates).toHaveBeenCalledWith(['func-1'])
+            expect(prefetchTransformationStatesForTeams).toHaveBeenCalledWith([1])
         })
 
         it('skips prefetching when random value is above sample rate', async () => {
             mockRandom.mockReturnValue(0.4)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0.3)
-            const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
-            await step(inputs)
+            const results = await step([createTestInput(createTestTeam({ id: 1 }))])
 
-            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
-            expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
-            expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
+            expect(prefetchTransformationStatesForTeams).not.toHaveBeenCalled()
+            expect(results).toHaveLength(1)
         })
 
         it('skips prefetching when random value equals sample rate', async () => {
             mockRandom.mockReturnValue(0.3)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0.3)
-            const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
-            await step(inputs)
+            await step([createTestInput(createTestTeam({ id: 1 }))])
 
             // 0.3 < 0.3 is false, so should skip
-            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
-            expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
+            expect(prefetchTransformationStatesForTeams).not.toHaveBeenCalled()
         })
 
         it('always prefetches when sample rate is 1', async () => {
             mockRandom.mockReturnValue(0.999)
-            mockGetHogFunctionIdsForTeams.mockResolvedValue({ 1: ['func-1'] })
-            mockHogTransformer.fetchAndCacheHogFunctionStates.mockResolvedValue(undefined)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 1)
-            const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
-            await step(inputs)
+            await step([createTestInput(createTestTeam({ id: 1 }))])
 
-            expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalled()
-            expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalled()
+            expect(prefetchTransformationStatesForTeams).toHaveBeenCalledWith([1])
         })
 
         it('skips prefetching when sample rate is 0', async () => {
             mockRandom.mockReturnValue(0.5)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0)
-            const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
-            await step(inputs)
+            await step([createTestInput(createTestTeam({ id: 1 }))])
 
-            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
-            expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
+            expect(prefetchTransformationStatesForTeams).not.toHaveBeenCalled()
         })
     })
 })
