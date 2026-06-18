@@ -35,7 +35,11 @@ TEAMS_OAUTH_SCOPES = (
     "Team.ReadBasic.All Channel.ReadBasic.All TeamsAppInstallation.ReadWriteForTeam "
     # User.ReadBasic.All is needed to resolve a Teams user's email via
     # GET /users/{aadObjectId} — User.Read alone only grants /me.
-    "User.ReadBasic.All offline_access openid profile"
+    "User.ReadBasic.All "
+    # ChannelMessage.Read.All (delegated) lets the shared-channel poller read
+    # channel messages via Graph's messages/delta as the connecting admin.
+    # Must stay in sync with support_teams.GRAPH_REFRESH_SCOPES.
+    "ChannelMessage.Read.All offline_access openid profile"
 )
 AZURE_AD_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 AZURE_AD_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
