@@ -44,7 +44,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-10" data-quill>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex flex-wrap items-center gap-3">
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
                     dateTo={dateFilter.dateTo}
