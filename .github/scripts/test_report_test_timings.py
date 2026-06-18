@@ -384,8 +384,20 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     assert attrs["ci.event_name"] == "pull_request"
     assert attrs["ci.head_ref"] == "worktree-per-test-telemetry-junit"
     assert attrs["ci.base_ref"] == "master"
+    assert attrs["ci.branch"] == "worktree-per-test-telemetry-junit"
     assert attrs["ci.pr_number"] == 57216
     assert attrs["ci.run_url"] == "https://github.com/PostHog/posthog/actions/runs/25218527467"
+
+
+def test_workflow_resource_attributes_branch_on_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF_NAME", "master")
+
+    attrs = report_test_timings.workflow_resource_attributes()
+
+    assert attrs["ci.ref_name"] == "master"
+    assert attrs["ci.branch"] == "master"
 
 
 # ---------- trace id ----------
