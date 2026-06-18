@@ -88,6 +88,9 @@ const IMPORT_PATTERNS = [
     /\bimport\s*['"]([^'"]+)['"]/g,
     /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
     /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
+    // jest mock-family calls take a module path that tsc never type-checks, so they break
+    // silently on a move unless rewritten here too.
+    /\bjest\.(?:mock|doMock|unmock|dontMock|setMock|requireActual|requireMock|createMockFromModule|genMockFromModule)\(\s*['"]([^'"]+)['"]/g,
 ]
 
 function specifiersOf(source) {
