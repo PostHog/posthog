@@ -8,7 +8,11 @@ from rest_framework import exceptions
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.message_routing import SandboxSession, lock_conversation_for_followup
+from products.posthog_ai.backend.message_routing import (
+    SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
+    SandboxSession,
+    lock_conversation_for_followup,
+)
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
@@ -75,6 +79,8 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"
         assert kwargs["start_workflow"] is False
+        # The sandbox session pins its short interactivity window as a per-task override.
+        assert kwargs["inactivity_timeout_seconds"] == SANDBOX_INACTIVITY_TIMEOUT_SECONDS
 
         # Run state enriched with the PostHog AI per-Run keys; full undeduped context.
         run.refresh_from_db()
@@ -257,6 +263,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert new_run.state["snapshot_external_id"] == "snap-9"
         assert new_run.state["systemPrompt"] == "SYS"
         assert new_run.state["initial_permission_mode"] == "auto"
+        assert new_run.state["inactivity_timeout_seconds"] == SANDBOX_INACTIVITY_TIMEOUT_SECONDS
         assert "resume please" in new_run.state["pending_user_message"]
 
         m_workflow.assert_called_once()
@@ -430,6 +437,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
         assert run.state["systemPrompt"] == "SYS"
         assert run.state["await_user_message"] is True
         assert run.state["initial_permission_mode"] == "auto"
+        assert run.state["inactivity_timeout_seconds"] == SANDBOX_INACTIVITY_TIMEOUT_SECONDS
         # No pending message / attached context: the session boots and idles awaiting input.
         assert "pending_user_message" not in run.state
         assert "attached_context" not in run.state
