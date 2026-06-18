@@ -748,9 +748,11 @@ impl PersonLookup for PostgresStorage {
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
 
+        let existing_uuids: HashSet<Uuid> = person_by_uuid.keys().copied().collect();
+
         let uuids_to_insert: Vec<Uuid> = new_uuids
             .iter()
-            .filter(|u| !person_by_uuid.contains_key(u))
+            .filter(|u| !existing_uuids.contains(u))
             .copied()
             .collect();
 
@@ -773,11 +775,7 @@ impl PersonLookup for PostgresStorage {
             }
         }
 
-        let uuids_to_update: Vec<Uuid> = new_uuids
-            .iter()
-            .filter(|u| !uuids_to_insert.contains(u))
-            .copied()
-            .collect();
+        let uuids_to_update: Vec<Uuid> = existing_uuids.into_iter().collect();
 
         if !uuids_to_update.is_empty() {
             sqlx::query!(
