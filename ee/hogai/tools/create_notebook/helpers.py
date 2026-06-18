@@ -1,8 +1,16 @@
 from collections.abc import Sequence
 from enum import Enum
+from typing import Any
+
+from django.db.models import F
+from django.utils import timezone
+
+from asgiref.sync import sync_to_async
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 
+from products.notebooks.backend import markdown_collab
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
@@ -18,6 +26,49 @@ class ArtifactStatus(Enum):
     CREATED = "created"
     UPDATED = "updated"
     FAILED_TO_UPDATE = "failed_to_update"
+
+
+class NotebookEditNotAllowedError(Exception):
+    """The user lacks editor access on the saved notebook this artifact would overwrite."""
+
+
+MARKDOWN_NOTEBOOK_NODE_ID = "markdown-notebook-v2"
+MARKDOWN_NOTEBOOK_NODE_TYPE = "ph-markdown-notebook"
+
+
+def _get_markdown_notebook_node(content: Any) -> dict[str, Any] | None:
+    if not isinstance(content, dict):
+        return None
+
+    nodes = content.get("content")
+    if not isinstance(nodes, list) or len(nodes) != 1:
+        return None
+
+    node = nodes[0]
+    if not isinstance(node, dict) or node.get("type") != MARKDOWN_NOTEBOOK_NODE_TYPE:
+        return None
+
+    return node
+
+
+def _build_markdown_notebook_doc(markdown: str, existing_content: Any) -> dict[str, Any]:
+    existing_node = _get_markdown_notebook_node(existing_content)
+    existing_attrs = existing_node.get("attrs") if existing_node else None
+    attrs: dict[str, Any] = existing_attrs.copy() if isinstance(existing_attrs, dict) else {}
+    node_id = attrs.get("nodeId")
+    if not isinstance(node_id, str) or not node_id:
+        attrs["nodeId"] = MARKDOWN_NOTEBOOK_NODE_ID
+    attrs["markdown"] = markdown
+
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": MARKDOWN_NOTEBOOK_NODE_TYPE,
+                "attrs": attrs,
+            }
+        ],
+    }
 
 
 async def create_or_update_notebook_artifact(
@@ -60,13 +111,46 @@ async def save_notebook_to_db(
     blocks: Sequence[StoredBlock],
     title: str,
     state_messages: Sequence[AssistantMessageUnion],
+    markdown_content: str | None = None,
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
 
     If a Notebook with the artifact's short_id already exists, update its content.
     Otherwise, create a new Notebook.
+
+    Raises NotebookEditNotAllowedError when a notebook exists and the user does not
+    have editor access to it — Max acts on the user's behalf and must not overwrite
+    notebooks the user couldn't edit themselves.
     """
+    existing_notebook = await Notebook.objects.filter(team=team, short_id=artifact.short_id).afirst()
+    if existing_notebook and not await _acan_user_edit_notebook(team, user, existing_notebook):
+        raise NotebookEditNotAllowedError(
+            f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
+        )
+
+    if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
+        previous_content = existing_notebook.content
+        next_content = _build_markdown_notebook_doc(markdown_content, previous_content)
+        await Notebook.objects.filter(pk=existing_notebook.pk).aupdate(
+            content=next_content,
+            title=title,
+            text_content=markdown_content,
+            version=F("version") + 1,
+            last_modified_by=user,
+            last_modified_at=timezone.now(),
+        )
+        await existing_notebook.arefresh_from_db()
+        # The base_crc inside the diff lets receivers detect a racing concurrent edit
+        # (this path has no version CAS) and fall back to a reload instead of misapplying.
+        await markdown_collab.apublish_notebook_update(
+            team.id,
+            str(existing_notebook.short_id),
+            existing_notebook.version,
+            diff=markdown_collab.build_markdown_update_diff(previous_content, next_content),
+        )
+        return existing_notebook
+
     # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
     # matching the chat preview. A direct AgentArtifact query misses state-only charts.
     ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]
@@ -106,11 +190,21 @@ async def save_notebook_to_db(
     if not created:
         notebook.content = tiptap_doc
         notebook.title = title
+        notebook.version += 1
         notebook.last_modified_by = user
-        await notebook.asave(update_fields=["content", "title", "last_modified_by", "last_modified_at"])
+        await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
+        await markdown_collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
 
     return notebook
 
 
 async def notebook_exists_for_artifact(team: Team, short_id: str) -> bool:
     return await Notebook.objects.filter(team=team, short_id=short_id).aexists()
+
+
+async def _acan_user_edit_notebook(team: Team, user: User, notebook: Notebook) -> bool:
+    def check() -> bool:
+        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+        return bool(access_control.check_access_level_for_object(notebook, "editor"))
+
+    return await sync_to_async(check)()

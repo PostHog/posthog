@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -31,30 +33,186 @@ export function TeamsSection(): JSX.Element {
     )
 }
 
-function TeamsChannelSection(): JSX.Element {
+interface TeamsChannelRowProps {
+    pair: { team_id: string; team_name?: string | null; channel_id: string; channel_name?: string | null }
+    onRemove: () => void
+    isLoading: boolean
+    adminRestrictionReason: string | null
+}
+
+function TeamsChannelRow({ pair, onRemove, isLoading, adminRestrictionReason }: TeamsChannelRowProps): JSX.Element {
+    return (
+        <div className="flex items-center justify-between gap-2 py-2 px-3 bg-muted rounded">
+            <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{pair.team_name || pair.team_id}</div>
+                <div className="text-xs text-muted-alt truncate">#{pair.channel_name || pair.channel_id}</div>
+            </div>
+            <LemonButton
+                icon={<IconTrash />}
+                size="small"
+                status="danger"
+                onClick={onRemove}
+                loading={isLoading}
+                disabledReason={adminRestrictionReason || (isLoading ? 'Removing...' : undefined)}
+            />
+        </div>
+    )
+}
+
+interface AddTeamsChannelRowProps {
+    adminRestrictionReason: string | null
+}
+
+function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps): JSX.Element {
     const {
-        teamsConnected,
-        teamsTeamId,
         teamsTeams,
         teamsTeamsLoading,
-        teamsChannelId,
-        teamsChannels,
         teamsChannelsLoading,
         teamsInstallStatus,
+        teamsInstallingForTeamId,
+        teamsChannelsCache,
+        teamsChannelPairLoading,
+        teamsChannelPairs,
     } = useValues(supportSettingsLogic)
-    const {
-        connectTeams,
-        disconnectTeams,
-        setTeamsTeam,
-        setTeamsChannel,
-        loadTeamsTeamsWithToken,
-        loadTeamsChannelsForTeam,
-        installTeamsApp,
-    } = useActions(supportSettingsLogic)
+    const { loadTeamsTeamsWithToken, loadTeamsChannelsForTeam, installTeamsApp, addTeamsChannelPair } =
+        useActions(supportSettingsLogic)
+
+    const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+
+    // One channel per Teams group: don't offer groups that already have a configured channel.
+    const configuredTeamIds = new Set(teamsChannelPairs.map((p) => p.team_id))
+    const availableTeams = teamsTeams.filter((t: { id: string }) => !configuredTeamIds.has(t.id))
+
+    // Install status is a single global value; only apply it to the row when it refers to the selected team.
+    const statusForSelected =
+        selectedTeamId && teamsInstallingForTeamId === selectedTeamId ? teamsInstallStatus : 'idle'
+    const isInstalling = statusForSelected === 'installing'
+    const needsOrgCatalog = statusForSelected === 'needs_org_catalog'
+    const installError = statusForSelected === 'error'
+    const appInstalled = statusForSelected === 'installed'
+
+    const selectedTeamChannels = selectedTeamId ? teamsChannelsCache[selectedTeamId] || [] : []
+
+    const handleTeamSelect = (teamId: string | null): void => {
+        setSelectedTeamId(teamId)
+        // installTeamsApp loads the team's channels on success (and is idempotent server-side).
+        if (teamId) {
+            installTeamsApp(teamId)
+        }
+    }
+
+    const handleChannelSelect = (channelId: string | null): void => {
+        if (channelId && selectedTeamId) {
+            addTeamsChannelPair(selectedTeamId, channelId)
+            setSelectedTeamId(null)
+        }
+    }
+
+    return (
+        <div className="flex flex-col gap-2 py-2 px-3 border border-dashed border-muted rounded">
+            <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                    <LemonSelect
+                        value={selectedTeamId}
+                        options={[
+                            { value: null, label: 'Select team group...' },
+                            ...availableTeams.map((t: { id: string; name: string }) => ({
+                                value: t.id,
+                                label: t.name,
+                            })),
+                        ]}
+                        onChange={handleTeamSelect}
+                        loading={teamsTeamsLoading}
+                        placeholder="Select team group"
+                        fullWidth
+                        disabledReason={adminRestrictionReason || undefined}
+                    />
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={loadTeamsTeamsWithToken}
+                    disabledReason={teamsTeamsLoading ? 'Loading...' : undefined}
+                >
+                    Refresh
+                </LemonButton>
+            </div>
+
+            {selectedTeamId && isInstalling && (
+                <LemonBanner type="info">Installing SupportHog in the Teams group…</LemonBanner>
+            )}
+
+            {selectedTeamId && needsOrgCatalog && (
+                <LemonBanner type="warning" className="flex flex-col gap-2">
+                    <div>
+                        <strong>SupportHog isn't available in your Microsoft tenant's app catalog.</strong> Your
+                        organisation's Teams admin needs to upload the SupportHog app package to your{' '}
+                        <Link to="https://posthog.com/docs/support/teams#org-catalog" target="_blank">
+                            org catalog
+                        </Link>{' '}
+                        (one-time). Once uploaded, click Retry.
+                    </div>
+                    <div>
+                        <LemonButton type="primary" size="small" onClick={() => installTeamsApp(selectedTeamId)}>
+                            Retry install
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            )}
+
+            {selectedTeamId && installError && (
+                <LemonBanner type="error" className="flex flex-col gap-2">
+                    <div>Failed to install SupportHog into the selected Teams group.</div>
+                    <div>
+                        <LemonButton type="primary" size="small" onClick={() => installTeamsApp(selectedTeamId)}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            )}
+
+            {selectedTeamId && appInstalled && (
+                <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                        <LemonSelect
+                            value={null}
+                            options={[
+                                { value: null, label: 'Select channel...' },
+                                ...selectedTeamChannels.map((c: { id: string; name: string }) => ({
+                                    value: c.id,
+                                    label: `#${c.name}`,
+                                })),
+                            ]}
+                            onChange={handleChannelSelect}
+                            loading={teamsChannelsLoading || !!teamsChannelPairLoading}
+                            placeholder="Select channel"
+                            fullWidth
+                            disabledReason={adminRestrictionReason || undefined}
+                        />
+                    </div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
+                        disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function TeamsChannelSection(): JSX.Element {
+    const { teamsConnected, teamsChannelPairs, teamsChannelPairLoading } = useValues(supportSettingsLogic)
+    const { connectTeams, disconnectTeams, removeTeamsChannelPair } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+
+    const [showAddRow, setShowAddRow] = useState(false)
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -79,131 +237,42 @@ function TeamsChannelSection(): JSX.Element {
             {teamsConnected && (
                 <>
                     <LemonDivider />
-                    <div className="gap-4">
+                    <div className="flex flex-col gap-2">
                         <div>
-                            <label className="font-medium">Teams group</label>
+                            <label className="font-medium">Support channels</label>
                             <p className="text-xs text-muted-alt">
-                                Select the Microsoft Teams group that contains your support channel.
+                                Messages posted in these channels will automatically create support tickets. Thread
+                                replies become ticket messages. You can add one channel per Teams group.
                             </p>
                         </div>
-                        <div className="flex gap-2 items-center">
-                            <LemonSelect
-                                value={teamsTeamId}
-                                options={[
-                                    { value: null, label: 'None' },
-                                    ...teamsTeams.map((t: { id: string; name: string }) => ({
-                                        value: t.id,
-                                        label: t.name,
-                                    })),
-                                ]}
-                                onChange={(value) => {
-                                    const team = teamsTeams.find((t: { id: string }) => t.id === value)
-                                    setTeamsTeam(value, team?.name ?? null)
-                                }}
-                                loading={teamsTeamsLoading}
-                                placeholder="Select team"
-                            />
+
+                        {teamsChannelPairs.length > 0 && (
+                            <div className="flex flex-col gap-2">
+                                {teamsChannelPairs.map((pair) => (
+                                    <TeamsChannelRow
+                                        key={pair.channel_id}
+                                        pair={pair}
+                                        onRemove={() => removeTeamsChannelPair(pair.channel_id)}
+                                        isLoading={teamsChannelPairLoading === pair.channel_id}
+                                        adminRestrictionReason={adminRestrictionReason}
+                                    />
+                                ))}
+                            </div>
+                        )}
+
+                        {showAddRow ? (
+                            <AddTeamsChannelRow adminRestrictionReason={adminRestrictionReason} />
+                        ) : (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={loadTeamsTeamsWithToken}
-                                disabledReason={teamsTeamsLoading ? 'Loading teams...' : undefined}
+                                onClick={() => setShowAddRow(true)}
+                                disabledReason={adminRestrictionReason || undefined}
                             >
-                                Refresh
+                                Add Teams channel
                             </LemonButton>
-                        </div>
+                        )}
                     </div>
-                    {teamsTeamId && teamsInstallStatus === 'installing' && (
-                        <>
-                            <LemonDivider />
-                            <LemonBanner type="info">Installing SupportHog in your Teams group…</LemonBanner>
-                        </>
-                    )}
-                    {teamsTeamId && teamsInstallStatus === 'needs_org_catalog' && (
-                        <>
-                            <LemonDivider />
-                            <LemonBanner type="warning" className="flex flex-col gap-2">
-                                <div>
-                                    <strong>SupportHog isn't available in your Microsoft tenant's app catalog.</strong>{' '}
-                                    Your organisation's Teams admin needs to upload the SupportHog app package to your{' '}
-                                    <Link to="https://posthog.com/docs/support/teams#org-catalog" target="_blank">
-                                        org catalog
-                                    </Link>{' '}
-                                    (one-time). Once uploaded, click Retry.
-                                </div>
-                                <div>
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={() => installTeamsApp(teamsTeamId)}
-                                    >
-                                        Retry install
-                                    </LemonButton>
-                                </div>
-                            </LemonBanner>
-                        </>
-                    )}
-                    {teamsTeamId && teamsInstallStatus === 'error' && (
-                        <>
-                            <LemonDivider />
-                            <LemonBanner type="error" className="flex flex-col gap-2">
-                                <div>Failed to install SupportHog into the selected Teams group.</div>
-                                <div>
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={() => installTeamsApp(teamsTeamId)}
-                                    >
-                                        Retry
-                                    </LemonButton>
-                                </div>
-                            </LemonBanner>
-                        </>
-                    )}
-                    {teamsTeamId && teamsInstallStatus === 'installed' && (
-                        <>
-                            <LemonDivider />
-                            <div className="gap-4">
-                                <div>
-                                    <label className="font-medium">Support channel</label>
-                                    <p className="text-xs text-muted-alt">
-                                        Messages posted in this channel will automatically create support tickets.
-                                        Thread replies become ticket messages.
-                                    </p>
-                                </div>
-                                <div className="flex gap-2 items-center">
-                                    <LemonSelect
-                                        value={teamsChannelId}
-                                        options={[
-                                            { value: null, label: 'None' },
-                                            ...teamsChannels.map((c: { id: string; name: string }) => ({
-                                                value: c.id,
-                                                label: c.name,
-                                            })),
-                                        ]}
-                                        onChange={(value) => {
-                                            const channel = teamsChannels.find((c: { id: string }) => c.id === value)
-                                            setTeamsChannel(value, channel?.name ?? null)
-                                        }}
-                                        loading={teamsChannelsLoading}
-                                        placeholder="Select channel"
-                                    />
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => {
-                                            if (teamsTeamId) {
-                                                loadTeamsChannelsForTeam(teamsTeamId)
-                                            }
-                                        }}
-                                        disabledReason={teamsChannelsLoading ? 'Loading channels...' : undefined}
-                                    >
-                                        Refresh
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        </>
-                    )}
                     <LemonDivider />
                     <div className="flex items-center gap-4 justify-between">
                         <div>

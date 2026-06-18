@@ -26,7 +26,6 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
-    INACTIVITY_TIMEOUT,
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -318,15 +317,17 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
     async def _wait_for_signal(self) -> SandboxEvent:
         await workflow.wait_condition(
-            lambda: self._task_completed
-            or self._heartbeat_received
-            or len(self._pending_followups) > 0
-            or len(self._pending_outbound) > 0
+            lambda: (
+                self._task_completed
+                or self._heartbeat_received
+                or len(self._pending_followups) > 0
+                or len(self._pending_outbound) > 0
+            )
         )
         return SandboxEvent.SIGNAL_RECEIVED
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
-        await workflow.sleep(INACTIVITY_TIMEOUT.total_seconds())
+        await workflow.sleep(self.context.inactivity_timeout().total_seconds())
         return SandboxEvent.TIMEOUT_REACHED
 
     async def _wait_for_event(self) -> SandboxEvent:

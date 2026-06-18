@@ -31,6 +31,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -86,8 +87,10 @@ export interface CdpCoreServices {
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    capturedEventsService: CapturedEventsService
     /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
     hogInvocationResultsService: HogInvocationResultsService
     /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
@@ -141,6 +144,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_QUEUE_ROUTING'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -375,6 +379,7 @@ export function createCdpCoreServices(
         : null
 
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -383,6 +388,7 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
         },
         deps.integrationManager,
+        teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL
     )
@@ -396,6 +402,7 @@ export function createCdpCoreServices(
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
+            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -449,8 +456,10 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        capturedEventsService,
         hogInvocationResultsService,
         invocationResultsService,
         nativeDestinationExecutorService,

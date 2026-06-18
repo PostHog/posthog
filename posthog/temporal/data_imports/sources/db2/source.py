@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class Db2Source(SimpleSource[Db2SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DB2,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["ibm db2"],
             label="IBM Db2",
             iconPath="/static/services/db2.png",
             fields=cast(list[FieldType], []),

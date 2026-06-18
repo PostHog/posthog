@@ -75,9 +75,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
+SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
@@ -94,10 +97,32 @@ def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
 
 
+def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
+    """Build the `cpu`/`memory` kwargs for ``modal.Sandbox.create``.
+
+    `cpu_cores` / `memory_gb` are the limit (max). When the config is burstable, emit Modal's
+    ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
+    up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
+
+    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
+    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
+    exceeds it when the configured size is at or below the requested floor.
+    """
+    cpu_limit = float(config.cpu_cores)
+    memory_limit_mb = int(config.memory_gb * 1024)
+    if not config.burstable_resources:
+        return {"cpu": cpu_limit, "memory": memory_limit_mb}
+    return {
+        "cpu": (min(float(config.cpu_request_cores), cpu_limit), cpu_limit),
+        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
+    }
+
+
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
     SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
+    SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
@@ -226,6 +251,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
         SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -272,6 +298,15 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
+    elif template == SandboxTemplate.STREAMLIT_BASE:
+        # Copy all sibling files (streamlit_auth_proxy.py, etc.)
+        # needed by COPY instructions in the Dockerfile
+        source_images_dir = source_dockerfile_path.parent
+        dest_images_dir = destination_dockerfile_path.parent
+        for sibling in source_images_dir.iterdir():
+            if sibling.is_file() and sibling != source_dockerfile_path:
+                shutil.copy2(sibling, dest_images_dir / sibling.name)
+
     return str(destination_dockerfile_path), str(context_dir)
 
 
@@ -311,11 +346,14 @@ class ModalSandbox(SandboxBase):
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
+            modal.enable_output()
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
@@ -355,8 +393,7 @@ class ModalSandbox(SandboxBase):
                 "name": sandbox_name,
                 "image": image,
                 "timeout": config.ttl_seconds,
-                "cpu": float(config.cpu_cores),
-                "memory": int(config.memory_gb * 1024),
+                **_resource_create_kwargs(config),
                 "region": region,
                 "verbose": True,
             }

@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -509,13 +509,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      /** Match accounts whose account executive is any of these user ids (OR semantics). */
-      accountExecutive?: number[] | null;
-      /** Match accounts whose account owner is any of these user ids (OR semantics). */
-      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
-      /** Match accounts whose CSM is any of these user ids (OR semantics). */
-      csm?: number[] | null;
+      /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+      assignedToUserIds?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -1652,6 +1648,122 @@ export namespace Schemas {
       Stale: 'STALE',
     } as const;
 
+    export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetAddRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface _WidgetTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface _WidgetTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _WidgetTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: _WidgetTileLayoutBoxOpenApi;
+    }
+
+    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
+
+
+    export const WidgetDateRangeDateFrom = {
+      '1m': '-1M',
+      '30m': '-30M',
+      '1h': '-1h',
+      '3h': '-3h',
+      '24h': '-24h',
+      '7d': '-7d',
+      '14d': '-14d',
+      '30d': '-30d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      date_from?: WidgetDateRangeDateFrom;
+    }
+
+    export interface WidgetFilterEntry {
+      /** @minLength 1 */
+      filterId: string;
+      /** @minLength 1 */
+      propertyName: string;
+      /** @minLength 1 */
+      optionId: string;
+      operator: PropertyOperator;
+      value?: string | string[] | null;
+    }
+
+    export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface ActivityEventsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ActivityEventsListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of events to return.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface ActivityEventsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent events widget. */
+      config: ActivityEventsListWidgetConfig;
+    }
+
+    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetCatalogEntryOpenApi {
+      widget_type: ActivityEventsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ActivityEventsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `activity_events_list` - activity_events_list
+     */
+    export type ActivityEventsListWidgetTypeEnum = typeof ActivityEventsListWidgetTypeEnum[keyof typeof ActivityEventsListWidgetTypeEnum];
+
+
+    export const ActivityEventsListWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -2085,6 +2197,7 @@ export namespace Schemas {
       CalendarHeatmap: 'CalendarHeatmap',
       TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
       BoxPlot: 'BoxPlot',
+      SlopeGraph: 'SlopeGraph',
     } as const;
 
     export interface TrendsFormulaNode {
@@ -2404,6 +2517,8 @@ export namespace Schemas {
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
       showAnnotations?: boolean | null;
+      /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
+      showLegend?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -2464,6 +2579,8 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
@@ -3054,6 +3171,15 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
+    export type WebAnalyticsPreComputeStrategy = typeof WebAnalyticsPreComputeStrategy[keyof typeof WebAnalyticsPreComputeStrategy];
+
+
+    export const WebAnalyticsPreComputeStrategy = {
+      PreAggregated: 'pre_aggregated',
+      LazyPrecompute: 'lazy_precompute',
+      Live: 'live',
+    } as const;
+
     export interface SamplingRate {
       denominator?: number | null;
       numerator: number;
@@ -3070,6 +3196,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3081,8 +3208,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -3145,7 +3270,6 @@ export namespace Schemas {
       key: string;
       kind: WebAnalyticsItemKind;
       previous?: number | null;
-      usedPreAggregatedTables?: boolean | null;
       value?: number | null;
     }
 
@@ -3158,6 +3282,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -3168,8 +3293,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -3406,6 +3529,8 @@ export namespace Schemas {
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
       source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+      threshold?: number | null;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
@@ -3821,58 +3946,12 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface _WidgetTileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface _WidgetTileLayoutsOpenApi {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _WidgetTileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: _WidgetTileLayoutBoxOpenApi;
-    }
-
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
     export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
-
-    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
-
-
-    export const WidgetDateRangeDateFrom = {
-      '1h': '-1h',
-      '3h': '-3h',
-      '24h': '-24h',
-      '7d': '-7d',
-      '14d': '-14d',
-      '30d': '-30d',
-      '90d': '-90d',
-    } as const;
-
-    export interface WidgetDateRange {
-      date_from?: WidgetDateRangeDateFrom;
-    }
-
-    export interface WidgetFilterEntry {
-      /** @minLength 1 */
-      filterId: string;
-      /** @minLength 1 */
-      propertyName: string;
-      /** @minLength 1 */
-      optionId: string;
-      operator: PropertyOperator;
-      value?: string | string[] | null;
-    }
 
     /**
      * Issue ranking column.
@@ -4016,6 +4095,8 @@ export namespace Schemas {
       orderBy?: SessionReplayListWidgetConfigOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: SessionReplayListWidgetConfigOrderDirection;
+      /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+      savedFilterId?: string | null;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -4036,14 +4117,123 @@ export namespace Schemas {
       config: SessionReplayListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+    export type ExperimentsListWidgetAddRequestOpenApiWidgetType = typeof ExperimentsListWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetAddRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    /**
+     * Experiment list sort column.
+     */
+    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
+
+
+    export const ExperimentsListWidgetConfigOrderBy = {
+      CreatedAt: 'created_at',
+      Name: 'name',
+      StartDate: 'start_date',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
+
+
+    export const ExperimentsListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Experiment status filter.
+     */
+    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
+
+
+    export const ExperimentsListWidgetConfigStatus = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      Stopped: 'stopped',
+      All: 'all',
+    } as const;
+
+    export interface ExperimentsListWidgetConfig {
+      /**
+         * Maximum number of experiments to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Experiment list sort column. */
+      orderBy?: ExperimentsListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
+      /** Experiment status filter. */
+      status?: ExperimentsListWidgetConfigStatus;
+      /** Filter by creator (user id). Omit for any creator. */
+      createdBy?: number | null;
+    }
+
+    export interface ExperimentsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiments list widget. */
+      config: ExperimentsListWidgetConfig;
+    }
+
+    export type ExperimentResultsWidgetAddRequestOpenApiWidgetType = typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetAddRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetConfig {
+      /** Experiment to show results for. Null until the user picks one in the widget settings. */
+      experimentId?: number | null;
+    }
+
+    export interface ExperimentResultsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiment results widget. */
+      config: ExperimentResultsWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -4233,6 +4423,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4243,8 +4434,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -4260,6 +4449,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4271,8 +4461,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -4314,6 +4502,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4325,10 +4514,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -4351,6 +4536,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4364,7 +4550,6 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -4697,6 +4882,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
@@ -5312,6 +5498,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5323,10 +5510,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -5417,6 +5600,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5430,7 +5614,6 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -6251,7 +6434,7 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
@@ -6260,9 +6443,7 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
       useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -7027,7 +7208,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -7119,6 +7300,595 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface AgentAggregateStats {
+      /** Sessions currently in a live state (queued / running). */
+      liveCount: number;
+      /** Sessions created within the `since` window across all states. */
+      sessionsInWindowCount: number;
+      /** Sum of `usage_total.cost_total` across sessions in the window. */
+      spendInWindowUsd: number;
+      /**
+         * ISO timestamp of the most recent session update — null when there are no sessions.
+         * @nullable
+         */
+      lastActivityAt: string | null;
+      /** Sessions in `failed` state created within the window. */
+      failedInWindowCount: number;
+      /** Approval-gated tool requests across the team currently awaiting a decision. 0 on the per-application aggregate (which doesn't roll up approvals). */
+      pendingApprovalsCount: number;
+    }
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type AgentApplicationCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface AgentApplication {
+      readonly id: string;
+      readonly team_id: number;
+      /** @maxLength 255 */
+      name: string;
+      /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
+         * @maxLength 63
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      description?: string;
+      /** @nullable */
+      readonly live_revision: string | null;
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
+      /** @nullable */
+      readonly created_by_id: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by: AgentApplicationCreatedBy;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /**
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
+         * @nullable
+         */
+      readonly slack_events_url: string | null;
+      /**
+         * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+         * @nullable
+         */
+      readonly slack_interactivity_url: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url: string | null;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `approving` - approving
+     * * `dispatched` - dispatched
+     * * `dispatched_failed` - dispatched_failed
+     * * `rejected` - rejected
+     * * `expired` - expired
+     */
+    export type AgentApprovalRequestStateEnum = typeof AgentApprovalRequestStateEnum[keyof typeof AgentApprovalRequestStateEnum];
+
+
+    export const AgentApprovalRequestStateEnum = {
+      Queued: 'queued',
+      Approving: 'approving',
+      Dispatched: 'dispatched',
+      DispatchedFailed: 'dispatched_failed',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Arguments the model proposed. Frozen at intercept time.
+     */
+    export type AgentApprovalRequestProposedArgs = { [key: string]: unknown };
+
+    /**
+     * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+     * @nullable
+     */
+    export type AgentApprovalRequestDecidedArgs = { [key: string]: unknown } | null;
+
+    /**
+     * Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning.
+     */
+    export type AgentApprovalRequestAssistantMessage = { [key: string]: unknown };
+
+    /**
+     * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+     */
+    export type AgentApprovalRequestApproverScope = { [key: string]: unknown };
+
+    /**
+     * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+     * @nullable
+     */
+    export type AgentApprovalRequestDispatchOutcome = { [key: string]: unknown } | null;
+
+    export interface AgentApprovalRequest {
+      /** Approval request UUID — stable, used in /approvals/<id>/decide. */
+      id: string;
+      /** UUID of the session that proposed the gated call. */
+      session_id: string;
+      /** UUID of the parent agent application. */
+      application_id: string;
+      /** Team that owns the agent. */
+      team_id: number;
+      /** Revision the gated call was proposed against. */
+      revision_id: string;
+      /** Turn number within the session that emitted the call. */
+      turn: number;
+      /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
+      tool_call_id: string;
+      /** Tool id the model invoked (e.g. `@posthog/team-delete`). */
+      tool_name: string;
+      /** Arguments the model proposed. Frozen at intercept time. */
+      proposed_args: AgentApprovalRequestProposedArgs;
+      /**
+         * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+         * @nullable
+         */
+      decided_args: AgentApprovalRequestDecidedArgs;
+      /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
+      assistant_message: AgentApprovalRequestAssistantMessage;
+      /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+      approver_scope: AgentApprovalRequestApproverScope;
+      /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
+       *
+       * * `queued` - queued
+       * * `approving` - approving
+       * * `dispatched` - dispatched
+       * * `dispatched_failed` - dispatched_failed
+       * * `rejected` - rejected
+       * * `expired` - expired */
+      state: AgentApprovalRequestStateEnum;
+      /**
+         * UUID of the user who decided. Null while queued or expired.
+         * @nullable
+         */
+      decision_by: string | null;
+      /**
+         * ISO timestamp of the decision. Null while queued.
+         * @nullable
+         */
+      decision_at: string | null;
+      /**
+         * Free-form reason supplied by the approver. Optional.
+         * @nullable
+         */
+      decision_reason: string | null;
+      /**
+         * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+         * @nullable
+         */
+      dispatch_outcome: AgentApprovalRequestDispatchOutcome;
+      /** When the model proposed the gated call. */
+      created_at: string;
+      /** When the queued request auto-rejects if no decision arrives. */
+      expires_at: string;
+    }
+
+    export interface AgentApplicationApprovalsListResponse {
+      /** Approval requests for this application, newest first. */
+      results: AgentApprovalRequest[];
+    }
+
+    export interface AgentApplicationEnvKeyStatus {
+      key: string;
+      /** True if the key is present in the env block. The value itself is never returned. */
+      is_set: boolean;
+    }
+
+    export interface AgentApplicationEnvKeysResponse {
+      /** Names of env variables currently set on the application. Values are never returned. */
+      keys: string[];
+    }
+
+    export interface AgentApplicationPreviewTokenResponse {
+      /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
+      token: string;
+      /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
+      expires_in: number;
+      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
+      ingress_slug: string;
+      /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
+      endpoints: unknown;
+      /** How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
+      auth: unknown;
+      /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
+      preview_proxy: unknown;
+    }
+
+    export interface LogEntry {
+      log_source_id: string;
+      instance_id: string;
+      timestamp: string;
+      level: string;
+      message: string;
+    }
+
+    export interface AgentApplicationSessionLogsResponse {
+      results: LogEntry[];
+    }
+
+    export interface AgentSessionUsageTotal {
+      tokens_in: number;
+      tokens_out: number;
+      cache_read: number;
+      cache_write: number;
+      cost_input: number;
+      cost_output: number;
+      cost_cache_read: number;
+      cost_cache_write: number;
+      cost_total: number;
+    }
+
+    /**
+     * * `anonymous` - anonymous
+     * * `service` - service
+     * * `internal` - internal
+     * * `shared_secret` - shared_secret
+     * * `slack` - slack
+     */
+    export type AgentSessionPrincipalKindEnum = typeof AgentSessionPrincipalKindEnum[keyof typeof AgentSessionPrincipalKindEnum];
+
+
+    export const AgentSessionPrincipalKindEnum = {
+      Anonymous: 'anonymous',
+      Service: 'service',
+      Internal: 'internal',
+      SharedSecret: 'shared_secret',
+      Slack: 'slack',
+    } as const;
+
+    export interface AgentSessionPrincipal {
+      /** What kind of principal authenticated the session start.
+       *
+       * * `anonymous` - anonymous
+       * * `service` - service
+       * * `internal` - internal
+       * * `shared_secret` - shared_secret
+       * * `slack` - slack */
+      kind: AgentSessionPrincipalKindEnum;
+      /** Stable identifier for the principal (PAT id, slack user id, etc). Absent for anonymous sessions. */
+      id?: string;
+      /** Team the principal belongs to. Absent for anonymous sessions. */
+      team_id?: number;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `running` - running
+     * * `completed` - completed
+     * * `closed` - closed
+     * * `cancelled` - cancelled
+     * * `failed` - failed
+     */
+    export type AgentSessionStateEnum = typeof AgentSessionStateEnum[keyof typeof AgentSessionStateEnum];
+
+
+    export const AgentSessionStateEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Closed: 'closed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
+    export interface AgentSessionSummary {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      state: AgentSessionStateEnum;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentSessionSummaryTriggerMetadata;
+      /** Count of messages in the conversation — the full transcript ships on the detail endpoint. */
+      turns: number;
+      /**
+         * Last assistant text (~120 chars). Null for sessions with no assistant turns yet.
+         * @nullable
+         */
+      preview: string | null;
+      retry_count: number;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface AgentApplicationSessionsListResponse {
+      results: AgentSessionSummary[];
+      /** Total matching sessions before pagination. */
+      count: number;
+    }
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentApplicationSessionsRetrieveResponseTriggerMetadata = { [key: string]: unknown } | null;
+
+    export type AgentConversationUserMessageRole = typeof AgentConversationUserMessageRole[keyof typeof AgentConversationUserMessageRole];
+
+
+    export const AgentConversationUserMessageRole = {
+      User: 'user',
+    } as const;
+
+    export interface AgentConversationUserMessage {
+      role: AgentConversationUserMessageRole;
+      /** String shorthand, or array of {type:'text'|'image', ...} parts. */
+      content: unknown;
+      /** Epoch milliseconds. */
+      timestamp: number;
+    }
+
+    export type AgentConversationAssistantMessageRole = typeof AgentConversationAssistantMessageRole[keyof typeof AgentConversationAssistantMessageRole];
+
+
+    export const AgentConversationAssistantMessageRole = {
+      Assistant: 'assistant',
+    } as const;
+
+    /**
+     * * `stop` - stop
+     * * `length` - length
+     * * `toolUse` - toolUse
+     * * `error` - error
+     * * `aborted` - aborted
+     */
+    export type StopReasonEnum = typeof StopReasonEnum[keyof typeof StopReasonEnum];
+
+
+    export const StopReasonEnum = {
+      Stop: 'stop',
+      Length: 'length',
+      ToolUse: 'toolUse',
+      Error: 'error',
+      Aborted: 'aborted',
+    } as const;
+
+    export type AgentConversationAssistantMessageUsage = { [key: string]: unknown };
+
+    export interface AgentConversationAssistantMessage {
+      role: AgentConversationAssistantMessageRole;
+      /** Array of text/thinking/toolCall parts. */
+      content: unknown[];
+      /** Epoch milliseconds. */
+      timestamp: number;
+      api?: string;
+      provider?: string;
+      model?: string;
+      usage?: AgentConversationAssistantMessageUsage;
+      stopReason?: StopReasonEnum;
+      errorMessage?: string;
+    }
+
+    export type AgentConversationToolResultMessageRole = typeof AgentConversationToolResultMessageRole[keyof typeof AgentConversationToolResultMessageRole];
+
+
+    export const AgentConversationToolResultMessageRole = {
+      ToolResult: 'toolResult',
+    } as const;
+
+    export interface AgentConversationToolResultMessage {
+      role: AgentConversationToolResultMessageRole;
+      toolCallId: string;
+      toolName: string;
+      /** Array of {type:'text'|'image', ...} parts. */
+      content: unknown[];
+      isError: boolean;
+      /** Epoch milliseconds. */
+      timestamp: number;
+    }
+
+    export type AgentConversationMessage = AgentConversationUserMessage | AgentConversationAssistantMessage | AgentConversationToolResultMessage;
+
+    export interface AgentApplicationSessionsRetrieveResponse {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      team_id: number;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentApplicationSessionsRetrieveResponseTriggerMetadata;
+      state: AgentSessionStateEnum;
+      /** Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied. */
+      conversation: AgentConversationMessage[];
+      /** Messages that arrived while a turn was in flight; drained into `conversation` at the start of the next turn. */
+      pending_inputs: AgentConversationMessage[];
+      /** Times the janitor has re-queued this session after a stuck-running detection. */
+      retry_count: number;
+      created_at: string;
+      updated_at: string;
+      /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
+      conversation_trimmed: boolean;
+      /** Total messages in the untrimmed conversation. Present only when `conversation_trimmed=true`. */
+      conversation_total_turns?: number;
+    }
+
+    export interface AgentApprovalsDecideResponse {
+      /** Always `true` on a successful decision. */
+      ok: boolean;
+      /** The approval row's new state — `approving` for approve, `rejected` for reject. */
+      state: string;
+    }
+
+    /**
+     * * `assistant` - assistant
+     */
+    export type AgentConversationAssistantMessageRoleEnum = typeof AgentConversationAssistantMessageRoleEnum[keyof typeof AgentConversationAssistantMessageRoleEnum];
+
+
+    export const AgentConversationAssistantMessageRoleEnum = {
+      Assistant: 'assistant',
+    } as const;
+
+    /**
+     * * `toolResult` - toolResult
+     */
+    export type AgentConversationToolResultMessageRoleEnum = typeof AgentConversationToolResultMessageRoleEnum[keyof typeof AgentConversationToolResultMessageRoleEnum];
+
+
+    export const AgentConversationToolResultMessageRoleEnum = {
+      ToolResult: 'toolResult',
+    } as const;
+
+    /**
+     * * `user` - user
+     */
+    export type AgentConversationUserMessageRoleEnum = typeof AgentConversationUserMessageRoleEnum[keyof typeof AgentConversationUserMessageRoleEnum];
+
+
+    export const AgentConversationUserMessageRoleEnum = {
+      User: 'user',
+    } as const;
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentFleetLiveSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
+    export interface AgentFleetLiveSessionSummary {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      team_id: number;
+      state: AgentSessionStateEnum;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentFleetLiveSessionSummaryTriggerMetadata;
+      /** Messages in the conversation so far. */
+      turns: number;
+      /**
+         * Last assistant text (~120 chars). Null when no assistant turns yet.
+         * @nullable
+         */
+      preview: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface AgentFleetLiveSessionsResponse {
+      results: AgentFleetLiveSessionSummary[];
+    }
+
+    export interface AgentMemoryFile {
+      /** Full markdown body. */
+      content: string;
+    }
+
+    export interface AgentMemoryHeader {
+      /** Relative path within the agent's memory, e.g. 'incidents/db.md'. */
+      path: string;
+      /** One-line summary from the file's frontmatter. */
+      description: string;
+      /** Frontmatter tags (lowercase a-z 0-9 _ - only). */
+      tags: string[];
+      /**
+         * ISO-8601 timestamp stamped on create. Null for files written before this field was introduced.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 timestamp stamped on every write.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface AgentMemoryListResponse {
+      /** Number of entries returned. */
+      count: number;
+      /** Headers (frontmatter only) — no file bodies. Use the read endpoint for the body. */
+      entries: AgentMemoryHeader[];
+    }
+
+    export interface AgentMemorySearchResult {
+      path: string;
+      description: string;
+      tags: string[];
+      /** BM25 relevance score. */
+      score: number;
+      /**
+         * Body snippet around the earliest match. Null when only the header matched.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface AgentMemorySearchResponse {
+      /** The original search cue, echoed back. */
+      cue: string;
+      count: number;
+      results: AgentMemorySearchResult[];
+    }
+
+    /**
+     * Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}.
+     */
+    export type AgentMemoryTreeResponseRoot = { [key: string]: unknown };
+
+    export interface AgentMemoryTreeResponse {
+      /** Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}. */
+      root: AgentMemoryTreeResponseRoot;
+    }
+
+    /**
+     * Body shape for AgentMemoryViewSet.write_file (create).
+     */
+    export interface AgentMemoryWriteRequest {
+      /** Where to store the file. Lowercase a-z 0-9 _ - / only, must end in .md. */
+      path: string;
+      /**
+         * One-line summary, max 280 chars. Surfaces in list/search results.
+         * @maxLength 280
+         */
+      description: string;
+      /** Full markdown body. */
+      content: string;
+      /** Optional flat tags for search ranking. Lowercase a-z 0-9 _ - only. */
+      tags?: string[];
+    }
+
     /**
      * * `product_analytics` - product_analytics
      * * `sql` - sql
@@ -7153,6 +7923,465 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    export type AgentNativeToolEntrySchema = { [key: string]: unknown };
+
+    export interface AgentNativeToolEntry {
+      id: string;
+      schema: AgentNativeToolEntrySchema;
+    }
+
+    export interface AgentNativeToolsListResponse {
+      tools: AgentNativeToolEntry[];
+    }
+
+    export type AgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      auto_resume_threads: boolean;
+      allow_workspace_participants: boolean;
+      ack_reaction?: string;
+      allow_direct_messages: boolean;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'cron';
+      config: {
+      /** @minLength 1 */
+      name: string;
+      /** @minLength 1 */
+      schedule: string;
+      timezone?: string;
+      /**
+         * @minLength 1
+         * @maxLength 4096
+         */
+      prompt: string;
+      external_key?: string;
+      catch_up?: 'all' | 'most_recent' | 'skip';
+      /**
+         * @minimum 1
+         * @maximum 604800
+         */
+      max_catch_up_age_seconds?: number;
+    };
+    } | {
+      type: 'chat';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'mcp';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    };
+
+    export type AgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 600000
+         */
+      timeout_ms?: number;
+      interactive?: boolean;
+    };
+
+    export type AgentRevisionSpecMcpsItemAuth = {
+      integration?: string;
+    };
+
+    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type AgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type AgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: AgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: AgentRevisionSpecMcpsItemHeaders;
+      tools?: AgentRevisionSpecMcpsItemToolsItem[];
+    };
+
+    export type AgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
+    };
+
+    export type AgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
+    export type AgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+      /**
+         * @maximum 200000
+         * @exclusiveMinimum 0
+         */
+      max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
+    };
+
+    export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
+
+
+    export const AgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type AgentRevisionSpecFrameworkPromptOmitItem = typeof AgentRevisionSpecFrameworkPromptOmitItem[keyof typeof AgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const AgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type AgentRevisionSpecFrameworkPrompt = {
+      omit: AgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type AgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
+    export type AgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: AgentRevisionSpecTriggersItem[];
+      tools: AgentRevisionSpecToolsItem[];
+      mcps: AgentRevisionSpecMcpsItem[];
+      skills: AgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: AgentRevisionSpecSecretsItem[];
+      limits: AgentRevisionSpecLimits;
+      entrypoint: string;
+      reasoning?: AgentRevisionSpecReasoning;
+      framework_prompt?: AgentRevisionSpecFrameworkPrompt;
+      resume?: AgentRevisionSpecResume;
+    };
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type AgentRevisionCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    /**
+     * * `draft` - draft
+     * * `ready` - ready
+     * * `live` - live
+     * * `archived` - archived
+     */
+    export type AgentRevisionStateEnum = typeof AgentRevisionStateEnum[keyof typeof AgentRevisionStateEnum];
+
+
+    export const AgentRevisionStateEnum = {
+      Draft: 'draft',
+      Ready: 'ready',
+      Live: 'live',
+      Archived: 'archived',
+    } as const;
+
+    export interface AgentRevision {
+      readonly id: string;
+      readonly application: string;
+      /** @nullable */
+      parent_revision?: string | null;
+      readonly state: AgentRevisionStateEnum;
+      /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
+      bundle_uri?: string;
+      /** @nullable */
+      readonly bundle_sha256: string | null;
+      spec?: AgentRevisionSpec;
+      /** @nullable */
+      readonly created_by_id: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by: AgentRevisionCreatedBy;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface AgentRevisionCronFireRequest {
+      /** `name` of the cron trigger in `spec.triggers[]` to fire. */
+      cron_name: string;
+      /**
+         * Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID.
+         * @nullable
+         */
+      request_id?: string | null;
+    }
+
+    export interface AgentRevisionCronFireResponse {
+      ok: boolean;
+      /** ID of the session the cron firing created (or returned, on dedupe). */
+      session_id: string;
+      /** ISO-8601 timestamp the firing was attributed to. */
+      fired_at: string;
+      /** Composed dedupe key — `cron-manual:<rev>:<name>:<request_id>`. Returned so the UI can correlate. */
+      idempotency_key: string;
+      /** The request id the firing used (echoed back, or freshly minted). */
+      request_id: string;
+    }
+
+    export interface AgentRevisionSlackManifestResponse {
+      revision_id: string;
+      /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
+      manifest: unknown;
+      /** Reminders the manifest can't enforce (e.g. invite the bot to its channels). */
+      notes: string[];
+      /**
+         * The Event Subscriptions Request URL baked into the manifest.
+         * @nullable
+         */
+      events_url: string | null;
+      /**
+         * The Interactivity Request URL (used by approval-gated tools).
+         * @nullable
+         */
+      interactivity_url: string | null;
+    }
+
+    export interface AgentRevisionSystemPromptResponse {
+      /** UUID of the revision the prompt was rendered for. */
+      revision_id: string;
+      /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
+      framework_prompt_version: number;
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+      system_prompt: string;
+    }
+
+    export interface AgentRevisionValidationError {
+      code: string;
+      message: string;
+      pointer: string;
+    }
+
+    export interface AgentRevisionValidateResponse {
+      ok: boolean;
+      revision_id: string;
+      revision_state: string;
+      errors: AgentRevisionValidationError[];
+      resolved_natives: string[];
+    }
+
+    export interface AgentTableHeader {
+      /** Table name. */
+      name: string;
+      /** Object size in bytes. */
+      size: number;
+    }
+
+    export type AgentTableRowsResponseRowsItem = { [key: string]: unknown };
+
+    export interface AgentTableRowsResponse {
+      name: string;
+      /** Total rows in the table. */
+      total: number;
+      /** Rows in this response (capped by limit). */
+      returned: number;
+      limit: number;
+      /** The rows (arbitrary JSON objects). */
+      rows: AgentTableRowsResponseRowsItem[];
+    }
+
+    export interface AgentTablesListResponse {
+      /** Number of tables. */
+      count: number;
+      /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+      tables: AgentTableHeader[];
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -7169,6 +8398,9 @@ export namespace Schemas {
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -7178,6 +8410,9 @@ export namespace Schemas {
       Avg: 'avg',
       Count: 'count',
       P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -7589,6 +8824,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface AlertSimulate {
@@ -7853,6 +9090,14 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface AttributeBreakdownRow {
+      count: number;
+      error_count: number;
+      p50_duration_nano: number;
+      p95_duration_nano: number;
+      value: string;
+    }
+
     export interface UnmatchedUtmSample {
       /** A raw utm_source value that doesn't match the integration exactly */
       raw_value: string;
@@ -7903,6 +9148,18 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    /**
+     * * `oauth` - oauth
+     * * `credentials` - credentials
+     */
+    export type AuthMethodEnum = typeof AuthMethodEnum[keyof typeof AuthMethodEnum];
+
+
+    export const AuthMethodEnum = {
+      Oauth: 'oauth',
+      Credentials: 'credentials',
     } as const;
 
     export interface Author {
@@ -8811,10 +10068,10 @@ export namespace Schemas {
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes
      */
-    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
+    export type BatchExportIntervalEnum = typeof BatchExportIntervalEnum[keyof typeof BatchExportIntervalEnum];
 
 
-    export const IntervalEnum = {
+    export const BatchExportIntervalEnum = {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
@@ -8963,7 +10220,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
       /** The timestamp at which this BatchExport was created. */
@@ -9759,7 +11016,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -9917,6 +11174,18 @@ export namespace Schemas {
       label: string;
       value: string | number;
     }
+
+    /**
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
 
     export interface BreakdownValue {
       count: number;
@@ -10962,6 +12231,14 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    /**
+     * Body shape for POST /revisions/<id>/clone_from/ — copy every file
+     * from `source_revision_id` into this (draft) revision.
+     */
+    export interface CloneFromRequest {
+      source_revision_id: string;
+    }
+
     export interface DiffCluster {
       x: number;
       y: number;
@@ -11456,12 +12733,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -11575,6 +12855,22 @@ export namespace Schemas {
       Utf8: 'utf-8',
       Base64: 'base64',
     } as const;
+
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -11794,6 +13090,14 @@ export namespace Schemas {
       /** True if any goal is misconfigured */
       has_misconfigured: boolean;
     }
+
+    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
+
+
+    export const ConversionRateInputType = {
+      Manual: 'manual',
+      Automatic: 'automatic',
+    } as const;
 
     /**
      * * `0` - Disabled
@@ -12362,6 +13666,7 @@ export namespace Schemas {
       removed_identifiers?: string[];
       purpose?: string;
       metadata?: CreateRunInputMetadata;
+      is_partial?: boolean;
     }
 
     export interface CreateRunResult {
@@ -12690,14 +13995,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
      * * `session_replay_list` - session_replay_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
 
 
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
       ErrorTrackingList: 'error_tracking_list',
+      ExperimentResults: 'experiment_results',
+      ExperimentsList: 'experiments_list',
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -12706,7 +14017,10 @@ export namespace Schemas {
       id?: string;
       /** Widget type identifier (cannot be changed on update).
        *
+       * * `activity_events_list` - activity_events_list
        * * `error_tracking_list` - error_tracking_list
+       * * `experiment_results` - experiment_results
+       * * `experiments_list` - experiments_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -13673,6 +14987,405 @@ export namespace Schemas {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
+     * * `OneHundredMs` - OneHundredMs
+     * * `SevenShifts` - SevenShifts
+     * * `AcuityScheduling` - AcuityScheduling
+     * * `AgileCRM` - AgileCRM
+     * * `Aha` - Aha
+     * * `Airbyte` - Airbyte
+     * * `Akeneo` - Akeneo
+     * * `Algolia` - Algolia
+     * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
+     * * `ApifyDataset` - ApifyDataset
+     * * `Appcues` - Appcues
+     * * `Appfigures` - Appfigures
+     * * `Appfollow` - Appfollow
+     * * `Apptivo` - Apptivo
+     * * `AssemblyAI` - AssemblyAI
+     * * `Awin` - Awin
+     * * `AwsCloudTrail` - AwsCloudTrail
+     * * `AzureTableStorage` - AzureTableStorage
+     * * `Babelforce` - Babelforce
+     * * `Basecamp` - Basecamp
+     * * `Beamer` - Beamer
+     * * `BigMailer` - BigMailer
+     * * `Bluetally` - Bluetally
+     * * `BoldSign` - BoldSign
+     * * `BreezyHR` - BreezyHR
+     * * `Bugsnag` - Bugsnag
+     * * `Buildkite` - Buildkite
+     * * `Bunny` - Bunny
+     * * `Buzzsprout` - Buzzsprout
+     * * `CalCom` - CalCom
+     * * `CallRail` - CallRail
+     * * `Campayn` - Campayn
+     * * `Canny` - Canny
+     * * `CapsuleCRM` - CapsuleCRM
+     * * `CaptainData` - CaptainData
+     * * `CartCom` - CartCom
+     * * `CastorEDC` - CastorEDC
+     * * `Chameleon` - Chameleon
+     * * `Chargedesk` - Chargedesk
+     * * `Chargify` - Chargify
+     * * `Chift` - Chift
+     * * `Churnkey` - Churnkey
+     * * `Cin7` - Cin7
+     * * `CiscoMeraki` - CiscoMeraki
+     * * `Clazar` - Clazar
+     * * `Clockify` - Clockify
+     * * `Clockodo` - Clockodo
+     * * `Cloudbeds` - Cloudbeds
+     * * `Coassemble` - Coassemble
+     * * `Codefresh` - Codefresh
+     * * `Concord` - Concord
+     * * `ConfigCat` - ConfigCat
+     * * `Couchbase` - Couchbase
+     * * `Curve` - Curve
+     * * `Customerly` - Customerly
+     * * `Datascope` - Datascope
+     * * `Dbt` - Dbt
+     * * `Deputy` - Deputy
+     * * `DevinAI` - DevinAI
+     * * `Docuseal` - Docuseal
+     * * `Dolibarr` - Dolibarr
+     * * `Dremio` - Dremio
+     * * `DropboxSign` - DropboxSign
+     * * `Dwolla` - Dwolla
+     * * `EConomic` - EConomic
+     * * `Easypost` - Easypost
+     * * `Easypromos` - Easypromos
+     * * `Elasticemail` - Elasticemail
+     * * `EmailOctopus` - EmailOctopus
+     * * `EmploymentHero` - EmploymentHero
+     * * `Encharge` - Encharge
+     * * `Eventee` - Eventee
+     * * `Eventzilla` - Eventzilla
+     * * `Everhour` - Everhour
+     * * `EZOfficeInventory` - EZOfficeInventory
+     * * `Factorial` - Factorial
+     * * `Fastbill` - Fastbill
+     * * `Fastly` - Fastly
+     * * `Fauna` - Fauna
+     * * `Feishu` - Feishu
+     * * `Fillout` - Fillout
+     * * `Finage` - Finage
+     * * `Firebolt` - Firebolt
+     * * `FireHydrant` - FireHydrant
+     * * `Fleetio` - Fleetio
+     * * `Flexmail` - Flexmail
+     * * `Flexport` - Flexport
+     * * `FloatApp` - FloatApp
+     * * `Flowlu` - Flowlu
+     * * `Formbricks` - Formbricks
+     * * `FreeAgent` - FreeAgent
+     * * `Freightview` - Freightview
+     * * `Freshcaller` - Freshcaller
+     * * `Freshchat` - Freshchat
+     * * `Freshservice` - Freshservice
+     * * `Fulcrum` - Fulcrum
+     * * `GainsightPx` - GainsightPx
+     * * `GitBook` - GitBook
+     * * `Glassfrog` - Glassfrog
+     * * `Goldcast` - Goldcast
+     * * `GoLogin` - GoLogin
+     * * `Grafana` - Grafana
+     * * `GreytHr` - GreytHr
+     * * `Gridly` - Gridly
+     * * `Harness` - Harness
+     * * `Height` - Height
+     * * `Hellobaton` - Hellobaton
+     * * `HighLevel` - HighLevel
+     * * `HoorayHR` - HoorayHR
+     * * `Hubplanner` - Hubplanner
+     * * `Humanitix` - Humanitix
+     * * `Huntr` - Huntr
+     * * `Inflowinventory` - Inflowinventory
+     * * `InforNexus` - InforNexus
+     * * `Insightful` - Insightful
+     * * `Insightly` - Insightly
+     * * `Instatus` - Instatus
+     * * `Intruder` - Intruder
+     * * `Invoiced` - Invoiced
+     * * `Invoiceninja` - Invoiceninja
+     * * `JamfPro` - JamfPro
+     * * `JobNimbus` - JobNimbus
+     * * `Jotform` - Jotform
+     * * `JudgeMeReviews` - JudgeMeReviews
+     * * `JustCall` - JustCall
+     * * `JustSift` - JustSift
+     * * `K6Cloud` - K6Cloud
+     * * `Katana` - Katana
+     * * `Keka` - Keka
+     * * `Kisi` - Kisi
+     * * `Kissmetrics` - Kissmetrics
+     * * `Klarna` - Klarna
+     * * `Klaus` - Klaus
+     * * `Lago` - Lago
+     * * `Leadfeeder` - Leadfeeder
+     * * `Lemlist` - Lemlist
+     * * `LessAnnoyingCRM` - LessAnnoyingCRM
+     * * `LinkedinPages` - LinkedinPages
+     * * `Linkrunner` - Linkrunner
+     * * `Linnworks` - Linnworks
+     * * `Lob` - Lob
+     * * `Lokalise` - Lokalise
+     * * `Looker` - Looker
+     * * `Luma` - Luma
+     * * `MailerSend` - MailerSend
+     * * `Mailosaur` - Mailosaur
+     * * `Mailtrap` - Mailtrap
+     * * `Mantle` - Mantle
+     * * `Mention` - Mention
+     * * `MercadoAds` - MercadoAds
+     * * `Merge` - Merge
+     * * `Metabase` - Metabase
+     * * `Metricool` - Metricool
+     * * `MicrosoftDataverse` - MicrosoftDataverse
+     * * `MicrosoftEntraId` - MicrosoftEntraId
+     * * `MicrosoftLists` - MicrosoftLists
+     * * `Miro` - Miro
+     * * `Missive` - Missive
+     * * `MixMax` - MixMax
+     * * `Mode` - Mode
+     * * `Mux` - Mux
+     * * `MyHours` - MyHours
+     * * `N8n` - N8n
+     * * `Navan` - Navan
+     * * `NebiusAI` - NebiusAI
+     * * `Nexiopay` - Nexiopay
+     * * `NinjaOneRMM` - NinjaOneRMM
+     * * `NoCRM` - NoCRM
+     * * `NorthpassLMS` - NorthpassLMS
+     * * `Nutshell` - Nutshell
+     * * `Nylas` - Nylas
+     * * `Oncehub` - Oncehub
+     * * `Onepagecrm` - Onepagecrm
+     * * `OneSignal` - OneSignal
+     * * `Onfleet` - Onfleet
+     * * `OpinionStage` - OpinionStage
+     * * `OPUSWatch` - OPUSWatch
+     * * `Orb` - Orb
+     * * `Orbit` - Orbit
+     * * `Oura` - Oura
+     * * `Oveit` - Oveit
+     * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
+     * * `Paperform` - Paperform
+     * * `Papersign` - Papersign
+     * * `Partnerize` - Partnerize
+     * * `PartnerStack` - PartnerStack
+     * * `PayFit` - PayFit
+     * * `Paystack` - Paystack
+     * * `Pennylane` - Pennylane
+     * * `Perk` - Perk
+     * * `PersistIq` - PersistIq
+     * * `Persona` - Persona
+     * * `Phyllo` - Phyllo
+     * * `Picqer` - Picqer
+     * * `Pipeliner` - Pipeliner
+     * * `PivotalTracker` - PivotalTracker
+     * * `Piwik` - Piwik
+     * * `Planhat` - Planhat
+     * * `Plausible` - Plausible
+     * * `Poplar` - Poplar
+     * * `PrestaShop` - PrestaShop
+     * * `Pretix` - Pretix
+     * * `Primetric` - Primetric
+     * * `Printify` - Printify
+     * * `Productive` - Productive
+     * * `Pylon` - Pylon
+     * * `Qonto` - Qonto
+     * * `Qualaroo` - Qualaroo
+     * * `Railz` - Railz
+     * * `RDStationMarketing` - RDStationMarketing
+     * * `Recruitee` - Recruitee
+     * * `Reddit` - Reddit
+     * * `ReferralHero` - ReferralHero
+     * * `RentCast` - RentCast
+     * * `Repairshopr` - Repairshopr
+     * * `ReplyIo` - ReplyIo
+     * * `RetailExpress` - RetailExpress
+     * * `Retently` - Retently
+     * * `RevolutMerchant` - RevolutMerchant
+     * * `RocketChat` - RocketChat
+     * * `Rocketlane` - Rocketlane
+     * * `Rootly` - Rootly
+     * * `Ruddr` - Ruddr
+     * * `SafetyCulture` - SafetyCulture
+     * * `SageHR` - SageHR
+     * * `Salesflare` - Salesflare
+     * * `SAPFieldglass` - SAPFieldglass
+     * * `SavvyCal` - SavvyCal
+     * * `Secoda` - Secoda
+     * * `Segment` - Segment
+     * * `Sendowl` - Sendowl
+     * * `SendPulse` - SendPulse
+     * * `Senseforce` - Senseforce
+     * * `Serpstat` - Serpstat
+     * * `Sharetribe` - Sharetribe
+     * * `Shippo` - Shippo
+     * * `ShopWired` - ShopWired
+     * * `Shortio` - Shortio
+     * * `Shutterstock` - Shutterstock
+     * * `SigmaComputing` - SigmaComputing
+     * * `SignNow` - SignNow
+     * * `SimpleCast` - SimpleCast
+     * * `Simplesat` - Simplesat
+     * * `Smaily` - Smaily
+     * * `SmartEngage` - SmartEngage
+     * * `Smartreach` - Smartreach
+     * * `Smartwaiver` - Smartwaiver
+     * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
+     * * `SonarCloud` - SonarCloud
+     * * `SparkPost` - SparkPost
+     * * `SplitIo` - SplitIo
+     * * `SpotifyAds` - SpotifyAds
+     * * `SpotlerCRM` - SpotlerCRM
+     * * `Squarespace` - Squarespace
+     * * `Statsig` - Statsig
+     * * `Statuspage` - Statuspage
+     * * `Stigg` - Stigg
+     * * `Strava` - Strava
+     * * `SurveySparrow` - SurveySparrow
+     * * `Survicate` - Survicate
+     * * `Svix` - Svix
+     * * `Systeme` - Systeme
+     * * `Tavus` - Tavus
+     * * `Teamtailor` - Teamtailor
+     * * `Teamwork` - Teamwork
+     * * `Tempo` - Tempo
+     * * `Testrail` - Testrail
+     * * `Thinkific` - Thinkific
+     * * `ThinkificCourses` - ThinkificCourses
+     * * `ThriveLearning` - ThriveLearning
+     * * `Ticketmaster` - Ticketmaster
+     * * `TicketTailor` - TicketTailor
+     * * `TickTick` - TickTick
+     * * `Timely` - Timely
+     * * `Tinyemail` - Tinyemail
+     * * `Todoist` - Todoist
+     * * `Toggl` - Toggl
+     * * `TrackPMS` - TrackPMS
+     * * `Tremendous` - Tremendous
+     * * `TrustPilot` - TrustPilot
+     * * `Twitter` - Twitter
+     * * `TyntecSMS` - TyntecSMS
+     * * `Unleash` - Unleash
+     * * `UpPromote` - UpPromote
+     * * `Uptick` - Uptick
+     * * `Uservoice` - Uservoice
+     * * `Vantage` - Vantage
+     * * `Veeqo` - Veeqo
+     * * `Vercel` - Vercel
+     * * `VismaEconomic` - VismaEconomic
+     * * `VWO` - VWO
+     * * `Waiteraid` - Waiteraid
+     * * `Wasabi` - Wasabi
+     * * `WhenIWork` - WhenIWork
+     * * `Wordpress` - Wordpress
+     * * `Workable` - Workable
+     * * `Workflowmax` - Workflowmax
+     * * `Workramp` - Workramp
+     * * `Wufoo` - Wufoo
+     * * `Xsolla` - Xsolla
+     * * `YandexMetrica` - YandexMetrica
+     * * `Yotpo` - Yotpo
+     * * `Ynab` - Ynab
+     * * `Younium` - Younium
+     * * `YouSign` - YouSign
+     * * `YoutubeData` - YoutubeData
+     * * `ZapierSupportedStorage` - ZapierSupportedStorage
+     * * `ZapSign` - ZapSign
+     * * `ZendeskSell` - ZendeskSell
+     * * `ZendeskSunshine` - ZendeskSunshine
+     * * `Zenefits` - Zenefits
+     * * `Zenloop` - Zenloop
+     * * `ZohoAnalytics` - ZohoAnalytics
+     * * `ZohoBigin` - ZohoBigin
+     * * `ZohoBilling` - ZohoBilling
+     * * `ZohoBooks` - ZohoBooks
+     * * `ZohoCampaign` - ZohoCampaign
+     * * `ZohoDesk` - ZohoDesk
+     * * `ZohoExpense` - ZohoExpense
+     * * `ZohoInventory` - ZohoInventory
+     * * `ZohoInvoice` - ZohoInvoice
+     * * `ZonkaFeedback` - ZonkaFeedback
+     * * `AlphaVantage` - AlphaVantage
+     * * `Aviationstack` - Aviationstack
+     * * `Bitly` - Bitly
+     * * `Blogger` - Blogger
+     * * `Breezometer` - Breezometer
+     * * `CareQualityCommission` - CareQualityCommission
+     * * `Cimis` - Cimis
+     * * `CoinApi` - CoinApi
+     * * `CoinGecko` - CoinGecko
+     * * `CoinMarketCap` - CoinMarketCap
+     * * `DingConnect` - DingConnect
+     * * `Dockerhub` - Dockerhub
+     * * `ExchangeRatesApi` - ExchangeRatesApi
+     * * `FinancialModelling` - FinancialModelling
+     * * `Finnhub` - Finnhub
+     * * `Finnworlds` - Finnworlds
+     * * `Giphy` - Giphy
+     * * `Gmail` - Gmail
+     * * `GNews` - GNews
+     * * `GoogleCalendar` - GoogleCalendar
+     * * `GoogleClassroom` - GoogleClassroom
+     * * `GoogleDirectory` - GoogleDirectory
+     * * `GoogleForms` - GoogleForms
+     * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
+     * * `GoogleTasks` - GoogleTasks
+     * * `GoogleWebfonts` - GoogleWebfonts
+     * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
+     * * `HuggingFace` - HuggingFace
+     * * `IlluminaBasespace` - IlluminaBasespace
+     * * `Imagga` - Imagga
+     * * `Interzoid` - Interzoid
+     * * `IP2Whois` - IP2Whois
+     * * `KYVE` - KYVE
+     * * `Marketstack` - Marketstack
+     * * `Mendeley` - Mendeley
+     * * `Nasa` - Nasa
+     * * `NewYorkTimes` - NewYorkTimes
+     * * `NewsApi` - NewsApi
+     * * `NewsData` - NewsData
+     * * `OpenDataDc` - OpenDataDc
+     * * `OpenExchangeRates` - OpenExchangeRates
+     * * `OpenAQ` - OpenAQ
+     * * `OpenFDA` - OpenFDA
+     * * `OpenWeather` - OpenWeather
+     * * `Outlook` - Outlook
+     * * `Perigon` - Perigon
+     * * `Pexels` - Pexels
+     * * `Pocket` - Pocket
+     * * `Polygon` - Polygon
+     * * `PyPI` - PyPI
+     * * `Recreation` - Recreation
+     * * `RKICovid` - RKICovid
+     * * `Rss` - Rss
+     * * `SimFin` - SimFin
+     * * `StockData` - StockData
+     * * `Guardian` - Guardian
+     * * `TMDb` - TMDb
+     * * `TVMaze` - TVMaze
+     * * `TwelveData` - TwelveData
+     * * `Ubidots` - Ubidots
+     * * `USCensus` - USCensus
+     * * `Watchmode` - Watchmode
+     * * `WikipediaPageviews` - WikipediaPageviews
+     * * `YahooFinance` - YahooFinance
+     * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13905,6 +15618,405 @@ export namespace Schemas {
       SapSuccessFactors: 'SapSuccessFactors',
       OracleEbs: 'OracleEbs',
       OracleFusion: 'OracleFusion',
+      AmazonSNS: 'AmazonSNS',
+      AmazonEventBridge: 'AmazonEventBridge',
+      AmazonSQS: 'AmazonSQS',
+      AmazonKinesis: 'AmazonKinesis',
+      AmazonCloudWatch: 'AmazonCloudWatch',
+      OpenAIAds: 'OpenAIAds',
+      OneHundredMs: 'OneHundredMs',
+      SevenShifts: 'SevenShifts',
+      AcuityScheduling: 'AcuityScheduling',
+      AgileCRM: 'AgileCRM',
+      Aha: 'Aha',
+      Airbyte: 'Airbyte',
+      Akeneo: 'Akeneo',
+      Algolia: 'Algolia',
+      AlpacaBrokerAPI: 'AlpacaBrokerAPI',
+      ApifyDataset: 'ApifyDataset',
+      Appcues: 'Appcues',
+      Appfigures: 'Appfigures',
+      Appfollow: 'Appfollow',
+      Apptivo: 'Apptivo',
+      AssemblyAI: 'AssemblyAI',
+      Awin: 'Awin',
+      AwsCloudTrail: 'AwsCloudTrail',
+      AzureTableStorage: 'AzureTableStorage',
+      Babelforce: 'Babelforce',
+      Basecamp: 'Basecamp',
+      Beamer: 'Beamer',
+      BigMailer: 'BigMailer',
+      Bluetally: 'Bluetally',
+      BoldSign: 'BoldSign',
+      BreezyHR: 'BreezyHR',
+      Bugsnag: 'Bugsnag',
+      Buildkite: 'Buildkite',
+      Bunny: 'Bunny',
+      Buzzsprout: 'Buzzsprout',
+      CalCom: 'CalCom',
+      CallRail: 'CallRail',
+      Campayn: 'Campayn',
+      Canny: 'Canny',
+      CapsuleCRM: 'CapsuleCRM',
+      CaptainData: 'CaptainData',
+      CartCom: 'CartCom',
+      CastorEDC: 'CastorEDC',
+      Chameleon: 'Chameleon',
+      Chargedesk: 'Chargedesk',
+      Chargify: 'Chargify',
+      Chift: 'Chift',
+      Churnkey: 'Churnkey',
+      Cin7: 'Cin7',
+      CiscoMeraki: 'CiscoMeraki',
+      Clazar: 'Clazar',
+      Clockify: 'Clockify',
+      Clockodo: 'Clockodo',
+      Cloudbeds: 'Cloudbeds',
+      Coassemble: 'Coassemble',
+      Codefresh: 'Codefresh',
+      Concord: 'Concord',
+      ConfigCat: 'ConfigCat',
+      Couchbase: 'Couchbase',
+      Curve: 'Curve',
+      Customerly: 'Customerly',
+      Datascope: 'Datascope',
+      Dbt: 'Dbt',
+      Deputy: 'Deputy',
+      DevinAI: 'DevinAI',
+      Docuseal: 'Docuseal',
+      Dolibarr: 'Dolibarr',
+      Dremio: 'Dremio',
+      DropboxSign: 'DropboxSign',
+      Dwolla: 'Dwolla',
+      EConomic: 'EConomic',
+      Easypost: 'Easypost',
+      Easypromos: 'Easypromos',
+      Elasticemail: 'Elasticemail',
+      EmailOctopus: 'EmailOctopus',
+      EmploymentHero: 'EmploymentHero',
+      Encharge: 'Encharge',
+      Eventee: 'Eventee',
+      Eventzilla: 'Eventzilla',
+      Everhour: 'Everhour',
+      EZOfficeInventory: 'EZOfficeInventory',
+      Factorial: 'Factorial',
+      Fastbill: 'Fastbill',
+      Fastly: 'Fastly',
+      Fauna: 'Fauna',
+      Feishu: 'Feishu',
+      Fillout: 'Fillout',
+      Finage: 'Finage',
+      Firebolt: 'Firebolt',
+      FireHydrant: 'FireHydrant',
+      Fleetio: 'Fleetio',
+      Flexmail: 'Flexmail',
+      Flexport: 'Flexport',
+      FloatApp: 'FloatApp',
+      Flowlu: 'Flowlu',
+      Formbricks: 'Formbricks',
+      FreeAgent: 'FreeAgent',
+      Freightview: 'Freightview',
+      Freshcaller: 'Freshcaller',
+      Freshchat: 'Freshchat',
+      Freshservice: 'Freshservice',
+      Fulcrum: 'Fulcrum',
+      GainsightPx: 'GainsightPx',
+      GitBook: 'GitBook',
+      Glassfrog: 'Glassfrog',
+      Goldcast: 'Goldcast',
+      GoLogin: 'GoLogin',
+      Grafana: 'Grafana',
+      GreytHr: 'GreytHr',
+      Gridly: 'Gridly',
+      Harness: 'Harness',
+      Height: 'Height',
+      Hellobaton: 'Hellobaton',
+      HighLevel: 'HighLevel',
+      HoorayHR: 'HoorayHR',
+      Hubplanner: 'Hubplanner',
+      Humanitix: 'Humanitix',
+      Huntr: 'Huntr',
+      Inflowinventory: 'Inflowinventory',
+      InforNexus: 'InforNexus',
+      Insightful: 'Insightful',
+      Insightly: 'Insightly',
+      Instatus: 'Instatus',
+      Intruder: 'Intruder',
+      Invoiced: 'Invoiced',
+      Invoiceninja: 'Invoiceninja',
+      JamfPro: 'JamfPro',
+      JobNimbus: 'JobNimbus',
+      Jotform: 'Jotform',
+      JudgeMeReviews: 'JudgeMeReviews',
+      JustCall: 'JustCall',
+      JustSift: 'JustSift',
+      K6Cloud: 'K6Cloud',
+      Katana: 'Katana',
+      Keka: 'Keka',
+      Kisi: 'Kisi',
+      Kissmetrics: 'Kissmetrics',
+      Klarna: 'Klarna',
+      Klaus: 'Klaus',
+      Lago: 'Lago',
+      Leadfeeder: 'Leadfeeder',
+      Lemlist: 'Lemlist',
+      LessAnnoyingCRM: 'LessAnnoyingCRM',
+      LinkedinPages: 'LinkedinPages',
+      Linkrunner: 'Linkrunner',
+      Linnworks: 'Linnworks',
+      Lob: 'Lob',
+      Lokalise: 'Lokalise',
+      Looker: 'Looker',
+      Luma: 'Luma',
+      MailerSend: 'MailerSend',
+      Mailosaur: 'Mailosaur',
+      Mailtrap: 'Mailtrap',
+      Mantle: 'Mantle',
+      Mention: 'Mention',
+      MercadoAds: 'MercadoAds',
+      Merge: 'Merge',
+      Metabase: 'Metabase',
+      Metricool: 'Metricool',
+      MicrosoftDataverse: 'MicrosoftDataverse',
+      MicrosoftEntraId: 'MicrosoftEntraId',
+      MicrosoftLists: 'MicrosoftLists',
+      Miro: 'Miro',
+      Missive: 'Missive',
+      MixMax: 'MixMax',
+      Mode: 'Mode',
+      Mux: 'Mux',
+      MyHours: 'MyHours',
+      N8n: 'N8n',
+      Navan: 'Navan',
+      NebiusAI: 'NebiusAI',
+      Nexiopay: 'Nexiopay',
+      NinjaOneRMM: 'NinjaOneRMM',
+      NoCRM: 'NoCRM',
+      NorthpassLMS: 'NorthpassLMS',
+      Nutshell: 'Nutshell',
+      Nylas: 'Nylas',
+      Oncehub: 'Oncehub',
+      Onepagecrm: 'Onepagecrm',
+      OneSignal: 'OneSignal',
+      Onfleet: 'Onfleet',
+      OpinionStage: 'OpinionStage',
+      OPUSWatch: 'OPUSWatch',
+      Orb: 'Orb',
+      Orbit: 'Orbit',
+      Oura: 'Oura',
+      Oveit: 'Oveit',
+      PabblySubscriptionsBilling: 'PabblySubscriptionsBilling',
+      Paperform: 'Paperform',
+      Papersign: 'Papersign',
+      Partnerize: 'Partnerize',
+      PartnerStack: 'PartnerStack',
+      PayFit: 'PayFit',
+      Paystack: 'Paystack',
+      Pennylane: 'Pennylane',
+      Perk: 'Perk',
+      PersistIq: 'PersistIq',
+      Persona: 'Persona',
+      Phyllo: 'Phyllo',
+      Picqer: 'Picqer',
+      Pipeliner: 'Pipeliner',
+      PivotalTracker: 'PivotalTracker',
+      Piwik: 'Piwik',
+      Planhat: 'Planhat',
+      Plausible: 'Plausible',
+      Poplar: 'Poplar',
+      PrestaShop: 'PrestaShop',
+      Pretix: 'Pretix',
+      Primetric: 'Primetric',
+      Printify: 'Printify',
+      Productive: 'Productive',
+      Pylon: 'Pylon',
+      Qonto: 'Qonto',
+      Qualaroo: 'Qualaroo',
+      Railz: 'Railz',
+      RDStationMarketing: 'RDStationMarketing',
+      Recruitee: 'Recruitee',
+      Reddit: 'Reddit',
+      ReferralHero: 'ReferralHero',
+      RentCast: 'RentCast',
+      Repairshopr: 'Repairshopr',
+      ReplyIo: 'ReplyIo',
+      RetailExpress: 'RetailExpress',
+      Retently: 'Retently',
+      RevolutMerchant: 'RevolutMerchant',
+      RocketChat: 'RocketChat',
+      Rocketlane: 'Rocketlane',
+      Rootly: 'Rootly',
+      Ruddr: 'Ruddr',
+      SafetyCulture: 'SafetyCulture',
+      SageHR: 'SageHR',
+      Salesflare: 'Salesflare',
+      SAPFieldglass: 'SAPFieldglass',
+      SavvyCal: 'SavvyCal',
+      Secoda: 'Secoda',
+      Segment: 'Segment',
+      Sendowl: 'Sendowl',
+      SendPulse: 'SendPulse',
+      Senseforce: 'Senseforce',
+      Serpstat: 'Serpstat',
+      Sharetribe: 'Sharetribe',
+      Shippo: 'Shippo',
+      ShopWired: 'ShopWired',
+      Shortio: 'Shortio',
+      Shutterstock: 'Shutterstock',
+      SigmaComputing: 'SigmaComputing',
+      SignNow: 'SignNow',
+      SimpleCast: 'SimpleCast',
+      Simplesat: 'Simplesat',
+      Smaily: 'Smaily',
+      SmartEngage: 'SmartEngage',
+      Smartreach: 'Smartreach',
+      Smartwaiver: 'Smartwaiver',
+      SolarwindsServiceDesk: 'SolarwindsServiceDesk',
+      SonarCloud: 'SonarCloud',
+      SparkPost: 'SparkPost',
+      SplitIo: 'SplitIo',
+      SpotifyAds: 'SpotifyAds',
+      SpotlerCRM: 'SpotlerCRM',
+      Squarespace: 'Squarespace',
+      Statsig: 'Statsig',
+      Statuspage: 'Statuspage',
+      Stigg: 'Stigg',
+      Strava: 'Strava',
+      SurveySparrow: 'SurveySparrow',
+      Survicate: 'Survicate',
+      Svix: 'Svix',
+      Systeme: 'Systeme',
+      Tavus: 'Tavus',
+      Teamtailor: 'Teamtailor',
+      Teamwork: 'Teamwork',
+      Tempo: 'Tempo',
+      Testrail: 'Testrail',
+      Thinkific: 'Thinkific',
+      ThinkificCourses: 'ThinkificCourses',
+      ThriveLearning: 'ThriveLearning',
+      Ticketmaster: 'Ticketmaster',
+      TicketTailor: 'TicketTailor',
+      TickTick: 'TickTick',
+      Timely: 'Timely',
+      Tinyemail: 'Tinyemail',
+      Todoist: 'Todoist',
+      Toggl: 'Toggl',
+      TrackPMS: 'TrackPMS',
+      Tremendous: 'Tremendous',
+      TrustPilot: 'TrustPilot',
+      Twitter: 'Twitter',
+      TyntecSMS: 'TyntecSMS',
+      Unleash: 'Unleash',
+      UpPromote: 'UpPromote',
+      Uptick: 'Uptick',
+      Uservoice: 'Uservoice',
+      Vantage: 'Vantage',
+      Veeqo: 'Veeqo',
+      Vercel: 'Vercel',
+      VismaEconomic: 'VismaEconomic',
+      Vwo: 'VWO',
+      Waiteraid: 'Waiteraid',
+      Wasabi: 'Wasabi',
+      WhenIWork: 'WhenIWork',
+      Wordpress: 'Wordpress',
+      Workable: 'Workable',
+      Workflowmax: 'Workflowmax',
+      Workramp: 'Workramp',
+      Wufoo: 'Wufoo',
+      Xsolla: 'Xsolla',
+      YandexMetrica: 'YandexMetrica',
+      Yotpo: 'Yotpo',
+      Ynab: 'Ynab',
+      Younium: 'Younium',
+      YouSign: 'YouSign',
+      YoutubeData: 'YoutubeData',
+      ZapierSupportedStorage: 'ZapierSupportedStorage',
+      ZapSign: 'ZapSign',
+      ZendeskSell: 'ZendeskSell',
+      ZendeskSunshine: 'ZendeskSunshine',
+      Zenefits: 'Zenefits',
+      Zenloop: 'Zenloop',
+      ZohoAnalytics: 'ZohoAnalytics',
+      ZohoBigin: 'ZohoBigin',
+      ZohoBilling: 'ZohoBilling',
+      ZohoBooks: 'ZohoBooks',
+      ZohoCampaign: 'ZohoCampaign',
+      ZohoDesk: 'ZohoDesk',
+      ZohoExpense: 'ZohoExpense',
+      ZohoInventory: 'ZohoInventory',
+      ZohoInvoice: 'ZohoInvoice',
+      ZonkaFeedback: 'ZonkaFeedback',
+      AlphaVantage: 'AlphaVantage',
+      Aviationstack: 'Aviationstack',
+      Bitly: 'Bitly',
+      Blogger: 'Blogger',
+      Breezometer: 'Breezometer',
+      CareQualityCommission: 'CareQualityCommission',
+      Cimis: 'Cimis',
+      CoinApi: 'CoinApi',
+      CoinGecko: 'CoinGecko',
+      CoinMarketCap: 'CoinMarketCap',
+      DingConnect: 'DingConnect',
+      Dockerhub: 'Dockerhub',
+      ExchangeRatesApi: 'ExchangeRatesApi',
+      FinancialModelling: 'FinancialModelling',
+      Finnhub: 'Finnhub',
+      Finnworlds: 'Finnworlds',
+      Giphy: 'Giphy',
+      Gmail: 'Gmail',
+      GNews: 'GNews',
+      GoogleCalendar: 'GoogleCalendar',
+      GoogleClassroom: 'GoogleClassroom',
+      GoogleDirectory: 'GoogleDirectory',
+      GoogleForms: 'GoogleForms',
+      GooglePageSpeedInsights: 'GooglePageSpeedInsights',
+      GoogleTasks: 'GoogleTasks',
+      GoogleWebfonts: 'GoogleWebfonts',
+      GoogleWorkspaceAdminReports: 'GoogleWorkspaceAdminReports',
+      HuggingFace: 'HuggingFace',
+      IlluminaBasespace: 'IlluminaBasespace',
+      Imagga: 'Imagga',
+      Interzoid: 'Interzoid',
+      IP2Whois: 'IP2Whois',
+      Kyve: 'KYVE',
+      Marketstack: 'Marketstack',
+      Mendeley: 'Mendeley',
+      Nasa: 'Nasa',
+      NewYorkTimes: 'NewYorkTimes',
+      NewsApi: 'NewsApi',
+      NewsData: 'NewsData',
+      OpenDataDc: 'OpenDataDc',
+      OpenExchangeRates: 'OpenExchangeRates',
+      OpenAQ: 'OpenAQ',
+      OpenFDA: 'OpenFDA',
+      OpenWeather: 'OpenWeather',
+      Outlook: 'Outlook',
+      Perigon: 'Perigon',
+      Pexels: 'Pexels',
+      Pocket: 'Pocket',
+      Polygon: 'Polygon',
+      PyPI: 'PyPI',
+      Recreation: 'Recreation',
+      RKICovid: 'RKICovid',
+      Rss: 'Rss',
+      SimFin: 'SimFin',
+      StockData: 'StockData',
+      Guardian: 'Guardian',
+      TMDb: 'TMDb',
+      TVMaze: 'TVMaze',
+      TwelveData: 'TwelveData',
+      Ubidots: 'Ubidots',
+      USCensus: 'USCensus',
+      Watchmode: 'Watchmode',
+      WikipediaPageviews: 'WikipediaPageviews',
+      YahooFinance: 'YahooFinance',
+      Clarifai: 'Clarifai',
+      Adapty: 'Adapty',
+      Braintrust: 'Braintrust',
+      StreamElements: 'StreamElements',
+      Streamlabs: 'Streamlabs',
+      Datorama: 'Datorama',
+      Ahrefs: 'Ahrefs',
       Custom: 'Custom',
     } as const;
 
@@ -14144,6 +16256,405 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `OneHundredMs` - OneHundredMs
+       * * `SevenShifts` - SevenShifts
+       * * `AcuityScheduling` - AcuityScheduling
+       * * `AgileCRM` - AgileCRM
+       * * `Aha` - Aha
+       * * `Airbyte` - Airbyte
+       * * `Akeneo` - Akeneo
+       * * `Algolia` - Algolia
+       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
+       * * `ApifyDataset` - ApifyDataset
+       * * `Appcues` - Appcues
+       * * `Appfigures` - Appfigures
+       * * `Appfollow` - Appfollow
+       * * `Apptivo` - Apptivo
+       * * `AssemblyAI` - AssemblyAI
+       * * `Awin` - Awin
+       * * `AwsCloudTrail` - AwsCloudTrail
+       * * `AzureTableStorage` - AzureTableStorage
+       * * `Babelforce` - Babelforce
+       * * `Basecamp` - Basecamp
+       * * `Beamer` - Beamer
+       * * `BigMailer` - BigMailer
+       * * `Bluetally` - Bluetally
+       * * `BoldSign` - BoldSign
+       * * `BreezyHR` - BreezyHR
+       * * `Bugsnag` - Bugsnag
+       * * `Buildkite` - Buildkite
+       * * `Bunny` - Bunny
+       * * `Buzzsprout` - Buzzsprout
+       * * `CalCom` - CalCom
+       * * `CallRail` - CallRail
+       * * `Campayn` - Campayn
+       * * `Canny` - Canny
+       * * `CapsuleCRM` - CapsuleCRM
+       * * `CaptainData` - CaptainData
+       * * `CartCom` - CartCom
+       * * `CastorEDC` - CastorEDC
+       * * `Chameleon` - Chameleon
+       * * `Chargedesk` - Chargedesk
+       * * `Chargify` - Chargify
+       * * `Chift` - Chift
+       * * `Churnkey` - Churnkey
+       * * `Cin7` - Cin7
+       * * `CiscoMeraki` - CiscoMeraki
+       * * `Clazar` - Clazar
+       * * `Clockify` - Clockify
+       * * `Clockodo` - Clockodo
+       * * `Cloudbeds` - Cloudbeds
+       * * `Coassemble` - Coassemble
+       * * `Codefresh` - Codefresh
+       * * `Concord` - Concord
+       * * `ConfigCat` - ConfigCat
+       * * `Couchbase` - Couchbase
+       * * `Curve` - Curve
+       * * `Customerly` - Customerly
+       * * `Datascope` - Datascope
+       * * `Dbt` - Dbt
+       * * `Deputy` - Deputy
+       * * `DevinAI` - DevinAI
+       * * `Docuseal` - Docuseal
+       * * `Dolibarr` - Dolibarr
+       * * `Dremio` - Dremio
+       * * `DropboxSign` - DropboxSign
+       * * `Dwolla` - Dwolla
+       * * `EConomic` - EConomic
+       * * `Easypost` - Easypost
+       * * `Easypromos` - Easypromos
+       * * `Elasticemail` - Elasticemail
+       * * `EmailOctopus` - EmailOctopus
+       * * `EmploymentHero` - EmploymentHero
+       * * `Encharge` - Encharge
+       * * `Eventee` - Eventee
+       * * `Eventzilla` - Eventzilla
+       * * `Everhour` - Everhour
+       * * `EZOfficeInventory` - EZOfficeInventory
+       * * `Factorial` - Factorial
+       * * `Fastbill` - Fastbill
+       * * `Fastly` - Fastly
+       * * `Fauna` - Fauna
+       * * `Feishu` - Feishu
+       * * `Fillout` - Fillout
+       * * `Finage` - Finage
+       * * `Firebolt` - Firebolt
+       * * `FireHydrant` - FireHydrant
+       * * `Fleetio` - Fleetio
+       * * `Flexmail` - Flexmail
+       * * `Flexport` - Flexport
+       * * `FloatApp` - FloatApp
+       * * `Flowlu` - Flowlu
+       * * `Formbricks` - Formbricks
+       * * `FreeAgent` - FreeAgent
+       * * `Freightview` - Freightview
+       * * `Freshcaller` - Freshcaller
+       * * `Freshchat` - Freshchat
+       * * `Freshservice` - Freshservice
+       * * `Fulcrum` - Fulcrum
+       * * `GainsightPx` - GainsightPx
+       * * `GitBook` - GitBook
+       * * `Glassfrog` - Glassfrog
+       * * `Goldcast` - Goldcast
+       * * `GoLogin` - GoLogin
+       * * `Grafana` - Grafana
+       * * `GreytHr` - GreytHr
+       * * `Gridly` - Gridly
+       * * `Harness` - Harness
+       * * `Height` - Height
+       * * `Hellobaton` - Hellobaton
+       * * `HighLevel` - HighLevel
+       * * `HoorayHR` - HoorayHR
+       * * `Hubplanner` - Hubplanner
+       * * `Humanitix` - Humanitix
+       * * `Huntr` - Huntr
+       * * `Inflowinventory` - Inflowinventory
+       * * `InforNexus` - InforNexus
+       * * `Insightful` - Insightful
+       * * `Insightly` - Insightly
+       * * `Instatus` - Instatus
+       * * `Intruder` - Intruder
+       * * `Invoiced` - Invoiced
+       * * `Invoiceninja` - Invoiceninja
+       * * `JamfPro` - JamfPro
+       * * `JobNimbus` - JobNimbus
+       * * `Jotform` - Jotform
+       * * `JudgeMeReviews` - JudgeMeReviews
+       * * `JustCall` - JustCall
+       * * `JustSift` - JustSift
+       * * `K6Cloud` - K6Cloud
+       * * `Katana` - Katana
+       * * `Keka` - Keka
+       * * `Kisi` - Kisi
+       * * `Kissmetrics` - Kissmetrics
+       * * `Klarna` - Klarna
+       * * `Klaus` - Klaus
+       * * `Lago` - Lago
+       * * `Leadfeeder` - Leadfeeder
+       * * `Lemlist` - Lemlist
+       * * `LessAnnoyingCRM` - LessAnnoyingCRM
+       * * `LinkedinPages` - LinkedinPages
+       * * `Linkrunner` - Linkrunner
+       * * `Linnworks` - Linnworks
+       * * `Lob` - Lob
+       * * `Lokalise` - Lokalise
+       * * `Looker` - Looker
+       * * `Luma` - Luma
+       * * `MailerSend` - MailerSend
+       * * `Mailosaur` - Mailosaur
+       * * `Mailtrap` - Mailtrap
+       * * `Mantle` - Mantle
+       * * `Mention` - Mention
+       * * `MercadoAds` - MercadoAds
+       * * `Merge` - Merge
+       * * `Metabase` - Metabase
+       * * `Metricool` - Metricool
+       * * `MicrosoftDataverse` - MicrosoftDataverse
+       * * `MicrosoftEntraId` - MicrosoftEntraId
+       * * `MicrosoftLists` - MicrosoftLists
+       * * `Miro` - Miro
+       * * `Missive` - Missive
+       * * `MixMax` - MixMax
+       * * `Mode` - Mode
+       * * `Mux` - Mux
+       * * `MyHours` - MyHours
+       * * `N8n` - N8n
+       * * `Navan` - Navan
+       * * `NebiusAI` - NebiusAI
+       * * `Nexiopay` - Nexiopay
+       * * `NinjaOneRMM` - NinjaOneRMM
+       * * `NoCRM` - NoCRM
+       * * `NorthpassLMS` - NorthpassLMS
+       * * `Nutshell` - Nutshell
+       * * `Nylas` - Nylas
+       * * `Oncehub` - Oncehub
+       * * `Onepagecrm` - Onepagecrm
+       * * `OneSignal` - OneSignal
+       * * `Onfleet` - Onfleet
+       * * `OpinionStage` - OpinionStage
+       * * `OPUSWatch` - OPUSWatch
+       * * `Orb` - Orb
+       * * `Orbit` - Orbit
+       * * `Oura` - Oura
+       * * `Oveit` - Oveit
+       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
+       * * `Paperform` - Paperform
+       * * `Papersign` - Papersign
+       * * `Partnerize` - Partnerize
+       * * `PartnerStack` - PartnerStack
+       * * `PayFit` - PayFit
+       * * `Paystack` - Paystack
+       * * `Pennylane` - Pennylane
+       * * `Perk` - Perk
+       * * `PersistIq` - PersistIq
+       * * `Persona` - Persona
+       * * `Phyllo` - Phyllo
+       * * `Picqer` - Picqer
+       * * `Pipeliner` - Pipeliner
+       * * `PivotalTracker` - PivotalTracker
+       * * `Piwik` - Piwik
+       * * `Planhat` - Planhat
+       * * `Plausible` - Plausible
+       * * `Poplar` - Poplar
+       * * `PrestaShop` - PrestaShop
+       * * `Pretix` - Pretix
+       * * `Primetric` - Primetric
+       * * `Printify` - Printify
+       * * `Productive` - Productive
+       * * `Pylon` - Pylon
+       * * `Qonto` - Qonto
+       * * `Qualaroo` - Qualaroo
+       * * `Railz` - Railz
+       * * `RDStationMarketing` - RDStationMarketing
+       * * `Recruitee` - Recruitee
+       * * `Reddit` - Reddit
+       * * `ReferralHero` - ReferralHero
+       * * `RentCast` - RentCast
+       * * `Repairshopr` - Repairshopr
+       * * `ReplyIo` - ReplyIo
+       * * `RetailExpress` - RetailExpress
+       * * `Retently` - Retently
+       * * `RevolutMerchant` - RevolutMerchant
+       * * `RocketChat` - RocketChat
+       * * `Rocketlane` - Rocketlane
+       * * `Rootly` - Rootly
+       * * `Ruddr` - Ruddr
+       * * `SafetyCulture` - SafetyCulture
+       * * `SageHR` - SageHR
+       * * `Salesflare` - Salesflare
+       * * `SAPFieldglass` - SAPFieldglass
+       * * `SavvyCal` - SavvyCal
+       * * `Secoda` - Secoda
+       * * `Segment` - Segment
+       * * `Sendowl` - Sendowl
+       * * `SendPulse` - SendPulse
+       * * `Senseforce` - Senseforce
+       * * `Serpstat` - Serpstat
+       * * `Sharetribe` - Sharetribe
+       * * `Shippo` - Shippo
+       * * `ShopWired` - ShopWired
+       * * `Shortio` - Shortio
+       * * `Shutterstock` - Shutterstock
+       * * `SigmaComputing` - SigmaComputing
+       * * `SignNow` - SignNow
+       * * `SimpleCast` - SimpleCast
+       * * `Simplesat` - Simplesat
+       * * `Smaily` - Smaily
+       * * `SmartEngage` - SmartEngage
+       * * `Smartreach` - Smartreach
+       * * `Smartwaiver` - Smartwaiver
+       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
+       * * `SonarCloud` - SonarCloud
+       * * `SparkPost` - SparkPost
+       * * `SplitIo` - SplitIo
+       * * `SpotifyAds` - SpotifyAds
+       * * `SpotlerCRM` - SpotlerCRM
+       * * `Squarespace` - Squarespace
+       * * `Statsig` - Statsig
+       * * `Statuspage` - Statuspage
+       * * `Stigg` - Stigg
+       * * `Strava` - Strava
+       * * `SurveySparrow` - SurveySparrow
+       * * `Survicate` - Survicate
+       * * `Svix` - Svix
+       * * `Systeme` - Systeme
+       * * `Tavus` - Tavus
+       * * `Teamtailor` - Teamtailor
+       * * `Teamwork` - Teamwork
+       * * `Tempo` - Tempo
+       * * `Testrail` - Testrail
+       * * `Thinkific` - Thinkific
+       * * `ThinkificCourses` - ThinkificCourses
+       * * `ThriveLearning` - ThriveLearning
+       * * `Ticketmaster` - Ticketmaster
+       * * `TicketTailor` - TicketTailor
+       * * `TickTick` - TickTick
+       * * `Timely` - Timely
+       * * `Tinyemail` - Tinyemail
+       * * `Todoist` - Todoist
+       * * `Toggl` - Toggl
+       * * `TrackPMS` - TrackPMS
+       * * `Tremendous` - Tremendous
+       * * `TrustPilot` - TrustPilot
+       * * `Twitter` - Twitter
+       * * `TyntecSMS` - TyntecSMS
+       * * `Unleash` - Unleash
+       * * `UpPromote` - UpPromote
+       * * `Uptick` - Uptick
+       * * `Uservoice` - Uservoice
+       * * `Vantage` - Vantage
+       * * `Veeqo` - Veeqo
+       * * `Vercel` - Vercel
+       * * `VismaEconomic` - VismaEconomic
+       * * `VWO` - VWO
+       * * `Waiteraid` - Waiteraid
+       * * `Wasabi` - Wasabi
+       * * `WhenIWork` - WhenIWork
+       * * `Wordpress` - Wordpress
+       * * `Workable` - Workable
+       * * `Workflowmax` - Workflowmax
+       * * `Workramp` - Workramp
+       * * `Wufoo` - Wufoo
+       * * `Xsolla` - Xsolla
+       * * `YandexMetrica` - YandexMetrica
+       * * `Yotpo` - Yotpo
+       * * `Ynab` - Ynab
+       * * `Younium` - Younium
+       * * `YouSign` - YouSign
+       * * `YoutubeData` - YoutubeData
+       * * `ZapierSupportedStorage` - ZapierSupportedStorage
+       * * `ZapSign` - ZapSign
+       * * `ZendeskSell` - ZendeskSell
+       * * `ZendeskSunshine` - ZendeskSunshine
+       * * `Zenefits` - Zenefits
+       * * `Zenloop` - Zenloop
+       * * `ZohoAnalytics` - ZohoAnalytics
+       * * `ZohoBigin` - ZohoBigin
+       * * `ZohoBilling` - ZohoBilling
+       * * `ZohoBooks` - ZohoBooks
+       * * `ZohoCampaign` - ZohoCampaign
+       * * `ZohoDesk` - ZohoDesk
+       * * `ZohoExpense` - ZohoExpense
+       * * `ZohoInventory` - ZohoInventory
+       * * `ZohoInvoice` - ZohoInvoice
+       * * `ZonkaFeedback` - ZonkaFeedback
+       * * `AlphaVantage` - AlphaVantage
+       * * `Aviationstack` - Aviationstack
+       * * `Bitly` - Bitly
+       * * `Blogger` - Blogger
+       * * `Breezometer` - Breezometer
+       * * `CareQualityCommission` - CareQualityCommission
+       * * `Cimis` - Cimis
+       * * `CoinApi` - CoinApi
+       * * `CoinGecko` - CoinGecko
+       * * `CoinMarketCap` - CoinMarketCap
+       * * `DingConnect` - DingConnect
+       * * `Dockerhub` - Dockerhub
+       * * `ExchangeRatesApi` - ExchangeRatesApi
+       * * `FinancialModelling` - FinancialModelling
+       * * `Finnhub` - Finnhub
+       * * `Finnworlds` - Finnworlds
+       * * `Giphy` - Giphy
+       * * `Gmail` - Gmail
+       * * `GNews` - GNews
+       * * `GoogleCalendar` - GoogleCalendar
+       * * `GoogleClassroom` - GoogleClassroom
+       * * `GoogleDirectory` - GoogleDirectory
+       * * `GoogleForms` - GoogleForms
+       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
+       * * `GoogleTasks` - GoogleTasks
+       * * `GoogleWebfonts` - GoogleWebfonts
+       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
+       * * `HuggingFace` - HuggingFace
+       * * `IlluminaBasespace` - IlluminaBasespace
+       * * `Imagga` - Imagga
+       * * `Interzoid` - Interzoid
+       * * `IP2Whois` - IP2Whois
+       * * `KYVE` - KYVE
+       * * `Marketstack` - Marketstack
+       * * `Mendeley` - Mendeley
+       * * `Nasa` - Nasa
+       * * `NewYorkTimes` - NewYorkTimes
+       * * `NewsApi` - NewsApi
+       * * `NewsData` - NewsData
+       * * `OpenDataDc` - OpenDataDc
+       * * `OpenExchangeRates` - OpenExchangeRates
+       * * `OpenAQ` - OpenAQ
+       * * `OpenFDA` - OpenFDA
+       * * `OpenWeather` - OpenWeather
+       * * `Outlook` - Outlook
+       * * `Perigon` - Perigon
+       * * `Pexels` - Pexels
+       * * `Pocket` - Pocket
+       * * `Polygon` - Polygon
+       * * `PyPI` - PyPI
+       * * `Recreation` - Recreation
+       * * `RKICovid` - RKICovid
+       * * `Rss` - Rss
+       * * `SimFin` - SimFin
+       * * `StockData` - StockData
+       * * `Guardian` - Guardian
+       * * `TMDb` - TMDb
+       * * `TVMaze` - TVMaze
+       * * `TwelveData` - TwelveData
+       * * `Ubidots` - Ubidots
+       * * `USCensus` - USCensus
+       * * `Watchmode` - Watchmode
+       * * `WikipediaPageviews` - WikipediaPageviews
+       * * `YahooFinance` - YahooFinance
+       * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
+       * * `Ahrefs` - Ahrefs
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -14207,6 +16718,38 @@ export namespace Schemas {
     }
 
     /**
+     * Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422.
+     */
+    export type DecideApprovalRequestEditedArgs = { [key: string]: unknown };
+
+    /**
+     * * `approve` - approve
+     * * `reject` - reject
+     */
+    export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+
+
+    export const DecisionEnum = {
+      Approve: 'approve',
+      Reject: 'reject',
+    } as const;
+
+    /**
+     * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
+     */
+    export interface DecideApprovalRequest {
+      /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
+       *
+       * * `approve` - approve
+       * * `reject` - reject */
+      decision: DecisionEnum;
+      /** Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422. */
+      edited_args?: DecideApprovalRequestEditedArgs;
+      /** Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user. */
+      reason?: string;
+    }
+
+    /**
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist
      */
@@ -14249,8 +16792,10 @@ export namespace Schemas {
     }
 
     export interface DeprovisionWarehouseResponse {
+      /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
     }
 
     /**
@@ -14264,6 +16809,59 @@ export namespace Schemas {
       Html: 'html',
       Text: 'text',
     } as const;
+
+    /**
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row
+     */
+    export type EmailTemplateDesignOperationEnum = typeof EmailTemplateDesignOperationEnum[keyof typeof EmailTemplateDesignOperationEnum];
+
+
+    export const EmailTemplateDesignOperationEnum = {
+      UpdateContent: 'update_content',
+      UpdateColumn: 'update_column',
+      UpdateRow: 'update_row',
+      UpdateBody: 'update_body',
+      AddContent: 'add_content',
+      RemoveContent: 'remove_content',
+      MoveContent: 'move_content',
+      AddRow: 'add_row',
+      RemoveRow: 'remove_row',
+    } as const;
+
+    export interface DesignOperation {
+      /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+       *
+       * * `update_content` - update_content
+       * * `update_column` - update_column
+       * * `update_row` - update_row
+       * * `update_body` - update_body
+       * * `add_content` - add_content
+       * * `remove_content` - remove_content
+       * * `move_content` - move_content
+       * * `add_row` - add_row
+       * * `remove_row` - remove_row */
+      op: EmailTemplateDesignOperationEnum;
+      /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+      id?: string;
+      /** Target column id. Required for add_content and move_content. */
+      column_id?: string;
+      /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+      patch?: unknown;
+      /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+      content?: unknown;
+      /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+      row?: unknown;
+      /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+      index?: number;
+    }
 
     export interface DesktopRecording {
       readonly id: string;
@@ -14455,18 +17053,6 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
-    /**
-     * * `Up` - Up
-     * * `Down` - Down
-     */
-    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
-
-
-    export const DirectionEnum = {
-      Up: 'Up',
-      Down: 'Down',
-    } as const;
-
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -14582,6 +17168,18 @@ export namespace Schemas {
       has_draft: boolean;
     }
 
+    /**
+     * * `Up` - Up
+     * * `Down` - Down
+     */
+    export type WoWChangeDirectionEnum = typeof WoWChangeDirectionEnum[keyof typeof WoWChangeDirectionEnum];
+
+
+    export const WoWChangeDirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
+    } as const;
+
     export interface WoWChange {
       /** Absolute percentage change, rounded to nearest integer. */
       percent: number;
@@ -14589,7 +17187,7 @@ export namespace Schemas {
        *
        * * `Up` - Up
        * * `Down` - Down */
-      direction: DirectionEnum;
+      direction: WoWChangeDirectionEnum;
       /** Hex color indicating whether the change is a positive or negative signal. */
       color: string;
       /** Short label, e.g. 'Up 12%'. */
@@ -14811,12 +17409,63 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type EmailTemplateDesignCounters = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type EmailTemplateDesignBodyValues = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: EmailTemplateDesignBodyRowsItem[];
+      headers?: EmailTemplateDesignBodyHeadersItem[];
+      footers?: EmailTemplateDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: EmailTemplateDesignBodyValues;
+    };
+
+    /**
+     * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+     */
+    export type EmailTemplateDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: EmailTemplateDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: EmailTemplateDesignBody;
+    };
+
     export interface EmailTemplate {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
-      design?: unknown;
+      /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+      design?: EmailTemplateDesign;
     }
+
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
 
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
@@ -15394,6 +18043,7 @@ export namespace Schemas {
     /**
      * * `duckdb` - duckdb
      * * `postgres` - postgres
+     * * `mysql` - mysql
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -15401,6 +18051,7 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+      Mysql: 'mysql',
     } as const;
 
     /**
@@ -16868,6 +19519,23 @@ export namespace Schemas {
       key_id: string;
     }
 
+    export interface EvaluationContextSuggestionRequest {
+      /**
+         * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+         * @maxLength 255
+         */
+      context_name: string;
+    }
+
+    export interface EvaluationContextSuggestionResponse {
+      /** Whether the suggestion visibility change was applied. */
+      success: boolean;
+      /** Normalized name of the affected evaluation context. */
+      name: string;
+      /** Whether the context is now hidden from the flag editor's suggestion list. */
+      hidden_from_suggestions: boolean;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -17357,6 +20025,37 @@ export namespace Schemas {
       rollout_percentage?: number | null;
     }
 
+    export type ManualMetricType = typeof ManualMetricType[keyof typeof ManualMetricType];
+
+
+    export const ManualMetricType = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+    } as const;
+
+    export interface ExperimentExposureEstimateConfig {
+      /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+      conversionRateInputType: ConversionRateInputType;
+      /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+      manualBaselineValue?: number | null;
+      /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+      manualExposureRate?: number | null;
+      /** Metric type the manual baseline value refers to. Only used in manual mode. */
+      manualMetricType?: ManualMetricType | null;
+    }
+
+    export interface ExperimentRunningTimeCalculation {
+      /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+      exposure_estimate_config?: ExperimentExposureEstimateConfig | null;
+      /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+      minimum_detectable_effect?: number | null;
+      /** Estimated number of days needed to reach the recommended sample size. */
+      recommended_running_time?: number | null;
+      /** Recommended number of exposed users needed for statistical significance. */
+      recommended_sample_size?: number | null;
+    }
+
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -17472,6 +20171,8 @@ export namespace Schemas {
       /** For retention metrics: start event. */
       start_event?: ExperimentApiEventSource | null;
       start_handling?: StartHandling | null;
+      /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+      threshold?: number | null;
       /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
       upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
@@ -17524,8 +20225,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -17670,6 +20373,150 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ExperimentMetricsRecalculationStatusEnum = typeof ExperimentMetricsRecalculationStatusEnum[keyof typeof ExperimentMetricsRecalculationStatusEnum];
+
+
+    export const ExperimentMetricsRecalculationStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update
+     */
+    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type MetricRecalculationResultStatusEnum = typeof MetricRecalculationResultStatusEnum[keyof typeof MetricRecalculationResultStatusEnum];
+
+
+    export const MetricRecalculationResultStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * One metric's recalculated result row, read back from ExperimentMetricResult.
+     */
+    export interface MetricRecalculationResult {
+      /** UUID of the metric this result belongs to */
+      readonly metric_uuid: string;
+      /** Status of this metric's calculation in the run
+       *
+       * * `pending` - pending
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: MetricRecalculationResultStatusEnum;
+      /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+      readonly result: unknown;
+      /**
+         * Error message when status is failed; otherwise null
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    /**
+     * Serializer for metrics recalculation status responses.
+     */
+    export interface ExperimentMetricsRecalculation {
+      /** Unique identifier for this recalculation job */
+      readonly id: string;
+      /** ID of the experiment being recalculated */
+      readonly experiment_id: number;
+      /** Current status of the recalculation job
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ExperimentMetricsRecalculationStatusEnum;
+      /** Total number of metrics to recalculate */
+      readonly total_metrics: number;
+      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      readonly completed_metrics: number;
+      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      readonly failed_metrics: number;
+      /** Map of metric_uuid to error details */
+      readonly metric_errors: unknown;
+      /** What triggered this recalculation
+       *
+       * * `manual` - Manual
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      /** When the job was created */
+      readonly created_at: string;
+      /**
+         * When processing started
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When processing completed
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /** True if returning an existing job rather than a newly created one */
+      readonly is_existing: boolean;
+      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      readonly results: readonly MetricRecalculationResult[];
+    }
+
+    export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentResultsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentResultsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiment_results` - experiment_results
+     */
+    export type ExperimentResultsWidgetTypeEnum = typeof ExperimentResultsWidgetTypeEnum[keyof typeof ExperimentResultsWidgetTypeEnum];
+
+
+    export const ExperimentResultsWidgetTypeEnum = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface ExperimentSavedMetric {
@@ -17697,6 +20544,35 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
     }
+
+    export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiments_list` - experiments_list
+     */
+    export type ExperimentsListWidgetTypeEnum = typeof ExperimentsListWidgetTypeEnum[keyof typeof ExperimentsListWidgetTypeEnum];
+
+
+    export const ExperimentsListWidgetTypeEnum = {
+      ExperimentsList: 'experiments_list',
+    } as const;
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -17755,6 +20631,14 @@ export namespace Schemas {
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
+
+    export type ExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
 
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
@@ -17919,6 +20803,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -17927,6 +20816,14 @@ export namespace Schemas {
          */
       readonly source: ExternalDataSchemaSource;
     }
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
 
     export interface ExternalDataSourceBulkUpdateSchema {
       /** Schema identifier to update. */
@@ -17972,6 +20869,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -17981,7 +20883,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
     }
 
@@ -18219,6 +21122,405 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `OneHundredMs` - OneHundredMs
+       * * `SevenShifts` - SevenShifts
+       * * `AcuityScheduling` - AcuityScheduling
+       * * `AgileCRM` - AgileCRM
+       * * `Aha` - Aha
+       * * `Airbyte` - Airbyte
+       * * `Akeneo` - Akeneo
+       * * `Algolia` - Algolia
+       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
+       * * `ApifyDataset` - ApifyDataset
+       * * `Appcues` - Appcues
+       * * `Appfigures` - Appfigures
+       * * `Appfollow` - Appfollow
+       * * `Apptivo` - Apptivo
+       * * `AssemblyAI` - AssemblyAI
+       * * `Awin` - Awin
+       * * `AwsCloudTrail` - AwsCloudTrail
+       * * `AzureTableStorage` - AzureTableStorage
+       * * `Babelforce` - Babelforce
+       * * `Basecamp` - Basecamp
+       * * `Beamer` - Beamer
+       * * `BigMailer` - BigMailer
+       * * `Bluetally` - Bluetally
+       * * `BoldSign` - BoldSign
+       * * `BreezyHR` - BreezyHR
+       * * `Bugsnag` - Bugsnag
+       * * `Buildkite` - Buildkite
+       * * `Bunny` - Bunny
+       * * `Buzzsprout` - Buzzsprout
+       * * `CalCom` - CalCom
+       * * `CallRail` - CallRail
+       * * `Campayn` - Campayn
+       * * `Canny` - Canny
+       * * `CapsuleCRM` - CapsuleCRM
+       * * `CaptainData` - CaptainData
+       * * `CartCom` - CartCom
+       * * `CastorEDC` - CastorEDC
+       * * `Chameleon` - Chameleon
+       * * `Chargedesk` - Chargedesk
+       * * `Chargify` - Chargify
+       * * `Chift` - Chift
+       * * `Churnkey` - Churnkey
+       * * `Cin7` - Cin7
+       * * `CiscoMeraki` - CiscoMeraki
+       * * `Clazar` - Clazar
+       * * `Clockify` - Clockify
+       * * `Clockodo` - Clockodo
+       * * `Cloudbeds` - Cloudbeds
+       * * `Coassemble` - Coassemble
+       * * `Codefresh` - Codefresh
+       * * `Concord` - Concord
+       * * `ConfigCat` - ConfigCat
+       * * `Couchbase` - Couchbase
+       * * `Curve` - Curve
+       * * `Customerly` - Customerly
+       * * `Datascope` - Datascope
+       * * `Dbt` - Dbt
+       * * `Deputy` - Deputy
+       * * `DevinAI` - DevinAI
+       * * `Docuseal` - Docuseal
+       * * `Dolibarr` - Dolibarr
+       * * `Dremio` - Dremio
+       * * `DropboxSign` - DropboxSign
+       * * `Dwolla` - Dwolla
+       * * `EConomic` - EConomic
+       * * `Easypost` - Easypost
+       * * `Easypromos` - Easypromos
+       * * `Elasticemail` - Elasticemail
+       * * `EmailOctopus` - EmailOctopus
+       * * `EmploymentHero` - EmploymentHero
+       * * `Encharge` - Encharge
+       * * `Eventee` - Eventee
+       * * `Eventzilla` - Eventzilla
+       * * `Everhour` - Everhour
+       * * `EZOfficeInventory` - EZOfficeInventory
+       * * `Factorial` - Factorial
+       * * `Fastbill` - Fastbill
+       * * `Fastly` - Fastly
+       * * `Fauna` - Fauna
+       * * `Feishu` - Feishu
+       * * `Fillout` - Fillout
+       * * `Finage` - Finage
+       * * `Firebolt` - Firebolt
+       * * `FireHydrant` - FireHydrant
+       * * `Fleetio` - Fleetio
+       * * `Flexmail` - Flexmail
+       * * `Flexport` - Flexport
+       * * `FloatApp` - FloatApp
+       * * `Flowlu` - Flowlu
+       * * `Formbricks` - Formbricks
+       * * `FreeAgent` - FreeAgent
+       * * `Freightview` - Freightview
+       * * `Freshcaller` - Freshcaller
+       * * `Freshchat` - Freshchat
+       * * `Freshservice` - Freshservice
+       * * `Fulcrum` - Fulcrum
+       * * `GainsightPx` - GainsightPx
+       * * `GitBook` - GitBook
+       * * `Glassfrog` - Glassfrog
+       * * `Goldcast` - Goldcast
+       * * `GoLogin` - GoLogin
+       * * `Grafana` - Grafana
+       * * `GreytHr` - GreytHr
+       * * `Gridly` - Gridly
+       * * `Harness` - Harness
+       * * `Height` - Height
+       * * `Hellobaton` - Hellobaton
+       * * `HighLevel` - HighLevel
+       * * `HoorayHR` - HoorayHR
+       * * `Hubplanner` - Hubplanner
+       * * `Humanitix` - Humanitix
+       * * `Huntr` - Huntr
+       * * `Inflowinventory` - Inflowinventory
+       * * `InforNexus` - InforNexus
+       * * `Insightful` - Insightful
+       * * `Insightly` - Insightly
+       * * `Instatus` - Instatus
+       * * `Intruder` - Intruder
+       * * `Invoiced` - Invoiced
+       * * `Invoiceninja` - Invoiceninja
+       * * `JamfPro` - JamfPro
+       * * `JobNimbus` - JobNimbus
+       * * `Jotform` - Jotform
+       * * `JudgeMeReviews` - JudgeMeReviews
+       * * `JustCall` - JustCall
+       * * `JustSift` - JustSift
+       * * `K6Cloud` - K6Cloud
+       * * `Katana` - Katana
+       * * `Keka` - Keka
+       * * `Kisi` - Kisi
+       * * `Kissmetrics` - Kissmetrics
+       * * `Klarna` - Klarna
+       * * `Klaus` - Klaus
+       * * `Lago` - Lago
+       * * `Leadfeeder` - Leadfeeder
+       * * `Lemlist` - Lemlist
+       * * `LessAnnoyingCRM` - LessAnnoyingCRM
+       * * `LinkedinPages` - LinkedinPages
+       * * `Linkrunner` - Linkrunner
+       * * `Linnworks` - Linnworks
+       * * `Lob` - Lob
+       * * `Lokalise` - Lokalise
+       * * `Looker` - Looker
+       * * `Luma` - Luma
+       * * `MailerSend` - MailerSend
+       * * `Mailosaur` - Mailosaur
+       * * `Mailtrap` - Mailtrap
+       * * `Mantle` - Mantle
+       * * `Mention` - Mention
+       * * `MercadoAds` - MercadoAds
+       * * `Merge` - Merge
+       * * `Metabase` - Metabase
+       * * `Metricool` - Metricool
+       * * `MicrosoftDataverse` - MicrosoftDataverse
+       * * `MicrosoftEntraId` - MicrosoftEntraId
+       * * `MicrosoftLists` - MicrosoftLists
+       * * `Miro` - Miro
+       * * `Missive` - Missive
+       * * `MixMax` - MixMax
+       * * `Mode` - Mode
+       * * `Mux` - Mux
+       * * `MyHours` - MyHours
+       * * `N8n` - N8n
+       * * `Navan` - Navan
+       * * `NebiusAI` - NebiusAI
+       * * `Nexiopay` - Nexiopay
+       * * `NinjaOneRMM` - NinjaOneRMM
+       * * `NoCRM` - NoCRM
+       * * `NorthpassLMS` - NorthpassLMS
+       * * `Nutshell` - Nutshell
+       * * `Nylas` - Nylas
+       * * `Oncehub` - Oncehub
+       * * `Onepagecrm` - Onepagecrm
+       * * `OneSignal` - OneSignal
+       * * `Onfleet` - Onfleet
+       * * `OpinionStage` - OpinionStage
+       * * `OPUSWatch` - OPUSWatch
+       * * `Orb` - Orb
+       * * `Orbit` - Orbit
+       * * `Oura` - Oura
+       * * `Oveit` - Oveit
+       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
+       * * `Paperform` - Paperform
+       * * `Papersign` - Papersign
+       * * `Partnerize` - Partnerize
+       * * `PartnerStack` - PartnerStack
+       * * `PayFit` - PayFit
+       * * `Paystack` - Paystack
+       * * `Pennylane` - Pennylane
+       * * `Perk` - Perk
+       * * `PersistIq` - PersistIq
+       * * `Persona` - Persona
+       * * `Phyllo` - Phyllo
+       * * `Picqer` - Picqer
+       * * `Pipeliner` - Pipeliner
+       * * `PivotalTracker` - PivotalTracker
+       * * `Piwik` - Piwik
+       * * `Planhat` - Planhat
+       * * `Plausible` - Plausible
+       * * `Poplar` - Poplar
+       * * `PrestaShop` - PrestaShop
+       * * `Pretix` - Pretix
+       * * `Primetric` - Primetric
+       * * `Printify` - Printify
+       * * `Productive` - Productive
+       * * `Pylon` - Pylon
+       * * `Qonto` - Qonto
+       * * `Qualaroo` - Qualaroo
+       * * `Railz` - Railz
+       * * `RDStationMarketing` - RDStationMarketing
+       * * `Recruitee` - Recruitee
+       * * `Reddit` - Reddit
+       * * `ReferralHero` - ReferralHero
+       * * `RentCast` - RentCast
+       * * `Repairshopr` - Repairshopr
+       * * `ReplyIo` - ReplyIo
+       * * `RetailExpress` - RetailExpress
+       * * `Retently` - Retently
+       * * `RevolutMerchant` - RevolutMerchant
+       * * `RocketChat` - RocketChat
+       * * `Rocketlane` - Rocketlane
+       * * `Rootly` - Rootly
+       * * `Ruddr` - Ruddr
+       * * `SafetyCulture` - SafetyCulture
+       * * `SageHR` - SageHR
+       * * `Salesflare` - Salesflare
+       * * `SAPFieldglass` - SAPFieldglass
+       * * `SavvyCal` - SavvyCal
+       * * `Secoda` - Secoda
+       * * `Segment` - Segment
+       * * `Sendowl` - Sendowl
+       * * `SendPulse` - SendPulse
+       * * `Senseforce` - Senseforce
+       * * `Serpstat` - Serpstat
+       * * `Sharetribe` - Sharetribe
+       * * `Shippo` - Shippo
+       * * `ShopWired` - ShopWired
+       * * `Shortio` - Shortio
+       * * `Shutterstock` - Shutterstock
+       * * `SigmaComputing` - SigmaComputing
+       * * `SignNow` - SignNow
+       * * `SimpleCast` - SimpleCast
+       * * `Simplesat` - Simplesat
+       * * `Smaily` - Smaily
+       * * `SmartEngage` - SmartEngage
+       * * `Smartreach` - Smartreach
+       * * `Smartwaiver` - Smartwaiver
+       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
+       * * `SonarCloud` - SonarCloud
+       * * `SparkPost` - SparkPost
+       * * `SplitIo` - SplitIo
+       * * `SpotifyAds` - SpotifyAds
+       * * `SpotlerCRM` - SpotlerCRM
+       * * `Squarespace` - Squarespace
+       * * `Statsig` - Statsig
+       * * `Statuspage` - Statuspage
+       * * `Stigg` - Stigg
+       * * `Strava` - Strava
+       * * `SurveySparrow` - SurveySparrow
+       * * `Survicate` - Survicate
+       * * `Svix` - Svix
+       * * `Systeme` - Systeme
+       * * `Tavus` - Tavus
+       * * `Teamtailor` - Teamtailor
+       * * `Teamwork` - Teamwork
+       * * `Tempo` - Tempo
+       * * `Testrail` - Testrail
+       * * `Thinkific` - Thinkific
+       * * `ThinkificCourses` - ThinkificCourses
+       * * `ThriveLearning` - ThriveLearning
+       * * `Ticketmaster` - Ticketmaster
+       * * `TicketTailor` - TicketTailor
+       * * `TickTick` - TickTick
+       * * `Timely` - Timely
+       * * `Tinyemail` - Tinyemail
+       * * `Todoist` - Todoist
+       * * `Toggl` - Toggl
+       * * `TrackPMS` - TrackPMS
+       * * `Tremendous` - Tremendous
+       * * `TrustPilot` - TrustPilot
+       * * `Twitter` - Twitter
+       * * `TyntecSMS` - TyntecSMS
+       * * `Unleash` - Unleash
+       * * `UpPromote` - UpPromote
+       * * `Uptick` - Uptick
+       * * `Uservoice` - Uservoice
+       * * `Vantage` - Vantage
+       * * `Veeqo` - Veeqo
+       * * `Vercel` - Vercel
+       * * `VismaEconomic` - VismaEconomic
+       * * `VWO` - VWO
+       * * `Waiteraid` - Waiteraid
+       * * `Wasabi` - Wasabi
+       * * `WhenIWork` - WhenIWork
+       * * `Wordpress` - Wordpress
+       * * `Workable` - Workable
+       * * `Workflowmax` - Workflowmax
+       * * `Workramp` - Workramp
+       * * `Wufoo` - Wufoo
+       * * `Xsolla` - Xsolla
+       * * `YandexMetrica` - YandexMetrica
+       * * `Yotpo` - Yotpo
+       * * `Ynab` - Ynab
+       * * `Younium` - Younium
+       * * `YouSign` - YouSign
+       * * `YoutubeData` - YoutubeData
+       * * `ZapierSupportedStorage` - ZapierSupportedStorage
+       * * `ZapSign` - ZapSign
+       * * `ZendeskSell` - ZendeskSell
+       * * `ZendeskSunshine` - ZendeskSunshine
+       * * `Zenefits` - Zenefits
+       * * `Zenloop` - Zenloop
+       * * `ZohoAnalytics` - ZohoAnalytics
+       * * `ZohoBigin` - ZohoBigin
+       * * `ZohoBilling` - ZohoBilling
+       * * `ZohoBooks` - ZohoBooks
+       * * `ZohoCampaign` - ZohoCampaign
+       * * `ZohoDesk` - ZohoDesk
+       * * `ZohoExpense` - ZohoExpense
+       * * `ZohoInventory` - ZohoInventory
+       * * `ZohoInvoice` - ZohoInvoice
+       * * `ZonkaFeedback` - ZonkaFeedback
+       * * `AlphaVantage` - AlphaVantage
+       * * `Aviationstack` - Aviationstack
+       * * `Bitly` - Bitly
+       * * `Blogger` - Blogger
+       * * `Breezometer` - Breezometer
+       * * `CareQualityCommission` - CareQualityCommission
+       * * `Cimis` - Cimis
+       * * `CoinApi` - CoinApi
+       * * `CoinGecko` - CoinGecko
+       * * `CoinMarketCap` - CoinMarketCap
+       * * `DingConnect` - DingConnect
+       * * `Dockerhub` - Dockerhub
+       * * `ExchangeRatesApi` - ExchangeRatesApi
+       * * `FinancialModelling` - FinancialModelling
+       * * `Finnhub` - Finnhub
+       * * `Finnworlds` - Finnworlds
+       * * `Giphy` - Giphy
+       * * `Gmail` - Gmail
+       * * `GNews` - GNews
+       * * `GoogleCalendar` - GoogleCalendar
+       * * `GoogleClassroom` - GoogleClassroom
+       * * `GoogleDirectory` - GoogleDirectory
+       * * `GoogleForms` - GoogleForms
+       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
+       * * `GoogleTasks` - GoogleTasks
+       * * `GoogleWebfonts` - GoogleWebfonts
+       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
+       * * `HuggingFace` - HuggingFace
+       * * `IlluminaBasespace` - IlluminaBasespace
+       * * `Imagga` - Imagga
+       * * `Interzoid` - Interzoid
+       * * `IP2Whois` - IP2Whois
+       * * `KYVE` - KYVE
+       * * `Marketstack` - Marketstack
+       * * `Mendeley` - Mendeley
+       * * `Nasa` - Nasa
+       * * `NewYorkTimes` - NewYorkTimes
+       * * `NewsApi` - NewsApi
+       * * `NewsData` - NewsData
+       * * `OpenDataDc` - OpenDataDc
+       * * `OpenExchangeRates` - OpenExchangeRates
+       * * `OpenAQ` - OpenAQ
+       * * `OpenFDA` - OpenFDA
+       * * `OpenWeather` - OpenWeather
+       * * `Outlook` - Outlook
+       * * `Perigon` - Perigon
+       * * `Pexels` - Pexels
+       * * `Pocket` - Pocket
+       * * `Polygon` - Polygon
+       * * `PyPI` - PyPI
+       * * `Recreation` - Recreation
+       * * `RKICovid` - RKICovid
+       * * `Rss` - Rss
+       * * `SimFin` - SimFin
+       * * `StockData` - StockData
+       * * `Guardian` - Guardian
+       * * `TMDb` - TMDb
+       * * `TVMaze` - TVMaze
+       * * `TwelveData` - TwelveData
+       * * `Ubidots` - Ubidots
+       * * `USCensus` - USCensus
+       * * `Watchmode` - Watchmode
+       * * `WikipediaPageviews` - WikipediaPageviews
+       * * `YahooFinance` - YahooFinance
+       * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
+       * * `Ahrefs` - Ahrefs
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18306,7 +21608,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -18899,13 +22202,45 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    export interface FeatureFlagRolloutSummary {
+      /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+      effectively_full_rollout: boolean;
+      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+      has_targeting_conditions: boolean;
+      /**
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * @nullable
+         */
+      max_rollout_percentage: number | null;
+      /** True if the flag serves multiple variants (has a multivariate variant set). */
+      is_multivariate: boolean;
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag status: active, stale, deleted, or unknown */
+      /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+      /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+      rollout: FeatureFlagRolloutSummary;
     }
 
     export interface FeatureFlagTestEvaluationRequest {
@@ -19010,6 +22345,109 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type FieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type FieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    /**
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
+     */
+    export type FieldNoteStatusEnum = typeof FieldNoteStatusEnum[keyof typeof FieldNoteStatusEnum];
+
+
+    export const FieldNoteStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface FieldNote {
+      readonly id: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: FieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: FieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
     }
 
     /**
@@ -19138,6 +22576,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       id: string;
       repo_id: string;
       status: string;
@@ -19171,6 +22614,8 @@ export namespace Schemas {
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
       commit_to_github?: boolean;
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      add_images_to_comment_on_pr?: boolean;
     }
 
     export interface FlagValueItem {
@@ -19360,6 +22805,15 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
+    }
+
     export interface GitHubTeam {
       /** GitHub team numeric identifier. */
       id: number;
@@ -19485,6 +22939,18 @@ export namespace Schemas {
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
     }
+
+    /**
+     * * `line` - line
+     * * `symbol` - symbol
+     */
+    export type GranularityEnum = typeof GranularityEnum[keyof typeof GranularityEnum];
+
+
+    export const GranularityEnum = {
+      Line: 'line',
+      Symbol: 'symbol',
+    } as const;
 
     export interface Group {
       /**
@@ -19884,6 +23350,8 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
       fold?: HeatmapFoldSummary | null;
+      /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+      has_more?: boolean;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -19933,48 +23401,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `continue` - continue
-     * * `branch` - branch
-     */
-    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
-
-
-    export const HogFlowEdgeTypeEnum = {
-      Continue: 'continue',
-      Branch: 'branch',
-    } as const;
-
-    export interface HogFlowEdge {
-      /** Target action id. */
-      to: string;
-      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
-       *
-       * * `continue` - continue
-       * * `branch` - branch */
-      type: HogFlowEdgeTypeEnum;
-      /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
-      index?: number;
-      /** Source action id. */
-      from: string;
-    }
-
-    /**
-     * * `continue` - continue
-     * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch
-     */
-    export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
-
-
-    export const OnErrorEnum = {
-      Continue: 'continue',
-      Abort: 'abort',
-      Complete: 'complete',
-      Branch: 'branch',
-    } as const;
-
-    /**
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
@@ -20008,6 +23434,87 @@ export namespace Schemas {
       bytecode_error?: string;
     }
 
+    export interface HogFlowConversionEvent {
+      /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
+      filters: HogFunctionFilters;
+    }
+
+    export type HogFlowConversionFiltersItem = { [key: string]: unknown };
+
+    export interface HogFlowConversion {
+      /** Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. */
+      filters?: HogFlowConversionFiltersItem[];
+      /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
+      events?: HogFlowConversionEvent[];
+      /**
+         * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+         * @nullable
+         */
+      window_minutes?: number | null;
+      /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
+      bytecode?: unknown;
+    }
+
+    /**
+     * * `continue` - continue
+     * * `branch` - branch
+     */
+    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
+
+
+    export const HogFlowEdgeTypeEnum = {
+      Continue: 'continue',
+      Branch: 'branch',
+    } as const;
+
+    export interface HogFlowEdge {
+      /** Target action id. */
+      to: string;
+      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+       *
+       * * `continue` - continue
+       * * `branch` - branch */
+      type: HogFlowEdgeTypeEnum;
+      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
+      index?: number;
+      /** Source action id. */
+      from: string;
+    }
+
+    /**
+     * * `continue` - continue
+     * * `abort` - abort
+     */
+    export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
+
+
+    export const OnErrorEnum = {
+      Continue: 'continue',
+      Abort: 'abort',
+    } as const;
+
+    /**
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     */
+    export type HogFlowActionConfig = { [key: string]: unknown } | {
+      /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
+      condition?: {
+      /** Property conditions, e.g. {properties: [{key, value, operator, type}]}. */
+      filters?: HogFunctionFilters | null;
+      /** Optional display name. */
+      name?: string;
+    };
+      /** Events to wait for: continues when ANY entry fires (OR'd with 'condition'). Each entry: {filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}. */
+      events?: ({
+      /** Event/action filters; the workflow wakes when a matching event fires. Must target at least one event or action (entries targeting neither are dropped). */
+      filters?: HogFunctionFilters | null;
+      /** Optional display name. */
+      name?: string;
+    })[];
+      /** '<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay). */
+      max_wait_duration: string;
+    };
+
     export interface HogFlowAction {
       /** Unique node ID within the workflow. */
       id: string;
@@ -20018,12 +23525,10 @@ export namespace Schemas {
       name: string;
       /** Optional description. */
       description?: string;
-      /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
        *
        * * `continue` - continue
-       * * `abort` - abort
-       * * `complete` - complete
-       * * `branch` - branch */
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       /** Created at (epoch ms). Frontend-managed. */
       created_at?: number;
@@ -20032,12 +23537,12 @@ export namespace Schemas {
       /** Property filters gating this action. */
       filters?: HogFunctionFilters | null;
       /**
-         * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+         * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
-      config: unknown;
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      config: HogFlowActionConfig;
       /** Output variable definition for downstream actions. */
       output_variable?: unknown;
     }
@@ -20107,8 +23612,8 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: unknown;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
        * * `exit_on_conversion` - Conversion
@@ -20172,6 +23677,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges
+     */
+    export type HogFlowGraphOperationOpEnum = typeof HogFlowGraphOperationOpEnum[keyof typeof HogFlowGraphOperationOpEnum];
+
+
+    export const HogFlowGraphOperationOpEnum = {
+      UpdateAction: 'update_action',
+      AddAction: 'add_action',
+      RemoveAction: 'remove_action',
+      AddEdge: 'add_edge',
+      RemoveEdge: 'remove_edge',
+      ReplaceActionEdges: 'replace_action_edges',
+    } as const;
+
+    export interface HogFlowGraphOperation {
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+       *
+       * * `update_action` - update_action
+       * * `add_action` - add_action
+       * * `remove_action` - remove_action
+       * * `add_edge` - add_edge
+       * * `remove_edge` - remove_edge
+       * * `replace_action_edges` - replace_action_edges */
+      op: HogFlowGraphOperationOpEnum;
+      /** Action id. Required for update_action, remove_action, replace_action_edges. */
+      id?: string;
+      /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+      patch?: unknown;
+      /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+      action?: unknown;
+      /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+      edge?: HogFlowEdge;
+      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      edges?: HogFlowEdge[];
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -20183,7 +23730,7 @@ export namespace Schemas {
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
-      /** Start from this action ID instead of the trigger. */
+      /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
     }
 
@@ -20242,6 +23789,10 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
+       *
+       * * `continue` - continue
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       created_at?: number;
       updated_at?: number;
@@ -20806,6 +24357,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -20884,6 +24436,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -20894,7 +24447,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -21151,6 +24703,8 @@ export namespace Schemas {
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
+      /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
+      flatSpans?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -21213,6 +24767,8 @@ export namespace Schemas {
       avg_duration_nano: number;
       /** Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph. */
       avg_start_offset_nano: number;
+      /** How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against). */
+      calls_per_parent_invocation?: number | null;
       count: number;
       error_count: number;
       name: string;
@@ -21260,6 +24816,65 @@ export namespace Schemas {
       serviceNames?: string[] | null;
       /** Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run. */
       spanName: string;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type TraceSpanBreakdownType = typeof TraceSpanBreakdownType[keyof typeof TraceSpanBreakdownType];
+
+
+    export const TraceSpanBreakdownType = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export type TraceSpanBreakdownOrderBy = typeof TraceSpanBreakdownOrderBy[keyof typeof TraceSpanBreakdownOrderBy];
+
+
+    export const TraceSpanBreakdownOrderBy = {
+      Count: 'count',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface TraceSpansAttributeBreakdownQueryResponse {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AttributeBreakdownRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AttributeBreakdownRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface TraceSpansAttributeBreakdownQuery {
+      /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+      breakdownKey: string;
+      /** Where the key lives: span-level attributes or resource-level attributes. */
+      breakdownType: TraceSpanBreakdownType;
+      /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+      compareFilter?: CompareFilter | null;
+      dateRange: DateRange;
+      filterGroup?: PropertyGroupFilter | null;
+      kind?: 'TraceSpansAttributeBreakdownQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Order rows by span count or error count, descending. Defaults to count. */
+      orderBy?: TraceSpanBreakdownOrderBy | null;
+      response?: TraceSpansAttributeBreakdownQueryResponse | null;
+      serviceNames?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -21623,7 +25238,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -21649,7 +25264,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -21822,6 +25437,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -21863,6 +25479,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -22153,6 +25770,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -22320,7 +25939,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. */
+      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -22386,7 +26005,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. */
+      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -22476,6 +26095,11 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface LLMSkillImport {
+      /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
+      file: string;
+    }
+
     /**
      * Arbitrary key-value metadata.
      */
@@ -22506,7 +26130,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. */
+      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -22521,6 +26145,81 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+    }
+
+    /**
+     * * `absent` - absent
+     * * `exists` - exists
+     * * `created` - created
+     * * `rotated` - rotated
+     */
+    export type LLMSkillMarketplaceCommandStatusEnum = typeof LLMSkillMarketplaceCommandStatusEnum[keyof typeof LLMSkillMarketplaceCommandStatusEnum];
+
+
+    export const LLMSkillMarketplaceCommandStatusEnum = {
+      Absent: 'absent',
+      Exists: 'exists',
+      Created: 'created',
+      Rotated: 'rotated',
+    } as const;
+
+    export interface LLMSkillMarketplaceCommand {
+      /** absent: no credential yet. exists: one already exists (no token returned). created: a new credential was just minted. rotated: the existing credential was rolled.
+       *
+       * * `absent` - absent
+       * * `exists` - exists
+       * * `created` - created
+       * * `rotated` - rotated */
+      status: LLMSkillMarketplaceCommandStatusEnum;
+      /** Whether this user already has a marketplace credential for the team's skill store. */
+      connected: boolean;
+      /** The plugin name the command installs (Claude Code and Codex). */
+      plugin_name: string;
+      /** The marketplace name, used by the Codex install command. */
+      marketplace_name: string;
+      /** Label of this user's marketplace credential (a scoped Personal API Key). */
+      label: string;
+      /** The marketplace git repository URL, with no credential embedded. */
+      repo_url: string;
+      /**
+         * Claude Code: ready-to-paste `/plugin marketplace add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+         * @nullable
+         */
+      command: string | null;
+      /** Claude Code install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+      command_template: string;
+      /**
+         * OpenAI Codex: two-line `codex plugin marketplace add` + `codex plugin add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+         * @nullable
+         */
+      codex_command: string | null;
+      /** Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+      codex_command_template: string;
+      /**
+         * The raw read-only `phx_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
+         * @nullable
+         */
+      token: string | null;
+      /**
+         * Masked preview of the existing credential (e.g. phx_...abcd).
+         * @nullable
+         */
+      mask_value: string | null;
+      /**
+         * When the credential was created.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * When the credential was last rotated.
+         * @nullable
+         */
+      last_rolled_at: string | null;
+    }
+
+    export interface LLMSkillMarketplaceIssue {
+      /** Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential. */
+      rotate?: boolean;
     }
 
     export interface LLMSkillVersionSummary {
@@ -22633,6 +26332,23 @@ export namespace Schemas {
       Burst: 'burst',
       Sustained: 'sustained',
     } as const;
+
+    /**
+     * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+     * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+     * the full report itself.
+     */
+    export interface LinkedSignalReport {
+      /** UUID of the linked `SignalReport`. */
+      id: string;
+      /**
+         * LLM-generated report title, or null if the report hasn't been summarised yet.
+         * @nullable
+         */
+      title: string | null;
+      /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+      status: string;
+    }
 
     /**
      * Typed output for view set `list`.
@@ -23694,24 +27410,50 @@ export namespace Schemas {
       scores: MessageSentimentScores;
     }
 
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
     export interface MessageTemplateContent {
-      templating?: HogFunctionTemplatingEnum;
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateContentTemplatingEnum;
+      /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
 
     export interface MessageTemplate {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -23749,6 +27491,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto
+     */
+    export type MetricAttributeScopeEnum = typeof MetricAttributeScopeEnum[keyof typeof MetricAttributeScopeEnum];
+
+
+    export const MetricAttributeScopeEnum = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    /**
      * * `precise` - PRECISE
      * * `coarse` - COARSE
      * * `partial` - PARTIAL
@@ -23760,6 +27516,48 @@ export namespace Schemas {
       Precise: 'precise',
       Coarse: 'coarse',
       Partial: 'partial',
+    } as const;
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `minute_5` - minute_5
+     * * `minute_15` - minute_15
+     * * `hour` - hour
+     * * `hour_6` - hour_6
+     * * `day` - day
+     * * `week` - week
+     */
+    export type MetricQueryIntervalEnum = typeof MetricQueryIntervalEnum[keyof typeof MetricQueryIntervalEnum];
+
+
+    export const MetricQueryIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Hour6: 'hour_6',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
+    /**
+     * * `funnel` - funnel
+     * * `mean_count` - mean_count
+     * * `mean_sum_or_avg` - mean_sum_or_avg
+     * * `ratio` - ratio
+     * * `retention` - retention
+     */
+    export type MetricTypeEnum = typeof MetricTypeEnum[keyof typeof MetricTypeEnum];
+
+
+    export const MetricTypeEnum = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+      Ratio: 'ratio',
+      Retention: 'retention',
     } as const;
 
     export interface MinimalPerson {
@@ -23830,6 +27628,17 @@ export namespace Schemas {
       Full: 'full',
       Custom: 'custom',
     } as const;
+
+    /**
+     * Body shape for POST /revisions/clone_from/ — atomically create a new
+     * draft revision under `application_id` and clone its initial bundle from
+     * `source_revision_id`. Convenience for the "edit live" flow so the MCP
+     * doesn't have to do create-then-clone-from in two calls.
+     */
+    export interface NewDraftRevisionRequest {
+      application_id: string;
+      source_revision_id: string;
+    }
 
     /**
      * * `suppressed` - suppressed
@@ -23939,6 +27748,44 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookCollabCursor {
+      /**
+         * ProseMirror selection head position (rich v1 notebooks).
+         * @minimum 0
+         */
+      head?: number;
+      /**
+         * Index of the caret's block node in the markdown notebook document (markdown notebooks).
+         * @minimum 0
+         */
+      node_index?: number;
+      /**
+         * Caret offset in the plain text of the focused editable element, in UTF-16 code units.
+         * @minimum 0
+         */
+      offset?: number;
+      /**
+         * Index of the focused list item when the caret is inside a list block.
+         * @minimum 0
+         */
+      list_item_index?: number;
+    }
+
+    export interface NotebookCollabPresence {
+      /**
+         * Unique identifier for the client session, used to skip self-echo on the update stream.
+         * @maxLength 200
+         */
+      client_id: string;
+      /**
+         * The notebook version the cursor position is relative to.
+         * @minimum 0
+         */
+      version: number;
+      /** The caller's caret position, broadcast to other clients on this notebook's collab stream. */
+      cursor: NotebookCollabCursor;
+    }
+
     export interface NotebookCollabSave {
       /** Unique identifier for the client session. */
       client_id: string;
@@ -23957,6 +27804,21 @@ export namespace Schemas {
          * @nullable
          */
       cursor_head?: number | null;
+    }
+
+    export interface NotebookMarkdownSave {
+      /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+      client_id: string;
+      /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+      version: number;
+      /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
+      /** The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change. */
+      cursor?: NotebookCollabCursor;
     }
 
     export interface NotebookMinimal {
@@ -23984,6 +27846,12 @@ export namespace Schemas {
     }
 
     /**
+     * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+     * @nullable
+     */
+    export type NotificationEventMetadata = { [key: string]: unknown } | null;
+
+    /**
      * * `replay` - REPLAY
      * * `notebook` - NOTEBOOK
      * * `insight` - INSIGHT
@@ -23992,6 +27860,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -24005,6 +27874,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -24027,6 +27897,11 @@ export namespace Schemas {
       source_type: NotificationEventSourceTypeEnum | null;
       /** @nullable */
       source_id: string | null;
+      /**
+         * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+         * @nullable
+         */
+      metadata?: NotificationEventMetadata;
       created_at: string;
     }
 
@@ -24258,6 +28133,22 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+    } as const;
+
+    /**
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
     } as const;
 
     /**
@@ -24618,6 +28509,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -24632,6 +28524,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
     } as const;
 
     /**
@@ -24743,6 +28636,11 @@ export namespace Schemas {
          * @nullable
          */
       detail?: string | null;
+      /**
+         * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+         * @nullable
+         */
+      run_id?: number | null;
     }
 
     export interface PRLifecycle {
@@ -24792,6 +28690,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
+    }
+
+    export interface PaginatedAgentApplicationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgentApplication[];
+    }
+
+    export interface PaginatedAgentRevisionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgentRevision[];
     }
 
     export interface PaginatedAlertList {
@@ -25318,6 +29234,15 @@ export namespace Schemas {
       results: FeatureFlag[];
     }
 
+    export interface PaginatedFieldNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FieldNote[];
+    }
+
     export interface PaginatedFileSystemList {
       count: number;
       /** @nullable */
@@ -25742,7 +29667,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source: string;
       /** User who created the recipe. */
       readonly created_by: UserBasic | null;
@@ -25933,6 +29861,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       archived?: boolean;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedProductTourList {
@@ -26076,6 +30006,112 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
+    }
+
+    /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly
+     */
+    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+
+
+    export const RecurrenceIntervalEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `errored` - Errored
+     */
+    export type ReminderStatusEnum = typeof ReminderStatusEnum[keyof typeof ReminderStatusEnum];
+
+
+    export const ReminderStatusEnum = {
+      Active: 'active',
+      Completed: 'completed',
+      Errored: 'errored',
+    } as const;
+
+    export interface Reminder {
+      readonly id: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at: string | null;
+      /** @nullable */
+      readonly last_fired_at: string | null;
+      readonly status: ReminderStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedReminderList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Reminder[];
     }
 
     /**
@@ -26468,10 +30504,10 @@ export namespace Schemas {
      * * `monthly` - monthly
      * * `yearly` - yearly
      */
-    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+    export type ScheduledChangeRecurrenceIntervalEnum = typeof ScheduledChangeRecurrenceIntervalEnum[keyof typeof ScheduledChangeRecurrenceIntervalEnum];
 
 
-    export const RecurrenceIntervalEnum = {
+    export const ScheduledChangeRecurrenceIntervalEnum = {
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -26512,7 +30548,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -26816,6 +30852,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -26846,6 +30892,9 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
+     * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -26861,6 +30910,9 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       Logs: 'logs',
+      HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
+      ReplayVision: 'replay_vision',
     } as const;
 
     /**
@@ -26873,6 +30925,10 @@ export namespace Schemas {
      * * `issue_spiking` - Issue spiking
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -26887,6 +30943,10 @@ export namespace Schemas {
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
+      HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+      ScannerFinding: 'scanner_finding',
     } as const;
 
     export interface SignalSourceConfig {
@@ -27159,22 +31219,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
-     * * `weekly` - Weekly
-     * * `monthly` - Monthly
-     * * `yearly` - Yearly
-     */
-    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
-
-
-    export const SubscriptionFrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
-    /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
      * * `wednesday` - Wednesday
@@ -27241,7 +31285,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency: SubscriptionFrequencyEnum;
+      frequency: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -27557,6 +31601,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
@@ -27823,7 +31869,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -28943,7 +32990,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -29016,6 +33063,411 @@ export namespace Schemas {
       person_ids?: string[];
     }
 
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type PatchedAgentApplicationCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface PatchedAgentApplication {
+      readonly id?: string;
+      readonly team_id?: number;
+      /** @maxLength 255 */
+      name?: string;
+      /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
+         * @maxLength 63
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      description?: string;
+      /** @nullable */
+      readonly live_revision?: string | null;
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
+      /** @nullable */
+      readonly created_by_id?: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by?: PatchedAgentApplicationCreatedBy;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /**
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
+         * @nullable
+         */
+      readonly slack_events_url?: string | null;
+      /**
+         * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+         * @nullable
+         */
+      readonly slack_interactivity_url?: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url?: string | null;
+    }
+
+    /**
+     * Body shape for AgentMemoryViewSet.update_file. Omitted fields preserve the existing value.
+     */
+    export interface PatchedAgentMemoryUpdateRequest {
+      /** @maxLength 280 */
+      description?: string;
+      content?: string;
+      tags?: string[];
+    }
+
+    export type PatchedAgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      auto_resume_threads: boolean;
+      allow_workspace_participants: boolean;
+      ack_reaction?: string;
+      allow_direct_messages: boolean;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'cron';
+      config: {
+      /** @minLength 1 */
+      name: string;
+      /** @minLength 1 */
+      schedule: string;
+      timezone?: string;
+      /**
+         * @minLength 1
+         * @maxLength 4096
+         */
+      prompt: string;
+      external_key?: string;
+      catch_up?: 'all' | 'most_recent' | 'skip';
+      /**
+         * @minimum 1
+         * @maximum 604800
+         */
+      max_catch_up_age_seconds?: number;
+    };
+    } | {
+      type: 'chat';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'mcp';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+      audience?: 'project' | 'organization';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    };
+
+    export type PatchedAgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 600000
+         */
+      timeout_ms?: number;
+      interactive?: boolean;
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItemAuth = {
+      integration?: string;
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
+      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
+    };
+
+    export type PatchedAgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
+    };
+
+    export type PatchedAgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
+    export type PatchedAgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+      /**
+         * @maximum 200000
+         * @exclusiveMinimum 0
+         */
+      max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
+    };
+
+    export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
+
+
+    export const PatchedAgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type PatchedAgentRevisionSpecFrameworkPromptOmitItem = typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem[keyof typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const PatchedAgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type PatchedAgentRevisionSpecFrameworkPrompt = {
+      omit: PatchedAgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type PatchedAgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
+    export type PatchedAgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: PatchedAgentRevisionSpecTriggersItem[];
+      tools: PatchedAgentRevisionSpecToolsItem[];
+      mcps: PatchedAgentRevisionSpecMcpsItem[];
+      skills: PatchedAgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: PatchedAgentRevisionSpecSecretsItem[];
+      limits: PatchedAgentRevisionSpecLimits;
+      entrypoint: string;
+      reasoning?: PatchedAgentRevisionSpecReasoning;
+      framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
+      resume?: PatchedAgentRevisionSpecResume;
+    };
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type PatchedAgentRevisionCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface PatchedAgentRevision {
+      readonly id?: string;
+      readonly application?: string;
+      /** @nullable */
+      parent_revision?: string | null;
+      readonly state?: AgentRevisionStateEnum;
+      /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
+      bundle_uri?: string;
+      /** @nullable */
+      readonly bundle_sha256?: string | null;
+      spec?: PatchedAgentRevisionSpec;
+      /** @nullable */
+      readonly created_by_id?: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by?: PatchedAgentRevisionCreatedBy;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedAlert {
       readonly id?: string;
       readonly created_by?: UserBasic;
@@ -29084,6 +33536,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedAnnotation {
@@ -29181,7 +33635,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval?: IntervalEnum;
+      interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -29292,12 +33746,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
@@ -29699,6 +34156,11 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic;
       readonly team?: number;
+    }
+
+    export interface PatchedDesignPatch {
+      /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
+      operations?: DesignOperation[];
     }
 
     export interface PatchedDesktopRecording {
@@ -30340,8 +34802,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
@@ -30449,6 +34913,14 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -30544,6 +35016,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -30594,7 +35071,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -30629,6 +35107,109 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedFieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedFieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedFieldNote {
+      readonly id?: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedFieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedFieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
     }
 
     export interface PatchedFileSystem {
@@ -30824,8 +35405,8 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: unknown;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
        * * `exit_on_conversion` - Conversion
@@ -30844,6 +35425,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowGraphUpdate {
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      operations?: HogFlowGraphOperation[];
     }
 
     export interface PatchedHogFlowSchedule {
@@ -31259,7 +35845,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. */
+      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
@@ -31510,17 +36096,29 @@ export namespace Schemas {
 
     export interface PatchedMessageTemplate {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name?: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -31801,7 +36399,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source?: string;
       /** User who created the recipe. */
       readonly created_by?: UserBasic | null;
@@ -32933,6 +37534,73 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedReminder {
+      readonly id?: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization?: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at?: string | null;
+      /** @nullable */
+      readonly last_fired_at?: string | null;
+      readonly status?: ReminderStatusEnum;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
@@ -33119,7 +37787,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -33313,6 +37981,14 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Per-(team, skill) scout config: schedule, enablement, and emit posture.
      *
@@ -33325,6 +38001,8 @@ export namespace Schemas {
       readonly skill_name?: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description?: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin?: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -33422,7 +38100,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency?: SubscriptionFrequencyEnum;
+      frequency?: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -33853,6 +38531,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -34204,7 +38886,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -35026,7 +39709,7 @@ export namespace Schemas {
 
     export interface PersonSplitRequest {
       /**
-         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
          * @nullable
          */
       main_distinct_id?: string | null;
@@ -35206,6 +39889,24 @@ export namespace Schemas {
       emailable: boolean;
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
+    }
+
+    /**
+     * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
+     * non-live revision. The meaningful shape depends on the `rest` path segment:
+     *
+     * - `run` — `{ message }`: the user message that starts a new session.
+     * - `send` — `{ session_id, message }`: append a message to a running session.
+     * - `cancel` / `listen` — no body.
+     *
+     * Documents `message` / `session_id` so the generated MCP tool exposes them;
+     * any extra keys are still forwarded as-is to ingress.
+     */
+    export interface PreviewProxyInvokeRequest {
+      /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
+      message?: string;
+      /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
+      session_id?: string;
     }
 
     /**
@@ -36771,8 +41472,14 @@ export namespace Schemas {
     }
 
     export interface ProvisionWarehouseResponse {
+      /** Provisioning lifecycle message, e.g. 'provisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
+      /** Root database username */
+      username: string;
+      /** Root database password — returned only here at provision time and on reset-password */
+      password: string;
     }
 
     /**
@@ -37084,7 +41791,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -37529,6 +42236,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37539,8 +42247,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -37556,6 +42262,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37567,8 +42274,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -37610,6 +42315,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37621,10 +42327,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -37636,6 +42338,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37649,7 +42352,6 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -37663,6 +42365,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37691,6 +42394,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -37701,7 +42405,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -38008,6 +42711,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -38018,8 +42722,6 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -38035,6 +42737,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -38046,8 +42749,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -38089,6 +42790,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -38100,10 +42802,6 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -38115,6 +42813,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -38128,7 +42827,6 @@ export namespace Schemas {
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -38830,12 +43528,34 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative82 {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AttributeBreakdownRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AttributeBreakdownRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface QueryResponseAlternative83 {
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative84 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -38858,7 +43578,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative84 {
+    export interface QueryResponseAlternative85 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -38881,7 +43601,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -38901,7 +43621,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -38925,7 +43645,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -38940,7 +43660,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative89 {
+    export interface QueryResponseAlternative90 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -38960,7 +43680,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative91 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -38980,7 +43700,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative92 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -39008,7 +43728,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative92 {
+    export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39028,7 +43748,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative93 {
+    export interface QueryResponseAlternative94 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -39053,9 +43773,9 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export type QueryResponseAlternative94ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative95ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative94 {
+    export interface QueryResponseAlternative95 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39068,14 +43788,14 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative94ResultsItem[];
+      results: QueryResponseAlternative95ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative95 {
+    export interface QueryResponseAlternative96 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39095,18 +43815,18 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -39134,6 +43854,35 @@ export namespace Schemas {
          * @nullable
          */
       suggested_integration: string | null;
+    }
+
+    /**
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update
+     */
+    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
+
+
+    export const RecalculateMetricsRequestTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * Request body for triggering a metrics recalculation.
+     */
+    export interface RecalculateMetricsRequest {
+      /** What triggered this recalculation (manual is the default for user-initiated runs)
+       *
+       * * `manual` - manual
+       * * `experiment_launch` - experiment_launch
+       * * `experiment_stop` - experiment_stop
+       * * `experiment_update` - experiment_update */
+      trigger?: RecalculateMetricsRequestTriggerEnum;
     }
 
     export interface RecomputeResult {
@@ -39362,6 +44111,109 @@ export namespace Schemas {
     }
 
     /**
+     * Raw control-group statistics the calculator uses to derive a baseline value and variance.
+     *
+     * Supply this when you want the server to compute the baseline value and (for ratio/retention)
+     * the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+     */
+    export interface RunningTimeBaselineStats {
+      /**
+         * Number of control-group samples (users/units) observed.
+         * @minimum 0
+         */
+      number_of_samples: number;
+      /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
+      sum: number;
+      /** Sum of squared metric values. Required for ratio/retention variance. */
+      sum_squares?: number;
+      /**
+         * Sum of the denominator values. Required for ratio/retention metrics.
+         * @nullable
+         */
+      denominator_sum?: number | null;
+      /**
+         * Sum of squared denominator values (ratio/retention variance).
+         * @nullable
+         */
+      denominator_sum_squares?: number | null;
+      /**
+         * Sum of numerator×denominator products, used for the delta-method covariance term.
+         * @nullable
+         */
+      numerator_denominator_sum_product?: number | null;
+      /** Per-step counts for funnel metrics; the last entry is the final-step count. */
+      step_counts?: number[];
+    }
+
+    /**
+     * Inputs for estimating the recommended sample size and running time of an experiment.
+     */
+    export interface RunningTimeCalculationInput {
+      /** Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).
+       *
+       * * `funnel` - funnel
+       * * `mean_count` - mean_count
+       * * `mean_sum_or_avg` - mean_sum_or_avg
+       * * `ratio` - ratio
+       * * `retention` - retention */
+      metric_type: MetricTypeEnum;
+      /**
+         * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.
+         * @minimum 0
+         */
+      minimum_detectable_effect: number;
+      /**
+         * Total number of variants including control (default 2).
+         * @minimum 2
+         */
+      number_of_variants?: number;
+      /**
+         * Expected exposures per day. When provided, the response includes the recommended running time.
+         * @minimum 0
+         * @nullable
+         */
+      exposure_rate_per_day?: number | null;
+      /**
+         * Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.
+         * @nullable
+         */
+      baseline_value?: number | null;
+      /**
+         * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+         * @nullable
+         */
+      variance?: number | null;
+      /** Raw control-group statistics. When provided, the server derives baseline_value and variance. */
+      baseline_stats?: RunningTimeBaselineStats | null;
+    }
+
+    /**
+     * Estimated sample size and running time for the given inputs.
+     */
+    export interface RunningTimeCalculationResult {
+      /**
+         * Baseline metric value used in the calculation (echoed or derived from stats).
+         * @nullable
+         */
+      baseline_value: number | null;
+      /**
+         * Variance used in the calculation; null for funnel metrics (implicit in p(1-p)).
+         * @nullable
+         */
+      variance: number | null;
+      /**
+         * Total recommended sample size across all variants. Null if inputs are insufficient.
+         * @nullable
+         */
+      recommended_sample_size: number | null;
+      /**
+         * Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.
+         * @nullable
+         */
+      recommended_running_time_days: number | null;
+    }
+
+    /**
      * Form fields that must be submitted verbatim with the file upload
      */
     export type S3PresignedPostFields = {[key: string]: string};
@@ -39517,6 +44369,21 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    /**
+     * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+     *
+     * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+     * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+     */
+    export interface ScoutEmissionReportLink {
+      /** Stable id the finding was emitted under. */
+      finding_id: string;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+      source_id: string;
+      /** The inbox report this finding linked to, or null if none could be resolved. */
+      report: LinkedSignalReport | null;
     }
 
     export interface ScoutReportWriteResponse {
@@ -39822,6 +44689,29 @@ export namespace Schemas {
     }
 
     /**
+     * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+     *
+     * The view merges `{KEY: value}` into the existing encrypted env block
+     * without touching other keys, so callers can set or rotate one secret
+     * without needing to read the whole block back.
+     */
+    export interface SetEnvKeyRequest {
+      value: string;
+    }
+
+    export type SetEnvRequestEnv = {[key: string]: string};
+
+    /**
+     * Body shape for AgentApplicationViewSet.set_env.
+     *
+     * `env` is a JSON object of string→string. The view encrypts it via the
+     * same Fernet schedule the worker uses to decrypt.
+     */
+    export interface SetEnvRequest {
+      env: SetEnvRequestEnv;
+    }
+
+    /**
      * * `trace` - trace
      * * `debug` - debug
      * * `info` - info
@@ -39928,6 +44818,8 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -39963,7 +44855,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
          * @minimum 10
          * @maximum 43200
          */
@@ -40394,6 +45286,670 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    export interface SourceConnectLink {
+      /** The source type the link is for. */
+      source_type: string;
+      /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
+       *
+       * * `oauth` - oauth
+       * * `credentials` - credentials */
+      auth_method: AuthMethodEnum;
+      /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
+      connect_url: string;
+      /** Next steps for the agent to relay to the user. */
+      instructions: string;
+    }
+
+    export interface SourceCredential {
+      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      credential_id: string;
+      /** The source type the stored credentials are for. */
+      source_type: string;
+      /** When the credentials were stored. */
+      created_at: string;
+      /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
+      expires_at: string;
+    }
+
+    /**
+     * Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.
+     */
+    export type SourceCredentialCreatePayload = { [key: string]: unknown };
+
+    export interface SourceCredentialCreate {
+      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `OneHundredMs` - OneHundredMs
+       * * `SevenShifts` - SevenShifts
+       * * `AcuityScheduling` - AcuityScheduling
+       * * `AgileCRM` - AgileCRM
+       * * `Aha` - Aha
+       * * `Airbyte` - Airbyte
+       * * `Akeneo` - Akeneo
+       * * `Algolia` - Algolia
+       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
+       * * `ApifyDataset` - ApifyDataset
+       * * `Appcues` - Appcues
+       * * `Appfigures` - Appfigures
+       * * `Appfollow` - Appfollow
+       * * `Apptivo` - Apptivo
+       * * `AssemblyAI` - AssemblyAI
+       * * `Awin` - Awin
+       * * `AwsCloudTrail` - AwsCloudTrail
+       * * `AzureTableStorage` - AzureTableStorage
+       * * `Babelforce` - Babelforce
+       * * `Basecamp` - Basecamp
+       * * `Beamer` - Beamer
+       * * `BigMailer` - BigMailer
+       * * `Bluetally` - Bluetally
+       * * `BoldSign` - BoldSign
+       * * `BreezyHR` - BreezyHR
+       * * `Bugsnag` - Bugsnag
+       * * `Buildkite` - Buildkite
+       * * `Bunny` - Bunny
+       * * `Buzzsprout` - Buzzsprout
+       * * `CalCom` - CalCom
+       * * `CallRail` - CallRail
+       * * `Campayn` - Campayn
+       * * `Canny` - Canny
+       * * `CapsuleCRM` - CapsuleCRM
+       * * `CaptainData` - CaptainData
+       * * `CartCom` - CartCom
+       * * `CastorEDC` - CastorEDC
+       * * `Chameleon` - Chameleon
+       * * `Chargedesk` - Chargedesk
+       * * `Chargify` - Chargify
+       * * `Chift` - Chift
+       * * `Churnkey` - Churnkey
+       * * `Cin7` - Cin7
+       * * `CiscoMeraki` - CiscoMeraki
+       * * `Clazar` - Clazar
+       * * `Clockify` - Clockify
+       * * `Clockodo` - Clockodo
+       * * `Cloudbeds` - Cloudbeds
+       * * `Coassemble` - Coassemble
+       * * `Codefresh` - Codefresh
+       * * `Concord` - Concord
+       * * `ConfigCat` - ConfigCat
+       * * `Couchbase` - Couchbase
+       * * `Curve` - Curve
+       * * `Customerly` - Customerly
+       * * `Datascope` - Datascope
+       * * `Dbt` - Dbt
+       * * `Deputy` - Deputy
+       * * `DevinAI` - DevinAI
+       * * `Docuseal` - Docuseal
+       * * `Dolibarr` - Dolibarr
+       * * `Dremio` - Dremio
+       * * `DropboxSign` - DropboxSign
+       * * `Dwolla` - Dwolla
+       * * `EConomic` - EConomic
+       * * `Easypost` - Easypost
+       * * `Easypromos` - Easypromos
+       * * `Elasticemail` - Elasticemail
+       * * `EmailOctopus` - EmailOctopus
+       * * `EmploymentHero` - EmploymentHero
+       * * `Encharge` - Encharge
+       * * `Eventee` - Eventee
+       * * `Eventzilla` - Eventzilla
+       * * `Everhour` - Everhour
+       * * `EZOfficeInventory` - EZOfficeInventory
+       * * `Factorial` - Factorial
+       * * `Fastbill` - Fastbill
+       * * `Fastly` - Fastly
+       * * `Fauna` - Fauna
+       * * `Feishu` - Feishu
+       * * `Fillout` - Fillout
+       * * `Finage` - Finage
+       * * `Firebolt` - Firebolt
+       * * `FireHydrant` - FireHydrant
+       * * `Fleetio` - Fleetio
+       * * `Flexmail` - Flexmail
+       * * `Flexport` - Flexport
+       * * `FloatApp` - FloatApp
+       * * `Flowlu` - Flowlu
+       * * `Formbricks` - Formbricks
+       * * `FreeAgent` - FreeAgent
+       * * `Freightview` - Freightview
+       * * `Freshcaller` - Freshcaller
+       * * `Freshchat` - Freshchat
+       * * `Freshservice` - Freshservice
+       * * `Fulcrum` - Fulcrum
+       * * `GainsightPx` - GainsightPx
+       * * `GitBook` - GitBook
+       * * `Glassfrog` - Glassfrog
+       * * `Goldcast` - Goldcast
+       * * `GoLogin` - GoLogin
+       * * `Grafana` - Grafana
+       * * `GreytHr` - GreytHr
+       * * `Gridly` - Gridly
+       * * `Harness` - Harness
+       * * `Height` - Height
+       * * `Hellobaton` - Hellobaton
+       * * `HighLevel` - HighLevel
+       * * `HoorayHR` - HoorayHR
+       * * `Hubplanner` - Hubplanner
+       * * `Humanitix` - Humanitix
+       * * `Huntr` - Huntr
+       * * `Inflowinventory` - Inflowinventory
+       * * `InforNexus` - InforNexus
+       * * `Insightful` - Insightful
+       * * `Insightly` - Insightly
+       * * `Instatus` - Instatus
+       * * `Intruder` - Intruder
+       * * `Invoiced` - Invoiced
+       * * `Invoiceninja` - Invoiceninja
+       * * `JamfPro` - JamfPro
+       * * `JobNimbus` - JobNimbus
+       * * `Jotform` - Jotform
+       * * `JudgeMeReviews` - JudgeMeReviews
+       * * `JustCall` - JustCall
+       * * `JustSift` - JustSift
+       * * `K6Cloud` - K6Cloud
+       * * `Katana` - Katana
+       * * `Keka` - Keka
+       * * `Kisi` - Kisi
+       * * `Kissmetrics` - Kissmetrics
+       * * `Klarna` - Klarna
+       * * `Klaus` - Klaus
+       * * `Lago` - Lago
+       * * `Leadfeeder` - Leadfeeder
+       * * `Lemlist` - Lemlist
+       * * `LessAnnoyingCRM` - LessAnnoyingCRM
+       * * `LinkedinPages` - LinkedinPages
+       * * `Linkrunner` - Linkrunner
+       * * `Linnworks` - Linnworks
+       * * `Lob` - Lob
+       * * `Lokalise` - Lokalise
+       * * `Looker` - Looker
+       * * `Luma` - Luma
+       * * `MailerSend` - MailerSend
+       * * `Mailosaur` - Mailosaur
+       * * `Mailtrap` - Mailtrap
+       * * `Mantle` - Mantle
+       * * `Mention` - Mention
+       * * `MercadoAds` - MercadoAds
+       * * `Merge` - Merge
+       * * `Metabase` - Metabase
+       * * `Metricool` - Metricool
+       * * `MicrosoftDataverse` - MicrosoftDataverse
+       * * `MicrosoftEntraId` - MicrosoftEntraId
+       * * `MicrosoftLists` - MicrosoftLists
+       * * `Miro` - Miro
+       * * `Missive` - Missive
+       * * `MixMax` - MixMax
+       * * `Mode` - Mode
+       * * `Mux` - Mux
+       * * `MyHours` - MyHours
+       * * `N8n` - N8n
+       * * `Navan` - Navan
+       * * `NebiusAI` - NebiusAI
+       * * `Nexiopay` - Nexiopay
+       * * `NinjaOneRMM` - NinjaOneRMM
+       * * `NoCRM` - NoCRM
+       * * `NorthpassLMS` - NorthpassLMS
+       * * `Nutshell` - Nutshell
+       * * `Nylas` - Nylas
+       * * `Oncehub` - Oncehub
+       * * `Onepagecrm` - Onepagecrm
+       * * `OneSignal` - OneSignal
+       * * `Onfleet` - Onfleet
+       * * `OpinionStage` - OpinionStage
+       * * `OPUSWatch` - OPUSWatch
+       * * `Orb` - Orb
+       * * `Orbit` - Orbit
+       * * `Oura` - Oura
+       * * `Oveit` - Oveit
+       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
+       * * `Paperform` - Paperform
+       * * `Papersign` - Papersign
+       * * `Partnerize` - Partnerize
+       * * `PartnerStack` - PartnerStack
+       * * `PayFit` - PayFit
+       * * `Paystack` - Paystack
+       * * `Pennylane` - Pennylane
+       * * `Perk` - Perk
+       * * `PersistIq` - PersistIq
+       * * `Persona` - Persona
+       * * `Phyllo` - Phyllo
+       * * `Picqer` - Picqer
+       * * `Pipeliner` - Pipeliner
+       * * `PivotalTracker` - PivotalTracker
+       * * `Piwik` - Piwik
+       * * `Planhat` - Planhat
+       * * `Plausible` - Plausible
+       * * `Poplar` - Poplar
+       * * `PrestaShop` - PrestaShop
+       * * `Pretix` - Pretix
+       * * `Primetric` - Primetric
+       * * `Printify` - Printify
+       * * `Productive` - Productive
+       * * `Pylon` - Pylon
+       * * `Qonto` - Qonto
+       * * `Qualaroo` - Qualaroo
+       * * `Railz` - Railz
+       * * `RDStationMarketing` - RDStationMarketing
+       * * `Recruitee` - Recruitee
+       * * `Reddit` - Reddit
+       * * `ReferralHero` - ReferralHero
+       * * `RentCast` - RentCast
+       * * `Repairshopr` - Repairshopr
+       * * `ReplyIo` - ReplyIo
+       * * `RetailExpress` - RetailExpress
+       * * `Retently` - Retently
+       * * `RevolutMerchant` - RevolutMerchant
+       * * `RocketChat` - RocketChat
+       * * `Rocketlane` - Rocketlane
+       * * `Rootly` - Rootly
+       * * `Ruddr` - Ruddr
+       * * `SafetyCulture` - SafetyCulture
+       * * `SageHR` - SageHR
+       * * `Salesflare` - Salesflare
+       * * `SAPFieldglass` - SAPFieldglass
+       * * `SavvyCal` - SavvyCal
+       * * `Secoda` - Secoda
+       * * `Segment` - Segment
+       * * `Sendowl` - Sendowl
+       * * `SendPulse` - SendPulse
+       * * `Senseforce` - Senseforce
+       * * `Serpstat` - Serpstat
+       * * `Sharetribe` - Sharetribe
+       * * `Shippo` - Shippo
+       * * `ShopWired` - ShopWired
+       * * `Shortio` - Shortio
+       * * `Shutterstock` - Shutterstock
+       * * `SigmaComputing` - SigmaComputing
+       * * `SignNow` - SignNow
+       * * `SimpleCast` - SimpleCast
+       * * `Simplesat` - Simplesat
+       * * `Smaily` - Smaily
+       * * `SmartEngage` - SmartEngage
+       * * `Smartreach` - Smartreach
+       * * `Smartwaiver` - Smartwaiver
+       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
+       * * `SonarCloud` - SonarCloud
+       * * `SparkPost` - SparkPost
+       * * `SplitIo` - SplitIo
+       * * `SpotifyAds` - SpotifyAds
+       * * `SpotlerCRM` - SpotlerCRM
+       * * `Squarespace` - Squarespace
+       * * `Statsig` - Statsig
+       * * `Statuspage` - Statuspage
+       * * `Stigg` - Stigg
+       * * `Strava` - Strava
+       * * `SurveySparrow` - SurveySparrow
+       * * `Survicate` - Survicate
+       * * `Svix` - Svix
+       * * `Systeme` - Systeme
+       * * `Tavus` - Tavus
+       * * `Teamtailor` - Teamtailor
+       * * `Teamwork` - Teamwork
+       * * `Tempo` - Tempo
+       * * `Testrail` - Testrail
+       * * `Thinkific` - Thinkific
+       * * `ThinkificCourses` - ThinkificCourses
+       * * `ThriveLearning` - ThriveLearning
+       * * `Ticketmaster` - Ticketmaster
+       * * `TicketTailor` - TicketTailor
+       * * `TickTick` - TickTick
+       * * `Timely` - Timely
+       * * `Tinyemail` - Tinyemail
+       * * `Todoist` - Todoist
+       * * `Toggl` - Toggl
+       * * `TrackPMS` - TrackPMS
+       * * `Tremendous` - Tremendous
+       * * `TrustPilot` - TrustPilot
+       * * `Twitter` - Twitter
+       * * `TyntecSMS` - TyntecSMS
+       * * `Unleash` - Unleash
+       * * `UpPromote` - UpPromote
+       * * `Uptick` - Uptick
+       * * `Uservoice` - Uservoice
+       * * `Vantage` - Vantage
+       * * `Veeqo` - Veeqo
+       * * `Vercel` - Vercel
+       * * `VismaEconomic` - VismaEconomic
+       * * `VWO` - VWO
+       * * `Waiteraid` - Waiteraid
+       * * `Wasabi` - Wasabi
+       * * `WhenIWork` - WhenIWork
+       * * `Wordpress` - Wordpress
+       * * `Workable` - Workable
+       * * `Workflowmax` - Workflowmax
+       * * `Workramp` - Workramp
+       * * `Wufoo` - Wufoo
+       * * `Xsolla` - Xsolla
+       * * `YandexMetrica` - YandexMetrica
+       * * `Yotpo` - Yotpo
+       * * `Ynab` - Ynab
+       * * `Younium` - Younium
+       * * `YouSign` - YouSign
+       * * `YoutubeData` - YoutubeData
+       * * `ZapierSupportedStorage` - ZapierSupportedStorage
+       * * `ZapSign` - ZapSign
+       * * `ZendeskSell` - ZendeskSell
+       * * `ZendeskSunshine` - ZendeskSunshine
+       * * `Zenefits` - Zenefits
+       * * `Zenloop` - Zenloop
+       * * `ZohoAnalytics` - ZohoAnalytics
+       * * `ZohoBigin` - ZohoBigin
+       * * `ZohoBilling` - ZohoBilling
+       * * `ZohoBooks` - ZohoBooks
+       * * `ZohoCampaign` - ZohoCampaign
+       * * `ZohoDesk` - ZohoDesk
+       * * `ZohoExpense` - ZohoExpense
+       * * `ZohoInventory` - ZohoInventory
+       * * `ZohoInvoice` - ZohoInvoice
+       * * `ZonkaFeedback` - ZonkaFeedback
+       * * `AlphaVantage` - AlphaVantage
+       * * `Aviationstack` - Aviationstack
+       * * `Bitly` - Bitly
+       * * `Blogger` - Blogger
+       * * `Breezometer` - Breezometer
+       * * `CareQualityCommission` - CareQualityCommission
+       * * `Cimis` - Cimis
+       * * `CoinApi` - CoinApi
+       * * `CoinGecko` - CoinGecko
+       * * `CoinMarketCap` - CoinMarketCap
+       * * `DingConnect` - DingConnect
+       * * `Dockerhub` - Dockerhub
+       * * `ExchangeRatesApi` - ExchangeRatesApi
+       * * `FinancialModelling` - FinancialModelling
+       * * `Finnhub` - Finnhub
+       * * `Finnworlds` - Finnworlds
+       * * `Giphy` - Giphy
+       * * `Gmail` - Gmail
+       * * `GNews` - GNews
+       * * `GoogleCalendar` - GoogleCalendar
+       * * `GoogleClassroom` - GoogleClassroom
+       * * `GoogleDirectory` - GoogleDirectory
+       * * `GoogleForms` - GoogleForms
+       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
+       * * `GoogleTasks` - GoogleTasks
+       * * `GoogleWebfonts` - GoogleWebfonts
+       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
+       * * `HuggingFace` - HuggingFace
+       * * `IlluminaBasespace` - IlluminaBasespace
+       * * `Imagga` - Imagga
+       * * `Interzoid` - Interzoid
+       * * `IP2Whois` - IP2Whois
+       * * `KYVE` - KYVE
+       * * `Marketstack` - Marketstack
+       * * `Mendeley` - Mendeley
+       * * `Nasa` - Nasa
+       * * `NewYorkTimes` - NewYorkTimes
+       * * `NewsApi` - NewsApi
+       * * `NewsData` - NewsData
+       * * `OpenDataDc` - OpenDataDc
+       * * `OpenExchangeRates` - OpenExchangeRates
+       * * `OpenAQ` - OpenAQ
+       * * `OpenFDA` - OpenFDA
+       * * `OpenWeather` - OpenWeather
+       * * `Outlook` - Outlook
+       * * `Perigon` - Perigon
+       * * `Pexels` - Pexels
+       * * `Pocket` - Pocket
+       * * `Polygon` - Polygon
+       * * `PyPI` - PyPI
+       * * `Recreation` - Recreation
+       * * `RKICovid` - RKICovid
+       * * `Rss` - Rss
+       * * `SimFin` - SimFin
+       * * `StockData` - StockData
+       * * `Guardian` - Guardian
+       * * `TMDb` - TMDb
+       * * `TVMaze` - TVMaze
+       * * `TwelveData` - TwelveData
+       * * `Ubidots` - Ubidots
+       * * `USCensus` - USCensus
+       * * `Watchmode` - Watchmode
+       * * `WikipediaPageviews` - WikipediaPageviews
+       * * `YahooFinance` - YahooFinance
+       * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
+       * * `Ahrefs` - Ahrefs
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
+      payload: SourceCredentialCreatePayload;
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -40418,6 +45974,681 @@ export namespace Schemas {
       Auto: 'auto',
       Mapped: 'mapped',
     } as const;
+
+    /**
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     */
+    export type SourceSetupPayload = { [key: string]: unknown };
+
+    export interface SourceSetup {
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `OneHundredMs` - OneHundredMs
+       * * `SevenShifts` - SevenShifts
+       * * `AcuityScheduling` - AcuityScheduling
+       * * `AgileCRM` - AgileCRM
+       * * `Aha` - Aha
+       * * `Airbyte` - Airbyte
+       * * `Akeneo` - Akeneo
+       * * `Algolia` - Algolia
+       * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
+       * * `ApifyDataset` - ApifyDataset
+       * * `Appcues` - Appcues
+       * * `Appfigures` - Appfigures
+       * * `Appfollow` - Appfollow
+       * * `Apptivo` - Apptivo
+       * * `AssemblyAI` - AssemblyAI
+       * * `Awin` - Awin
+       * * `AwsCloudTrail` - AwsCloudTrail
+       * * `AzureTableStorage` - AzureTableStorage
+       * * `Babelforce` - Babelforce
+       * * `Basecamp` - Basecamp
+       * * `Beamer` - Beamer
+       * * `BigMailer` - BigMailer
+       * * `Bluetally` - Bluetally
+       * * `BoldSign` - BoldSign
+       * * `BreezyHR` - BreezyHR
+       * * `Bugsnag` - Bugsnag
+       * * `Buildkite` - Buildkite
+       * * `Bunny` - Bunny
+       * * `Buzzsprout` - Buzzsprout
+       * * `CalCom` - CalCom
+       * * `CallRail` - CallRail
+       * * `Campayn` - Campayn
+       * * `Canny` - Canny
+       * * `CapsuleCRM` - CapsuleCRM
+       * * `CaptainData` - CaptainData
+       * * `CartCom` - CartCom
+       * * `CastorEDC` - CastorEDC
+       * * `Chameleon` - Chameleon
+       * * `Chargedesk` - Chargedesk
+       * * `Chargify` - Chargify
+       * * `Chift` - Chift
+       * * `Churnkey` - Churnkey
+       * * `Cin7` - Cin7
+       * * `CiscoMeraki` - CiscoMeraki
+       * * `Clazar` - Clazar
+       * * `Clockify` - Clockify
+       * * `Clockodo` - Clockodo
+       * * `Cloudbeds` - Cloudbeds
+       * * `Coassemble` - Coassemble
+       * * `Codefresh` - Codefresh
+       * * `Concord` - Concord
+       * * `ConfigCat` - ConfigCat
+       * * `Couchbase` - Couchbase
+       * * `Curve` - Curve
+       * * `Customerly` - Customerly
+       * * `Datascope` - Datascope
+       * * `Dbt` - Dbt
+       * * `Deputy` - Deputy
+       * * `DevinAI` - DevinAI
+       * * `Docuseal` - Docuseal
+       * * `Dolibarr` - Dolibarr
+       * * `Dremio` - Dremio
+       * * `DropboxSign` - DropboxSign
+       * * `Dwolla` - Dwolla
+       * * `EConomic` - EConomic
+       * * `Easypost` - Easypost
+       * * `Easypromos` - Easypromos
+       * * `Elasticemail` - Elasticemail
+       * * `EmailOctopus` - EmailOctopus
+       * * `EmploymentHero` - EmploymentHero
+       * * `Encharge` - Encharge
+       * * `Eventee` - Eventee
+       * * `Eventzilla` - Eventzilla
+       * * `Everhour` - Everhour
+       * * `EZOfficeInventory` - EZOfficeInventory
+       * * `Factorial` - Factorial
+       * * `Fastbill` - Fastbill
+       * * `Fastly` - Fastly
+       * * `Fauna` - Fauna
+       * * `Feishu` - Feishu
+       * * `Fillout` - Fillout
+       * * `Finage` - Finage
+       * * `Firebolt` - Firebolt
+       * * `FireHydrant` - FireHydrant
+       * * `Fleetio` - Fleetio
+       * * `Flexmail` - Flexmail
+       * * `Flexport` - Flexport
+       * * `FloatApp` - FloatApp
+       * * `Flowlu` - Flowlu
+       * * `Formbricks` - Formbricks
+       * * `FreeAgent` - FreeAgent
+       * * `Freightview` - Freightview
+       * * `Freshcaller` - Freshcaller
+       * * `Freshchat` - Freshchat
+       * * `Freshservice` - Freshservice
+       * * `Fulcrum` - Fulcrum
+       * * `GainsightPx` - GainsightPx
+       * * `GitBook` - GitBook
+       * * `Glassfrog` - Glassfrog
+       * * `Goldcast` - Goldcast
+       * * `GoLogin` - GoLogin
+       * * `Grafana` - Grafana
+       * * `GreytHr` - GreytHr
+       * * `Gridly` - Gridly
+       * * `Harness` - Harness
+       * * `Height` - Height
+       * * `Hellobaton` - Hellobaton
+       * * `HighLevel` - HighLevel
+       * * `HoorayHR` - HoorayHR
+       * * `Hubplanner` - Hubplanner
+       * * `Humanitix` - Humanitix
+       * * `Huntr` - Huntr
+       * * `Inflowinventory` - Inflowinventory
+       * * `InforNexus` - InforNexus
+       * * `Insightful` - Insightful
+       * * `Insightly` - Insightly
+       * * `Instatus` - Instatus
+       * * `Intruder` - Intruder
+       * * `Invoiced` - Invoiced
+       * * `Invoiceninja` - Invoiceninja
+       * * `JamfPro` - JamfPro
+       * * `JobNimbus` - JobNimbus
+       * * `Jotform` - Jotform
+       * * `JudgeMeReviews` - JudgeMeReviews
+       * * `JustCall` - JustCall
+       * * `JustSift` - JustSift
+       * * `K6Cloud` - K6Cloud
+       * * `Katana` - Katana
+       * * `Keka` - Keka
+       * * `Kisi` - Kisi
+       * * `Kissmetrics` - Kissmetrics
+       * * `Klarna` - Klarna
+       * * `Klaus` - Klaus
+       * * `Lago` - Lago
+       * * `Leadfeeder` - Leadfeeder
+       * * `Lemlist` - Lemlist
+       * * `LessAnnoyingCRM` - LessAnnoyingCRM
+       * * `LinkedinPages` - LinkedinPages
+       * * `Linkrunner` - Linkrunner
+       * * `Linnworks` - Linnworks
+       * * `Lob` - Lob
+       * * `Lokalise` - Lokalise
+       * * `Looker` - Looker
+       * * `Luma` - Luma
+       * * `MailerSend` - MailerSend
+       * * `Mailosaur` - Mailosaur
+       * * `Mailtrap` - Mailtrap
+       * * `Mantle` - Mantle
+       * * `Mention` - Mention
+       * * `MercadoAds` - MercadoAds
+       * * `Merge` - Merge
+       * * `Metabase` - Metabase
+       * * `Metricool` - Metricool
+       * * `MicrosoftDataverse` - MicrosoftDataverse
+       * * `MicrosoftEntraId` - MicrosoftEntraId
+       * * `MicrosoftLists` - MicrosoftLists
+       * * `Miro` - Miro
+       * * `Missive` - Missive
+       * * `MixMax` - MixMax
+       * * `Mode` - Mode
+       * * `Mux` - Mux
+       * * `MyHours` - MyHours
+       * * `N8n` - N8n
+       * * `Navan` - Navan
+       * * `NebiusAI` - NebiusAI
+       * * `Nexiopay` - Nexiopay
+       * * `NinjaOneRMM` - NinjaOneRMM
+       * * `NoCRM` - NoCRM
+       * * `NorthpassLMS` - NorthpassLMS
+       * * `Nutshell` - Nutshell
+       * * `Nylas` - Nylas
+       * * `Oncehub` - Oncehub
+       * * `Onepagecrm` - Onepagecrm
+       * * `OneSignal` - OneSignal
+       * * `Onfleet` - Onfleet
+       * * `OpinionStage` - OpinionStage
+       * * `OPUSWatch` - OPUSWatch
+       * * `Orb` - Orb
+       * * `Orbit` - Orbit
+       * * `Oura` - Oura
+       * * `Oveit` - Oveit
+       * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
+       * * `Paperform` - Paperform
+       * * `Papersign` - Papersign
+       * * `Partnerize` - Partnerize
+       * * `PartnerStack` - PartnerStack
+       * * `PayFit` - PayFit
+       * * `Paystack` - Paystack
+       * * `Pennylane` - Pennylane
+       * * `Perk` - Perk
+       * * `PersistIq` - PersistIq
+       * * `Persona` - Persona
+       * * `Phyllo` - Phyllo
+       * * `Picqer` - Picqer
+       * * `Pipeliner` - Pipeliner
+       * * `PivotalTracker` - PivotalTracker
+       * * `Piwik` - Piwik
+       * * `Planhat` - Planhat
+       * * `Plausible` - Plausible
+       * * `Poplar` - Poplar
+       * * `PrestaShop` - PrestaShop
+       * * `Pretix` - Pretix
+       * * `Primetric` - Primetric
+       * * `Printify` - Printify
+       * * `Productive` - Productive
+       * * `Pylon` - Pylon
+       * * `Qonto` - Qonto
+       * * `Qualaroo` - Qualaroo
+       * * `Railz` - Railz
+       * * `RDStationMarketing` - RDStationMarketing
+       * * `Recruitee` - Recruitee
+       * * `Reddit` - Reddit
+       * * `ReferralHero` - ReferralHero
+       * * `RentCast` - RentCast
+       * * `Repairshopr` - Repairshopr
+       * * `ReplyIo` - ReplyIo
+       * * `RetailExpress` - RetailExpress
+       * * `Retently` - Retently
+       * * `RevolutMerchant` - RevolutMerchant
+       * * `RocketChat` - RocketChat
+       * * `Rocketlane` - Rocketlane
+       * * `Rootly` - Rootly
+       * * `Ruddr` - Ruddr
+       * * `SafetyCulture` - SafetyCulture
+       * * `SageHR` - SageHR
+       * * `Salesflare` - Salesflare
+       * * `SAPFieldglass` - SAPFieldglass
+       * * `SavvyCal` - SavvyCal
+       * * `Secoda` - Secoda
+       * * `Segment` - Segment
+       * * `Sendowl` - Sendowl
+       * * `SendPulse` - SendPulse
+       * * `Senseforce` - Senseforce
+       * * `Serpstat` - Serpstat
+       * * `Sharetribe` - Sharetribe
+       * * `Shippo` - Shippo
+       * * `ShopWired` - ShopWired
+       * * `Shortio` - Shortio
+       * * `Shutterstock` - Shutterstock
+       * * `SigmaComputing` - SigmaComputing
+       * * `SignNow` - SignNow
+       * * `SimpleCast` - SimpleCast
+       * * `Simplesat` - Simplesat
+       * * `Smaily` - Smaily
+       * * `SmartEngage` - SmartEngage
+       * * `Smartreach` - Smartreach
+       * * `Smartwaiver` - Smartwaiver
+       * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
+       * * `SonarCloud` - SonarCloud
+       * * `SparkPost` - SparkPost
+       * * `SplitIo` - SplitIo
+       * * `SpotifyAds` - SpotifyAds
+       * * `SpotlerCRM` - SpotlerCRM
+       * * `Squarespace` - Squarespace
+       * * `Statsig` - Statsig
+       * * `Statuspage` - Statuspage
+       * * `Stigg` - Stigg
+       * * `Strava` - Strava
+       * * `SurveySparrow` - SurveySparrow
+       * * `Survicate` - Survicate
+       * * `Svix` - Svix
+       * * `Systeme` - Systeme
+       * * `Tavus` - Tavus
+       * * `Teamtailor` - Teamtailor
+       * * `Teamwork` - Teamwork
+       * * `Tempo` - Tempo
+       * * `Testrail` - Testrail
+       * * `Thinkific` - Thinkific
+       * * `ThinkificCourses` - ThinkificCourses
+       * * `ThriveLearning` - ThriveLearning
+       * * `Ticketmaster` - Ticketmaster
+       * * `TicketTailor` - TicketTailor
+       * * `TickTick` - TickTick
+       * * `Timely` - Timely
+       * * `Tinyemail` - Tinyemail
+       * * `Todoist` - Todoist
+       * * `Toggl` - Toggl
+       * * `TrackPMS` - TrackPMS
+       * * `Tremendous` - Tremendous
+       * * `TrustPilot` - TrustPilot
+       * * `Twitter` - Twitter
+       * * `TyntecSMS` - TyntecSMS
+       * * `Unleash` - Unleash
+       * * `UpPromote` - UpPromote
+       * * `Uptick` - Uptick
+       * * `Uservoice` - Uservoice
+       * * `Vantage` - Vantage
+       * * `Veeqo` - Veeqo
+       * * `Vercel` - Vercel
+       * * `VismaEconomic` - VismaEconomic
+       * * `VWO` - VWO
+       * * `Waiteraid` - Waiteraid
+       * * `Wasabi` - Wasabi
+       * * `WhenIWork` - WhenIWork
+       * * `Wordpress` - Wordpress
+       * * `Workable` - Workable
+       * * `Workflowmax` - Workflowmax
+       * * `Workramp` - Workramp
+       * * `Wufoo` - Wufoo
+       * * `Xsolla` - Xsolla
+       * * `YandexMetrica` - YandexMetrica
+       * * `Yotpo` - Yotpo
+       * * `Ynab` - Ynab
+       * * `Younium` - Younium
+       * * `YouSign` - YouSign
+       * * `YoutubeData` - YoutubeData
+       * * `ZapierSupportedStorage` - ZapierSupportedStorage
+       * * `ZapSign` - ZapSign
+       * * `ZendeskSell` - ZendeskSell
+       * * `ZendeskSunshine` - ZendeskSunshine
+       * * `Zenefits` - Zenefits
+       * * `Zenloop` - Zenloop
+       * * `ZohoAnalytics` - ZohoAnalytics
+       * * `ZohoBigin` - ZohoBigin
+       * * `ZohoBilling` - ZohoBilling
+       * * `ZohoBooks` - ZohoBooks
+       * * `ZohoCampaign` - ZohoCampaign
+       * * `ZohoDesk` - ZohoDesk
+       * * `ZohoExpense` - ZohoExpense
+       * * `ZohoInventory` - ZohoInventory
+       * * `ZohoInvoice` - ZohoInvoice
+       * * `ZonkaFeedback` - ZonkaFeedback
+       * * `AlphaVantage` - AlphaVantage
+       * * `Aviationstack` - Aviationstack
+       * * `Bitly` - Bitly
+       * * `Blogger` - Blogger
+       * * `Breezometer` - Breezometer
+       * * `CareQualityCommission` - CareQualityCommission
+       * * `Cimis` - Cimis
+       * * `CoinApi` - CoinApi
+       * * `CoinGecko` - CoinGecko
+       * * `CoinMarketCap` - CoinMarketCap
+       * * `DingConnect` - DingConnect
+       * * `Dockerhub` - Dockerhub
+       * * `ExchangeRatesApi` - ExchangeRatesApi
+       * * `FinancialModelling` - FinancialModelling
+       * * `Finnhub` - Finnhub
+       * * `Finnworlds` - Finnworlds
+       * * `Giphy` - Giphy
+       * * `Gmail` - Gmail
+       * * `GNews` - GNews
+       * * `GoogleCalendar` - GoogleCalendar
+       * * `GoogleClassroom` - GoogleClassroom
+       * * `GoogleDirectory` - GoogleDirectory
+       * * `GoogleForms` - GoogleForms
+       * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
+       * * `GoogleTasks` - GoogleTasks
+       * * `GoogleWebfonts` - GoogleWebfonts
+       * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
+       * * `HuggingFace` - HuggingFace
+       * * `IlluminaBasespace` - IlluminaBasespace
+       * * `Imagga` - Imagga
+       * * `Interzoid` - Interzoid
+       * * `IP2Whois` - IP2Whois
+       * * `KYVE` - KYVE
+       * * `Marketstack` - Marketstack
+       * * `Mendeley` - Mendeley
+       * * `Nasa` - Nasa
+       * * `NewYorkTimes` - NewYorkTimes
+       * * `NewsApi` - NewsApi
+       * * `NewsData` - NewsData
+       * * `OpenDataDc` - OpenDataDc
+       * * `OpenExchangeRates` - OpenExchangeRates
+       * * `OpenAQ` - OpenAQ
+       * * `OpenFDA` - OpenFDA
+       * * `OpenWeather` - OpenWeather
+       * * `Outlook` - Outlook
+       * * `Perigon` - Perigon
+       * * `Pexels` - Pexels
+       * * `Pocket` - Pocket
+       * * `Polygon` - Polygon
+       * * `PyPI` - PyPI
+       * * `Recreation` - Recreation
+       * * `RKICovid` - RKICovid
+       * * `Rss` - Rss
+       * * `SimFin` - SimFin
+       * * `StockData` - StockData
+       * * `Guardian` - Guardian
+       * * `TMDb` - TMDb
+       * * `TVMaze` - TVMaze
+       * * `TwelveData` - TwelveData
+       * * `Ubidots` - Ubidots
+       * * `USCensus` - USCensus
+       * * `Watchmode` - Watchmode
+       * * `WikipediaPageviews` - WikipediaPageviews
+       * * `YahooFinance` - YahooFinance
+       * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
+       * * `Ahrefs` - Ahrefs
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      payload?: SourceSetupPayload;
+      /**
+         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * @maxLength 100
+         * @nullable
+         */
+      prefix?: string | null;
+      /**
+         * Human-readable description.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+    }
+
+    export interface SourceSetupWebhook {
+      /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+      success: boolean;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /**
+         * Why webhook registration failed (e.g. the credentials lack webhook permissions).
+         * @nullable
+         */
+      error: string | null;
+      /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+      pending_inputs: string[];
+    }
+
+    export interface SourceSetupResponse {
+      /** ID of the created external data source. */
+      id: string;
+      /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
+      webhook?: SourceSetupWebhook;
+    }
 
     /**
      * * `severity` - severity
@@ -42492,6 +48723,17 @@ export namespace Schemas {
       readonly projected_monthly_observations: number;
     }
 
+    export interface WarehouseConnection {
+      /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+      host: string;
+      /** Postgres wire-protocol port */
+      port: number;
+      /** Database to connect to — always 'ducklake' */
+      database: string;
+      /** Root database username */
+      username: string;
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning
@@ -42513,13 +48755,38 @@ export namespace Schemas {
     } as const;
 
     export interface WarehouseStatusResponse {
-      team_name: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org_id: string;
+      /** Overall provisioning lifecycle state
+       *
+       * * `pending` - pending
+       * * `provisioning` - provisioning
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `deleting` - deleting
+       * * `deleted` - deleted */
       state: WarehouseStatusResponseStateEnum;
+      /** Human-readable detail for the current state */
       status_message: string;
-      /** @nullable */
+      /** Object-store sub-resource provisioning state */
+      s3_state: string;
+      /** Metadata-store sub-resource provisioning state */
+      metadata_store_state: string;
+      /** Worker identity sub-resource provisioning state */
+      identity_state: string;
+      /** Credentials sub-resource provisioning state */
+      secrets_state: string;
+      /**
+         * When the warehouse became ready
+         * @nullable
+         */
       ready_at: string | null;
-      /** @nullable */
+      /**
+         * When provisioning failed
+         * @nullable
+         */
       failed_at: string | null;
+      connection?: WarehouseConnection | null;
     }
 
     export interface WeeklyDigestResponse {
@@ -42594,14 +48861,29 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
       results: WidgetCatalogEntry[];
     }
 
+    export interface WorkflowHealthDay {
+      /** UTC calendar day. */
+      day: string;
+      /** Runs started that day. */
+      run_count: number;
+      /** Runs that completed that day. */
+      completed: number;
+      /** Completed runs with conclusion 'success' that day. */
+      successes: number;
+    }
+
     export interface WorkflowHealthItem {
+      /** Repository the workflow runs in. */
+      repo: RepoRef;
+      /** Daily run history across the whole window, oldest first, zero-filled. */
+      daily: WorkflowHealthDay[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */
@@ -42635,6 +48917,58 @@ export namespace Schemas {
       succeeded: number;
       /** Failed invocations in the window. */
       failed: number;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/agent_md/.
+     */
+    export interface WriteAgentMdRequest {
+      content: string;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
+     * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
+     */
+    export interface WriteSkillRequest {
+      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
+      description: string;
+      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
+      body: string;
+    }
+
+    export type WriteSpecRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
+     * is the author-facing slice (skills/tools are server-derived at freeze).
+     */
+    export interface WriteSpecRequest {
+      spec: WriteSpecRequestSpec;
+    }
+
+    export type WriteToolRequestArgsSchema = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/tools/<tool_id>/.
+     */
+    export interface WriteToolRequest {
+      description: string;
+      args_schema: WriteToolRequestArgsSchema;
+      source: string;
+    }
+
+    export type WriteTypedBundleRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
+     * payload.
+     */
+    export interface WriteTypedBundleRequest {
+      agent_md: string;
+      skills?: WriteSkillRequest[];
+      tools?: WriteToolRequest[];
+      spec: WriteTypedBundleRequestSpec;
     }
 
     export interface _CompareFilter {
@@ -43048,6 +49382,220 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MetricFilter {
+      /**
+         * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op?: OpEnum;
+      /** Value to compare against. For regex operators this is the pattern. */
+      value: string;
+      /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricAnomalyBody {
+      /**
+         * Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong. */
+      anomalyFrom: string;
+      /** End of the suspicious window (exclusive). Defaults to now. */
+      anomalyTo?: string;
+      /** Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo. */
+      baselineFrom?: string;
+      /** End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom. */
+      baselineTo?: string;
+      /** Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum | null;
+      /**
+         * Quantile for histogram_quantile. Defaults to 0.95.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates narrowing which series are characterized. */
+      filters?: _MetricFilter[];
+      /**
+         * Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.
+         * @items.maxLength 255
+         */
+      candidateKeys?: string[];
+    }
+
+    export interface _MetricAnomalyDimension {
+      /** Label key that was drilled into. */
+      key: string;
+      /** Label value this row describes. */
+      label: string;
+      /** Mean value over the baseline window for this label value. */
+      baseline_value: number;
+      /** Mean value over the anomaly window for this label value. */
+      anomaly_value: number;
+      /** anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic). */
+      change_ratio: number;
+    }
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
+
+
+    export const _MetricAnomalyReportDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
+    } as const;
+
+    export interface _MetricQueryPoint {
+      /** Bucket start as ISO 8601 timestamp. */
+      time: string;
+      /** Aggregated value for the bucket. */
+      value: number;
+    }
+
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
+      /** Time-bucketed points, ordered by time ascending. */
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricAnomalyReport {
+      /** Metric that was characterized. */
+      metric_name: string;
+      /** Aggregation used (auto-picked when not specified). */
+      aggregation: string;
+      /** Bucket size of the analysis grid. */
+      interval: string;
+      /** Baseline window start, ISO 8601. */
+      baseline_from: string;
+      /** Baseline window end, ISO 8601. */
+      baseline_to: string;
+      /** Anomaly window start, ISO 8601. */
+      anomaly_from: string;
+      /** Anomaly window end, ISO 8601. */
+      anomaly_to: string;
+      /** Mean over the baseline window. */
+      baseline_mean: number;
+      /** Population stddev over the baseline window. */
+      baseline_stddev: number;
+      /** Mean over the anomaly window. */
+      anomaly_mean: number;
+      /** Maximum bucket value in the anomaly window. */
+      anomaly_peak: number;
+      /** anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself. */
+      change_ratio: number;
+      /** Which way the metric moved versus the baseline.
+       *
+       * * `up` - up
+       * * `down` - down
+       * * `flat` - flat */
+      direction: _MetricAnomalyReportDirectionEnum;
+      /**
+         * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
+         * @nullable
+         */
+      onset_time: string | null;
+      /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
+      top_movers: _MetricAnomalyDimension[];
+      /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
+      series: _MetricSeries;
+    }
+
+    export interface _MetricAnomalyRequest {
+      /** The anomaly characterization to run. */
+      query: _MetricAnomalyBody;
+    }
+
+    export interface _MetricGroupBy {
+      /**
+         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricClause {
+      /**
+         * Clause name a formula refers to (e.g. 'a').
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Exact metric name this clause queries.
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile'.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates ANDed together for this clause. */
+      filters?: _MetricFilter[];
+      /** Labels to split this clause into separate series by. */
+      groupBy?: _MetricGroupBy[];
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -43062,28 +49610,54 @@ export namespace Schemas {
 
     export interface _MetricQueryBody {
       /**
-         * Exact metric name to query (e.g. 'http.server.duration').
+         * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
          * @maxLength 255
          */
-      metricName: string;
-      /** Aggregation applied per time bucket.
+      metricName?: string;
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
-       * * `p95` - p95 */
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
       aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
+      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+      groupBy?: _MetricGroupBy[];
+      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `minute_5` - minute_5
+       * * `minute_15` - minute_15
+       * * `hour` - hour
+       * * `hour_6` - hour_6
+       * * `day` - day
+       * * `week` - week */
+      interval?: MetricQueryIntervalEnum | null;
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      clauses?: _MetricClause[];
+      /**
+         * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
+         * @maxLength 512
+         * @nullable
+         */
+      formula?: string | null;
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
       dateTo?: string;
-    }
-
-    export interface _MetricQueryPoint {
-      /** Bucket start as ISO 8601 timestamp. */
-      time: string;
-      /** Aggregated value for the bucket. */
-      value: number;
     }
 
     export interface _MetricQueryRequest {
@@ -43092,8 +49666,8 @@ export namespace Schemas {
     }
 
     export interface _MetricQueryResponse {
-      /** Time-bucketed points, ordered by time ascending. */
-      results: _MetricQueryPoint[];
+      /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+      results: _MetricSeries[];
     }
 
     /**
@@ -43139,7 +49713,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -43169,6 +49743,29 @@ export namespace Schemas {
       url: string;
     }
 
+    export interface _SymbolStatsPeriod {
+      /** Number of spans attributed to this symbol in the period. */
+      count: number;
+      /** Spans whose OTel status is Error (status_code = 2). */
+      error_count: number;
+      /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+      sum_duration_nano: number;
+      /** Median wall-clock span duration, in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
+      /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+      busy_count: number;
+      /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+      p50_busy_nano: number;
+      /** 95th-percentile active (busy) time, in nanoseconds. */
+      p95_busy_nano: number;
+      /** 99th-percentile active (busy) time, in nanoseconds. */
+      p99_busy_nano: number;
+    }
+
     export interface _TracingDateRange {
       /**
          * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
@@ -43180,6 +49777,95 @@ export namespace Schemas {
          * @nullable
          */
       date_to?: string | null;
+    }
+
+    export interface _SymbolStatsSymbol {
+      /**
+         * Opaque identifier (e.g. the function name) echoed back on the matching result row.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * First line of the symbol's range, inclusive.
+         * @minimum 1
+         */
+      startLine: number;
+      /**
+         * Last line of the symbol's range, inclusive.
+         * @minimum 1
+         */
+      endLine: number;
+    }
+
+    export interface _SymbolStatsQueryBody {
+      /** Repo-relative path of the source file to aggregate (e.g. 'src/flags/flag_matching.rs'). Matched as a path suffix against the recorded OTel code.file.path / code.filepath, so a recorded path carrying an extra crate/workspace prefix still matches. Separators are normalized. */
+      filePath: string;
+      /** Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h. */
+      dateRange?: _TracingDateRange;
+      /** Optional symbol (function) line ranges, supplied by the client from its own AST/LSP. When given, each span is attributed to the smallest enclosing range (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per line); pass a single whole-file range for a file-level total. */
+      symbols?: _SymbolStatsSymbol[];
+    }
+
+    export interface _SymbolStatsRequest {
+      /** The symbol-stats per-symbol aggregation query to execute. */
+      query: _SymbolStatsQueryBody;
+    }
+
+    export interface _SymbolStatsRow {
+      /** Number of spans attributed to this symbol in the period. */
+      count: number;
+      /** Spans whose OTel status is Error (status_code = 2). */
+      error_count: number;
+      /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+      sum_duration_nano: number;
+      /** Median wall-clock span duration, in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
+      /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+      busy_count: number;
+      /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+      p50_busy_nano: number;
+      /** 95th-percentile active (busy) time, in nanoseconds. */
+      p95_busy_nano: number;
+      /** 99th-percentile active (busy) time, in nanoseconds. */
+      p99_busy_nano: number;
+      /** Bucket anchor: the source line (line mode) or the symbol's startLine (symbol mode). */
+      line: number;
+      /**
+         * Echoed name from the requested symbol (symbol mode only).
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * endLine of the matched symbol's range (symbol mode only).
+         * @nullable
+         */
+      end_line?: number | null;
+      /** The same metrics over the immediately-preceding equal-length period. */
+      previous: _SymbolStatsPeriod;
+      /**
+         * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0). Use `previous.count` — not a null here — to detect a new symbol.
+         * @nullable
+         */
+      count_pct_change: number | null;
+      /**
+         * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can occur even when previous.count > 0 — do not read null as 'new symbol'.
+         * @nullable
+         */
+      p95_duration_pct_change: number | null;
+    }
+
+    export interface _SymbolStatsResponse {
+      /** One row per bucket, ordered by line ascending. */
+      results: _SymbolStatsRow[];
+      /** Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.
+       *
+       * * `line` - line
+       * * `symbol` - symbol */
+      granularity: GranularityEnum;
     }
 
     export interface _TracingAggregationQueryBody {
@@ -43198,12 +49884,76 @@ export namespace Schemas {
       query: _TracingAggregationQueryBody;
     }
 
+    /**
+     * * `count` - count
+     * * `error_count` - error_count
+     */
+    export type _TracingAttributeBreakdownQueryBodyOrderByEnum = typeof _TracingAttributeBreakdownQueryBodyOrderByEnum[keyof typeof _TracingAttributeBreakdownQueryBodyOrderByEnum];
+
+
+    export const _TracingAttributeBreakdownQueryBodyOrderByEnum = {
+      Count: 'count',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface _TracingAttributeBreakdownQueryBody {
+      /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+      breakdownKey: string;
+      /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+       *
+       * * `span_attribute` - span_attribute
+       * * `span_resource_attribute` - span_resource_attribute */
+      breakdownType: BreakdownTypeEnum;
+      /** Order rows by span count or error count, descending. Defaults to count.
+       *
+       * * `count` - count
+       * * `error_count` - error_count */
+      orderBy?: _TracingAttributeBreakdownQueryBodyOrderByEnum;
+      /** Date range for the primary window. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+      compareFilter?: _CompareFilter;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingAttributeBreakdownRequest {
+      /** The attribute breakdown query to execute. */
+      query: _TracingAttributeBreakdownQueryBody;
+    }
+
+    export interface _TracingAttributeEntry {
+      /** Attribute key name. */
+      name: string;
+      /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+      propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+         * Sample matching value — only set when matchedOn is "value".
+         * @nullable
+         */
+      matchedValue?: string | null;
+    }
+
+    export interface _TracingAttributesResponse {
+      /** Available attribute keys matching the filters. */
+      results: _TracingAttributeEntry[];
+      /** Total attribute keys matched (lower bound when searching values). */
+      count: number;
+    }
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Property filters for the count. */
       filterGroup?: _SpanPropertyFilter[];
@@ -43236,7 +49986,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
@@ -43263,9 +50013,11 @@ export namespace Schemas {
       offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
+      /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+      flatSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -43274,11 +50026,32 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingTimeseriesQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingTimeseriesRequest {
+      /** The sparkline / duration-histogram query to execute. */
+      query: _TracingTimeseriesQueryBody;
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /**
+         * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingTreeQueryBody {
@@ -43531,6 +50304,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -43543,6 +50327,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsCoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44479,6 +51274,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type EnvironmentsExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -44492,6 +51294,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
     };
 
     export type EnvironmentsFileDownloadBatchExportsListParams = {
@@ -44624,6 +51437,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -44715,6 +51532,18 @@ export namespace Schemas {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean;
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
@@ -45690,6 +52519,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -45742,6 +52572,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -46186,6 +53017,14 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type EnvironmentsLlmSkillsNameExportRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
     export type EnvironmentsLlmSkillsNameFilesRetrieveParams = {
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
@@ -46463,6 +53302,62 @@ export namespace Schemas {
     };
 
     export type EnvironmentsMaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMcpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
     /**
      * Number of results to return per page.
      */
@@ -46965,6 +53860,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsPropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type EnvironmentsPropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -47108,6 +54025,27 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    export type EnvironmentsSubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: EnvironmentsSubscriptionsDeliveriesListStatus;
+    };
+
+    export type EnvironmentsSubscriptionsDeliveriesListStatus = typeof EnvironmentsSubscriptionsDeliveriesListStatus[keyof typeof EnvironmentsSubscriptionsDeliveriesListStatus];
+
+
+    export const EnvironmentsSubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
+    } as const;
+
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
       /** @nullable */
@@ -47174,6 +54112,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type EnvironmentsTracingSpansAttributesRetrieveAttributeType = typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType];
@@ -47360,7 +54302,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -47387,7 +54329,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -47507,127 +54449,6 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
-
-    export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
-
-    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
-
-    export type McpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsSessionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
-     */
-    order_by?: string;
-    /**
-     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
-     */
-    search?: string;
-    };
-
-    export type McpAnalyticsSessionsToolCallsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PropertyAccessControlsRetrieveParams = {
-    /**
-     * The property definition ID to fetch access control rules for.
-     */
-    property_definition_id: string;
-    };
-
-    export type PropertyAccessControlsDestroyParams = {
-    /**
-     * The organization member UUID whose override should be deleted.
-     */
-    organization_member?: string;
-    /**
-     * The property definition ID the rule applies to.
-     */
-    property_definition_id: string;
-    /**
-     * The role UUID whose override should be deleted.
-     */
-    role?: string;
-    };
-
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -47895,6 +54716,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type RoleExternalReferencesListParams = {
@@ -48167,6 +54995,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -48174,6 +55003,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -48246,6 +55076,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
@@ -48253,6 +55084,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -48311,6 +55143,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -48318,6 +55151,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -48378,6 +55212,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
@@ -48385,6 +55220,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -48476,6 +55312,220 @@ export namespace Schemas {
      * @nullable
      */
     was_impersonated?: boolean | null;
+    };
+
+    export type AgentApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AgentMemoryListFilesParams = {
+    /**
+     * Optional path prefix to scope the list, e.g. 'incidents/'.
+     */
+    prefix?: string;
+    };
+
+    export type AgentMemoryGetFileParams = {
+    /**
+     * Memory path returned by the list endpoint, e.g. 'incidents/db.md'.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryUpdateFileParams = {
+    /**
+     * Memory path to update.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryDeleteFileParams = {
+    /**
+     * Memory path to delete.
+     */
+    path: string;
+    };
+
+    export type AgentMemorySearchParams = {
+    /**
+     * Max results (default 10, max 100).
+     */
+    limit?: number;
+    /**
+     * Optional path prefix to scope the search.
+     */
+    prefix?: string;
+    /**
+     * Search cue — plain natural language is fine.
+     */
+    q: string;
+    };
+
+    export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number;
+    };
+
+    export type AgentApplicationsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AgentApplicationsApprovalsListParams = {
+    limit?: number;
+    offset?: number;
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string;
+    };
+
+    export type AgentApplicationsPreviewProxyGetParams = {
+    format?: AgentApplicationsPreviewProxyGetFormat;
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewProxyGetFormat = typeof AgentApplicationsPreviewProxyGetFormat[keyof typeof AgentApplicationsPreviewProxyGetFormat];
+
+
+    export const AgentApplicationsPreviewProxyGetFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
+    export type AgentApplicationsPreviewProxyParams = {
+    format?: AgentApplicationsPreviewProxyFormat;
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewProxyFormat = typeof AgentApplicationsPreviewProxyFormat[keyof typeof AgentApplicationsPreviewProxyFormat];
+
+
+    export const AgentApplicationsPreviewProxyFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
+    export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsSessionsListParams = {
+    /**
+     * ISO datetime — return sessions with created_at >= this.
+     */
+    created_after?: string;
+    /**
+     * ISO datetime — return sessions with created_at <= this.
+     */
+    created_before?: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * Only return sessions started against this specific revision.
+     */
+    revision_id?: string;
+    /**
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
+     */
+    state?: string;
+    };
+
+    export type AgentApplicationsSessionsRetrieveParams = {
+    /**
+     * If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.
+     */
+    last_n?: number;
+    };
+
+    export type AgentApplicationsSessionLogsParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type AgentApplicationsStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string;
+    };
+
+    export type AgentFleetApprovalsListParams = {
+    /**
+     * Optional agent UUID — narrows the listing to one application.
+     */
+    agent_id?: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string;
+    };
+
+    export type AgentFleetLiveSessionsParams = {
+    /**
+     * Cap on returned sessions (default 100, max 500).
+     */
+    limit?: number;
+    };
+
+    export type AgentFleetStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string;
     };
 
     export type AlertsListParams = {
@@ -48663,6 +55713,10 @@ export namespace Schemas {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string;
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
@@ -48812,6 +55866,17 @@ export namespace Schemas {
       Task: 'task',
     } as const;
 
+    export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsTicketsListParams = {
     /**
      * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
@@ -48936,6 +56001,17 @@ export namespace Schemas {
     };
 
     export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -49586,6 +56662,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -49595,6 +56678,10 @@ export namespace Schemas {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsPullRequestsParams = {
@@ -49602,6 +56689,10 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -49613,6 +56704,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EnvironmentsListParams = {
@@ -49624,6 +56719,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
@@ -50022,9 +57124,9 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number;
+    created_by_id?: string;
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
@@ -50149,6 +57251,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -50164,10 +57273,21 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string;
     /**
@@ -50214,7 +57334,7 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListEvaluationRuntime = {
-      Both: 'both',
+      All: 'all',
       Client: 'client',
       Server: 'server',
     } as const;
@@ -50281,6 +57401,35 @@ export namespace Schemas {
      */
     groups?: string;
     };
+
+    export type FieldNotesListParams = {
+    /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus;
+    /**
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type FieldNotesListFieldNoteStatus = typeof FieldNotesListFieldNoteStatus[keyof typeof FieldNotesListFieldNoteStatus];
+
+
+    export const FieldNotesListFieldNoteStatus = {
+      Acknowledged: 'acknowledged',
+      Dismissed: 'dismissed',
+      Pending: 'pending',
+      Resolved: 'resolved',
+    } as const;
 
     export type FileDownloadBatchExportsListParams = {
     /**
@@ -50419,6 +57568,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {
@@ -50521,6 +57674,18 @@ export namespace Schemas {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean;
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
@@ -51519,6 +58684,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -51571,6 +58737,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -52075,6 +59242,14 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type LlmSkillsNameExportRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
     export type LlmSkillsNameFilesRetrieveParams = {
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
@@ -52388,6 +59563,62 @@ export namespace Schemas {
     };
 
     export type MaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
     /**
      * Number of results to return per page.
      */
@@ -52949,6 +60180,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type PropertyDefinitionsListParams = {
     /**
      * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
@@ -53205,6 +60458,10 @@ export namespace Schemas {
 
     export type SignalsReportsListParams = {
     /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -53229,7 +60486,7 @@ export namespace Schemas {
      */
     source_product?: string;
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string;
     /**
@@ -53427,6 +60684,27 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
+    } as const;
+
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
       /** @nullable */
@@ -53436,6 +60714,10 @@ export namespace Schemas {
 
     export type SurveysListParams = {
     archived?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    ids?: string[];
     /**
      * Number of results to return per page.
      */
@@ -53787,6 +61069,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];
@@ -53975,7 +61261,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -54002,7 +61288,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -54066,6 +61352,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewReposSnapshotsListParams = {
@@ -54104,6 +61394,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewRunsSnapshotHistoryListParams = {
@@ -54329,6 +61623,17 @@ export namespace Schemas {
      * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
      */
     types?: string;
+    };
+
+    export type RemindersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type UsersListParams = {

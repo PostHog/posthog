@@ -8,9 +8,11 @@ from products.replay_vision.backend.temporal.activities import (
     count_in_flight_applies_activity,
     create_observation_activity,
     delete_scanner_schedule_activity,
+    embed_observation_activity,
     embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     find_scanner_candidates_activity,
@@ -26,6 +28,10 @@ from products.replay_vision.backend.temporal.activities import (
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
+    ReplayVisionGeminiCleanupSweepWorkflow,
+    sweep_gemini_files_activity,
+)
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
@@ -34,6 +40,7 @@ WORKFLOWS = [
     ApplyScannerWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
+    ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
@@ -46,9 +53,11 @@ ACTIVITIES: list[Callable[..., Any]] = [
     ensure_session_asset_activity,
     upload_video_to_gemini_activity,
     call_scanner_provider_activity,
+    embed_observation_activity,
     embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
     cleanup_gemini_file_activity,
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
@@ -59,6 +68,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     delete_scanner_schedule_activity,
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
+    sweep_gemini_files_activity,
 ]
 
 __all__ = [
@@ -67,6 +77,7 @@ __all__ = [
     "ApplyScannerWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
+    "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
@@ -74,9 +85,11 @@ __all__ = [
     "count_in_flight_applies_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
+    "embed_observation_activity",
     "embed_summarizer_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
+    "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "find_scanner_candidates_activity",
@@ -88,6 +101,7 @@ __all__ = [
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "refresh_scanner_estimate_activity",
+    "sweep_gemini_files_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",
 ]

@@ -316,12 +316,13 @@
                             "type": "object"
                         },
                         "display": {
-                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.",
+                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.",
                             "enum": [
                                 "ActionsTable",
                                 "BoldNumber",
                                 "ActionsLineGraph",
                                 "ActionsBar",
+                                "ActionsPie",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
                                 "TwoDimensionalHeatmap"

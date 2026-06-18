@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -14,7 +14,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
 
@@ -140,6 +140,49 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    @parameterized.expand(
+        [
+            ("empty_string", "", False),
+            ("absent", None, False),
+            ("valid_url", "https://posthog.com/docs", True),
+        ]
+    )
+    def test_link_question_translation_allows_empty_link(
+        self, _name: str, translation_link: Optional[str], expect_link_present: bool
+    ) -> None:
+        translation: dict[str, Any] = {"question": "Mira nuestra documentación"}
+        if translation_link is not None:
+            translation["link"] = translation_link
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Link survey with translations",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "question": "Check out our docs",
+                        "link": "https://posthog.com",
+                        "translations": {
+                            "es": translation,
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        es_translation = questions[0]["translations"]["es"]
+        assert es_translation["question"] == "Mira nuestra documentación"
+        if expect_link_present:
+            assert es_translation.get("link") == translation_link
+        else:
+            assert "link" not in es_translation
 
     def test_translation_language_codes_are_normalized(self) -> None:
         """BCP-47-ish codes are normalized to lowercase + hyphenated on save."""
@@ -1339,7 +1382,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -3440,7 +3483,7 @@ class TestSurvey(APIBaseTest):
         for name in survey_names:
             Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -3477,7 +3520,7 @@ class TestSurvey(APIBaseTest):
         a = Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
         b = Survey.objects.create(team=self.team, name="Beta", type="popover", questions=[])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -3515,6 +3558,55 @@ class TestSurvey(APIBaseTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing survey", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(self, _name, survey_name, search):
+        matching = Survey.objects.create(team=self.team, name=survey_name, type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="Totally unrelated", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+        for name in ("feedback survey", "survey feedback", "feeback form", "Engineering survey"):
+            Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=feedback")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "feedback survey": "exact",
+            "survey feedback": "exact",
+            "feeback form": "similar",
+        }
+
+        match_types = [r["search_match_type"] for r in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -6693,6 +6785,52 @@ class TestSurveySummarizeDispatchesToHeadline(APIBaseTest):
         mock_headline.assert_called_once()
 
 
+class TestSurveySummarizeByQuestionId(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test",
+            type="popover",
+            questions=[
+                {"id": "q0", "type": "rating", "question": "How likely are you to recommend us?"},
+                {"id": "q1", "type": "open", "question": "Why?"},
+            ],
+        )
+        self.team.organization.is_ai_data_processing_approved = True
+        self.team.organization.save()
+
+    @parameterized.expand(
+        [
+            # index 0 is falsy — guard against `if not question_index` style regressions
+            ("first_question", "q0", 0),
+            ("second_question", "q1", 1),
+        ]
+    )
+    @override_settings(GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
+    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
+    def test_summarize_by_question_id_backfills_index(
+        self, _name, question_id, expected_index, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
+    ):
+        mock_summarize.return_value = MagicMock(summary="summary", trace_id="trace-123")
+
+        # Request a per-question summary by question_id only (no question_index) — the path that
+        # previously passed question_index=None into getSurveyResponse() and 500'd.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id={question_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The index must be resolved from the question_id so the index-based response key fallback
+        # works and the HogQL function receives a valid integer.
+        self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
+        self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
+
+
 class TestSurveyLifecycleActions(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -6771,6 +6909,26 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_ids(self):
+        first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])
+        second = Survey.objects.create(team=self.team, name="second", type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="third", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={first.id},{second.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({s["name"] for s in data["results"]}, {"first", "second"})
+
+    def test_filter_by_ids_silently_omits_unknown_ids(self):
+        survey = Survey.objects.create(team=self.team, name="exists", type="popover", questions=[])
+        missing_id = uuid.uuid4()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={survey.id},{missing_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(survey.id))
 
 
 class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
@@ -6858,6 +7016,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         "type": "popover",
         "questions": [{"type": "open", "question": "Q?"}],
     }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
 
     def setUp(self):
         super().setUp()
@@ -6880,9 +7039,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             headers=self.auth_headers,
         )
 
-    def test_create_with_survey_write_only_logs_warning(self):
+    def test_create_with_targeting_flag_filters_and_survey_write_only_logs_warning(self):
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
         assert len(events) == 1
@@ -6894,11 +7053,19 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert extra["auth_id"] == self.key.id
         assert extra["user_id"] == self.user.id
 
+    def test_create_without_targeting_flag_filters_does_not_log(self):
+        # The auto-managed internal targeting flag is not a user-facing flag, so a plain
+        # survey create must not warn (or, once enforced, be blocked).
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["survey:write", "feature_flag:write"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -6906,7 +7073,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["*"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -6990,7 +7157,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert len(events) == 1
         assert events[0].kwargs["action"] == "survey.destroy"
 
-    def test_destroy_with_only_internal_targeting_flag_logs_warning(self):
+    def test_destroy_with_only_internal_targeting_flag_does_not_log(self):
+        # The internal targeting flag is PostHog-managed, so deleting a survey that only has
+        # one must not warn (or be blocked once enforced).
         survey_id = self._create_survey().json()["id"]
         survey = Survey.objects.get(pk=survey_id)
         assert survey.targeting_flag_id is None
@@ -7002,10 +7171,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
                 headers=self.auth_headers,
             )
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        events = self._warning_events(mock_logger)
-        assert len(events) == 1
-        assert events[0].kwargs["action"] == "survey.destroy"
-        assert events[0].kwargs["feature_flag_id"] == survey.internal_targeting_flag_id
+        assert self._warning_events(mock_logger) == []
 
     def test_destroy_without_any_flag_does_not_log(self):
         survey = Survey.objects.create(
@@ -7032,3 +7198,142 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    SURVEY_PAYLOAD = {
+        "name": "Scope enforcement survey",
+        "type": "popover",
+        "questions": [{"type": "open", "question": "Q?"}],
+    }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_survey(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_survey_with_targeting_flag_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS).json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        return survey_id
+
+    @parameterized.expand(
+        [
+            ("survey_write_only", ["survey:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["survey:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_with_targeting_flag_filters_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
+        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+            assert Survey.objects.filter(name=self.SURVEY_PAYLOAD["name"]).count() == 0
+
+    def test_create_without_targeting_flag_filters_is_allowed(self):
+        # Regression guard: plain survey create only touches the internal flag, which stays ungated.
+        response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_attaching_existing_targeting_flag_is_denied(self):
+        # Pointing a survey at an arbitrary existing flag (which the lifecycle sync can toggle)
+        # must require feature_flag:write.
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing", created_by=self.user)
+        response = self._create_survey(targeting_flag_id=flag.id)
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_attaching_existing_targeting_flag_is_denied(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing-2", created_by=self.user)
+        survey_id = self._create_survey().json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_id": flag.id},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_targeting_flag_filters_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_remove_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"remove_targeting_flag": True},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+
+    def test_update_payload_only_is_allowed(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"name": "renamed"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_destroy_with_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.filter(pk=survey_id).exists()
+
+    def test_destroy_with_only_internal_targeting_flag_is_allowed(self):
+        survey_id = self._create_survey().json()["id"]
+        survey = Survey.objects.get(pk=survey_id)
+        assert survey.targeting_flag_id is None
+        assert survey.internal_targeting_flag_id is not None
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

@@ -876,7 +876,10 @@ export interface AssistantRetentionFilter {
      * The time window mode to use for retention calculations.
      */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
-    /** Custom brackets for retention calculations. */
+    /**
+     * Custom brackets for retention calculations.
+     * @maxItems 31
+     */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.
@@ -1343,6 +1346,35 @@ export interface AssistantPathsActorsQuery {
 }
 
 /**
+ * Drills into a retention insight to list the persons in one acquisition cohort and show, for each,
+ * which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`,
+ * followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`,
+ * … for a daily insight). Each interval column is `1` when the actor was active in that interval and
+ * `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how
+ * many intervals each actor returned in (most-retained first).
+ *
+ * The number and name of the interval columns are derived from the source — `retentionFilter.period`
+ * sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when
+ * custom brackets are set) sets the count.
+ *
+ * Retention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings
+ * column — its persons output is appearance-based.
+ */
+export interface AssistantRetentionActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: AssistantRetentionQuery
+
+    /**
+     * Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every
+     * actor who entered the cohort); `1` is the cohort that entered one interval later, and so on.
+     * Defaults to `0` when omitted.
+     */
+    interval?: integer
+}
+
+/**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging
  * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
@@ -1524,6 +1556,7 @@ export interface AssistantInsightVizNode {
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1533,6 +1566,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.BoldNumber
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1662,6 +1696,7 @@ export interface AssistantDataVisualizationNode {
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Otherwise → `ActionsTable`.

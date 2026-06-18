@@ -129,6 +129,8 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
+            services.capturedEventsService,
+            services.teamWorkflowsConfigService,
             services.recipientsManager
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)

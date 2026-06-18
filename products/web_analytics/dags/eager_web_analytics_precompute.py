@@ -63,7 +63,7 @@ import dagster
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebStatsBreakdown
+from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
 from posthog.hogql.constants import LimitContext
 
@@ -77,6 +77,11 @@ from posthog.models import Team
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
+
+# Pre-warm the HogQL bytecode VM at code-location load, while /code is on sys.path: the query path
+# imports common.hogvm lazily, and the Dagster grpc process can't resolve it on first query, so
+# caching it here keeps that lazy import a hit.
+import common.hogvm.python.execute  # noqa: F401
 
 logger = structlog.get_logger(__name__)
 
@@ -273,13 +278,13 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
             # Self-check the warm actually did its job: the tile must resolve to a
-            # precompute read, not fall through to raw. `usedLazyPrecompute` is only
+            # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
             # (`created_at + TTL >= now`, TTL = 15min today … 7d old), so True is a
             # guarantee the precomputed value is well within the 2h threshold. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
-            if getattr(response, "usedLazyPrecompute", None) is not True:
+            if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
                 EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
                 with _OP_LOG_LOCK:
                     context.log.warning(

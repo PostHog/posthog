@@ -347,6 +347,19 @@ services:
         profiles:
             - ingestion
 
+    browserless:
+        # Renders heatmap screenshots and image exports — there is no local-browser fallback.
+        # Optional: docker compose -f docker-compose.dev.yml --profile browserless up -d browserless
+        # See the HEATMAP_BROWSERLESS_* / BROWSERLESS_* entries in .env.example for the app-side wiring.
+        image: ghcr.io/browserless/chromium:v2.51.2
+        restart: on-failure
+        ports:
+            - '127.0.0.1:4445:3000'
+        environment:
+            TOKEN: dev
+        profiles:
+            - browserless
+
     db:
         extends:
             file: docker-compose.base.yml
@@ -492,6 +505,7 @@ services:
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
                     ingestion-clientwarnings-main-1 \
+                    heatmaps_ingestion \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \
@@ -575,6 +589,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: personhog-router
+        ports:
+            - '50052:50052'
         depends_on:
             personhog-replica:
                 condition: service_started

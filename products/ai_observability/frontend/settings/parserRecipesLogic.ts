@@ -60,6 +60,7 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         submitEditor: true,
         submitEditorDone: true,
         deleteItem: (item: CustomRecipeItem) => ({ item }),
+        recipesApplied: true,
     }),
     loaders(({ values }) => ({
         storedRecipes: [
@@ -91,6 +92,14 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
                 submitEditor: () => true,
                 submitEditorDone: () => false,
                 closeEditor: () => false,
+            },
+        ],
+        // The normalizer is a module singleton; memoized normalizations include this in their
+        // deps to re-render when the recipe set changes
+        recipesVersion: [
+            0,
+            {
+                recipesApplied: (state) => state + 1,
             },
         ],
     }),
@@ -126,7 +135,10 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        loadRecipesSuccess: () => applyTeamParserRecipes(values.storedForMerge),
+        loadRecipesSuccess: () => {
+            applyTeamParserRecipes(values.storedForMerge)
+            actions.recipesApplied()
+        },
         submitEditor: async () => {
             const editor = values.editor
             if (!editor) {

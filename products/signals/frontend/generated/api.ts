@@ -23,6 +23,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ScoutEmissionReportLinkApi,
     ScoutReportWriteResponseApi,
     ScratchpadEntryApi,
     SignalReportApi,
@@ -385,6 +386,25 @@ export const signalsScoutRunsEmissions = async (
     options?: RequestInit
 ): Promise<SignalScoutEmissionApi[]> => {
     return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsEmissionReportsUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/reports/`
+}
+
+/**
+ * Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic `source_id` back through the signal store. `report` is null when the finding hasn't grouped into a report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which inbox report a finding contributed to — the reverse of the report's evidence list. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List the inbox reports a run's findings linked to
+ */
+export const signalsScoutRunsEmissionReports = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<ScoutEmissionReportLinkApi[]> => {
+    return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsUrl(projectId, runId), {
         ...options,
         method: 'GET',
     })

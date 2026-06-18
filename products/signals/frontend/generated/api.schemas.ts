@@ -89,6 +89,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -141,6 +151,13 @@ export interface SignalReportStateRequestApi {
     snooze_for?: number
 }
 
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
 /**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
@@ -153,6 +170,8 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -188,7 +207,7 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
      * @minimum 10
      * @maximum 43200
      */
@@ -207,6 +226,8 @@ export interface PatchedSignalScoutConfigApi {
     readonly skill_name?: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description?: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin?: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -1044,6 +1065,38 @@ export interface SignalScoutEmissionApi {
 }
 
 /**
+ * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+ * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+ * the full report itself.
+ */
+export interface LinkedSignalReportApi {
+    /** UUID of the linked `SignalReport`. */
+    id: string
+    /**
+     * LLM-generated report title, or null if the report hasn't been summarised yet.
+     * @nullable
+     */
+    title: string | null
+    /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+    status: string
+}
+
+/**
+ * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+ *
+ * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+ * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+ */
+export interface ScoutEmissionReportLinkApi {
+    /** Stable id the finding was emitted under. */
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved. */
+    report: LinkedSignalReportApi | null
+}
+
+/**
  * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
  */
 export interface EvidenceEntryApi {
@@ -1263,6 +1316,9 @@ export interface ForgetResponseApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
+ * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1277,6 +1333,9 @@ export const SourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     Logs: 'logs',
+    HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1289,6 +1348,10 @@ export const SourceProductEnumApi = {
  * * `issue_spiking` - Issue spiking
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
+ * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1303,6 +1366,10 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1392,6 +1459,10 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1416,7 +1487,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**

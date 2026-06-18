@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -120,7 +120,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
-    created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+        ),
     event: zod
         .string()
         .optional()
@@ -304,7 +309,64 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -1390,6 +1452,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2382,6 +2450,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2603,7 +2677,64 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -3686,6 +3817,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4682,6 +4819,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4770,6 +4913,24 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
 })
 
 /**
@@ -4930,7 +5091,64 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -6016,6 +6234,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7012,6 +7236,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod

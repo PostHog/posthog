@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -650,6 +651,103 @@ class TestExperimentService(APIBaseTest):
         assert expected_fragment in str(ctx.exception), (
             f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
         )
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — threshold / math-type compatibility
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("threshold_on_sum", "sum"),
+            ("threshold_on_total_count", "total"),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_threshold_on_summed_math(self, _: str, math: str) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview", "math": math, "math_property": "amount"},
+                    "threshold": 100,
+                }
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            ("threshold_on_unique_session", "unique_session"),
+            ("threshold_on_dau", "dau"),
+            ("threshold_on_hogql", "hogql"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_on_unsupported_math(self, _: str, math: str) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview", "math": math},
+                        "threshold": 100,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("negative", -5),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_non_positive_threshold(self, _: str, threshold: int) -> None:
+        # A non-positive threshold is always satisfied, yielding a meaningless 100% proportion.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": threshold,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("lower_bound", {"lower_bound_percentile": 0.01}),
+            ("upper_bound", {"upper_bound_percentile": 0.99}),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_with_winsorization(self, _: str, bounds: dict) -> None:
+        # Winsorization caps continuous outliers, which is meaningless once the metric
+        # collapses to a binary threshold outcome — reject the combination.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": 100,
+                        **bounds,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
 
     # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
@@ -1857,13 +1955,16 @@ class TestExperimentService(APIBaseTest):
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
 
-    def test_duplicate_experiment_revalidates_source_parameters(self):
-        self._create_flag(key="dup-invalid-source")
+    def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
+        self._create_flag(key="dup-stale-source")
         service = self._service()
         source = service.create_experiment(
-            name="Invalid Source",
-            feature_flag_key="dup-invalid-source",
+            name="Stale Source",
+            feature_flag_key="dup-stale-source",
         )
+        # Drift the stored parameters to an invalid single-variant set. The linked flag
+        # stays the source of truth (control + test), so duplication must ignore the stale
+        # copy and build the new flag from the flag's variants rather than revalidate them.
         Experiment.objects.filter(id=source.id).update(
             parameters={
                 "feature_flag_variants": [
@@ -1873,10 +1974,10 @@ class TestExperimentService(APIBaseTest):
         )
         source.refresh_from_db()
 
-        with self.assertRaises(ValidationError) as ctx:
-            service.duplicate_experiment(source)
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-stale-target")
 
-        assert "at least 2 variants" in str(ctx.exception)
+        assert dup.feature_flag.key == "dup-stale-target"
+        assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")
@@ -3400,6 +3501,41 @@ class TestExperimentService(APIBaseTest):
             query_params=query_params,
         )
 
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_names)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"Creator self", "Creator other"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"Creator self", "Creator third"}),
+            ("single_id", lambda ids: str(ids[1]), {"Creator other"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(
+        self, _name, format_filter, expected_names
+    ) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+        third_user = self._create_user("third-user@example.com")
+        unrelated_user = self._create_user("unrelated-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        ExperimentService(team=self.team, user=third_user).create_experiment(
+            name="Creator third",
+            feature_flag_key="created-by-third",
+        )
+
+        ids = [self.user.id, other_user.id, third_user.id, unrelated_user.id]
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"created_by_id": format_filter(ids)},
+        )
         assert set(queryset.values_list("name", flat=True)) == expected_names
 
     @parameterized.expand(

@@ -72,7 +72,8 @@
     of the time, in which case a higher number of threads might be required.
     -->
 
-    <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
+    <!-- Must exceed the ~95 kafka_* engine tables, else consumers starve and their MVs stall. -->
+    <background_message_broker_schedule_pool_size>128</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
     <!-- how many threads merge files, default is 16 -->

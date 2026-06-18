@@ -42,9 +42,14 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
+    from posthog.schema import PersonsOnEventsMode
+
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
     from posthog.hogql.parser import parse_expr
+
+    from posthog.models.team import Team
 
     try:
         parse_expr(predicate)
@@ -61,7 +66,32 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
     # references for the outer expression so the fragment splices into both the
     # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    #
+    # Resolve the team's modifiers (``propertyGroupsMode`` et al.) so the predicate compiles
+    # like a regular HogQL query. Without them the property-group optimizer is off, and a typed
+    # property comparison such as ``person.properties.isEnterprise = 'yes'`` falls back to a
+    # coerced JSONExtract that casts the value to Bool — turning the stored string into NULL so
+    # the predicate silently matches nothing. With them it becomes the index-eligible
+    # ``person_properties_map_custom['isEnterprise'] = 'yes'`` map read.
+    #
+    # Force on-events person resolution regardless of the team's general query default: the
+    # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
+    # ``person.properties`` must read the on-events ``person_properties`` column — a joined
+    # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
+    # not exist in either splice site.
+    try:
+        team = Team.objects.get(id=obj.team_id)
+    except Team.DoesNotExist as exc:
+        raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
+    modifiers = create_default_modifiers_for_team(team)
+    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    context = HogQLContext(
+        team_id=obj.team_id,
+        team=team,
+        modifiers=modifiers,
+        within_non_hogql_query=True,
+        enable_select_queries=True,
+    )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:

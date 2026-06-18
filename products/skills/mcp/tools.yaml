@@ -1,0 +1,236 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Skills
+feature: skills
+url_prefix: /skills
+ui_apps: {}
+tools:
+    llm-skills-import-create:
+        operation: llm_skills_import_create
+        enabled: false
+    llm-skills-marketplace-install-command-retrieve:
+        operation: llm_skills_marketplace_install_command_retrieve
+        enabled: false
+    llm-skills-name-export-retrieve:
+        operation: llm_skills_name_export_retrieve
+        enabled: false
+    skill-archive:
+        operation: llm_skills_name_archive_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Archive skill
+        description: >
+            Archive every active version of an agent skill by name. This hides the skill from default lists and cannot
+            be undone. Use skill-get first if you need to inspect the skill before archiving it.
+        param_overrides:
+            skill_name:
+                description: The kebab-case name of the skill to archive.
+    skill-create:
+        operation: llm_skills_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill
+        description: >
+            Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a
+            description explaining when to use it, and the skill body (SKILL.md instruction content as markdown).
+            Optionally include license, compatibility, allowed_tools, metadata, and bundled files.
+        include_params:
+            - name
+            - description
+            - body
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+    skill-duplicate:
+        operation: llm_skills_name_duplicate_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate skill
+        description: >
+            Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and
+            bundled files to create a new skill at version 1.
+    skill-file-create:
+        operation: llm_skills_name_files_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill file
+        description: >
+            Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use
+            skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite.
+            Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits
+            via base_version). Supply base_version for optimistic concurrency.
+    skill-file-delete:
+        operation: llm_skills_name_files_destroy
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete skill file
+        description: >
+            Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version.
+            Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version'
+            field to chain further edits via base_version. Supply base_version for optimistic concurrency.
+    skill-file-get:
+        operation: llm_skills_name_files_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill file
+        description: >
+            Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to
+            discover available files. Supports progressive disclosure — only load files when needed rather than fetching
+            all content upfront.
+    skill-file-rename:
+        operation: llm_skills_name_files_rename_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename skill file
+        description: >
+            Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and
+            with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new
+            skill version and returns the updated skill (read its 'version' field to chain further edits via
+            base_version). Supply base_version for optimistic concurrency.
+    skill-get:
+        operation: llm_skills_name_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill
+        description: >
+            Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
+            the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the
+            URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g.
+            `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.
+    skill-list:
+        operation: llm_skills_list
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List skills
+        description: >
+            List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
+            descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
+            skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill
+            `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id`
+            (UUID) is not a valid route segment and will 404.
+    skill-resolve:
+        operation: llm_skills_resolve_name_retrieve
+        enabled: false
+    skill-store-install-command:
+        operation: llm_skills_marketplace_install_command_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Get skill store install command
+        description: >
+            Get ready-to-paste commands that install this team's skill store into a coding agent as an auto-updating
+            plugin marketplace. Returns both a Claude Code command (the `command` field) and an OpenAI Codex command
+            (the `codex_command` field) for the same marketplace. On first use it mints a dedicated, read-only
+            credential (scoped to skills only, scope llm_skill:read) for the calling user and returns the full commands
+            with the token embedded. If the user is already connected it returns the existing connection masked, with no
+            token — pass rotate=true to issue a fresh token. The credential is per-user, so rotating only ever replaces
+            the caller's own token and never breaks a teammate's setup. Only call this when the user asks to connect or
+            install their skills into a coding agent. Give the user the command matching their agent (Claude Code or
+            Codex).
+        include_params:
+            - rotate
+        param_overrides:
+            rotate:
+                description: >
+                    Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine): it rolls
+                    the caller's existing credential, invalidating their previous token. Leave false (default) to reuse
+                    the existing credential — the first call always mints one regardless.
+    skill-update:
+        operation: llm_skills_name_partial_update
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update skill
+        description: |
+            Publish a new version of an existing agent skill by name. Any field not provided
+            is carried forward from the current latest version. Requires base_version for
+            optimistic concurrency.
+
+            For the body, you can either provide the full content via 'body', or use 'edits'
+            for incremental find/replace updates. Each edit must have 'old' (text to find,
+            must match exactly once) and 'new' (replacement text). Edits are applied
+            sequentially. Only one of 'body' or 'edits' may be provided.
+
+            For file changes, prefer the per-file tools rather than passing a 'files' list:
+            skill-file-create / skill-file-delete / skill-file-rename handle
+            add/remove/rename one file at a time and return the updated skill (including the
+            bumped version) so callers can chain further edits via base_version.
+
+            For per-file content updates, use 'file_edits' to apply find/replace updates to
+            individual files without resending the full file set — each entry targets one
+            existing file by path. Non-targeted files carry forward unchanged. 'file_edits'
+            cannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)
+            for that. 'files' and 'file_edits' are mutually exclusive.
+
+            Passing a 'files' list here replaces ALL files and risks data loss if any file is
+            omitted — use it only when you intentionally want to replace the entire bundle.
+        include_params:
+            - body
+            - edits
+            - description
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+            - file_edits
+            - base_version

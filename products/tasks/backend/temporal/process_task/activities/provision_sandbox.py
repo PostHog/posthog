@@ -229,6 +229,27 @@ def _emit_image_source_log(ctx: TaskProcessingContext, prepared: PrepareSandboxF
         emit_agent_log(ctx.run_id, "debug", f"Creating environment from {prepared.image_source_label}")
 
 
+def _build_sandbox_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+) -> dict[str, str]:
+    """Tags forwarded to the Modal sandbox so it can be traced back when debugging.
+
+    Modal tag values must be strings; None values are dropped so we don't emit empty tags.
+    """
+    tags: dict[str, str | int | None] = {
+        "task_id": ctx.task_id,
+        "task_run_id": ctx.run_id,
+        "origin_product": ctx.origin_product,
+        "team_id": ctx.team_id,
+        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
+        "image_source": prepared.image_source,
+        "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
+    }
+    return {key: str(value) for key, value in tags.items() if value is not None}
+
+
 @activity.defn
 @asyncify
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
@@ -375,9 +396,22 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
-            metadata={"task_id": ctx.task_id},
+            metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            **ctx.sandbox_resource_overrides(),
         )
+
+        # Request a small slice and let the box burst up to the configured size. The decision is
+        # captured once in the context at workflow start, so it's stable across activity retries.
+        if ctx.burstable_sandbox_resources_enabled:
+            config.burstable_resources = True
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Burstable resources enabled: requesting {config.cpu_request_cores} CPU / "
+                f"{config.memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
+                f"{int(config.memory_gb * 1024)} MiB",
+            )
 
         # gVisor only — Modal's domain allowlist breaks vm_runtime.
         if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:
