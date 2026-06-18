@@ -594,11 +594,7 @@ export function InsightMeta({
                         )}
                     </>
                 }
-                moreTooltip={
-                    canEditInsight
-                        ? 'Rename, duplicate, export and more…'
-                        : 'Duplicate, export and more…'
-                }
+                moreTooltip={canEditInsight ? 'Rename, duplicate, export and more…' : 'Duplicate, export and more…'}
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
                 refreshControl={refreshControl}
             />
