@@ -1,10 +1,7 @@
-import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { isWebAnalyticsAchievementsEnabled } from 'scenes/web-analytics/achievements/gating'
 import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
 
@@ -119,7 +116,6 @@ export const ReplayButton = ({
     properties,
     filter_test_accounts,
 }: ReplayButtonProps): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const extraFilters: UniversalFiltersGroupValue[] = (properties ?? []) as UniversalFiltersGroupValue[]
 
     /** Compose the recordings filter from the per-breakdown property filters plus the dashboard-level
@@ -149,10 +145,8 @@ export const ReplayButton = ({
 
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
-        if (isWebAnalyticsAchievementsEnabled(featureFlags)) {
-            posthog.capture('web_analytics_recording_opened', { breakdown_by: breakdownBy })
-            recordWebAnalyticsInteraction(InteractionKindEnumApi.Recording)
-        }
+        posthog.capture('web_analytics_recording_opened', { breakdown_by: breakdownBy })
+        recordWebAnalyticsInteraction(InteractionKindEnumApi.Recording)
         void addProductIntentForCrossSell({
             from: ProductKey.WEB_ANALYTICS,
             to: ProductKey.SESSION_REPLAY,

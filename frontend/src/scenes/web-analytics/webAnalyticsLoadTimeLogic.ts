@@ -65,9 +65,13 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
             if (cache.recordedVisitThisSession || !isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
                 return
             }
+            const projectId = values.currentProjectId
+            if (projectId === undefined || projectId === null) {
+                return
+            }
             cache.recordedVisitThisSession = true
             try {
-                await webAnalyticsAchievementsRecordVisit(String(values.currentProjectId))
+                await webAnalyticsAchievementsRecordVisit(String(projectId))
             } catch {
                 cache.recordedVisitThisSession = false
             }

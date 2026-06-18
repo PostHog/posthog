@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -101,8 +102,8 @@ function buildOverview(streakThresholds: number[]): AchievementsListResponseApi 
 const overviewDecorator = (streakThresholds: number[]): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
-            '/api/projects/:team_id/web_analytics_achievements/overview/': (_, res, ctx) =>
-                res(ctx.json(buildOverview(streakThresholds))),
+            '/api/projects/:team_id/web_analytics_achievements/overview/': () =>
+                HttpResponse.json(buildOverview(streakThresholds)),
         },
     })
 
