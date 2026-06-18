@@ -17,8 +17,7 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import ValidationDiagnostic, validate_bindings
-
-from .models import CodeWorkflowConfig, CodeWorkstream, TaskRun
+from products.tasks.backend.models import CodeWorkflowConfig, CodeWorkstream, TaskRun
 
 ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
 RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
@@ -203,7 +202,7 @@ class CodeHomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="refresh", required_scopes=["task:write"])
     def refresh(self, request, **kwargs):
         # Deferred import keeps the heavy temporalio dependency off the module import path.
-        from .temporal.code_workstreams.client import trigger_team_code_workstreams_evaluation
+        from products.tasks.backend.temporal.code_workstreams.client import trigger_team_code_workstreams_evaluation
 
         started = trigger_team_code_workstreams_evaluation(self.team.id)
         return Response({"started": started}, status=status.HTTP_202_ACCEPTED)

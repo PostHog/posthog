@@ -44,6 +44,13 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.automation_service import (
+    delete_automation_schedule,
+    run_task_automation,
+    sync_automation_schedule,
+    update_automation_run_result,
+)
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.staged_artifacts import (
@@ -67,17 +74,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamError,
     get_task_run_stream_key,
 )
-
-from ee.hogai.utils.aio import async_to_sync
-
-from .access import has_tasks_access
-from .automation_service import (
-    delete_automation_schedule,
-    run_task_automation,
-    sync_automation_schedule,
-    update_automation_run_result,
-)
-from .metrics import (
+from products.tasks.backend.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
     observe_stream_connection_opened,
@@ -85,7 +82,7 @@ from .metrics import (
     observe_stream_resume_gap,
     origin_product_label,
 )
-from .models import (
+from products.tasks.backend.models import (
     TASK_PRESENCE_TTL_SECONDS,
     CodeInvite,
     CodeInviteRedemption,
@@ -95,9 +92,7 @@ from .models import (
     TaskPresence,
     TaskRun,
 )
-from .redis import get_tasks_cache, run_uses_dedicated_stream
-from .repository_readiness import compute_repository_readiness
-from .serializers import (
+from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
     RepositoryReadinessQuerySerializer,
@@ -142,13 +137,15 @@ from .serializers import (
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
-from .temporal.client import (
+from products.tasks.backend.redis import get_tasks_cache, run_uses_dedicated_stream
+from products.tasks.backend.repository_readiness import compute_repository_readiness
+from products.tasks.backend.temporal.client import (
     execute_posthog_code_agent_relay_workflow,
     execute_task_processing_workflow,
     resume_task_in_cloud_workflow,
     signal_task_followup_message,
 )
-from .temporal.process_task.utils import (
+from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     PrAuthorshipMode,
     RunSource,
@@ -160,7 +157,9 @@ from .temporal.process_task.utils import (
     resolve_user_github_integration_for_task,
     user_github_integration_is_usable,
 )
-from .visibility import task_run_visibility_q, task_visibility_q
+from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
+
+from ee.hogai.utils.aio import async_to_sync
 
 logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0

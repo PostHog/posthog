@@ -12,7 +12,7 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.serializers import TaskRunErrorResponseSerializer
+from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
 logger = logging.getLogger(__name__)
 
