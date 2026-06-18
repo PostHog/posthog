@@ -34,11 +34,11 @@ tools:
             (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered
             newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result
             truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value
-            condition only; label_column labels rows in breach messages). Label values appear in delivered
-            notifications — avoid label columns containing PII.
-            Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last
-            step) and metric is 'conversion_from_start' or 'conversion_from_previous'; funnel alerts only support
-            absolute_value conditions. Anomaly detection (detector_config) is only supported for trends insights.
+            condition only; label_column labels rows in breach messages). Label values appear in delivered notifications
+            — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to
+            monitor (null for the overall last step) and metric is 'conversion_from_start' or
+            'conversion_from_previous'; funnel alerts only support absolute_value conditions. Anomaly detection
+            (detector_config) is only supported for trends insights.
 
             Note: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see
             the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
