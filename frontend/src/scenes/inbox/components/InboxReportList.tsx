@@ -74,7 +74,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
-        <div className="mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
+        <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
             <InboxBulkSelectionBar />
 
