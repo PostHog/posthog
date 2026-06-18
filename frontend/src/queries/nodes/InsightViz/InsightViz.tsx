@@ -89,7 +89,8 @@ export function InsightViz({
 
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
-    const disableTable = embedded || !(query.showTable ?? showIfFull)
+    // An explicit `showTable` wins even when embedded, so dashboard tiles can opt into the detailed-results table.
+    const disableTable = !(query.showTable ?? (embedded ? false : showIfFull))
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)

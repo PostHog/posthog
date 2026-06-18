@@ -29,12 +29,14 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardBasicType,
     DashboardPlacement,
     DashboardTile,
+    DashboardTileDisplayMode,
     DashboardType,
     InsightColor,
     InsightLogicProps,
@@ -46,6 +48,21 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+/** Map a tile's display mode to the InsightVizNode view flags that toggle the chart and detailed-results table. */
+export function tileDisplayQueryOverrides(displayMode: DashboardTileDisplayMode | null | undefined): {
+    showResults?: boolean
+    showTable?: boolean
+} {
+    switch (displayMode) {
+        case DashboardTileDisplayMode.ChartAndTable:
+            return { showTable: true }
+        case DashboardTileDisplayMode.Table:
+            return { showResults: false, showTable: true }
+        default:
+            return {}
+    }
+}
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -72,6 +89,7 @@ export interface InsightCardProps extends Resizeable {
     layout?: LayoutItem
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
+    updateDisplayMode?: (mode: DashboardTileDisplayMode | null) => void
     toggleShowDescription?: () => void
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
@@ -127,6 +145,7 @@ function InsightCardInternal(
         showEditingControls,
         showDetailsControls,
         updateColor,
+        updateDisplayMode,
         toggleShowDescription,
         removeFromDashboard,
         deleteWithUndo,
@@ -261,6 +280,7 @@ function InsightCardInternal(
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         updateColor={updateColor}
+                        updateDisplayMode={updateDisplayMode}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
@@ -290,7 +310,11 @@ function InsightCardInternal(
                                 BlockingEmptyState
                             ) : (
                                 <Query
-                                    query={insight.query}
+                                    query={
+                                        tile?.display_mode && isInsightVizNode(insight.query)
+                                            ? { ...insight.query, ...tileDisplayQueryOverrides(tile.display_mode) }
+                                            : insight.query
+                                    }
                                     cachedResults={insight}
                                     context={{
                                         insightProps: insightLogicProps,

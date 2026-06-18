@@ -357,6 +357,10 @@ export function InsightVizDisplay({
                 ) : null
 
             if (funnelTable) {
+                // On a dashboard tile the card already has its own title, so skip the section heading.
+                if (embedded) {
+                    return <div className="mt-2">{funnelTable}</div>
+                }
                 return (
                     <SceneSection
                         title={<span className="font-semibold text-lg m-0">Detailed results</span>}

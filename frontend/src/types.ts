@@ -2370,6 +2370,13 @@ export interface Tileable {
     color: InsightColor | null
 }
 
+/** How an insight tile renders its chart vs its detailed-results table. Null/unset = chart only. */
+export enum DashboardTileDisplayMode {
+    Chart = 'chart',
+    ChartAndTable = 'chart_and_table',
+    Table = 'table',
+}
+
 export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
@@ -2386,6 +2393,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     filters_overrides?: TileFilters
     show_description?: boolean | null
     transparent_background?: boolean | null
+    display_mode?: DashboardTileDisplayMode | null
 }
 
 export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
