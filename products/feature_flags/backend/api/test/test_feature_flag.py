@@ -11236,7 +11236,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="experiment_flag",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        Experiment.objects.create(
+        experiment = Experiment.objects.create(
             team=self.team,
             name="Test Experiment",
             feature_flag=flag,
@@ -11253,7 +11253,10 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         data = response.json()
         assert len(data["deleted"]) == 0
         assert len(data["errors"]) == 1
-        assert "experiment" in data["errors"][0]["reason"].lower()
+        assert (
+            data["errors"][0]["reason"]
+            == f'Cannot delete a feature flag linked to running experiment(s): "Test Experiment" (ID: {experiment.id})'
+        )
 
         # Verify flag is NOT deleted
         flag.refresh_from_db()
