@@ -35,12 +35,16 @@ describe('loadAgentRunnerConfig', () => {
         expect(() => loadAgentRunnerConfig({})).toThrow(/REDIS_URL|HTTPS_PROXY|AGENT_(MEMORY|BUNDLE)_S3/)
     })
 
-    it('exposes dev SeaweedFS defaults when NODE_ENV is not production', () => {
+    it('exposes dev SeaweedFS + gateway defaults when NODE_ENV is not production', () => {
         // vitest runs NODE_ENV=test — same branch as local dev.
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.bundleS3Bucket).toBe('posthog')
         expect(cfg.bundleS3Endpoint).toBe('http://localhost:8333')
         expect(cfg.memoryS3Bucket).toBe('posthog')
+        // Local default is the gateway, with the deterministic dev phs_ bearer.
+        expect(cfg.useAiGateway).toBe(true)
+        expect(cfg.aiGatewayUrl).toBe('http://localhost:8080/v1')
+        expect(cfg.posthogAiGatewayKey).toBe('phs_localgatewaye2elocalgatewaye2e0001')
     })
 
     it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {
@@ -108,14 +112,14 @@ describe('loadAgentRunnerConfig', () => {
 })
 
 describe('defaultApiKeyFromConfig', () => {
-    it('picks POSTHOG_AI_GATEWAY_KEY first', () => {
+    it('excludes the gateway bearer (phs_) — it is not a direct-path provider key', () => {
         const cfg = loadAgentRunnerConfig({
-            POSTHOG_AI_GATEWAY_KEY: 'phx_gateway',
+            POSTHOG_AI_GATEWAY_KEY: 'phs_gateway',
             ANTHROPIC_API_KEY: 'sk-ant',
             OPENAI_API_KEY: 'sk-openai',
             MODEL_API_KEY: 'sk-catchall',
         })
-        expect(defaultApiKeyFromConfig(cfg)).toBe('phx_gateway')
+        expect(defaultApiKeyFromConfig(cfg)).toBe('sk-ant')
     })
 
     it('falls back through Anthropic → OpenAI → catch-all', () => {

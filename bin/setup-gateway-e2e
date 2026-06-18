@@ -9,8 +9,9 @@
 #      Redis or the resolver 401s
 #   4. fund that team's ledger in the gateway's Postgres (admission needs it)
 #   5. set the sibling gateway to AI_GATEWAY_AUTH_MODE=resolver
-#   6. write the phs_ + shared Redis URL into .env.local for the runner
 #
+# The runner uses the gateway by default in dev (config dev defaults) and Django
+# defaults AI_GATEWAY_REDIS_URL to :6381 in dev — so no .env.local is needed.
 # Idempotent. The gateway itself runs from the sibling repo:
 #   cd ~/Development/ai-gateway && bin/start gateway   (or: just dev)
 #
@@ -23,11 +24,10 @@ AI_GATEWAY_REPO="${AI_GATEWAY_REPO:-$HOME/Development/ai-gateway}"
 # The Go gateway reads credentials from its Valkey (sibling compose, host
 # port 6381). Django must publish there too — same instance, or no match.
 GATEWAY_REDIS_URL="${AI_GATEWAY_REDIS_URL:-redis://localhost:6381}"
-# Deterministic so reruns + DB resets stay idempotent and the token written
-# to .env.local always matches the published blob's hash.
+# Deterministic so reruns + DB resets stay idempotent and the published blob's
+# hash matches the runner's dev-default POSTHOG_AI_GATEWAY_KEY (config.ts).
 DEV_PHS="${DEV_GATEWAY_PHS:-phs_localgatewaye2elocalgatewaye2e0001}"
 TOPUP_USD="${AI_GATEWAY_DEV_TOPUP_USD:-100.00}"
-ENV_LOCAL="$REPO_ROOT/.env.local"
 
 # Pin the sibling gateway's compose project to its own name. PostHog's dev env
 # exports COMPOSE_PROJECT_NAME=posthog, which outranks the sibling compose's
@@ -144,23 +144,14 @@ fi
 upsert_env "$SIBLING_ENV" "AI_GATEWAY_AUTH_MODE" "resolver"
 log "set AI_GATEWAY_AUTH_MODE=resolver in $SIBLING_ENV"
 
-# 6. Wire the runner via .env.local (opt-in; mprocs no longer hardcodes the
-#    flag, so this is what turns gateway routing on): the phs_ bearer, the
-#    flag, and the shared Redis for any in-app (re)publish.
-upsert_env "$ENV_LOCAL" "AGENT_USE_AI_GATEWAY" "true"
-upsert_env "$ENV_LOCAL" "POSTHOG_AI_GATEWAY_KEY" "$DEV_PHS"
-upsert_env "$ENV_LOCAL" "AI_GATEWAY_REDIS_URL" "$GATEWAY_REDIS_URL"
-log "wrote AGENT_USE_AI_GATEWAY + POSTHOG_AI_GATEWAY_KEY + AI_GATEWAY_REDIS_URL to .env.local"
-
 cat <<EOF
 
-[setup-gateway-e2e] done. Next:
+[setup-gateway-e2e] done. The runner already defaults to the gateway in dev. Next:
   1. Run the gateway (resolver mode picked up from its .env):
        cd $AI_GATEWAY_REPO && bin/start gateway
      Make sure its .env also has provider keys:
        AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...   AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
-  2. (Re)start the agent-runner so it picks up .env.local
-     (AGENT_USE_AI_GATEWAY=true was written there).
+  2. (Re)start the agent-runner.
   3. Smoke it:
        curl -sS http://localhost:8080/v1/messages -H "Authorization: Bearer $DEV_PHS" \\
          -H 'content-type: application/json' \\
