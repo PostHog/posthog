@@ -250,6 +250,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
             secure_value=secure_value,
             mask_value=mask_value,
             scopes=scopes,
+            scoped_teams=[team.id],
+            scoped_organizations=[],
         )
 
         # User explicitly authorized this CLI via SessionAuthentication (see

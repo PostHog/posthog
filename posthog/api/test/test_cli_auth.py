@@ -115,6 +115,8 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert api_key is not None
         self.assertEqual(api_key.scopes, CLI_SCOPES)
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
+        self.assertEqual(api_key.scoped_organizations, [])
         self.assertIn("CLI -", api_key.label)
 
     def test_authorization_honors_submitted_scopes(self):
@@ -132,6 +134,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert api_key is not None
         self.assertEqual(api_key.scopes, submitted_scopes)
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
 
     def test_authorization_requires_authentication(self):
         """Test that authorization endpoint requires user to be logged in"""
@@ -454,6 +457,36 @@ class TestCLIAuthEndToEnd(APIBaseTest):
         self.assertIn("event_definition:read", api_key.scopes)
         self.assertIn("property_definition:read", api_key.scopes)
         self.assertIn("error_tracking:write", api_key.scopes)
+
+    def test_api_key_is_scoped_to_authorized_project(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        response = self.client.post("/api/cli-auth/device-code/")
+        device_code = response.json()["device_code"]
+        user_code = response.json()["user_code"]
+
+        self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": user_code, "project_id": self.team.id},
+        )
+
+        response = self.client.post("/api/cli-auth/poll/", {"device_code": device_code})
+        api_key_value = response.json()["personal_api_key"]
+
+        api_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(api_key_value))
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
+        self.assertEqual(api_key.scoped_organizations, [])
+
+        self.client.logout()
+        authorized_response = self.client.get(
+            f"/api/projects/{self.team.pk}/event_definitions/", headers={"authorization": f"Bearer {api_key_value}"}
+        )
+        self.assertEqual(authorized_response.status_code, status.HTTP_200_OK)
+
+        other_project_response = self.client.get(
+            f"/api/projects/{other_team.pk}/event_definitions/", headers={"authorization": f"Bearer {api_key_value}"}
+        )
+        self.assertEqual(other_project_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_cross_team_access_is_prevented(self):
         """Test that user cannot authorize CLI for a team in a different organization"""
