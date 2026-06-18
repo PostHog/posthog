@@ -361,6 +361,10 @@ class DataDeletionRequest(UUIDModel):
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
 
+    # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
+    # clean() can reject retargeting an existing request at a different team. Not a model field.
+    _loaded_team_id: int | None = None
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -369,16 +373,13 @@ class DataDeletionRequest(UUIDModel):
 
     @classmethod
     def from_db(cls, db, field_names, values):
-        # Snapshot the persisted team_id so clean() can reject attempts to retarget an existing
-        # request at a different team.
         instance = super().from_db(db, field_names, values)
         instance._loaded_team_id = instance.team_id
         return instance
 
     def clean(self) -> None:
         super().clean()
-        loaded_team_id = getattr(self, "_loaded_team_id", None)
-        if loaded_team_id is not None and self.team_id != loaded_team_id:
+        if self._loaded_team_id is not None and self.team_id != self._loaded_team_id:
             raise ValidationError({"team_id": "team_id cannot be changed after the request is created."})
         if self.request_type == RequestType.EVENT_REMOVAL:
             self._clean_event_removal()
