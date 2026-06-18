@@ -4,6 +4,7 @@ import json
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -34,15 +35,15 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
+    @parameterized.expand(
+        [
+            ("with_date_range", {"dateRange": _FIXTURE_WINDOW}, 1011),
+            # No dateRange/filterGroup — MCP/agent callers routinely omit these optional
+            # fields, so defaults must be applied server-side rather than crashing.
+            ("defaults_to_last_hour", {}, 0),
+        ]
+    )
     @freeze_time("2025-12-18T12:00:00Z")
-    def test_sparkline_with_date_range(self):
-        buckets = self._sparkline({"dateRange": _FIXTURE_WINDOW})
-        self.assertEqual(sum(bucket["count"] for bucket in buckets), 1011)
-
-    @freeze_time("2025-12-18T12:00:00Z")
-    def test_sparkline_defaults_date_range_to_last_hour(self):
-        # No dateRange in request — MCP/agent callers routinely omit it because the
-        # field is optional and documented as defaulting to the last hour. The default
-        # must be applied server-side rather than crashing on get_model(None).
-        buckets = self._sparkline({})
-        self.assertEqual(sum(bucket["count"] for bucket in buckets), 0)
+    def test_sparkline(self, _name, query_params, expected_count):
+        buckets = self._sparkline(query_params)
+        self.assertEqual(sum(bucket["count"] for bucket in buckets), expected_count)
