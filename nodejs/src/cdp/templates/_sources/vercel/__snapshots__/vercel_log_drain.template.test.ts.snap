@@ -3,11 +3,11 @@
 exports[`vercel log drain template snapshot: default config (forward_ip_and_user_agent on) emits PII fields 1`] = `
 [
   {
-    "distinct_id": "http_log_osdG3FHU0lqpXNai67Ma8f",
+    "distinct_id": "http_log_p0PoHX1sMcM3pjV8gQ3pNj",
     "event": "$http_log",
     "properties": {
       "$current_url": "https://my-app.vercel.app/api/users?page=1",
-      "$distinct_id_strategy": "rotating_salt",
+      "$distinct_id_strategy": "fixed_salt",
       "$hog_function_execution_count": 1,
       "$host": "my-app.vercel.app",
       "$ip": "120.75.16.101",
@@ -78,11 +78,11 @@ exports[`vercel log drain template snapshot: default config (forward_ip_and_user
 exports[`vercel log drain template snapshot: forward_ip_and_user_agent disabled drops PII fields 1`] = `
 [
   {
-    "distinct_id": "http_log_osdG3FHU0lqpXNai67Ma8f",
+    "distinct_id": "http_log_p0PoHX1sMcM3pjV8gQ3pNj",
     "event": "$http_log",
     "properties": {
       "$current_url": "https://my-app.vercel.app/api/users?page=1",
-      "$distinct_id_strategy": "rotating_salt",
+      "$distinct_id_strategy": "fixed_salt",
       "$hog_function_execution_count": 1,
       "$host": "my-app.vercel.app",
       "$pathname": "/api/users",
