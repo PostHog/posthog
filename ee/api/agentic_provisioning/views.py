@@ -627,6 +627,9 @@ def _require_user_consent(
             "region": region,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
+            # We only reach consent because the partner could not skip it for this user, so
+            # the authorize step must require it too — never silently auto-approve this state.
+            "consent_required": True,
         },
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
@@ -844,7 +847,9 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 cache.delete(pending_key)
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
-            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent
+            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent and not pending.get(
+                "consent_required", False
+            )
         except OAuthApplication.DoesNotExist:
             pass
 

@@ -81,6 +81,56 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
 
+    def _make_skip_consent_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="authorize-skip-consent-partner",
+            name="Skip Consent Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="hmac",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+
+    def test_consent_required_state_not_auto_approved_for_skip_consent_partner(self):
+        # A skip-consent partner whose request fell through to consent (trust not proven) must
+        # not be silently auto-approved at the authorize step, even for a single-org/single-team
+        # user. The pending state's consent_required flag forces the consent UI.
+        partner = self._make_skip_consent_partner()
+        self._set_pending_auth(
+            "state_consent_required",
+            self.user.email,
+            partner_id=str(partner.id),
+            partner_name=partner.name,
+            consent_required=True,
+        )
+        res = self.client.get("/api/agentic/authorize?state=state_consent_required")
+        assert res.status_code == 302
+        assert "/agentic/authorize?" in res["Location"]
+        assert not res["Location"].startswith("https://partner.example.com/callback")
+        assert "code=" not in res["Location"]
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consent_required") is not None
+
+    def test_skip_consent_partner_without_flag_still_auto_approves(self):
+        # Backwards-compat: a pending state without consent_required (e.g. cached before this
+        # change deployed) keeps the prior auto-approve behavior for a skip-consent partner.
+        partner = self._make_skip_consent_partner()
+        self._set_pending_auth(
+            "state_no_flag",
+            self.user.email,
+            partner_id=str(partner.id),
+            partner_name=partner.name,
+        )
+        res = self.client.get("/api/agentic/authorize?state=state_no_flag")
+        assert res.status_code == 302
+        assert res["Location"].startswith("https://partner.example.com/callback")
+        assert "code=" in res["Location"]
+
     @override_settings(
         STRIPE_SIGNING_SECRET=HMAC_SECRET,
         STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
