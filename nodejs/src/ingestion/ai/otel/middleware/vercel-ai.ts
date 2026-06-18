@@ -1,6 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../../utils/json-parse'
+import { mustAddReasoningCost } from '../../costs/output-costs'
 import { OtelLibraryMiddleware } from './types'
 
 // Vercel AI SDK attributes to strip after processing. Includes both
@@ -50,7 +51,6 @@ const STRIP_KEYS = [
 // Metadata properties to promote to event properties
 const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
-const GEMINI_REASONING_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -71,10 +71,6 @@ function numericValue(value: unknown): number | null {
     return null
 }
 
-function isGeminiReasoningModel(value: unknown): boolean {
-    return typeof value === 'string' && GEMINI_REASONING_MODELS.some((candidate) => candidate.test(value.toLowerCase()))
-}
-
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -87,7 +83,9 @@ function process(event: PluginEvent, next: () => void): void {
         props['gen_ai.usage.cache_read.input_tokens'] !== undefined ||
         props['gen_ai.usage.cache_creation.input_tokens'] !== undefined ||
         props['ai.usage.inputTokenDetails.noCacheTokens'] !== undefined
-    const hasAiSdkV7ReasoningDetails = props['ai.usage.outputTokenDetails.reasoningTokens'] !== undefined
+    const aiSdkV7TextOutputTokens = props['ai.usage.outputTokenDetails.textTokens']
+    const aiSdkV7ReasoningTokens = props['ai.usage.outputTokenDetails.reasoningTokens']
+    const hasAiSdkV7ReasoningDetails = aiSdkV7ReasoningTokens !== undefined
 
     if (props['$ai_cache_reporting_exclusive'] === undefined && hasAiSdkV7CacheUsage) {
         props['$ai_cache_reporting_exclusive'] = false
@@ -236,15 +234,22 @@ function process(event: PluginEvent, next: () => void): void {
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
     props['$ai_framework'] ??= 'vercel'
 
-    if (
-        hasAiSdkV7ReasoningDetails &&
-        props['$ai_text_output_tokens'] === undefined &&
-        isGeminiReasoningModel(props['$ai_model'])
-    ) {
-        const outputTokens = numericValue(props['$ai_output_tokens'])
-        const reasoningTokens = numericValue(props['$ai_reasoning_tokens'])
-        if (outputTokens !== null && reasoningTokens !== null) {
-            props['$ai_text_output_tokens'] = Math.max(0, outputTokens - reasoningTokens)
+    if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
+        props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
+    }
+
+    const shouldSplitReasoningTokens =
+        typeof props['$ai_model'] === 'string' && mustAddReasoningCost(props['$ai_model'])
+    if (props['$ai_text_output_tokens'] === undefined && shouldSplitReasoningTokens) {
+        const textOutputTokens = numericValue(aiSdkV7TextOutputTokens)
+        if (textOutputTokens !== null) {
+            props['$ai_text_output_tokens'] = textOutputTokens
+        } else if (hasAiSdkV7ReasoningDetails) {
+            const outputTokens = numericValue(props['$ai_output_tokens'])
+            const reasoningTokens = numericValue(props['$ai_reasoning_tokens'])
+            if (outputTokens !== null && reasoningTokens !== null) {
+                props['$ai_text_output_tokens'] = Math.max(0, outputTokens - reasoningTokens)
+            }
         }
     }
 

@@ -30,53 +30,105 @@ fn http_status_from_attrs(attrs: &Map<String, Value>) -> Option<i64> {
         .find_map(|key| attrs.get(*key).and_then(http_status_from_value))
 }
 
-fn first_http_status_in_text(text: &str) -> Option<i64> {
-    let mut digits = String::new();
-    for ch in text.chars() {
-        if ch.is_ascii_digit() {
-            digits.push(ch);
-            if digits.len() > 3 {
-                digits.clear();
-            }
-            continue;
-        }
+fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
 
-        if digits.len() == 3 {
-            if let Ok(status) = digits.parse::<i64>() {
-                if (100..=599).contains(&status) {
-                    return Some(status);
-                }
-            }
+fn has_marker_boundaries(text: &str, index: usize, marker: &str) -> bool {
+    let bytes = text.as_bytes();
+    let before = index == 0 || !is_word_byte(bytes[index - 1]);
+    let after_index = index + marker.len();
+    let after = after_index >= bytes.len() || !is_word_byte(bytes[after_index]);
+    before && after
+}
+
+fn strip_word_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let trimmed = text.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with(prefix) && has_marker_boundaries(&lower, 0, prefix) {
+        return Some(&trimmed[prefix.len()..]);
+    }
+    None
+}
+
+fn http_status_at_start(text: &str) -> Option<i64> {
+    let trimmed = text.trim_start();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 3 || !bytes[..3].iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    if let Some(next) = bytes.get(3) {
+        if is_word_byte(*next) {
+            return None;
         }
-        digits.clear();
     }
 
-    if digits.len() == 3 {
-        digits
-            .parse::<i64>()
-            .ok()
-            .filter(|status| (100..=599).contains(status))
-    } else {
-        None
+    trimmed[..3]
+        .parse::<i64>()
+        .ok()
+        .filter(|status| (100..=599).contains(status))
+}
+
+fn http_status_after_separator(text: &str, allow_bare_number: bool) -> Option<i64> {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("://") {
+        return None;
     }
+
+    if let Some(separator) = trimmed.chars().next().filter(|ch| matches!(ch, ':' | '=')) {
+        return http_status_at_start(&trimmed[separator.len_utf8()..]);
+    }
+
+    allow_bare_number.then(|| http_status_at_start(trimmed))?
+}
+
+fn http_status_after_status_marker(text: &str) -> Option<i64> {
+    if let Some(after_code) = strip_word_prefix(text, "code") {
+        return http_status_after_separator(after_code, true);
+    }
+    http_status_after_separator(text, false)
+}
+
+fn http_status_after_http_marker(text: &str) -> Option<i64> {
+    if let Some(after_status) = strip_word_prefix(text, "status") {
+        return http_status_after_status_marker(after_status);
+    }
+    http_status_after_separator(text, true)
+}
+
+fn find_status_after_marker(
+    text: &str,
+    lower: &str,
+    marker: &str,
+    parser: fn(&str) -> Option<i64>,
+) -> Option<i64> {
+    let mut offset = 0;
+    while let Some(index) = lower[offset..].find(marker) {
+        let absolute_index = offset + index;
+        let marker_end = absolute_index + marker.len();
+        if has_marker_boundaries(lower, absolute_index, marker) {
+            if let Some(status) = parser(&text[marker_end..]) {
+                return Some(status);
+            }
+        }
+        offset = marker_end;
+    }
+    None
 }
 
 fn http_status_from_text(text: &str) -> Option<i64> {
     let lower = text.to_ascii_lowercase();
 
-    for marker in ["http", "status"] {
-        let mut offset = 0;
-        while let Some(index) = lower[offset..].find(marker) {
-            let window_start = offset + index + marker.len();
-            let window: String = text[window_start..].chars().take(40).collect();
-            if let Some(status) = first_http_status_in_text(&window) {
-                return Some(status);
-            }
-            offset = window_start;
-        }
-    }
-
-    None
+    find_status_after_marker(text, &lower, "status_code", |text| {
+        http_status_after_separator(text, true)
+    })
+    .or_else(|| {
+        find_status_after_marker(text, &lower, "status code", |text| {
+            http_status_after_separator(text, true)
+        })
+    })
+    .or_else(|| find_status_after_marker(text, &lower, "status", http_status_after_status_marker))
+    .or_else(|| find_status_after_marker(text, &lower, "http", http_status_after_http_marker))
 }
 
 fn http_status_from_error_attrs(attrs: &Map<String, Value>) -> Option<i64> {
@@ -247,6 +299,31 @@ mod tests {
 
         assert_eq!(properties["$ai_is_error"], Value::Bool(true));
         assert_eq!(properties["$ai_http_status"], Value::Number(429.into()));
+    }
+
+    #[test]
+    fn test_error_status_ignores_ambiguous_numbers_in_error_message() {
+        let mut span = make_span(vec![]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: "status of 200 records is unknown".to_string(),
+        });
+        span.events = vec![span::Event {
+            name: "exception".to_string(),
+            attributes: vec![make_kv(
+                "exception.message",
+                any_value::Value::StringValue(
+                    "request to https://example.com/items/404 failed".to_string(),
+                ),
+            )],
+            ..Default::default()
+        }];
+        let mut properties = Map::new();
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(properties["$ai_is_error"], Value::Bool(true));
+        assert_eq!(properties["$ai_http_status"], Value::Number(500.into()));
     }
 
     #[test]

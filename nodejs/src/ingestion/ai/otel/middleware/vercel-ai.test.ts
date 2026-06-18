@@ -26,8 +26,6 @@ function mockMapOtelAttributes(e: { event: string; properties?: Record<string, u
         'gen_ai.usage.output_tokens': '$ai_output_tokens',
         'gen_ai.usage.cache_read.input_tokens': '$ai_cache_read_input_tokens',
         'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
-        'ai.usage.outputTokenDetails.textTokens': '$ai_text_output_tokens',
-        'ai.usage.outputTokenDetails.reasoningTokens': '$ai_reasoning_tokens',
         'gen_ai.response.model': '$ai_model',
         'gen_ai.provider.name': '$ai_provider',
     }
@@ -203,6 +201,22 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_output_tokens']).toBe(20)
             expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
             expect(event.properties!['$ai_text_output_tokens']).toBe(99)
+        })
+
+        it('does not split text output tokens for non-Gemini reasoning models', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.response.model': 'o1-mini',
+                'gen_ai.usage.output_tokens': 20,
+                'ai.usage.outputTokenDetails.textTokens': 15,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_tokens']).toBe(20)
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_text_output_tokens']).toBeUndefined()
+            expect(event.properties!['ai.usage.outputTokenDetails.textTokens']).toBeUndefined()
         })
 
         it('derives Gemini text output tokens when AI SDK v7 omits text token details', () => {
