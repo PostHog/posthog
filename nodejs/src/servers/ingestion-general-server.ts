@@ -5,7 +5,7 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { createClientWarningsConsumer } from '~/ingestion/ingestionwarnings'
+import { createClientWarningsConsumer } from '~/ingestion/lanes/ingestionwarnings'
 
 import { initializePrometheusLabels } from '../api/router'
 import {

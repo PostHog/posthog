@@ -426,3 +426,10 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   - Phase 6 — CI test selection (was Phase 4). Order matters: restructure (4) -> import-standardize (5) ->
     CI (6); `~/` is kept precisely so the Phase-4 moves stay codemod-friendly (relative paths would break
     on every move). Nothing executed yet for Phases 4–6 — these are plan entries.
+- Loop started (CI-driven, ~25m heartbeat); Phase 4 execution begun. Updated the guard's `laneOf` to
+  resolve lanes under `lanes/<lane>/` (legacy top-level path still tolerated mid-migration), then moved the
+  first lane as a proof of approach: `ingestion/ingestionwarnings` -> `ingestion/lanes/ingestionwarnings`
+  (codemod + `git mv`; blast radius 1 — only the general server imported it). Local gates green: guard 0 new
+  violations, static import-resolution clean (the 2 flagged `~/...js` dynamic imports are the build-required
+  jest-mapped ones, not breakage), eslint clean. Pushing so CI validates the full gate before batching the
+  remaining 7 lanes. 1/8 lanes moved.

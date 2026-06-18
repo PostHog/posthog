@@ -77,8 +77,12 @@ function laneOf(absPath) {
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
         return null
     }
-    const seg = rel.split(path.sep)[0]
-    return LANES.has(seg) ? seg : SHARED
+    const seg = rel.split(path.sep)
+    // Lanes live under `lanes/<lane>/`; tolerate the legacy top-level `<lane>/` during the migration.
+    if (seg[0] === 'lanes') {
+        return seg[1] && LANES.has(seg[1]) ? seg[1] : SHARED
+    }
+    return LANES.has(seg[0]) ? seg[0] : SHARED
 }
 
 const IMPORT_PATTERNS = [
