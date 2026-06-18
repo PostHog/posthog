@@ -71,7 +71,7 @@ from common.hogql.scripts._diagnostic_common import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DUMP = REPO_ROOT / "posthog" / "hogql" / "scripts" / ".local" / "hogql_log_corpus.json"
+DEFAULT_DUMP = REPO_ROOT / "common" / "hogql" / "scripts" / ".local" / "hogql_log_corpus.json"
 
 
 # ---------------------------------------------------------------------------

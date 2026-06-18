@@ -1308,9 +1308,9 @@ def generate(parser_grammar_path: str, lexer_grammar_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-PARSER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLParser.g4"
-LEXER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLLexer.common.g4"
-OUTPUT_PATH = REPO_ROOT / "posthog" / "hogql" / "test" / "_generated_grammar_strategies.py"
+PARSER_GRAMMAR = REPO_ROOT / "common" / "hogql" / "grammar" / "HogQLParser.g4"
+LEXER_GRAMMAR = REPO_ROOT / "common" / "hogql" / "grammar" / "HogQLLexer.common.g4"
+OUTPUT_PATH = REPO_ROOT / "common" / "hogql" / "test" / "_generated_grammar_strategies.py"
 
 
 def _ruff_format(source: str) -> str:

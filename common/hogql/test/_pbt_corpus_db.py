@@ -77,7 +77,7 @@ def _resolve_corpus_dir() -> Path:
     if not common_dir.is_absolute():
         common_dir = (here / common_dir).resolve()
     main_worktree_root = common_dir.parent
-    return main_worktree_root / "posthog" / "hogql" / "test" / "parser_pbt_corpus" / hypothesis.__version__
+    return main_worktree_root / "common" / "hogql" / "test" / "parser_pbt_corpus" / hypothesis.__version__
 
 
 # Per-machine corpus seed shared across every git worktree of this checkout,

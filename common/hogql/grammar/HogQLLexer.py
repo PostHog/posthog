@@ -1,17 +1,17 @@
 # Generated from HogQLLexer.g4 by ANTLR 4.13.2
-import sys
-
 from antlr4 import *
-
+from io import StringIO
+import sys
 if sys.version_info[1] > 5:
     from typing import TextIO
 else:
-    from typing import TextIO
+    from typing.io import TextIO
 
 
 
 # put any global imports you need here
 import sys
+
 
 
 def serializedATN():
@@ -1050,105 +1050,105 @@ class HogQLLexer(Lexer):
     HOGQLX_TEXT_TEXT = 206
     HOGQLX_TEXT_WS = 207
 
-    channelNames = [ "DEFAULT_TOKEN_CHANNEL", "HIDDEN" ]
+    channelNames = [ u"DEFAULT_TOKEN_CHANNEL", u"HIDDEN" ]
 
-    modeNames = [ "DEFAULT_MODE", "IN_TEMPLATE_STRING", "IN_FULL_TEMPLATE_STRING",
+    modeNames = [ "DEFAULT_MODE", "IN_TEMPLATE_STRING", "IN_FULL_TEMPLATE_STRING", 
                   "HOGQLX_TAG_OPEN", "HOGQLX_TAG_CLOSE", "HOGQLX_TEXT" ]
 
     literalNames = [ "<INVALID>",
-            "'->'", "'*'", "'`'", "'\\'", "'::'", "':='", "':'", "','",
-            "'||'", "'-'", "'$'", "'.'", "'=='", "'>='", "'#'", "'~*'",
-            "'=~*'", "'{'", "'['", "'('", "'<=>'", "'<='", "'<'", "'</'",
-            "'!~*'", "'!~'", "'?.'", "'??'", "'%'", "'+'", "'?'", "'\"'",
-            "'f''", "'F''", "'''", "'~'", "'=~'", "'}'", "']'", "')'", "';'",
+            "'->'", "'*'", "'`'", "'\\'", "'::'", "':='", "':'", "','", 
+            "'||'", "'-'", "'$'", "'.'", "'=='", "'>='", "'#'", "'~*'", 
+            "'=~*'", "'{'", "'['", "'('", "'<=>'", "'<='", "'<'", "'</'", 
+            "'!~*'", "'!~'", "'?.'", "'??'", "'%'", "'+'", "'?'", "'\"'", 
+            "'f''", "'F''", "'''", "'~'", "'=~'", "'}'", "']'", "')'", "';'", 
             "'/'", "'_'" ]
 
     symbolicNames = [ "<INVALID>",
-            "ALL", "AND", "ANTI", "ANY", "ARRAY", "AS", "ASCENDING", "ASOF",
-            "BETWEEN", "BOTH", "BY", "CASE", "CAST", "CATCH", "COHORT",
-            "COLLATE", "COLUMNS", "CROSS", "CUBE", "CURRENT", "DATE", "DAY",
-            "DESC", "DESCENDING", "DISTINCT", "ELSE", "END", "EXCEPT", "EXCLUDE",
-            "EXTRACT", "FINAL", "FILL", "FILTER", "FINALLY", "FIRST", "FN",
-            "FOLLOWING", "FOR", "FROM", "FULL", "FUN", "GROUP", "GROUPING",
-            "HAVING", "HOUR", "ID", "IF", "ILIKE", "IGNORE", "INCLUDE",
-            "IN", "INF", "INNER", "INTERSECT", "INTERPOLATE", "INTERVAL",
-            "IS", "JOIN", "KEY", "LAMBDA", "LAST", "LEADING", "LEFT", "LET",
-            "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH", "NAME",
-            "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS", "OFFSET",
-            "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", "PIVOT",
-            "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY", "QUARTER",
-            "RANGE", "RECURSIVE", "REPLACE", "RETURN", "RIGHT", "ROLLUP",
-            "ROW", "ROWS", "SAMPLE", "SECOND", "SELECT", "SEMI", "SETS",
-            "SETTINGS", "STEP", "SUBSTRING", "THEN", "THROW", "TIES", "TIMESTAMP",
-            "TIME", "LOCAL", "ZONE", "TO", "TOP", "TOTALS", "TRAILING",
-            "TRIM", "TRUNCATE", "TRY", "TRY_CAST", "UNBOUNDED", "UNION",
-            "UNPIVOT", "USING", "VALUES", "WEEK", "WHEN", "WHERE", "WHILE",
-            "WINDOW", "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON", "IDENTIFIER",
-            "QUOTED_IDENTIFIER", "FLOATING_LITERAL", "BINARY_LITERAL", "OCTAL_LITERAL",
-            "DECIMAL_LITERAL", "HEXADECIMAL_LITERAL", "OCTAL_PREFIX_LITERAL",
-            "MALFORMED_BINARY_LITERAL", "STRING_LITERAL", "ARROW", "ASTERISK",
-            "BACKQUOTE", "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON",
-            "COMMA", "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE", "EQ_SINGLE",
-            "GT_EQ", "GT", "HASH", "IREGEX_SINGLE", "IREGEX_DOUBLE", "LBRACE",
-            "LBRACKET", "LPAREN", "NULL_SAFE_EQ", "LT_EQ", "LT", "LT_SLASH",
-            "NOT_EQ", "NOT_IREGEX", "NOT_REGEX", "NULL_PROPERTY", "NULLISH",
-            "PERCENT", "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE",
-            "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE",
-            "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON",
-            "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT", "SINGLE_LINE_COMMENT",
-            "HASH_COMMENT", "WHITESPACE", "UNEXPECTED_CHARACTER", "STRING_TEXT",
-            "STRING_ESCAPE_TRIGGER", "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER",
-            "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT", "TAG_WS",
-            "TAGC_MULTI_LINE_COMMENT", "TAGC_SINGLE_LINE_COMMENT", "TAGC_WS",
+            "ALL", "AND", "ANTI", "ANY", "ARRAY", "AS", "ASCENDING", "ASOF", 
+            "BETWEEN", "BOTH", "BY", "CASE", "CAST", "CATCH", "COHORT", 
+            "COLLATE", "COLUMNS", "CROSS", "CUBE", "CURRENT", "DATE", "DAY", 
+            "DESC", "DESCENDING", "DISTINCT", "ELSE", "END", "EXCEPT", "EXCLUDE", 
+            "EXTRACT", "FINAL", "FILL", "FILTER", "FINALLY", "FIRST", "FN", 
+            "FOLLOWING", "FOR", "FROM", "FULL", "FUN", "GROUP", "GROUPING", 
+            "HAVING", "HOUR", "ID", "IF", "ILIKE", "IGNORE", "INCLUDE", 
+            "IN", "INF", "INNER", "INTERSECT", "INTERPOLATE", "INTERVAL", 
+            "IS", "JOIN", "KEY", "LAMBDA", "LAST", "LEADING", "LEFT", "LET", 
+            "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH", "NAME", 
+            "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS", "OFFSET", 
+            "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", "PIVOT", 
+            "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY", "QUARTER", 
+            "RANGE", "RECURSIVE", "REPLACE", "RETURN", "RIGHT", "ROLLUP", 
+            "ROW", "ROWS", "SAMPLE", "SECOND", "SELECT", "SEMI", "SETS", 
+            "SETTINGS", "STEP", "SUBSTRING", "THEN", "THROW", "TIES", "TIMESTAMP", 
+            "TIME", "LOCAL", "ZONE", "TO", "TOP", "TOTALS", "TRAILING", 
+            "TRIM", "TRUNCATE", "TRY", "TRY_CAST", "UNBOUNDED", "UNION", 
+            "UNPIVOT", "USING", "VALUES", "WEEK", "WHEN", "WHERE", "WHILE", 
+            "WINDOW", "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON", "IDENTIFIER", 
+            "QUOTED_IDENTIFIER", "FLOATING_LITERAL", "BINARY_LITERAL", "OCTAL_LITERAL", 
+            "DECIMAL_LITERAL", "HEXADECIMAL_LITERAL", "OCTAL_PREFIX_LITERAL", 
+            "MALFORMED_BINARY_LITERAL", "STRING_LITERAL", "ARROW", "ASTERISK", 
+            "BACKQUOTE", "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON", 
+            "COMMA", "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE", "EQ_SINGLE", 
+            "GT_EQ", "GT", "HASH", "IREGEX_SINGLE", "IREGEX_DOUBLE", "LBRACE", 
+            "LBRACKET", "LPAREN", "NULL_SAFE_EQ", "LT_EQ", "LT", "LT_SLASH", 
+            "NOT_EQ", "NOT_IREGEX", "NOT_REGEX", "NULL_PROPERTY", "NULLISH", 
+            "PERCENT", "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE", 
+            "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE", 
+            "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON", 
+            "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT", "SINGLE_LINE_COMMENT", 
+            "HASH_COMMENT", "WHITESPACE", "UNEXPECTED_CHARACTER", "STRING_TEXT", 
+            "STRING_ESCAPE_TRIGGER", "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", 
+            "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT", "TAG_WS", 
+            "TAGC_MULTI_LINE_COMMENT", "TAGC_SINGLE_LINE_COMMENT", "TAGC_WS", 
             "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_WS" ]
 
-    ruleNames = [ "ALL", "AND", "ANTI", "ANY", "ARRAY", "AS", "ASCENDING",
-                  "ASOF", "BETWEEN", "BOTH", "BY", "CASE", "CAST", "CATCH",
-                  "COHORT", "COLLATE", "COLUMNS", "CROSS", "CUBE", "CURRENT",
-                  "DATE", "DAY", "DESC", "DESCENDING", "DISTINCT", "ELSE",
-                  "END", "EXCEPT", "EXCLUDE", "EXTRACT", "FINAL", "FILL",
-                  "FILTER", "FINALLY", "FIRST", "FN", "FOLLOWING", "FOR",
-                  "FROM", "FULL", "FUN", "GROUP", "GROUPING", "HAVING",
-                  "HOUR", "ID", "IF", "ILIKE", "IGNORE", "INCLUDE", "IN",
-                  "INF", "INNER", "INTERSECT", "INTERPOLATE", "INTERVAL",
-                  "IS", "JOIN", "KEY", "LAMBDA", "LAST", "LEADING", "LEFT",
-                  "LET", "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH",
-                  "NAME", "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS",
-                  "OFFSET", "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION",
-                  "PIVOT", "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY",
-                  "QUARTER", "RANGE", "RECURSIVE", "REPLACE", "RETURN",
-                  "RIGHT", "ROLLUP", "ROW", "ROWS", "SAMPLE", "SECOND",
-                  "SELECT", "SEMI", "SETS", "SETTINGS", "STEP", "SUBSTRING",
-                  "THEN", "THROW", "TIES", "TIMESTAMP", "TIME", "LOCAL",
-                  "ZONE", "TO", "TOP", "TOTALS", "TRAILING", "TRIM", "TRUNCATE",
-                  "TRY", "TRY_CAST", "UNBOUNDED", "UNION", "UNPIVOT", "USING",
-                  "VALUES", "WEEK", "WHEN", "WHERE", "WHILE", "WINDOW",
-                  "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON", "IDENTIFIER",
-                  "QUOTED_IDENTIFIER", "FLOATING_LITERAL", "BINARY_LITERAL",
-                  "OCTAL_LITERAL", "DECIMAL_LITERAL", "HEXADECIMAL_LITERAL",
-                  "OCTAL_PREFIX_LITERAL", "MALFORMED_BINARY_LITERAL", "STRING_LITERAL",
-                  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K",
-                  "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
-                  "W", "X", "Y", "Z", "LETTER", "BIN_DIGIT", "OCT_DIGIT",
-                  "DEC_DIGIT", "HEX_DIGIT", "ARROW", "ASTERISK", "BACKQUOTE",
-                  "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON", "COMMA",
-                  "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE", "EQ_SINGLE",
-                  "GT_EQ", "GT", "HASH", "IREGEX_SINGLE", "IREGEX_DOUBLE",
-                  "LBRACE", "LBRACKET", "LPAREN", "NULL_SAFE_EQ", "LT_EQ",
-                  "TAG_LT_SLASH", "TAG_LT_OPEN", "LT", "LT_SLASH", "NOT_EQ",
-                  "NOT_IREGEX", "NOT_REGEX", "NULL_PROPERTY", "NULLISH",
-                  "PERCENT", "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE",
-                  "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE",
-                  "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON",
-                  "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT",
-                  "SINGLE_LINE_COMMENT", "HASH_COMMENT", "WHITESPACE", "UNEXPECTED_CHARACTER",
-                  "STRING_TEXT", "STRING_ESCAPE_TRIGGER", "STRING_QUOTE_SINGLE",
-                  "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", "TAG_SELF_CLOSE_GT",
-                  "TAG_OPEN_GT", "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT",
-                  "TAG_IDENT", "TAG_EQ", "TAG_STRING", "TAG_WS", "TAG_LBRACE",
-                  "TAG_UNEXPECTED", "TAGC_GT", "TAGC_MULTI_LINE_COMMENT",
-                  "TAGC_SINGLE_LINE_COMMENT", "TAGC_IDENT", "TAGC_WS", "TAGC_UNEXPECTED",
-                  "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_LBRACE", "HOGQLX_TEXT_LT_SLASH",
+    ruleNames = [ "ALL", "AND", "ANTI", "ANY", "ARRAY", "AS", "ASCENDING", 
+                  "ASOF", "BETWEEN", "BOTH", "BY", "CASE", "CAST", "CATCH", 
+                  "COHORT", "COLLATE", "COLUMNS", "CROSS", "CUBE", "CURRENT", 
+                  "DATE", "DAY", "DESC", "DESCENDING", "DISTINCT", "ELSE", 
+                  "END", "EXCEPT", "EXCLUDE", "EXTRACT", "FINAL", "FILL", 
+                  "FILTER", "FINALLY", "FIRST", "FN", "FOLLOWING", "FOR", 
+                  "FROM", "FULL", "FUN", "GROUP", "GROUPING", "HAVING", 
+                  "HOUR", "ID", "IF", "ILIKE", "IGNORE", "INCLUDE", "IN", 
+                  "INF", "INNER", "INTERSECT", "INTERPOLATE", "INTERVAL", 
+                  "IS", "JOIN", "KEY", "LAMBDA", "LAST", "LEADING", "LEFT", 
+                  "LET", "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH", 
+                  "NAME", "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS", 
+                  "OFFSET", "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", 
+                  "PIVOT", "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY", 
+                  "QUARTER", "RANGE", "RECURSIVE", "REPLACE", "RETURN", 
+                  "RIGHT", "ROLLUP", "ROW", "ROWS", "SAMPLE", "SECOND", 
+                  "SELECT", "SEMI", "SETS", "SETTINGS", "STEP", "SUBSTRING", 
+                  "THEN", "THROW", "TIES", "TIMESTAMP", "TIME", "LOCAL", 
+                  "ZONE", "TO", "TOP", "TOTALS", "TRAILING", "TRIM", "TRUNCATE", 
+                  "TRY", "TRY_CAST", "UNBOUNDED", "UNION", "UNPIVOT", "USING", 
+                  "VALUES", "WEEK", "WHEN", "WHERE", "WHILE", "WINDOW", 
+                  "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON", "IDENTIFIER", 
+                  "QUOTED_IDENTIFIER", "FLOATING_LITERAL", "BINARY_LITERAL", 
+                  "OCTAL_LITERAL", "DECIMAL_LITERAL", "HEXADECIMAL_LITERAL", 
+                  "OCTAL_PREFIX_LITERAL", "MALFORMED_BINARY_LITERAL", "STRING_LITERAL", 
+                  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", 
+                  "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", 
+                  "W", "X", "Y", "Z", "LETTER", "BIN_DIGIT", "OCT_DIGIT", 
+                  "DEC_DIGIT", "HEX_DIGIT", "ARROW", "ASTERISK", "BACKQUOTE", 
+                  "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON", "COMMA", 
+                  "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE", "EQ_SINGLE", 
+                  "GT_EQ", "GT", "HASH", "IREGEX_SINGLE", "IREGEX_DOUBLE", 
+                  "LBRACE", "LBRACKET", "LPAREN", "NULL_SAFE_EQ", "LT_EQ", 
+                  "TAG_LT_SLASH", "TAG_LT_OPEN", "LT", "LT_SLASH", "NOT_EQ", 
+                  "NOT_IREGEX", "NOT_REGEX", "NULL_PROPERTY", "NULLISH", 
+                  "PERCENT", "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE", 
+                  "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE", 
+                  "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON", 
+                  "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT", 
+                  "SINGLE_LINE_COMMENT", "HASH_COMMENT", "WHITESPACE", "UNEXPECTED_CHARACTER", 
+                  "STRING_TEXT", "STRING_ESCAPE_TRIGGER", "STRING_QUOTE_SINGLE", 
+                  "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", "TAG_SELF_CLOSE_GT", 
+                  "TAG_OPEN_GT", "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT", 
+                  "TAG_IDENT", "TAG_EQ", "TAG_STRING", "TAG_WS", "TAG_LBRACE", 
+                  "TAG_UNEXPECTED", "TAGC_GT", "TAGC_MULTI_LINE_COMMENT", 
+                  "TAGC_SINGLE_LINE_COMMENT", "TAGC_IDENT", "TAGC_WS", "TAGC_UNEXPECTED", 
+                  "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_LBRACE", "HOGQLX_TEXT_LT_SLASH", 
                   "HOGQLX_TEXT_LT", "HOGQLX_TEXT_WS" ]
 
     grammarFileName = "HogQLLexer.g4"
@@ -1237,6 +1237,6 @@ class HogQLLexer(Lexer):
     def TAG_LT_OPEN_sempred(self, localctx:RuleContext, predIndex:int):
             if predIndex == 0:
                 return self.isOpeningTag()
-
+         
 
 

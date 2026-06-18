@@ -1,12 +1,12 @@
 # Generated from HogQLParser.g4 by ANTLR 4.13.2
-import sys
-
+# encoding: utf-8
 from antlr4 import *
-
+from io import StringIO
+import sys
 if sys.version_info[1] > 5:
 	from typing import TextIO
 else:
-	from typing import TextIO
+	from typing.io import TextIO
 
 def serializedATN():
     return [
@@ -891,92 +891,92 @@ class HogQLParser ( Parser ):
 
     sharedContextCache = PredictionContextCache()
 
-    literalNames = [ "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>",
-                     "'->'", "'*'", "'`'", "'\\'", "'::'", "':='", "':'",
-                     "','", "'||'", "'-'", "'$'", "'.'", "'=='", "<INVALID>",
-                     "'>='", "<INVALID>", "'#'", "'~*'", "'=~*'", "'{'",
-                     "'['", "'('", "'<=>'", "'<='", "'<'", "'</'", "<INVALID>",
-                     "'!~*'", "'!~'", "'?.'", "'??'", "'%'", "'+'", "'?'",
-                     "'\"'", "'f''", "'F''", "'''", "'~'", "'=~'", "'}'",
+    literalNames = [ "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "<INVALID>", "<INVALID>", "<INVALID>", "<INVALID>", 
+                     "'->'", "'*'", "'`'", "'\\'", "'::'", "':='", "':'", 
+                     "','", "'||'", "'-'", "'$'", "'.'", "'=='", "<INVALID>", 
+                     "'>='", "<INVALID>", "'#'", "'~*'", "'=~*'", "'{'", 
+                     "'['", "'('", "'<=>'", "'<='", "'<'", "'</'", "<INVALID>", 
+                     "'!~*'", "'!~'", "'?.'", "'??'", "'%'", "'+'", "'?'", 
+                     "'\"'", "'f''", "'F''", "'''", "'~'", "'=~'", "'}'", 
                      "']'", "')'", "';'", "'/'", "<INVALID>", "'_'" ]
 
-    symbolicNames = [ "<INVALID>", "ALL", "AND", "ANTI", "ANY", "ARRAY",
-                      "AS", "ASCENDING", "ASOF", "BETWEEN", "BOTH", "BY",
-                      "CASE", "CAST", "CATCH", "COHORT", "COLLATE", "COLUMNS",
-                      "CROSS", "CUBE", "CURRENT", "DATE", "DAY", "DESC",
-                      "DESCENDING", "DISTINCT", "ELSE", "END", "EXCEPT",
-                      "EXCLUDE", "EXTRACT", "FINAL", "FILL", "FILTER", "FINALLY",
-                      "FIRST", "FN", "FOLLOWING", "FOR", "FROM", "FULL",
-                      "FUN", "GROUP", "GROUPING", "HAVING", "HOUR", "ID",
-                      "IF", "ILIKE", "IGNORE", "INCLUDE", "IN", "INF", "INNER",
-                      "INTERSECT", "INTERPOLATE", "INTERVAL", "IS", "JOIN",
-                      "KEY", "LAMBDA", "LAST", "LEADING", "LEFT", "LET",
-                      "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH",
-                      "NAME", "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS",
-                      "OFFSET", "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION",
-                      "PIVOT", "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY",
-                      "QUARTER", "RANGE", "RECURSIVE", "REPLACE", "RETURN",
-                      "RIGHT", "ROLLUP", "ROW", "ROWS", "SAMPLE", "SECOND",
-                      "SELECT", "SEMI", "SETS", "SETTINGS", "STEP", "SUBSTRING",
-                      "THEN", "THROW", "TIES", "TIMESTAMP", "TIME", "LOCAL",
-                      "ZONE", "TO", "TOP", "TOTALS", "TRAILING", "TRIM",
-                      "TRUNCATE", "TRY", "TRY_CAST", "UNBOUNDED", "UNION",
-                      "UNPIVOT", "USING", "VALUES", "WEEK", "WHEN", "WHERE",
-                      "WHILE", "WINDOW", "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON",
-                      "IDENTIFIER", "QUOTED_IDENTIFIER", "FLOATING_LITERAL",
-                      "BINARY_LITERAL", "OCTAL_LITERAL", "DECIMAL_LITERAL",
-                      "HEXADECIMAL_LITERAL", "OCTAL_PREFIX_LITERAL", "MALFORMED_BINARY_LITERAL",
-                      "STRING_LITERAL", "ARROW", "ASTERISK", "BACKQUOTE",
-                      "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON",
-                      "COMMA", "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE",
-                      "EQ_SINGLE", "GT_EQ", "GT", "HASH", "IREGEX_SINGLE",
-                      "IREGEX_DOUBLE", "LBRACE", "LBRACKET", "LPAREN", "NULL_SAFE_EQ",
-                      "LT_EQ", "LT", "LT_SLASH", "NOT_EQ", "NOT_IREGEX",
-                      "NOT_REGEX", "NULL_PROPERTY", "NULLISH", "PERCENT",
-                      "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE",
-                      "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE",
-                      "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON",
-                      "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT",
-                      "SINGLE_LINE_COMMENT", "HASH_COMMENT", "WHITESPACE",
-                      "UNEXPECTED_CHARACTER", "STRING_TEXT", "STRING_ESCAPE_TRIGGER",
-                      "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER",
-                      "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT",
-                      "TAG_WS", "TAGC_MULTI_LINE_COMMENT", "TAGC_SINGLE_LINE_COMMENT",
+    symbolicNames = [ "<INVALID>", "ALL", "AND", "ANTI", "ANY", "ARRAY", 
+                      "AS", "ASCENDING", "ASOF", "BETWEEN", "BOTH", "BY", 
+                      "CASE", "CAST", "CATCH", "COHORT", "COLLATE", "COLUMNS", 
+                      "CROSS", "CUBE", "CURRENT", "DATE", "DAY", "DESC", 
+                      "DESCENDING", "DISTINCT", "ELSE", "END", "EXCEPT", 
+                      "EXCLUDE", "EXTRACT", "FINAL", "FILL", "FILTER", "FINALLY", 
+                      "FIRST", "FN", "FOLLOWING", "FOR", "FROM", "FULL", 
+                      "FUN", "GROUP", "GROUPING", "HAVING", "HOUR", "ID", 
+                      "IF", "ILIKE", "IGNORE", "INCLUDE", "IN", "INF", "INNER", 
+                      "INTERSECT", "INTERPOLATE", "INTERVAL", "IS", "JOIN", 
+                      "KEY", "LAMBDA", "LAST", "LEADING", "LEFT", "LET", 
+                      "LIKE", "LIMIT", "MATERIALIZED", "MINUTE", "MONTH", 
+                      "NAME", "NATURAL", "NAN_SQL", "NOT", "NULL_SQL", "NULLS", 
+                      "OFFSET", "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", 
+                      "PIVOT", "POSITIONAL", "PRECEDING", "PREWHERE", "QUALIFY", 
+                      "QUARTER", "RANGE", "RECURSIVE", "REPLACE", "RETURN", 
+                      "RIGHT", "ROLLUP", "ROW", "ROWS", "SAMPLE", "SECOND", 
+                      "SELECT", "SEMI", "SETS", "SETTINGS", "STEP", "SUBSTRING", 
+                      "THEN", "THROW", "TIES", "TIMESTAMP", "TIME", "LOCAL", 
+                      "ZONE", "TO", "TOP", "TOTALS", "TRAILING", "TRIM", 
+                      "TRUNCATE", "TRY", "TRY_CAST", "UNBOUNDED", "UNION", 
+                      "UNPIVOT", "USING", "VALUES", "WEEK", "WHEN", "WHERE", 
+                      "WHILE", "WINDOW", "WITH", "WITHIN", "YEAR", "ESCAPE_CHAR_COMMON", 
+                      "IDENTIFIER", "QUOTED_IDENTIFIER", "FLOATING_LITERAL", 
+                      "BINARY_LITERAL", "OCTAL_LITERAL", "DECIMAL_LITERAL", 
+                      "HEXADECIMAL_LITERAL", "OCTAL_PREFIX_LITERAL", "MALFORMED_BINARY_LITERAL", 
+                      "STRING_LITERAL", "ARROW", "ASTERISK", "BACKQUOTE", 
+                      "BACKSLASH", "DOUBLECOLON", "COLONEQUALS", "COLON", 
+                      "COMMA", "CONCAT", "DASH", "DOLLAR", "DOT", "EQ_DOUBLE", 
+                      "EQ_SINGLE", "GT_EQ", "GT", "HASH", "IREGEX_SINGLE", 
+                      "IREGEX_DOUBLE", "LBRACE", "LBRACKET", "LPAREN", "NULL_SAFE_EQ", 
+                      "LT_EQ", "LT", "LT_SLASH", "NOT_EQ", "NOT_IREGEX", 
+                      "NOT_REGEX", "NULL_PROPERTY", "NULLISH", "PERCENT", 
+                      "PLUS", "QUERY", "QUOTE_DOUBLE", "QUOTE_SINGLE_TEMPLATE", 
+                      "QUOTE_SINGLE_TEMPLATE_FULL", "QUOTE_SINGLE", "REGEX_SINGLE", 
+                      "REGEX_DOUBLE", "RBRACE", "RBRACKET", "RPAREN", "SEMICOLON", 
+                      "SLASH", "SLASH_GT", "UNDERSCORE", "MULTI_LINE_COMMENT", 
+                      "SINGLE_LINE_COMMENT", "HASH_COMMENT", "WHITESPACE", 
+                      "UNEXPECTED_CHARACTER", "STRING_TEXT", "STRING_ESCAPE_TRIGGER", 
+                      "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", 
+                      "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT", 
+                      "TAG_WS", "TAGC_MULTI_LINE_COMMENT", "TAGC_SINGLE_LINE_COMMENT", 
                       "TAGC_WS", "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_WS" ]
 
     RULE_program = 0
@@ -1098,38 +1098,38 @@ class HogQLParser ( Parser ):
     RULE_fullTemplateString = 116
     RULE_stringContentsFull = 117
 
-    ruleNames =  [ "program", "declaration", "expression", "varDecl", "identifierList",
-                   "statement", "returnStmt", "throwStmt", "catchBlock",
-                   "tryCatchStmt", "ifStmt", "whileStmt", "forStmt", "forInStmt",
-                   "funcStmt", "varAssignment", "exprStmt", "emptyStmt",
-                   "block", "kvPair", "kvPairList", "select", "selectStmtWithParens",
-                   "subsequentSelectSetClause", "selectSetStmt", "limitAndOffsetClauseOptional",
-                   "selectStmt", "withClause", "topClause", "fromClause",
-                   "arrayJoinClause", "windowClause", "prewhereClause",
-                   "whereClause", "groupByClause", "groupingSetList", "groupingSet",
-                   "havingClause", "qualifyClause", "orderByClause", "interpolateClause",
-                   "projectionOrderByClause", "limitByClause", "limitAndOffsetClause",
-                   "offsetOnlyClause", "settingsClause", "valuesClause",
-                   "valuesRow", "joinExpr", "joinOp", "joinOpCross", "joinConstraintClause",
-                   "sampleClause", "limitExpr", "orderExprList", "orderExpr",
-                   "withFillClause", "interpolateExpr", "ratioExpr", "settingExprList",
-                   "settingExpr", "windowExpr", "winPartitionByClause",
-                   "winOrderByClause", "withinGroupClause", "winFrameClause",
-                   "winFrameExtend", "winFrameBound", "expr", "columnTypeExpr",
-                   "columnTypeCastExpr", "columnTypeCastIdentifier", "keywordForTypeCast",
-                   "columnExprList", "selectColumnExprListBeforeFrom", "selectColumnExprList",
-                   "selectColumnExpr", "columnExpr", "columnLambdaExpr",
-                   "columnsReplaceList", "columnsReplaceItem", "hogqlxChildElement",
-                   "hogqlxText", "hogqlxTagElement", "hogqlxTagAttribute",
-                   "withExprList", "withExpr", "withExprColumnNameList",
-                   "columnIdentifier", "nestedIdentifier", "tableExpr",
-                   "pivotColumnList", "pivotColumn", "unpivotColumnList",
-                   "unpivotColumn", "columnExprTupleOrSingle", "columnAliases",
-                   "tableFunctionExpr", "tableIdentifier", "tableArgList",
-                   "databaseIdentifier", "floatingLiteral", "numberLiteral",
-                   "literal", "interval", "keyword", "keywordForAlias",
-                   "keywordForImplicitAlias", "alias", "implicitAlias",
-                   "identifier", "enumValue", "placeholder", "string", "templateString",
+    ruleNames =  [ "program", "declaration", "expression", "varDecl", "identifierList", 
+                   "statement", "returnStmt", "throwStmt", "catchBlock", 
+                   "tryCatchStmt", "ifStmt", "whileStmt", "forStmt", "forInStmt", 
+                   "funcStmt", "varAssignment", "exprStmt", "emptyStmt", 
+                   "block", "kvPair", "kvPairList", "select", "selectStmtWithParens", 
+                   "subsequentSelectSetClause", "selectSetStmt", "limitAndOffsetClauseOptional", 
+                   "selectStmt", "withClause", "topClause", "fromClause", 
+                   "arrayJoinClause", "windowClause", "prewhereClause", 
+                   "whereClause", "groupByClause", "groupingSetList", "groupingSet", 
+                   "havingClause", "qualifyClause", "orderByClause", "interpolateClause", 
+                   "projectionOrderByClause", "limitByClause", "limitAndOffsetClause", 
+                   "offsetOnlyClause", "settingsClause", "valuesClause", 
+                   "valuesRow", "joinExpr", "joinOp", "joinOpCross", "joinConstraintClause", 
+                   "sampleClause", "limitExpr", "orderExprList", "orderExpr", 
+                   "withFillClause", "interpolateExpr", "ratioExpr", "settingExprList", 
+                   "settingExpr", "windowExpr", "winPartitionByClause", 
+                   "winOrderByClause", "withinGroupClause", "winFrameClause", 
+                   "winFrameExtend", "winFrameBound", "expr", "columnTypeExpr", 
+                   "columnTypeCastExpr", "columnTypeCastIdentifier", "keywordForTypeCast", 
+                   "columnExprList", "selectColumnExprListBeforeFrom", "selectColumnExprList", 
+                   "selectColumnExpr", "columnExpr", "columnLambdaExpr", 
+                   "columnsReplaceList", "columnsReplaceItem", "hogqlxChildElement", 
+                   "hogqlxText", "hogqlxTagElement", "hogqlxTagAttribute", 
+                   "withExprList", "withExpr", "withExprColumnNameList", 
+                   "columnIdentifier", "nestedIdentifier", "tableExpr", 
+                   "pivotColumnList", "pivotColumn", "unpivotColumnList", 
+                   "unpivotColumn", "columnExprTupleOrSingle", "columnAliases", 
+                   "tableFunctionExpr", "tableIdentifier", "tableArgList", 
+                   "databaseIdentifier", "floatingLiteral", "numberLiteral", 
+                   "literal", "interval", "keyword", "keywordForAlias", 
+                   "keywordForImplicitAlias", "alias", "implicitAlias", 
+                   "identifier", "enumValue", "placeholder", "string", "templateString", 
                    "stringContents", "fullTemplateString", "stringContentsFull" ]
 
     EOF = Token.EOF
@@ -1616,7 +1616,7 @@ class HogQLParser ( Parser ):
                     self.state = 257
                     self.match(HogQLParser.COMMA)
                     self.state = 258
-                    self.nestedIdentifier()
+                    self.nestedIdentifier() 
                 self.state = 263
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,3,self._ctx)
@@ -2867,7 +2867,7 @@ class HogQLParser ( Parser ):
                     self.state = 408
                     self.match(HogQLParser.COMMA)
                     self.state = 409
-                    self.kvPair()
+                    self.kvPair() 
                 self.state = 414
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,25,self._ctx)
@@ -5171,7 +5171,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_joinExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -5560,7 +5560,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.RPAREN)
                         pass
 
-
+             
                 self.state = 826
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,96,self._ctx)
@@ -5585,7 +5585,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_joinOp
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -5694,7 +5694,7 @@ class HogQLParser ( Parser ):
                     if (((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
                         self.state = 827
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -5714,7 +5714,7 @@ class HogQLParser ( Parser ):
                     if (((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
                         self.state = 832
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -5726,7 +5726,7 @@ class HogQLParser ( Parser ):
                 elif la_ == 3:
                     self.state = 835
                     _la = self._input.LA(1)
-                    if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
+                    if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0)):
                         self._errHandler.recoverInline(self)
                     else:
                         self._errHandler.reportMatch(self)
@@ -5869,7 +5869,7 @@ class HogQLParser ( Parser ):
                     if (((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
                         self.state = 864
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -5905,7 +5905,7 @@ class HogQLParser ( Parser ):
                     if (((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
                         self.state = 875
                         _la = self._input.LA(1)
-                        if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0):
+                        if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 274) != 0)):
                             self._errHandler.recoverInline(self)
                         else:
                             self._errHandler.reportMatch(self)
@@ -6355,7 +6355,7 @@ class HogQLParser ( Parser ):
             if (((_la) & ~0x3f) == 0 and ((1 << _la) & 25165952) != 0):
                 self.state = 927
                 _la = self._input.LA(1)
-                if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 25165952) != 0):
+                if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 25165952) != 0)):
                     self._errHandler.recoverInline(self)
                 else:
                     self._errHandler.reportMatch(self)
@@ -7034,7 +7034,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_winFrameExtend
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -7268,7 +7268,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_columnTypeExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -7493,7 +7493,7 @@ class HogQLParser ( Parser ):
                         self.state = 1037
                         self.identifier()
                         self.state = 1038
-                        self.columnTypeExpr(0)
+                        self.columnTypeExpr(0) 
                     self.state = 1044
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,135,self._ctx)
@@ -7528,7 +7528,7 @@ class HogQLParser ( Parser ):
                         self.state = 1053
                         self.match(HogQLParser.COMMA)
                         self.state = 1054
-                        self.enumValue()
+                        self.enumValue() 
                     self.state = 1059
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,137,self._ctx)
@@ -7563,7 +7563,7 @@ class HogQLParser ( Parser ):
                         self.state = 1068
                         self.match(HogQLParser.COMMA)
                         self.state = 1069
-                        self.columnTypeExpr(0)
+                        self.columnTypeExpr(0) 
                     self.state = 1074
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,139,self._ctx)
@@ -7606,7 +7606,7 @@ class HogQLParser ( Parser ):
                 _prevctx = localctx
                 self.state = 1087
                 self.identifier()
-                self.state = 1089
+                self.state = 1089 
                 self._errHandler.sync(self)
                 _alt = 1
                 while _alt!=2 and _alt!=ATN.INVALID_ALT_NUMBER:
@@ -7616,7 +7616,7 @@ class HogQLParser ( Parser ):
 
                     else:
                         raise NoViableAltException(self)
-                    self.state = 1091
+                    self.state = 1091 
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,142,self._ctx)
 
@@ -7657,7 +7657,7 @@ class HogQLParser ( Parser ):
 
 
                     self.state = 1101
-                    self.match(HogQLParser.RBRACKET)
+                    self.match(HogQLParser.RBRACKET) 
                 self.state = 1106
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,145,self._ctx)
@@ -7682,7 +7682,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_columnTypeCastExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -7953,7 +7953,7 @@ class HogQLParser ( Parser ):
                     self.state = 1127
                     self.match(HogQLParser.COMMA)
                     self.state = 1128
-                    self.columnExpr(0)
+                    self.columnExpr(0) 
                 self.state = 1133
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,149,self._ctx)
@@ -7986,7 +7986,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_selectColumnExprListBeforeFrom
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -8056,7 +8056,7 @@ class HogQLParser ( Parser ):
                         self.state = 1138
                         self.match(HogQLParser.COMMA)
                         self.state = 1139
-                        self.selectColumnExpr()
+                        self.selectColumnExpr() 
                     self.state = 1144
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,151,self._ctx)
@@ -8131,7 +8131,7 @@ class HogQLParser ( Parser ):
                     self.state = 1151
                     self.match(HogQLParser.COMMA)
                     self.state = 1152
-                    self.selectColumnExpr()
+                    self.selectColumnExpr() 
                 self.state = 1157
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,153,self._ctx)
@@ -8164,7 +8164,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_selectColumnExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -8314,7 +8314,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_columnExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -10045,7 +10045,7 @@ class HogQLParser ( Parser ):
                     localctx.caseExpr = self.columnExpr(0)
 
 
-                self.state = 1183
+                self.state = 1183 
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
                 while True:
@@ -10057,7 +10057,7 @@ class HogQLParser ( Parser ):
                     self.match(HogQLParser.THEN)
                     self.state = 1181
                     localctx.thenExpr = self.columnExpr(0)
-                    self.state = 1185
+                    self.state = 1185 
                     self._errHandler.sync(self)
                     _la = self._input.LA(1)
                     if not (_la==126):
@@ -10842,7 +10842,7 @@ class HogQLParser ( Parser ):
                         self.state = 1476
                         self.match(HogQLParser.COMMA)
                         self.state = 1477
-                        self.identifier()
+                        self.identifier() 
                     self.state = 1482
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,181,self._ctx)
@@ -11514,7 +11514,7 @@ class HogQLParser ( Parser ):
 
                         pass
 
-
+             
                 self.state = 1667
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,201,self._ctx)
@@ -11539,7 +11539,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_columnLambdaExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -11643,7 +11643,7 @@ class HogQLParser ( Parser ):
                             self.state = 1670
                             self.match(HogQLParser.COMMA)
                             self.state = 1671
-                            self.identifier()
+                            self.identifier() 
                         self.state = 1676
                         self._errHandler.sync(self)
                         _alt = self._interp.adaptivePredict(self._input,202,self._ctx)
@@ -11671,7 +11671,7 @@ class HogQLParser ( Parser ):
                             self.state = 1683
                             self.match(HogQLParser.COMMA)
                             self.state = 1684
-                            self.identifier()
+                            self.identifier() 
                         self.state = 1689
                         self._errHandler.sync(self)
                         _alt = self._interp.adaptivePredict(self._input,204,self._ctx)
@@ -11727,7 +11727,7 @@ class HogQLParser ( Parser ):
                         self.state = 1704
                         self.match(HogQLParser.COMMA)
                         self.state = 1705
-                        self.identifier()
+                        self.identifier() 
                     self.state = 1710
                     self._errHandler.sync(self)
                     _alt = self._interp.adaptivePredict(self._input,208,self._ctx)
@@ -11995,7 +11995,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_hogqlxTagElement
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -12284,7 +12284,7 @@ class HogQLParser ( Parser ):
                     self.state = 1786
                     self.match(HogQLParser.COMMA)
                     self.state = 1787
-                    self.withExpr()
+                    self.withExpr() 
                 self.state = 1792
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,218,self._ctx)
@@ -12317,7 +12317,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_withExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -12661,7 +12661,7 @@ class HogQLParser ( Parser ):
                     self.state = 1843
                     self.match(HogQLParser.DOT)
                     self.state = 1844
-                    self.identifier()
+                    self.identifier() 
                 self.state = 1849
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,228,self._ctx)
@@ -12686,7 +12686,7 @@ class HogQLParser ( Parser ):
         def getRuleIndex(self):
             return HogQLParser.RULE_tableExpr
 
-
+     
         def copyFrom(self, ctx:ParserRuleContext):
             super().copyFrom(ctx)
 
@@ -13070,7 +13070,7 @@ class HogQLParser ( Parser ):
 
                         pass
 
-
+             
                 self.state = 1900
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,235,self._ctx)
@@ -13121,7 +13121,7 @@ class HogQLParser ( Parser ):
             self.enterOuterAlt(localctx, 1)
             self.state = 1901
             self.match(HogQLParser.FOR)
-            self.state = 1903
+            self.state = 1903 
             self._errHandler.sync(self)
             _alt = 1
             while _alt!=2 and _alt!=ATN.INVALID_ALT_NUMBER:
@@ -13131,7 +13131,7 @@ class HogQLParser ( Parser ):
 
                 else:
                     raise NoViableAltException(self)
-                self.state = 1905
+                self.state = 1905 
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,236,self._ctx)
 
@@ -13254,7 +13254,7 @@ class HogQLParser ( Parser ):
                     self.state = 1914
                     self.match(HogQLParser.COMMA)
                     self.state = 1915
-                    self.unpivotColumn()
+                    self.unpivotColumn() 
                 self.state = 1920
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,237,self._ctx)
@@ -13686,7 +13686,7 @@ class HogQLParser ( Parser ):
                     self.state = 1975
                     self.match(HogQLParser.COMMA)
                     self.state = 1976
-                    self.columnExpr(0)
+                    self.columnExpr(0) 
                 self.state = 1981
                 self._errHandler.sync(self)
                 _alt = self._interp.adaptivePredict(self._input,244,self._ctx)
@@ -14502,7 +14502,7 @@ class HogQLParser ( Parser ):
             self.enterOuterAlt(localctx, 1)
             self.state = 2019
             _la = self._input.LA(1)
-            if not(((_la) & ~0x3f) == 0 and ((1 << _la) & 576531155409436672) != 0):
+            if not((((_la) & ~0x3f) == 0 and ((1 << _la) & 576531155409436672) != 0)):
                 self._errHandler.recoverInline(self)
             else:
                 self._errHandler.reportMatch(self)
@@ -15216,134 +15216,134 @@ class HogQLParser ( Parser ):
     def joinExpr_sempred(self, localctx:JoinExprContext, predIndex:int):
             if predIndex == 0:
                 return self.precpred(self._ctx, 5)
-
+         
 
             if predIndex == 1:
                 return self.precpred(self._ctx, 7)
-
+         
 
             if predIndex == 2:
                 return self.precpred(self._ctx, 6)
-
+         
 
             if predIndex == 3:
                 return self.precpred(self._ctx, 4)
-
+         
 
             if predIndex == 4:
                 return self.precpred(self._ctx, 3)
-
+         
 
     def columnTypeExpr_sempred(self, localctx:ColumnTypeExprContext, predIndex:int):
             if predIndex == 5:
                 return self.precpred(self._ctx, 7)
-
+         
 
     def columnExpr_sempred(self, localctx:ColumnExprContext, predIndex:int):
             if predIndex == 6:
                 return self.precpred(self._ctx, 25)
-
+         
 
             if predIndex == 7:
                 return self.precpred(self._ctx, 24)
-
+         
 
             if predIndex == 8:
                 return self.precpred(self._ctx, 23)
-
+         
 
             if predIndex == 9:
                 return self.precpred(self._ctx, 20)
-
+         
 
             if predIndex == 10:
                 return self.precpred(self._ctx, 19)
-
+         
 
             if predIndex == 11:
                 return self.precpred(self._ctx, 18)
-
+         
 
             if predIndex == 12:
                 return self.precpred(self._ctx, 16)
-
+         
 
             if predIndex == 13:
                 return self.precpred(self._ctx, 15)
-
+         
 
             if predIndex == 14:
                 return self.precpred(self._ctx, 14)
-
+         
 
             if predIndex == 15:
                 return self.precpred(self._ctx, 13)
-
+         
 
             if predIndex == 16:
                 return self.precpred(self._ctx, 39)
-
+         
 
             if predIndex == 17:
                 return self.precpred(self._ctx, 38)
-
+         
 
             if predIndex == 18:
                 return self.precpred(self._ctx, 34)
-
+         
 
             if predIndex == 19:
                 return self.precpred(self._ctx, 33)
-
+         
 
             if predIndex == 20:
                 return self.precpred(self._ctx, 32)
-
+         
 
             if predIndex == 21:
                 return self.precpred(self._ctx, 31)
-
+         
 
             if predIndex == 22:
                 return self.precpred(self._ctx, 30)
-
+         
 
             if predIndex == 23:
                 return self.precpred(self._ctx, 29)
-
+         
 
             if predIndex == 24:
                 return self.precpred(self._ctx, 28)
-
+         
 
             if predIndex == 25:
                 return self.precpred(self._ctx, 27)
-
+         
 
             if predIndex == 26:
                 return self.precpred(self._ctx, 22)
-
+         
 
             if predIndex == 27:
                 return self.precpred(self._ctx, 21)
-
+         
 
             if predIndex == 28:
                 return self.precpred(self._ctx, 12)
-
+         
 
     def tableExpr_sempred(self, localctx:TableExprContext, predIndex:int):
             if predIndex == 29:
                 return self.precpred(self._ctx, 5)
-
+         
 
             if predIndex == 30:
                 return self.precpred(self._ctx, 4)
-
+         
 
             if predIndex == 31:
                 return self.precpred(self._ctx, 3)
-
+         
 
 
 

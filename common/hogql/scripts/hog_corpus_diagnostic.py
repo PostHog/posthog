@@ -75,7 +75,7 @@ from common.hogql.scripts._diagnostic_common import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DUMP = REPO_ROOT / "posthog" / "hogql" / "scripts" / ".local" / "hog_corpus.json"
+DEFAULT_DUMP = REPO_ROOT / "common" / "hogql" / "scripts" / ".local" / "hog_corpus.json"
 
 # Hog functions are heavily template-instantiated, so unique `hog`
 # sources number only a few thousand — well under any page ceiling.
