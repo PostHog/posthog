@@ -64,26 +64,22 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 },
 
                 updateRemoteConfig: async ({ config }) => {
+                    const payload = {
+                        ...values.hedgehogConfig,
+                        ...config,
+                    }
+
+                    // Inside the Toolbar we only read hedgehog config — the toolbar's OAuth token
+                    // is intentionally not granted user:write. A PATCH would 403, and toolbarFetch
+                    // treats any 403 as an expired session, clearing the token and breaking the rest
+                    // of the toolbar. Update local state only; persistence happens in the main app.
+                    if (toolbarConfigLogic.findMounted()) {
+                        return payload
+                    }
+
                     try {
                         const endpoint = '/api/users/@me/hedgehog_config'
-                        let newConfig: Partial<HedgehogConfig>
-
-                        const payload = {
-                            ...values.hedgehogConfig,
-                            ...config,
-                        }
-
-                        const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                        if (mountedToolbarConfigLogic) {
-                            // If toolbarConfigLogic is mounted, we're inside the Toolbar
-                            if (!mountedToolbarConfigLogic.values.isAuthenticated) {
-                                return null
-                            }
-                            newConfig = await (await toolbarFetch(endpoint, 'PATCH', payload)).json()
-                        } else {
-                            newConfig = await api.update(endpoint, payload)
-                        }
-
+                        const newConfig = await api.update<Partial<HedgehogConfig>>(endpoint, payload)
                         return newConfig ?? null
                     } catch (e) {
                         console.error('Failed to update hedgehog remote config', e)
