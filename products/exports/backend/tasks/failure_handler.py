@@ -5,7 +5,6 @@ from django.db import OperationalError
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from selenium.common import TimeoutException
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
 from posthog.hogql.errors import (
@@ -79,6 +78,12 @@ class ExcelColumnLimitExceeded(Exception):
         )
 
 
+class InvalidExportContext(Exception):
+    """Raised when an export's export_context lacks a renderable target."""
+
+    pass
+
+
 EXCEPTIONS_TO_RETRY = (
     *CH_TRANSIENT_ERRORS,
     OperationalError,
@@ -113,12 +118,12 @@ USER_QUERY_ERRORS = (
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
+    InvalidExportContext,
 )
 
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
-    TimeoutException,
     PlaywrightTimeoutError,
     ExportCancelled,
 )
@@ -126,7 +131,9 @@ TIMEOUT_ERRORS = (
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
-TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS)
+# "TimeoutException" kept literally: historical ExportedAsset rows from the retired selenium
+# render path stored that exception name and must still classify as timeouts.
+TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
 
 
 def classify_failure_type(exception: Exception | str) -> str:

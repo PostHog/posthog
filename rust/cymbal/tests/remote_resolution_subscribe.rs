@@ -17,7 +17,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::remote::{EndpointPool, RemoteResolutionConfig};
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::symbol_store::chunk_id::OrChunkId;
@@ -37,7 +37,7 @@ impl SymbolResolver for EmptyResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }

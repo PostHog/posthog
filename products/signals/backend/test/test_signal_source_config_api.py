@@ -396,3 +396,7 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
     def test_pganalyze_disabled_when_no_config(self):
         assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False
+
+    def test_replay_vision_scanner_finding_is_self_authorizing(self):
+        # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True

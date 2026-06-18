@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AchievementsListResponseApi,
+    AcknowledgeCelebrationRequestApi,
+    AcknowledgeCelebrationResponseApi,
     HeatmapEventsResponseApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
@@ -18,6 +21,9 @@ import type {
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    RecordInteractionRequestApi,
+    RecordInteractionResponseApi,
+    RecordVisitResponseApi,
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
@@ -291,6 +297,87 @@ export const webAnalyticsWeeklyDigest = async (
     return apiMutator<WeeklyDigestResponseApi>(getWebAnalyticsWeeklyDigestUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsAcknowledgeCelebrationUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/acknowledge_celebration/`
+}
+
+/**
+ * Clears a pending celebration for the given track and stage once the client has shown it, so it isn't celebrated again. Idempotent.
+ * @summary Acknowledge an achievement celebration
+ */
+export const webAnalyticsAchievementsAcknowledgeCelebration = async (
+    projectId: string,
+    acknowledgeCelebrationRequestApi: AcknowledgeCelebrationRequestApi,
+    options?: RequestInit
+): Promise<AcknowledgeCelebrationResponseApi> => {
+    return apiMutator<AcknowledgeCelebrationResponseApi>(
+        getWebAnalyticsAchievementsAcknowledgeCelebrationUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(acknowledgeCelebrationRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsAchievementsOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/overview/`
+}
+
+/**
+ * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's and team's progress, and any newly unlocked stages awaiting an in-session celebration.
+ * @summary Get Web analytics achievements overview
+ */
+export const webAnalyticsAchievementsOverview = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AchievementsListResponseApi> => {
+    return apiMutator<AchievementsListResponseApi>(getWebAnalyticsAchievementsOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsRecordInteractionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/record_interaction/`
+}
+
+/**
+ * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Data Hog and Detective Hog achievement tracks.
+ * @summary Record a Web analytics interaction
+ */
+export const webAnalyticsAchievementsRecordInteraction = async (
+    projectId: string,
+    recordInteractionRequestApi: RecordInteractionRequestApi,
+    options?: RequestInit
+): Promise<RecordInteractionResponseApi> => {
+    return apiMutator<RecordInteractionResponseApi>(getWebAnalyticsAchievementsRecordInteractionUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordInteractionRequestApi),
+    })
+}
+
+export const getWebAnalyticsAchievementsRecordVisitUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/record_visit/`
+}
+
+/**
+ * Idempotently records that the requesting user opened Web analytics today (team-local date) and schedules a debounced achievement recompute. Intended to be called once per session.
+ * @summary Record a Web analytics visit
+ */
+export const webAnalyticsAchievementsRecordVisit = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RecordVisitResponseApi> => {
+    return apiMutator<RecordVisitResponseApi>(getWebAnalyticsAchievementsRecordVisitUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

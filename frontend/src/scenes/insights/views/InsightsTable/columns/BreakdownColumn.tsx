@@ -3,8 +3,8 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { isURL } from 'lib/utils/url'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -94,16 +94,23 @@ export function BreakdownColumnItem({
         ? parseAliasToReadable(breakdownLabel)
         : stringWithWBR(breakdownLabel, 20)
 
+    // Clipped with CSS only, so the full value stays in the DOM — copying the cell copies everything
     return (
         <div className="flex justify-between items-center">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
-                        <Link to={breakdownLabel} target="_blank" className="value-link font-medium" targetBlankIcon>
+                        <Link
+                            to={breakdownLabel}
+                            target="_blank"
+                            className="value-link font-medium line-clamp-4"
+                            title={breakdownLabel}
+                            targetBlankIcon
+                        >
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel} className="font-medium">
+                        <div title={breakdownLabel} className="font-medium line-clamp-4">
                             {formattedLabel}
                         </div>
                     )}

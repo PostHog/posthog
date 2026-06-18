@@ -9,12 +9,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.schema import ProductKey
-
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
+from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 APP_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {

@@ -107,7 +107,7 @@ export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {
                 names.push(spanName)
             }
         } else if (event.event === '$ai_generation') {
-            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant')) {
+            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant').messages) {
                 for (const tc of msg.tool_calls ?? []) {
                     const name = tc.function?.name
                     if (typeof name === 'string' && name) {
@@ -204,8 +204,8 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
         const rawOutput = readAiOutput(properties)
         const aiTools = properties.$ai_tools
 
-        const inputMessages = normalizeMessages(rawInput, 'user', aiTools)
-        const outputMessages = normalizeMessages(rawOutput, 'assistant')
+        const inputMessages = normalizeMessages(rawInput, 'user', aiTools).messages
+        const outputMessages = normalizeMessages(rawOutput, 'assistant').messages
 
         const newInputs: CompatMessage[] = []
         const msgCountThisTurn = new Map<string, number>()

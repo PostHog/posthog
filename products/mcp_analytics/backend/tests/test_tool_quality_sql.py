@@ -18,6 +18,7 @@ def test_tool_quality_sql_contains_required_columns() -> None:
         "error_rate_pct",
         "p50_duration_ms",
         "p95_duration_ms",
+        "p99_duration_ms",
         "users",
         "sessions",
         "first_seen",

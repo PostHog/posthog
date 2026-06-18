@@ -401,6 +401,7 @@ class TikTokAdsPaginator(BasePaginator):
                     40700,  # Internal service validation error
                     50000,  # System error
                     50002,  # Error processing request on TikTok side. Please see error message for details.
+                    51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
                     51305,  # Satellite service error
                     60001,  # The system is in maintenance.
                 ]

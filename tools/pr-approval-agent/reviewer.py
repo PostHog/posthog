@@ -225,7 +225,7 @@ class Reviewer:
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.repo_root),
-            max_turns=3 if quick else 20,
+            max_turns=5 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,

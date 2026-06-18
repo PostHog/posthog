@@ -1,11 +1,16 @@
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 
+export interface FullSnapshotRef {
+    timestamp: number
+    windowId: number
+}
+
 export interface SourceEntry {
     source: SessionRecordingSnapshotSource
     index: number
     state: 'unloaded' | 'loaded'
     processedSnapshots: RecordingSnapshot[] | null
-    fullSnapshotTimestamps: number[]
+    fullSnapshots: FullSnapshotRef[]
     metaTimestamps: number[]
     startMs: number
     endMs: number
@@ -13,7 +18,7 @@ export interface SourceEntry {
 
 export interface LoadBatch {
     sourceIndices: number[]
-    reason: 'seek_target' | 'seek_backward' | 'seek_gap_fill' | 'buffer_ahead' | 'load_all'
+    reason: 'seek_target' | 'seek_backward' | 'seek_gap_fill' | 'seek_forward' | 'buffer_ahead' | 'load_all'
 }
 
 export interface SourceLoadingState {
@@ -22,4 +27,7 @@ export interface SourceLoadingState {
     state: 'unloaded' | 'loaded'
 }
 
-export type Mode = { kind: 'buffer_ahead' } | { kind: 'seek'; targetTimestamp: number } | { kind: 'load_all' }
+export type Mode =
+    | { kind: 'buffer_ahead' }
+    | { kind: 'seek'; targetTimestamp: number; targetWindowId?: number }
+    | { kind: 'load_all' }

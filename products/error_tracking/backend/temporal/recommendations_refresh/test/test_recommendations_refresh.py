@@ -14,13 +14,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL
 from products.error_tracking.backend.temporal.recommendations_refresh.activities import (
     get_team_batches_activity,
@@ -37,15 +37,15 @@ from products.error_tracking.backend.temporal.recommendations_refresh.workflow i
     ErrorTrackingRecommendationsRefreshWorkflow,
 )
 
-_ALERTS_COMPUTE_BATCH = "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute_batch"
-_LONG_RUNNING_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
+_ALERTS_COMPUTE_BATCH = (
+    "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute_batch"
 )
+_LONG_RUNNING_COMPUTE_BATCH = "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
 _SOURCE_MAPS_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
+    "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
 )
 _RATE_LIMITS_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.rate_limits.RateLimitsRecommendation.compute_batch"
+    "products.error_tracking.backend.logic.recommendations.rate_limits.RateLimitsRecommendation.compute_batch"
 )
 
 _ALERTS_META = {"alerts": [{"key": "error-tracking-issue-created", "enabled": False}]}
@@ -151,6 +151,40 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
         for row in alerts_rows:
             assert row.status == ErrorTrackingRecommendation.Status.READY
             assert row.computed_at is None
+
+    @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
+    @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
+    @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
+    def test_skips_deleted_teams_without_failing_batch(self, _alerts, _long, _source, _rate_limits):
+        # ClickHouse retains events for teams later deleted from Postgres; the batch must
+        # process surviving teams and not blow up on the missing team_id foreign key.
+        deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
+        deleted_team_id = deleted_team.id
+        deleted_team.delete()
+
+        result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, deleted_team_id]))
+
+        # teams_processed reflects only the surviving team, not the raw input count.
+        assert result.teams_processed == 1
+        assert result.recommendations_kicked == 4
+        assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 4
+        assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
+
+    @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
+    @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
+    @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
+    def test_all_teams_deleted_kicks_nothing(self, _alerts, _long, _source, _rate_limits):
+        deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
+        deleted_team_id = deleted_team.id
+        deleted_team.delete()
+
+        result = _run_batch_activity(RefreshBatchInputs(team_ids=[deleted_team_id]))
+
+        assert result.teams_processed == 0
+        assert result.recommendations_kicked == 0
+        assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))

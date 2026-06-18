@@ -208,66 +208,26 @@ export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
 
 export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
+    name: zod.string().nullish().describe('Optional issue display name.'),
+    description: zod.string().nullish().describe('Optional issue description.'),
 })
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
+    name: zod.string().nullish().describe('Optional issue display name.'),
+    description: zod.string().nullish().describe('Optional issue description.'),
 })
 
 export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({

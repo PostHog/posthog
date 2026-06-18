@@ -299,6 +299,7 @@ def ensure_web_stats_paths_precomputed(
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
+        spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
 
 

@@ -27,7 +27,7 @@ class TestWrikeSource:
         assert config.name.value == "Wrike"
         assert config.label == "Wrike"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/wrike.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

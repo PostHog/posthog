@@ -120,6 +120,13 @@ class TestAccountContext(NonAtomicBaseTest):
         assert "group type index 2" in result
         assert 'group key "acme-1"' in result
 
+    async def test_billing_insights_clause_lists_configured_short_ids(self):
+        # Pins the real short_ids: fails if the constants are deleted, emptied, or changed by accident.
+        assert (
+            AccountContext(team=self.team)._billing_insights_clause()
+            == " (Usage insight short ids: fiJDsKLp; Spend insight short ids: o4I9sdFE, Tjo4bsux)"
+        )
+
     async def test_analysis_not_configured_when_group_type_index_missing(self):
         account = await self._create_account(name="Acme Corp", external_id="acme-1")
 

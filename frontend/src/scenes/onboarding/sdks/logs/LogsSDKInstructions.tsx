@@ -1,5 +1,6 @@
 import {
     AndroidInstallation,
+    FlutterInstallation,
     GoInstallation,
     IOSInstallation,
     JavaInstallation,
@@ -53,6 +54,10 @@ const LogsAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
 })
 
+const LogsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FlutterInstallation,
+})
+
 export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NODE_JS]: LogsNodeJSInstructionsWrapper,
     [SDKKey.NEXT_JS]: LogsNextJSInstructionsWrapper,
@@ -63,4 +68,5 @@ export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.IOS]: LogsIOSInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: LogsReactNativeInstructionsWrapper,
     [SDKKey.ANDROID]: LogsAndroidInstructionsWrapper,
+    [SDKKey.FLUTTER]: LogsFlutterInstructionsWrapper,
 }

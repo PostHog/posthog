@@ -29,6 +29,7 @@ import { SidePanelTab } from '~/types'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { MaxNotConfigured } from './components/MaxNotConfigured'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
@@ -95,6 +96,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     } = useValues(maxLogic(logicProps))
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         ...logicProps,
@@ -104,7 +106,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
-    const content = (
+    const content = !isMaxAvailable ? (
+        <MaxNotConfigured />
+    ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (

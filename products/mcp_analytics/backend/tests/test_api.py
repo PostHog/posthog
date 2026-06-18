@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend import intent_generation
@@ -92,7 +94,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         session_start: datetime | None = None,
         session_end: datetime | None = None,
     ) -> None:
-        """Seed one mcp_tool_call event per element of ``tool_sequence``.
+        """Seed one $mcp_tool_call event per element of ``tool_sequence``.
 
         tool_call_count == len(tool_sequence); tools_used == its distinct values.
         Events span [session_start, session_end] so min/max timestamps line up.
@@ -106,7 +108,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             timestamp = session_end if n == 1 else session_start + span * (i / (n - 1))
             _create_event(
                 team=self.team,
-                event="mcp_tool_call",
+                event="$mcp_tool_call",
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 properties={
@@ -175,7 +177,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         self._seed_session(kept, ["query_run"])
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="anon_noisy",
             timestamp=datetime.now(tz=UTC),
             properties={"$mcp_tool_name": "query_run"},
@@ -301,7 +303,7 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
     def _seed_intent_event(self, session_id: str, intent: str, tool: str = "query_run") -> None:
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
             properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
@@ -347,10 +349,10 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
 
     def test_no_recorded_intents_returns_message_without_calling_llm_or_persisting(self) -> None:
         session_id = str(uuid7())
-        # mcp_tool_call event without a $mcp_intent property.
+        # $mcp_tool_call event without a $mcp_intent property.
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
             properties={"$mcp_session_id": session_id, "$mcp_tool_name": "query_run"},
@@ -375,3 +377,46 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
 
         assert len(sessions) == 1
         assert sessions[0].intent == "Persisted summary."
+
+
+class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """Session-detail queries bound the scan to SESSION_EVENTS_LOOKBACK so the
+    events sort key can prune instead of reading the team's full history."""
+
+    def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str, intent: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=timestamp,
+            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "tool_calls",
+                lambda self, sid: [c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid)],
+                ["recent_tool"],
+            ),
+            (
+                "session_intents",
+                lambda self, sid: intent_generation.fetch_session_intents(self.team, sid),
+                ["recent intent"],
+            ),
+        ]
+    )
+    def test_excludes_events_older_than_lookback(self, _name, fetch, expected) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_tool_call(
+            session_id, timestamp=now - timedelta(minutes=5), tool="recent_tool", intent="recent intent"
+        )
+        self._seed_tool_call(
+            session_id,
+            timestamp=now - intent_generation.SESSION_EVENTS_LOOKBACK - timedelta(days=1),
+            tool="ancient_tool",
+            intent="ancient intent",
+        )
+
+        assert fetch(self, session_id) == expected

@@ -5,18 +5,15 @@ import hashlib
 import secrets
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthApplication
-from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY as _RSA_KEY
 
 from ee.api.agentic_provisioning.signature import compute_signature
 
@@ -32,13 +29,10 @@ def _pkce_pair():
     return verifier, challenge
 
 
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestProvisioningAuthentication(APIBaseTest):
     def setUp(self):
@@ -630,14 +624,11 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@pytest.mark.requires_secrets
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 @override_settings(
     STRIPE_APP_SECRET_KEY=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestCimdProvisioningAutoRegistration(APIBaseTest):
     def setUp(self):

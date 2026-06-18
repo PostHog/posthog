@@ -615,6 +615,7 @@ class UpdateAction(BaseModel):
 class ConversationTitleAction(BaseModel):
     type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
     title: str
+    topic: str | None = None
 
 
 AssistantActionUnion = (

@@ -33,6 +33,7 @@ const createMockSpan = (uuid: string, timestamp: string): Span => ({
     is_root_span: true,
     matched_filter: true,
     attributes: {},
+    resource_attributes: {},
 })
 
 const mockSpans: Span[] = [

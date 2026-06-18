@@ -76,6 +76,7 @@ export const manifest: ProductManifest = {
             href: urls.replayVision(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
+            pinnedByDefault: true,
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

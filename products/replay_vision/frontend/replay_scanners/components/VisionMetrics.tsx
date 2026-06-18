@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
@@ -8,10 +8,13 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
+import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { projectQuota } from '../../utils/quotaProjection'
+import { QUOTA_STATUS_STYLES, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
-import { SCANNER_TYPE_OPTIONS, SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../types'
+import { SCANNER_TYPE_OPTIONS } from '../types'
+import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QuotaStatusLine } from './QuotaStatusLine'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
 const COLLECTION_ID = 'replay-vision-list-observations'
@@ -22,13 +25,9 @@ export function VisionMetrics(): JSX.Element {
     const { quota } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
-    const { resetsOn, status, daysRemaining, combinedDailyRate } = projection
-    const used = quota?.usage_this_month ?? 0
-    const cap = quota?.monthly_quota ?? 0
-    const hasCap = cap > 0
-    const usedPct = hasCap ? Math.min((used / cap) * 100, 100) : 0
-    const additionalUsagePct = hasCap ? Math.min((combinedDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
-    const projectedBarColor = status === 'danger' ? 'bg-danger' : status === 'warning' ? 'bg-warning' : 'bg-success'
+    const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
+    const hasCap = (quota?.monthly_quota ?? 0) > 0
+    const styles = QUOTA_STATUS_STYLES[status]
 
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const chartSource: TrendsQuery = {
@@ -89,15 +88,26 @@ export function VisionMetrics(): JSX.Element {
                         {SCANNER_TYPE_OPTIONS.map(({ value }) => {
                             const { enabled = 0, total = 0 } = scannerStats?.by_type?.[value] ?? {}
                             return (
-                                <LemonTag key={value} type={total > 0 ? SCANNER_TYPE_TAG_TYPE[value] : 'muted'}>
-                                    {scannerTypeLabel(value)} {enabled}/{total}
-                                </LemonTag>
+                                <ScannerTypeBadge
+                                    key={value}
+                                    scannerType={value}
+                                    variant={total > 0 ? 'default' : 'muted'}
+                                    suffix={`${enabled}/${total}`}
+                                />
                             )
                         })}
                     </div>
                 </div>
                 <div className="flex-1 bg-bg-light border rounded p-4 flex flex-col">
-                    <div className="text-muted text-xs font-medium uppercase mb-2">Observations this month</div>
+                    <div className="flex items-baseline justify-between gap-3 mb-2">
+                        <div className="text-muted text-xs font-medium uppercase">Observations this month</div>
+                        {hasCap && (
+                            <span className={`text-xs tabular-nums ${styles.text}`}>
+                                {percentLabel}%{' '}
+                                <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
+                            </span>
+                        )}
+                    </div>
                     {quota ? (
                         <>
                             <div className="text-3xl font-semibold tabular-nums">
@@ -114,52 +124,33 @@ export function VisionMetrics(): JSX.Element {
                                             Used this month: <strong>{quota.usage_this_month.toLocaleString()}</strong>
                                         </div>
                                         <div>
+                                            Projected from enabled scanners:{' '}
+                                            <strong>
+                                                ~{quota.projected_monthly_observations.toLocaleString()}/month
+                                            </strong>
+                                        </div>
+                                        <div>
                                             Monthly quota: <strong>{quota.monthly_quota.toLocaleString()}</strong>
                                         </div>
                                         {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                     </div>
                                 }
                             >
-                                <div
-                                    className="flex h-3 rounded overflow-hidden bg-fill-tertiary mt-2"
-                                    role="meter"
-                                    aria-valuemin={0}
-                                    aria-valuemax={100}
-                                    aria-valuenow={Math.round(usedPct + additionalUsagePct)}
-                                    aria-label={`${Math.round(usedPct + additionalUsagePct)}% of monthly observation quota`}
-                                >
-                                    <div className="bg-muted" style={{ width: `${usedPct}%` }} />
-                                    <div
-                                        className={projectedBarColor}
-                                        style={{
-                                            width: `${additionalUsagePct}%`,
-                                            backgroundImage:
-                                                'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)',
-                                        }}
-                                    />
-                                </div>
+                                <QuotaMeterBar
+                                    className="mt-2"
+                                    usedPct={usedPct}
+                                    projected={[{ pct: projectedPct, barClass: styles.bar, striped: true }]}
+                                    valueNow={percentLabel}
+                                    label={`Projected ${percentLabel}% of monthly observation quota`}
+                                />
                             </Tooltip>
                             <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
-                                <div className="flex items-center gap-1">
-                                    <span className="inline-block w-2 h-2 rounded-sm bg-muted" />
-                                    Used
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span
-                                        className={`inline-block w-2 h-2 rounded-sm ${projectedBarColor}`}
-                                        style={{
-                                            backgroundImage:
-                                                'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 2px, transparent 2px, transparent 4px)',
-                                        }}
-                                    />
+                                <QuotaMeterLegendItem>Used</QuotaMeterLegendItem>
+                                <QuotaMeterLegendItem barClass={styles.bar} striped>
                                     Projected
-                                </div>
-                                <span className="ml-auto text-muted">
-                                    {quota.exhausted ? (
-                                        <span className="text-danger">Quota exhausted</span>
-                                    ) : (
-                                        `${quota.remaining.toLocaleString()} remaining`
-                                    )}
+                                </QuotaMeterLegendItem>
+                                <span className="ml-auto">
+                                    <QuotaStatusLine projection={projection} />
                                 </span>
                             </div>
                         </>
