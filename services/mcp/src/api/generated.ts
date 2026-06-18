@@ -46571,15 +46571,6 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
-    export interface SuggestReplyError {
-      detail: string;
-      error_type?: string;
-    }
-
-    export interface SuggestReplyResponse {
-      suggestion: string;
-    }
-
     /**
      * * `trace` - trace
      * * `event` - event
@@ -48200,6 +48191,11 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TicketError {
+      detail: string;
+      error_type?: string;
     }
 
     /**
