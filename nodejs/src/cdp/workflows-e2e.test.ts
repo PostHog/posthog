@@ -45,6 +45,7 @@ import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CyclotronV2Janitor } from './services/cyclotron-v2'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
@@ -1554,6 +1555,119 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    it('NULL-seq email row is invisible to the worker until the janitor promotes it', async () => {
+        // End-to-end coverage for the janitor scheduled-email promotion pass:
+        //
+        //   1. Tightened partial index `idx_cyclotron_jobs_email_fair_dequeue`
+        //      excludes `dequeue_seq IS NULL`, so the email worker can't see
+        //      a NULL row at all.
+        //   2. Janitor's `promoteScheduledEmailJobs` pass assigns a fresh
+        //      per-team seq to NULL-seq rows whose `scheduled` is in window.
+        //   3. The promoted row enters the index and the email worker
+        //      processes it normally, firing the `email_sent` metric.
+        //
+        // Simulates the two production NULL-seq cases through the same code
+        // path: legacy pre-migration rows (drained on the janitor's first
+        // tick after deploy) and future-scheduled rows whose `scheduled`
+        // time has arrived but haven't been picked up yet. We trigger the
+        // workflow with the email worker stopped so the row sits queued
+        // long enough to clear its seq before the worker resumes polling.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Promotion test',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const emailsSent = () =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+        // Stop the email worker so the row stays available long enough for us to
+        // clear its seq before any poll picks it up.
+        await emailWorker.stop()
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Wait for the hogflow worker to enqueue the email job.
+        let emailJobId: string | undefined
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const email = jobs.find((j: any) => j.queue_name === 'email' && j.status === 'available')
+            expect(email).toBeDefined()
+            emailJobId = email.id
+        }, 10000)
+
+        // Clear the seq to simulate a legacy / not-yet-promoted row.
+        await cyclotronPool.query('UPDATE cyclotron_jobs SET dequeue_seq = NULL WHERE id = $1', [emailJobId])
+
+        // Restart the email worker in fair-dequeue mode — the path this PR
+        // changes. The tightened partial index excludes the NULL-seq row so
+        // the fair-dequeue scan can't see it. Non-fair (FIFO) mode is
+        // unaffected and would see it.
+        emailWorker = new CdpCyclotronWorkerEmail(
+            hub,
+            deps,
+            new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub, { fairDequeue: true })
+        )
+        await emailWorker.start()
+
+        // Give the worker time for several poll cycles. No email should send.
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        expect(emailsSent()).toBe(0)
+
+        // Run the janitor's promotion pass. We use a dedicated instance with
+        // `stallTimeoutMs` large enough that resetStalledJobs doesn't disturb
+        // any in-flight worker rows in other tests' beforeEach window.
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+            stallTimeoutMs: 60_000,
+            cleanupGraceMs: 60_000,
+        })
+        const result = await janitor.runOnce()
+        await janitor.stop()
+        expect(result.promoted).toBe(1)
+
+        // The promoted row is now in the index — the email worker dequeues
+        // and sends it on the next poll.
+        await waitForExpect(() => {
+            expect(emailsSent()).toBe(1)
+        }, 15000)
     })
 
     it('re-routes between hogflow and email queues across email → fetch → email', async () => {
