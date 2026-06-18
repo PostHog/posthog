@@ -1282,7 +1282,7 @@ class TestConversationSandboxRoute(APIBaseTest):
             m_session.return_value.open.return_value = sentinel
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
-                {"content": "hello", "trace_id": str(uuid.uuid4())},
+                {"content": "hello", "trace_id": str(uuid.uuid4()), "initial_permission_mode": "auto"},
                 format="json",
             )
 
@@ -1290,6 +1290,7 @@ class TestConversationSandboxRoute(APIBaseTest):
         # attached_context_count is internal telemetry plumbing, excluded from the response body.
         self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
         m_session.return_value.open.assert_called_once()
+        self.assertEqual(m_session.return_value.open.call_args[0][0]["initial_permission_mode"], "auto")
         # The session receives the resolved conversation, not just an id.
         passed_conversation = m_session.call_args[0][0]
         self.assertEqual(passed_conversation.id, conversation.id)
@@ -1430,6 +1431,7 @@ class TestConversationSandboxRoute(APIBaseTest):
         bad_payloads = [
             {"content": "x" * 40001},  # over the content length cap
             {"content": "hello", "trace_id": "not-a-uuid"},  # malformed trace id
+            {"content": "hello", "initial_permission_mode": "full-access"},  # Codex-only mode, not valid for Claude
         ]
         for payload in bad_payloads:
             with patch("ee.api.conversation.SandboxSession") as m_session:

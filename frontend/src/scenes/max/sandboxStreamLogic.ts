@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
@@ -65,6 +66,7 @@ export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
 export const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30
 /** A connection open at least this long before dropping is healthy — its drop is forgiven. */
 export const SSE_HEALTHY_CONNECTION_MS = 60_000
+export const SANDBOX_INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = 'auto'
 
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'

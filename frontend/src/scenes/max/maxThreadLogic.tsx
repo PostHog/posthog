@@ -68,14 +68,20 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { EnhancedToolCall, MODE_DEFINITIONS, TOOL_DEFINITIONS, ToolRegistration, getModeDisplayName } from './max-constants'
+import {
+    EnhancedToolCall,
+    MODE_DEFINITIONS,
+    TOOL_DEFINITIONS,
+    ToolRegistration,
+    getModeDisplayName,
+} from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
-import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
+import { SANDBOX_INITIAL_PERMISSION_MODE, isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
@@ -717,6 +723,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             content: streamData.content,
                             trace_id: traceId,
                             attached_context: attachedContext,
+                            initial_permission_mode: SANDBOX_INITIAL_PERMISSION_MODE,
                         })
                         if (handle) {
                             // The sent message consumes any in-flight warm — it's now the active run, so
@@ -1077,7 +1084,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Warm = open with no message: boots a Run that idles awaiting the first message. The
                 // returned handle lets a later release cancel exactly that Run via the relay (a full
                 // pool returns null — nothing to release).
-                const warm = await api.conversations.open(values.conversationId, { content: null })
+                const warm = await api.conversations.open(values.conversationId, {
+                    content: null,
+                    initial_permission_mode: SANDBOX_INITIAL_PERMISSION_MODE,
+                })
                 cache.warmRun = warm ? { taskId: warm.task_id, runId: warm.run_id } : null
                 cache.prewarmed = true
                 // If the user abandoned the input while this POST was in flight, the blur/empty

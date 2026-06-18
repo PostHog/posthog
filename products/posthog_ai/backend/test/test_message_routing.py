@@ -79,7 +79,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         # Run state enriched with the PostHog AI per-Run keys; full undeduped context.
         run.refresh_from_db()
         assert run.state["systemPrompt"] == "SYS"
-        assert run.state["initial_permission_mode"] == "default"
+        assert run.state["initial_permission_mode"] == "auto"
         assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
         assert "<posthog_context>" in run.state["pending_user_message"]
         assert run.state["pending_user_message"].endswith("Why did checkout drop?")
@@ -92,6 +92,21 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_first_message_honors_initial_permission_mode(self):
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open(
+                {
+                    "content": "Use plan mode",
+                    "trace_id": "trace-1",
+                    "initial_permission_mode": "plan",
+                }
+            )
+
+        run.refresh_from_db()
+        assert run.state["initial_permission_mode"] == "plan"
 
     def test_first_message_without_context_forwards_bare_content(self):
         task, run = self._stub_task()
@@ -241,7 +256,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
         assert new_run.state["systemPrompt"] == "SYS"
-        assert new_run.state["initial_permission_mode"] == "default"
+        assert new_run.state["initial_permission_mode"] == "auto"
         assert "resume please" in new_run.state["pending_user_message"]
 
         m_workflow.assert_called_once()
@@ -414,11 +429,26 @@ class TestSandboxWarmViaOpen(APIBaseTest):
         assert result.just_created_run is True
         assert run.state["systemPrompt"] == "SYS"
         assert run.state["await_user_message"] is True
-        assert run.state["initial_permission_mode"] == "default"
+        assert run.state["initial_permission_mode"] == "auto"
         # No pending message / attached context: the session boots and idles awaiting input.
         assert "pending_user_message" not in run.state
         assert "attached_context" not in run.state
         m_workflow.assert_called_once()
+
+    def test_warm_honors_initial_permission_mode(self):
+        with (
+            patch(f"{WARM}.execute_task_processing_workflow"),
+            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch.object(PromptService, "build", return_value="SYS"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = self._service().open({"initial_permission_mode": "plan"})
+
+        assert result is not None
+        self.conversation.refresh_from_db()
+        run = self.conversation.task.latest_run
+        assert run is not None
+        assert run.state["initial_permission_mode"] == "plan"
 
     def test_warm_is_idempotent_when_run_already_in_progress(self):
         task, run = self._stub_task()
