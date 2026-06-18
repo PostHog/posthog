@@ -8,12 +8,14 @@ only in canonical types.
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    GitHubSource,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
@@ -23,6 +25,10 @@ from products.engineering_analytics.backend.logic.queries.ci_cards import query_
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
+from products.engineering_analytics.backend.logic.sources import list_github_sources
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
@@ -43,6 +49,12 @@ def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: st
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
     return query_ci_cards(curated=curated)
+
+
+# Listing the team's connected sources is its own concern (no curated read handle): it threads the
+# requesting user's access control so the picker can't enumerate sources the user can't access.
+def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
+    return list_github_sources(team=team, user_access_control=user_access_control)
 
 
 def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | None = None) -> PullRequestList:

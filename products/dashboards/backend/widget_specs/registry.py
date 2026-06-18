@@ -10,13 +10,19 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
+    EXPERIMENT_RESULTS_WIDGET_TYPE,
+    EXPERIMENTS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
     ErrorTrackingListWidgetConfig,
+    ExperimentResultsWidgetConfig,
+    ExperimentsListWidgetConfig,
     SessionReplayListWidgetConfig,
 )
 
-DashboardWidgetType = Literal["activity_events_list", "error_tracking_list", "session_replay_list"]
+DashboardWidgetType = Literal[
+    "activity_events_list", "error_tracking_list", "session_replay_list", "experiments_list", "experiment_results"
+]
 
 __all__ = [
     "DashboardWidgetType",
@@ -24,6 +30,8 @@ __all__ = [
     "WidgetRegistryEntry",
     "WidgetSpec",
     "WIDGET_SPECS",
+    "count_active_widget_filters",
+    "extract_widget_filters",
     "get_widget_registry_entry",
     "get_widget_spec",
     "validate_widget_config",
@@ -44,6 +52,14 @@ class WidgetSpec:
     product_access_denied_message: str | None
     availability_requirements: tuple[str, ...]
     form_fields: tuple[str, ...]
+    # Config keys whose value represents an on-tile filter. A change to any of these emits the
+    # "dashboard widget filters updated" analytics event. Filters stored under a single `widgetFilters`
+    # record list that key; widgets that keep filters as top-level config keys (e.g. experiments) list each.
+    filter_fields: tuple[str, ...]
+
+
+# Status filters use this sentinel for "no status filter applied" — it must not count as an active filter.
+_STATUS_ANY_SENTINEL = "all"
 
 
 def validate_widget_config(widget_type: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +81,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
         run_activity_events_list_widget,
     )
     from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
 
     return {
@@ -81,6 +99,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message=None,
             availability_requirements=(),
             form_fields=("limit", "dateRange", "filterTestAccounts"),
+            filter_fields=(),
         ),
         ERROR_TRACKING_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ERROR_TRACKING_LIST_WIDGET_TYPE,
@@ -95,6 +114,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message="You do not have access to error tracking.",
             availability_requirements=("exception_autocapture",),
             form_fields=("limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"),
+            filter_fields=("widgetFilters",),
         ),
         SESSION_REPLAY_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -109,6 +129,37 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message="You do not have access to session replay.",
             availability_requirements=("session_replay_enabled",),
             form_fields=("limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"),
+            filter_fields=("widgetFilters",),
+        ),
+        EXPERIMENTS_LIST_WIDGET_TYPE: WidgetSpec(
+            widget_type=EXPERIMENTS_LIST_WIDGET_TYPE,
+            config_model=ExperimentsListWidgetConfig,
+            query_fn=run_experiments_list_widget,
+            required_scopes=("experiment:read",),
+            group_id="experiments",
+            group_label="Experiments",
+            label="Experiments list",
+            description="List of experiments filtered by status and creator.",
+            required_product_access="experiment",
+            product_access_denied_message="You do not have access to experiments.",
+            availability_requirements=(),
+            form_fields=("limit", "orderBy", "orderDirection", "status", "createdBy"),
+            filter_fields=("status", "createdBy"),
+        ),
+        EXPERIMENT_RESULTS_WIDGET_TYPE: WidgetSpec(
+            widget_type=EXPERIMENT_RESULTS_WIDGET_TYPE,
+            config_model=ExperimentResultsWidgetConfig,
+            query_fn=run_experiment_results_widget,
+            required_scopes=("experiment:read",),
+            group_id="experiments",
+            group_label="Experiments",
+            label="Experiment results",
+            description="Current results for the primary metrics of a selected experiment.",
+            required_product_access="experiment",
+            product_access_denied_message="You do not have access to experiments.",
+            availability_requirements=(),
+            form_fields=("experimentId",),
+            filter_fields=("experimentId",),
         ),
     }
 
@@ -137,3 +188,29 @@ def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
 
 def get_widget_spec(widget_type: str) -> WidgetSpec | None:
     return WIDGET_SPECS.get(widget_type)
+
+
+def extract_widget_filters(widget_type: str, config: dict[str, Any] | None) -> dict[str, Any]:
+    """Filter-bearing subset of a widget config, used to detect tile-filter changes for analytics."""
+    spec = WIDGET_SPECS.get(widget_type)
+    if spec is None or config is None:
+        return {}
+    return {field: config.get(field) for field in spec.filter_fields}
+
+
+def count_active_widget_filters(widget_type: str, config: dict[str, Any] | None) -> int:
+    """How many filters are actively applied on the tile (0 = no filters, e.g. just cleared)."""
+    spec = WIDGET_SPECS.get(widget_type)
+    if spec is None or config is None:
+        return 0
+    count = 0
+    for field in spec.filter_fields:
+        value = config.get(field)
+        if isinstance(value, (dict, list)):
+            count += len(value)
+        elif field == "status":
+            if value not in (None, _STATUS_ANY_SENTINEL):
+                count += 1
+        elif value is not None:
+            count += 1
+    return count

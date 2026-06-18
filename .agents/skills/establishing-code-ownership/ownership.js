@@ -12,12 +12,13 @@
 //      only the blocking owner; it does not erase a soft mapping.
 //   3. No owner from either file means unowned.
 //
-// Glob matching is NOT reimplemented here: it reuses fileMatchesPattern from
-// .github/scripts/assign-reviewers.js, the same matcher PostHog's reviewer
-// auto-assigner runs in CI, so answers stay in lockstep with what CI assigns.
-// That matcher is intentionally stricter than GitHub's docs: patterns are
-// anchored, a slash-free pattern matches only at the root, and a directory must
-// carry a trailing slash (or /**) to match its contents.
+// Glob matching is NOT reimplemented here: it uses the vendored, GitHub-faithful
+// matcher in .github/scripts/codeowners.js (a JS port of hmarr/codeowners), the
+// same matcher PostHog's reviewer auto-assigner runs in CI, so answers stay in
+// lockstep with what CI assigns. It reproduces GitHub's own CODEOWNERS rules (a
+// slash-free pattern matches at any depth, a trailing slash matches a directory
+// and its contents, `dir/*` matches only direct children), so a dead entry here
+// is dead for GitHub too — not a quirk of a stricter local matcher.
 //
 // Usage:
 //   ownership.js file <path>... [--all]        who owns these files
@@ -45,10 +46,7 @@ function findRepoRoot(start) {
 }
 
 const REPO_ROOT = findRepoRoot(__dirname)
-const { fileMatchesPattern } = require(path.join(REPO_ROOT, '.github', 'scripts', 'assign-reviewers.js'))
-if (typeof fileMatchesPattern !== 'function') {
-    throw new Error('.github/scripts/assign-reviewers.js no longer exports fileMatchesPattern; ownership resolver is out of sync with CI')
-}
+const { CodeOwners, pathMatchesPattern } = require(path.join(REPO_ROOT, '.github', 'scripts', 'codeowners.js'))
 
 // Bare product.yaml slug -> @PostHog/<slug>; an explicit @handle is left as-is.
 function toHandle(owner) {
@@ -60,17 +58,6 @@ function toSlug(owner) {
     if (owner.startsWith('@PostHog/')) return owner.slice('@PostHog/'.length)
     if (owner.startsWith('@')) return owner.slice(1)
     return owner
-}
-
-// Literal prefix before the first glob wildcard. The matcher anchors `^`, so a
-// file can only match a rule if it starts with this; checking it first skips the
-// regex build for non-candidates and keeps a full-repo sweep fast.
-function literalPrefix(pattern) {
-    const i = pattern.search(/[*?]/)
-    if (i === -1) return pattern
-    // The matcher leaves `?` as a regex quantifier (it makes the preceding char
-    // optional), so the guaranteed literal prefix ends one char earlier there.
-    return pattern[i] === '?' ? pattern.slice(0, Math.max(0, i - 1)) : pattern.slice(0, i)
 }
 
 function parseCodeowners(file, label) {
@@ -87,7 +74,6 @@ function parseCodeowners(file, label) {
                 owners: tokens.slice(1),
                 source: label,
                 lineno: idx + 1,
-                prefix: literalPrefix(tokens[0]),
             })
         })
     return rules
@@ -156,15 +142,11 @@ class Resolver {
         this.softRules = parseCodeowners(path.join(root, '.github', 'CODEOWNERS-soft'), 'CODEOWNERS-soft')
         this.hardRules = parseCodeowners(path.join(root, '.github', 'CODEOWNERS'), 'CODEOWNERS')
         this.rules = this.softRules.concat(this.hardRules)
-    }
-
-    lastMatch(rules, file) {
-        for (let i = rules.length - 1; i >= 0; i--) {
-            const rule = rules[i]
-            if (!file.startsWith(rule.prefix)) continue
-            if (fileMatchesPattern(file, rule.pattern)) return rule
-        }
-        return null
+        // CodeOwners precompiles a matcher per rule, so the full-repo passes
+        // (team/unowned) test thousands of files without recompiling. matchingRule
+        // returns the same rich rule objects parsed above (with source + lineno).
+        this.softMatcher = new CodeOwners(this.softRules)
+        this.hardMatcher = new CodeOwners(this.hardRules)
     }
 
     resolve(file) {
@@ -174,9 +156,9 @@ class Resolver {
                 return { owners: this.productOwners.get(name), source: `products/${name}/product.yaml`, reset: false }
             }
         }
-        const hard = this.lastMatch(this.hardRules, file)
+        const hard = this.hardMatcher.matchingRule(file)
         if (hard && hard.owners.length) return { owners: hard.owners, source: src(hard), reset: false }
-        const soft = this.lastMatch(this.softRules, file)
+        const soft = this.softMatcher.matchingRule(file)
         if (soft && soft.owners.length) return { owners: soft.owners, source: src(soft), reset: false }
         const reset = hard || soft
         if (reset) return { owners: [], source: src(reset), reset: true }
@@ -184,7 +166,15 @@ class Resolver {
     }
 
     allMatches(file) {
-        return this.rules.filter((rule) => file.startsWith(rule.prefix) && fileMatchesPattern(file, rule.pattern))
+        // Degrade on a malformed pattern (e.g. a `***` typo) instead of throwing,
+        // matching how resolve() handles rules via the safe CodeOwners matchers.
+        return this.rules.filter((rule) => {
+            try {
+                return pathMatchesPattern(rule.pattern, file)
+            } catch {
+                return false
+            }
+        })
     }
 }
 

@@ -701,6 +701,7 @@
     'save',
     'start_date',
     'status',
+    'status_label',
     'team_id',
     'updated_at',
   ])
