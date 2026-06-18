@@ -3405,7 +3405,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$num_uniq_urls": {
             "label": "Number of unique URLs",
             "description": "The number of unique URLs visited during the session.",
-            "examples": ["3"],
+            "examples": [3],
             "type": "Numeric",
         },
         "$hosts": {

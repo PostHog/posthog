@@ -8375,7 +8375,7 @@
         "$num_uniq_urls": {
             "description": "The number of unique URLs visited during the session.",
             "examples": [
-                "3"
+                3
             ],
             "label": "Number of unique URLs",
             "type": "Numeric"
