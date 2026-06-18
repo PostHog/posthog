@@ -1181,7 +1181,7 @@ class TestIterPages:
             mock_get.return_value.get.side_effect = responses
             pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
 
-        assert [items for items, _url, _next in pages] == [[{"id": 1}], [{"id": 2}]]
+        assert [items for items, _url in pages] == [[{"id": 1}], [{"id": 2}]]
 
     @parameterized.expand(
         [

@@ -128,7 +128,7 @@ def _resolve_sort_mode(
     return "asc"
 
 
-def _get_headers(access_token: str, endpoint: str) -> dict[str, str]:
+def _get_headers(access_token: str, endpoint: str = "") -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
@@ -329,8 +329,8 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     max_pages: int | None = None,
     page_cap_context: dict[str, Any] | None = None,
-) -> Iterator[tuple[list[dict[str, Any]], str, str | None]]:
-    """Yield (items, page_url, next_url) for each page of a paginated GitHub list,
+) -> Iterator[tuple[list[dict[str, Any]], str]]:
+    """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
     logging a structured warning when the cap is reached. An empty or ``null``
     envelope body simply ends iteration — there is nothing to truncate."""
@@ -343,7 +343,7 @@ def _iter_pages(
         if not isinstance(data, list) or not data:
             return
         next_url = _parse_next_url(response.headers.get("Link", ""))
-        yield data, url, next_url
+        yield data, url
         page_count += 1
         if not next_url:
             return
@@ -367,7 +367,7 @@ def _iter_jobs_for_run(
     path = config.path.format(repository=repository, run_id=run_id)
     params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
     url = f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
-    for jobs, _page_url, _next_url in _iter_pages(
+    for jobs, _page_url in _iter_pages(
         url,
         headers,
         config.response_data_path,
@@ -390,8 +390,7 @@ def _fan_out_get_rows(
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint newest-first and
     emit every child row for each parent. Incremental bounding happens on the
-    parent's created_at cursor (the same desc early-stop workflow_runs uses);
-    children upsert by primary key, so re-reading a boundary parent is harmless.
+    parent's created_at cursor (the same desc early-stop workflow_runs uses).
 
     The child cursor value (max job created_at) is compared against the parent's
     created_at — they coincide closely since a job is created when its run starts,
@@ -418,7 +417,7 @@ def _fan_out_get_rows(
     else:
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
-    for runs, page_url, _next_url in _iter_pages(parent_url, headers, parent_config.response_data_path, logger):
+    for runs, page_url in _iter_pages(parent_url, headers, parent_config.response_data_path, logger):
         stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
 
         for run in runs:
@@ -617,7 +616,7 @@ def create_repo_webhook(
     Returns a failed (not raised) result when the token lacks admin:repo_hook so
     the caller can surface a manual-setup caption instead of hard-failing.
     """
-    headers = _get_headers(token, "workflow_runs")
+    headers = _get_headers(token)
     payload = {
         "name": "web",
         "active": True,
@@ -658,7 +657,7 @@ def create_repo_webhook(
 
 def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
     """Return (hook_id, error). Matches on config.url == webhook_url."""
-    headers = _get_headers(token, "workflow_runs")
+    headers = _get_headers(token)
     try:
         response = make_tracked_session().get(
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30
@@ -694,7 +693,7 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
         # Nothing to delete — treat as success, same as Stripe's no-match path.
         return WebhookDeletionResult(success=True)
 
-    headers = _get_headers(token, "workflow_runs")
+    headers = _get_headers(token)
     try:
         response = make_tracked_session().delete(
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
@@ -714,7 +713,7 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
 
 def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
     """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
-    headers = _get_headers(token, "workflow_runs")
+    headers = _get_headers(token)
     try:
         response = make_tracked_session().get(
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30

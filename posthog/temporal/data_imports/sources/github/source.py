@@ -264,6 +264,8 @@ If automatic creation failed, your token needs the **admin:repo_hook** scope to 
         # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
         # signature verification. (Contrast Stripe, which generates and returns its own secret.)
         secret = secrets.token_hex(32)
+        # Always subscribe to the full workflow event pair, not just the enabled schemas: jobs fan
+        # out under runs, so the two travel together and we want both regardless of which is synced.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
 
@@ -284,7 +286,11 @@ If automatic creation failed, your token needs the **admin:repo_hook** scope to 
         inputs: SourceInputs,
     ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
-        webhook_source_manager = self.get_webhook_source_manager(inputs)
+        # Only the workflow schemas can be webhook-fed, so skip building the manager — and its
+        # webhook_enabled() DB lookup — for the poll-only endpoints (issues, commits, etc.).
+        webhook_source_manager = (
+            self.get_webhook_source_manager(inputs) if inputs.schema_name in GITHUB_WEBHOOK_RESOURCE_MAP else None
+        )
 
         return github_source(
             personal_access_token=access_token,
