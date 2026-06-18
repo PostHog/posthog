@@ -85,6 +85,7 @@ import {
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardTileBasicType,
+    DashboardTileDisplayMode,
     DashboardType,
     DashboardWidgetType,
     InsightColor,
@@ -372,8 +373,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
+        updateTileDisplayMode: (tileId: number, displayMode: DashboardTileDisplayMode | null) => ({
+            tileId,
+            displayMode,
+        }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
-        setTileProperty: (tileId: number, properties: Partial<Pick<DashboardTile, 'color' | 'show_description'>>) => ({
+        setTileProperty: (
+            tileId: number,
+            properties: Partial<Pick<DashboardTile, 'color' | 'show_description' | 'display_mode'>>
+        ) => ({
             tileId,
             properties,
         }),
@@ -2019,6 +2027,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } catch {
                 actions.setTileProperty(tileId, { color: previousColor })
                 lemonToast.error('Failed to update tile color')
+            }
+        },
+        updateTileDisplayMode: async ({ tileId, displayMode }) => {
+            // Defense in depth — same reason as updateTileColor above.
+            if (isSharedView()) {
+                return
+            }
+            const previousDisplayMode = values.tiles.find((tile) => tile.id === tileId)?.display_mode
+            actions.setTileProperty(tileId, { display_mode: displayMode })
+            try {
+                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    tiles: [{ id: tileId, display_mode: displayMode }],
+                })
+            } catch {
+                actions.setTileProperty(tileId, { display_mode: previousDisplayMode })
+                lemonToast.error('Failed to update tile')
             }
         },
         toggleTileDescription: async ({ tileId }) => {

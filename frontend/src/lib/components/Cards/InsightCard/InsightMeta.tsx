@@ -41,12 +41,13 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
     DashboardTile,
+    DashboardTileDisplayMode,
     ExporterFormat,
     InsightColor,
     InsightLogicProps,
@@ -64,6 +65,7 @@ interface InsightMetaProps extends Pick<
     InsightCardProps,
     | 'ribbonColor'
     | 'updateColor'
+    | 'updateDisplayMode'
     | 'toggleShowDescription'
     | 'removeFromDashboard'
     | 'deleteWithUndo'
@@ -99,6 +101,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    updateDisplayMode,
     toggleShowDescription,
     filtersOverride,
     variablesOverride,
@@ -172,6 +175,8 @@ export function InsightMeta({
         placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
+    // Funnels render a detailed-results table for every sub-type, so they're the insights worth a display toggle.
+    const isFunnelInsight = isInsightVizNode(insight.query) && isFunnelsQuery(insight.query.source)
 
     const topHeadingProps = {
         query: insight.query,
@@ -495,6 +500,28 @@ export function InsightMeta({
                                         closeParentPopoverOnClickInside
                                     >
                                         <LemonButton fullWidth>Set color</LemonButton>
+                                    </LemonMenu>
+                                )}
+                                {updateDisplayMode && isFunnelInsight && (
+                                    <LemonMenu
+                                        items={[
+                                            { value: DashboardTileDisplayMode.Chart, label: 'Chart only' },
+                                            {
+                                                value: DashboardTileDisplayMode.ChartAndTable,
+                                                label: 'Chart and detailed results',
+                                            },
+                                            { value: DashboardTileDisplayMode.Table, label: 'Detailed results only' },
+                                        ].map(({ value, label }) => ({
+                                            label,
+                                            key: value,
+                                            active: (tile?.display_mode || DashboardTileDisplayMode.Chart) === value,
+                                            onClick: () => updateDisplayMode(value),
+                                        }))}
+                                        placement="right-start"
+                                        fallbackPlacements={['left-start']}
+                                        closeParentPopoverOnClickInside
+                                    >
+                                        <LemonButton fullWidth>Display</LemonButton>
                                     </LemonMenu>
                                 )}
                                 {hasDashboardPlacementActions && (
