@@ -288,7 +288,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
             # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
-            database=database or Database.create_for(self.team.pk, bypass_access_control=True),
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}

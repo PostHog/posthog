@@ -277,7 +277,7 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
-    bypass_access_control: bool = False
+    bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -295,7 +295,7 @@ class HogQLQueryExecutor:
                 team_id=self.team.pk,
                 user=self.user,
                 user_access_control=self.user_access_control,
-                bypass_access_control=self.bypass_access_control,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             )
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
@@ -354,7 +354,7 @@ class HogQLQueryExecutor:
                         user_access_control=self.context.user_access_control,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
-                        bypass_access_control=self.context.bypass_access_control,
+                        bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -416,7 +416,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
-                bypass_access_control=self.context.bypass_access_control,
+                bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
             )
 
         # Reset between executions: the resolver appends per query, and dataclasses.replace below

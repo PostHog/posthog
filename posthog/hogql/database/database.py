@@ -198,8 +198,8 @@ class HogQLDatabaseSources:
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    # Userless internal contexts that must resolve every table; skips system + warehouse access control.
-    bypass_access_control: bool
+    # Userless internal contexts that must resolve every warehouse table/view; skips access control
+    bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
@@ -1022,7 +1022,7 @@ class Database(BaseModel):
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
-        bypass_access_control: bool = False,
+        bypass_warehouse_access_control: bool = False,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1035,7 +1035,7 @@ class Database(BaseModel):
             modifiers=modifiers,
             timings=timings,
             connection_id=connection_id,
-            bypass_access_control=bypass_access_control,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
         return Database._build_from_sources(sources, timings=timings)
 
@@ -1049,7 +1049,7 @@ class Database(BaseModel):
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
-        bypass_access_control: bool = False,
+        bypass_warehouse_access_control: bool = False,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -1116,15 +1116,12 @@ class Database(BaseModel):
                     direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
-            denied_system_table_names: set[str] = set()
-            # bypass_access_control skips all HogQL access control (system + warehouse) for userless
-            # internal contexts (data modeling, materialization, exports) that must resolve every table.
-            if not bypass_access_control:
-                # Pass the caller's user_access_control through: when already preloaded it's reused, so the
-                # bulk access-control fetch happens once per run instead of once per database build.
-                user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                    team, user, user_access_control
-                )
+            # System-table access control always applies; Only warehouse table/view support bypass.
+            # Pass the caller's user_access_control through: when already preloaded it's reused, so the
+            # bulk access-control fetch happens once per run instead of once per database build.
+            user_access_control, denied_system_table_names = _compute_system_table_access_decision(
+                team, user, user_access_control
+            )
 
         is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
             "hogql-warehouse-access-control",
@@ -1270,7 +1267,7 @@ class Database(BaseModel):
             # RBAC by design, so they bypass warehouse access control too. System tables stay
             # scope-gated for them via _compute_system_table_access_decision above. This field only
             # gates the warehouse checks in _build_from_sources.
-            bypass_access_control=bypass_access_control or isinstance(user, SyntheticUser),
+            bypass_warehouse_access_control=bypass_warehouse_access_control or isinstance(user, SyntheticUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
@@ -1429,7 +1426,7 @@ class Database(BaseModel):
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
-                        and not sources.bypass_access_control
+                        and not sources.bypass_warehouse_access_control
                         and database._is_warehouse_view_denied(saved_query)
                     ):
                         continue
@@ -1449,7 +1446,7 @@ class Database(BaseModel):
                             # Endpoint-origin saved queries are a separate list, so they're checked too
                             if (
                                 sources.is_hogql_warehouse_access_control_enabled
-                                and not sources.bypass_access_control
+                                and not sources.bypass_warehouse_access_control
                                 and database._is_warehouse_view_denied(endpoint_saved_query)
                             ):
                                 continue
@@ -1501,7 +1498,7 @@ class Database(BaseModel):
 
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
-                        and not sources.bypass_access_control
+                        and not sources.bypass_warehouse_access_control
                         and database._is_warehouse_table_denied(table)
                     ):
                         continue

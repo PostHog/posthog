@@ -52,7 +52,7 @@ class HogQLContext:
     # SECURITY-SENSITIVE: bypass for HogQL access control on warehouse tables.
     # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
     # Every call site that sets this MUST include an inline comment explaining why.
-    bypass_access_control: bool = False
+    bypass_warehouse_access_control: bool = False
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None

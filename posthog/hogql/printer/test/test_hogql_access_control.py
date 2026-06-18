@@ -77,6 +77,19 @@ class TestAccessControlSystemTables(BaseTest):
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
 
+    def test_bypass_warehouse_access_control_still_applies_system_table_acl(self):
+        """bypass_warehouse_access_control only relaxes warehouse tables/views; scoped system tables
+        still fail closed without a user."""
+        database = Database.create_for(team=self.team, user=None, bypass_warehouse_access_control=True)
+
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        # Scoped system tables stay denied despite the warehouse bypass.
+        assert "dashboards" not in system_node.children
+        assert "system.dashboards" in database._denied_tables
+        # Unscoped tables remain.
+        assert "cohorts" in system_node.children
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
@@ -318,7 +331,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" in database._denied_tables
         assert "allowed_table" in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_acl(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_acl(self):
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -326,14 +339,14 @@ class TestWarehouseTableAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=self.user, bypass_warehouse_access_control=True)
 
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_acl_without_user(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_acl_without_user(self):
         # The classic background-job case: no user, but the caller explicitly opts in.
-        database = Database.create_for(team=self.team, user=None, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=None, bypass_warehouse_access_control=True)
 
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
@@ -461,8 +474,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         assert "don't have access" in str(cm.exception)
         assert "denied_warehouse_table" in str(cm.exception)
 
-    def test_execute_hogql_query_bypass_access_control_skips_denial(self):
-        """bypass_access_control opt-in should let the query past the access control gate
+    def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
+        """bypass_warehouse_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the
         gate must not block it)."""
         from posthog.hogql.context import HogQLContext
@@ -479,7 +492,9 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             organization_member=self.membership,
         )
 
-        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, bypass_access_control=True)
+        context = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, bypass_warehouse_access_control=True
+        )
         try:
             execute_hogql_query(
                 query="SELECT id FROM denied_warehouse_table",
@@ -578,7 +593,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" in database._denied_tables
         assert "allowed_view" in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_view_acl(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_view_acl(self):
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -586,7 +601,7 @@ class TestWarehouseViewAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=self.user, bypass_warehouse_access_control=True)
 
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables

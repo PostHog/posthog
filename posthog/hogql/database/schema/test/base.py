@@ -145,7 +145,7 @@ class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
 
             # Materialization mirrors the data-modeling job (no user); bypass warehouse access control.
             response = execute_hogql_query(
-                parse_select(query_text), team=self.team, modifiers=self.MODIFIERS, bypass_access_control=True
+                parse_select(query_text), team=self.team, modifiers=self.MODIFIERS, bypass_warehouse_access_control=True
             )
 
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:

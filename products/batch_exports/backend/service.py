@@ -1143,7 +1143,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         limit_top_select=False,
     )
     # Export models are only events/persons/sessions; warehouse tables and views are denied.
-    # Pass bypass_access_control=True or a user if that becomes an issue.
+    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
     context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()

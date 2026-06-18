@@ -64,7 +64,7 @@ def data_warehouse_record_fetcher(
         # Internal data-import signal fetcher (no user); bypass warehouse HogQL access control so it
         # can read the source warehouse table.
         result = execute_hogql_query(
-            query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_access_control=True
+            query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_warehouse_access_control=True
         )
     except Exception as e:
         logger.exception(f"Error querying new records: {e}", **extra)
