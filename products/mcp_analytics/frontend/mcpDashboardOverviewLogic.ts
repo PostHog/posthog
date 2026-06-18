@@ -12,8 +12,11 @@ import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/sch
 import { IntervalType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
+import { categorizeHarness } from './dashboard/harnessRegistry'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
+
+export { categorizeHarness }
 
 export interface DateFilter {
     dateFrom: string | null
@@ -88,16 +91,39 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
+// Newer Anthropic clients stopped sending clientInfo.name ($mcp_client_name) and
+// now report identity only via the x-anthropic-client header (mcp_vendor_client)
+// or the User-Agent, so reading $mcp_client_name alone buckets nearly everything
+// as "Other". Resolve an effective client per call: prefer the self-reported
+// name, then the vendor header (matched case-insensitively, as the MCP service's
+// own client detection does), then the User-Agent's leading product token plus
+// the first parenthetical token as a surface suffix — e.g. "claude-code cli",
+// "claude-code claude-desktop", "openai-mcp chatgpt". The version segment between
+// them is dropped so claude-code/2.1.x folds to one token; categorizeHarness then
+// buckets surface-specific tokens (Claude Desktop, ChatGPT, …) and folds the rest.
 const HARNESS_ROWS_QUERY = `
 SELECT
-    toString(properties.$mcp_client_name) AS client,
+    coalesce(
+        nullIf(toString(properties.$mcp_client_name), ''),
+        multiIf(
+            lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
+            lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
+            lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
+            lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+            nullIf(toString(properties.mcp_vendor_client), '')
+        ),
+        nullIf(trim(concat(
+            extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
+            ' ',
+            extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
+        )), ''),
+        ''
+    ) AS client,
     count() AS total_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
 WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_client_name IS NOT NULL
-    AND properties.$mcp_client_name != ''
     AND {filters}
 GROUP BY client
 ORDER BY total_calls DESC
@@ -232,51 +258,6 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
-}
-
-// Harness categories derived from sampling the top 50 distinct $mcp_client_name
-// values seen in production over the past 30 days. We normalize the
-// "(via mcp-remote …)" suffix that mcp-remote injects so the underlying client
-// folds into its real harness bucket.
-const HARNESS_CATEGORIES: { category: string; match: (name: string) => boolean }[] = [
-    { category: 'Claude Code', match: (n) => n.startsWith('claude-code') },
-    {
-        category: 'Claude.ai',
-        match: (n) => n === 'claude-ai' || n === 'anthropic/claudeai',
-    },
-    { category: 'Anthropic API', match: (n) => n === 'anthropic/api' },
-    {
-        category: 'OpenAI Codex',
-        match: (n) => n.startsWith('codex') || n.startsWith('openai-mcp'),
-    },
-    { category: 'Cursor', match: (n) => n.startsWith('cursor') },
-    { category: 'VS Code', match: (n) => n.startsWith('visual studio code') },
-    { category: 'Windsurf', match: (n) => n === 'windsurf' },
-    { category: 'Replit', match: (n) => n.startsWith('replit') },
-    { category: 'Lovable', match: (n) => n.startsWith('lovable') },
-    { category: 'Manus', match: (n) => n === 'manus' },
-    { category: 'CodeRabbit', match: (n) => n === 'coderabbit' },
-    { category: 'Notion', match: (n) => n.startsWith('notion') },
-    { category: 'Poke', match: (n) => n === 'poke' },
-    { category: 'opencode', match: (n) => n === 'opencode' },
-    { category: 'Kiro', match: (n) => n.startsWith('kiro') },
-    { category: 'Desktop Commander', match: (n) => n.startsWith('desktop-commander') },
-]
-
-export function categorizeHarness(raw: string): string {
-    const stripped = raw
-        .replace(/\s*\(via mcp-remote[^)]*\)\s*/i, '')
-        .trim()
-        .toLowerCase()
-    if (!stripped) {
-        return 'Other'
-    }
-    for (const entry of HARNESS_CATEGORIES) {
-        if (entry.match(stripped)) {
-            return entry.category
-        }
-    }
-    return 'Other'
 }
 
 export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {

@@ -7,7 +7,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -183,6 +184,14 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
         self.check_error()?;
         Ok(DeletePersonsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 })
     }
 
     async fn check_cohort_membership(

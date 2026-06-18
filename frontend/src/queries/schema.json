@@ -17920,6 +17920,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "EvaluationRuntime": {
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -28344,8 +28348,7 @@
                     "type": ["string", "null"]
                 },
                 "evaluation_type": {
-                    "enum": ["hog", "llm_judge"],
-                    "type": "string"
+                    "$ref": "#/definitions/EvaluationRuntime"
                 },
                 "hog_source": {
                     "type": ["string", "null"]
