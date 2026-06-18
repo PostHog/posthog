@@ -9,6 +9,8 @@
  */
 import * as zod from 'zod'
 
+export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin = 0
+
 export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
     sync_type: zod
@@ -37,6 +39,13 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
+        ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
         ),
     sync_frequency: zod
         .union([
@@ -99,6 +108,8 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
+
+export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -129,6 +140,13 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
+        ),
     sync_frequency: zod
         .union([
             zod
@@ -190,6 +208,8 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
+
+export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -220,6 +240,13 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
+        ),
     sync_frequency: zod
         .union([
             zod
@@ -281,6 +308,8 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
+
+export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin = 0
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -311,6 +340,13 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
+        ),
     sync_frequency: zod
         .union([
             zod
@@ -372,6 +408,8 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
+
+export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -402,6 +440,13 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
+        ),
     sync_frequency: zod
         .union([
             zod
@@ -463,6 +508,8 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
+
+export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -493,6 +540,13 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
+        ),
     sync_frequency: zod
         .union([
             zod
@@ -555,6 +609,8 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
+
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
     sync_type: zod
@@ -583,6 +639,13 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
+        ),
+    incremental_field_lookback_seconds: zod
+        .number()
+        .min(externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin)
+        .nullish()
+        .describe(
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged.'
         ),
     sync_frequency: zod
         .union([

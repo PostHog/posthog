@@ -1,0 +1,30 @@
+import { isLookbackEligibleType, secondsToLookbackParts } from '../SyncMethodForm'
+
+describe('SyncMethodForm lookback helpers', () => {
+    it.each([
+        ['datetime', true],
+        ['date', true],
+        ['timestamp', true],
+        ['integer', false],
+        ['numeric', false],
+        ['objectid', false],
+        [null, false],
+        [undefined, false],
+    ])('isLookbackEligibleType(%s) === %s', (fieldType, expected) => {
+        expect(isLookbackEligibleType(fieldType as string | null | undefined)).toBe(expected)
+    })
+
+    it.each([
+        [3600, { amount: 1, unit: 'hours' }],
+        [7200, { amount: 2, unit: 'hours' }],
+        [86400, { amount: 1, unit: 'days' }],
+        [172800, { amount: 2, unit: 'days' }],
+        [60, { amount: 1, unit: 'minutes' }],
+        [900, { amount: 15, unit: 'minutes' }],
+        [null, { amount: null, unit: 'hours' }],
+        [0, { amount: null, unit: 'hours' }],
+        [-5, { amount: null, unit: 'hours' }],
+    ])('secondsToLookbackParts(%s) picks the largest exact unit', (seconds, expected) => {
+        expect(secondsToLookbackParts(seconds as number | null)).toEqual(expected)
+    })
+})

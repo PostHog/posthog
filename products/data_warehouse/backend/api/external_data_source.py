@@ -1673,11 +1673,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 effective_primary_key_columns = primary_key_columns or (
                     source_schema.detected_primary_keys if source_schema else None
                 )
+                # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
+                lookback_seconds = schema.get("incremental_field_lookback_seconds")
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
+                    **(
+                        {"incremental_field_lookback_seconds": lookback_seconds}
+                        if sync_type == "incremental" and isinstance(lookback_seconds, int)
+                        else {}
+                    ),
                 }
             elif is_cdc_schema and not cdc_not_set_up:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")

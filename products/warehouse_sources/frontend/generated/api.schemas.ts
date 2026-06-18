@@ -162,6 +162,12 @@ export interface ExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.
+     * @minimum 0
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -295,6 +301,12 @@ export interface PatchedExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.
+     * @minimum 0
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
