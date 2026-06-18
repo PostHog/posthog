@@ -106,6 +106,9 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads developer token not configured": None,
+            # PostHog's Bing Ads OAuth application credentials aren't configured — an empty client_id makes
+            # Microsoft reject the token request with AADSTS900144. Internal config, not customer-actionable.
+            "Bing Ads OAuth application credentials not configured": None,
         }
 
     @property
