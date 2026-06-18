@@ -21,7 +21,7 @@ export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: 
     const reportPath = urls.inboxReport(tab, report.id)
 
     return (
-        <div className="shrink-0 border-b border-primary px-6 pt-5 pb-4 flex flex-col gap-3">
+        <div className="shrink-0 border-b border-primary px-4 sm:px-6 pt-5 pb-4 flex flex-col gap-3">
             <LemonButton
                 type="tertiary"
                 size="small"

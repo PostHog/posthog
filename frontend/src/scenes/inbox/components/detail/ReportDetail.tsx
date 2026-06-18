@@ -176,7 +176,7 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
  */
 export function ReportDetailSkeleton(): JSX.Element {
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm" aria-hidden>
+        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-4 sm:px-6 py-5 text-sm" aria-hidden>
             <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
                 <div className="h-3.5 w-24 rounded bg-fill-highlight-50 animate-pulse" />
                 <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -254,7 +254,7 @@ export function InboxDetailFrame({
     const reportPath = urls.inboxReport(tab, report.id)
 
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
+        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-4 sm:px-6 py-5 text-sm">
             <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
                 <LemonButton
                     type="tertiary"

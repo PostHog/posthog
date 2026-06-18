@@ -170,7 +170,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
 
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
+        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-4 sm:px-6 py-5 text-sm">
             <div className="flex items-center gap-2 flex-wrap mb-4">
                 <ReportDetailBadges
                     report={report}
