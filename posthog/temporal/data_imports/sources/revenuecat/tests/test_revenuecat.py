@@ -54,6 +54,18 @@ class TestValidateCredentials:
         assert called_url == f"{REVENUECAT_API_BASE_URL}/projects"
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_accepts_bare_project_id_missing_proj_prefix(self, mock_session):
+        # Users routinely enter the id shown on the dashboard without its `proj`
+        # prefix (e.g. `64dbb3e3`). The prefix is restored before the membership
+        # check so the bare id resolves against the real `proj`-prefixed id.
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj64dbb3e3"}]})
+
+        success, error = api_client.validate_credentials("sk_test", project_id="64dbb3e3")
+
+        assert success is True
+        assert error is None
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_follows_pagination_when_project_is_on_a_later_page(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _ok_json_response({"items": [{"id": "proj_a"}], "next_page": "/v2/projects?starting_after=proj_a"}),
@@ -463,6 +475,9 @@ class TestNormalizeProjectId:
             ("url_with_fragment", "app.revenuecat.com/projects/proj1a2b3c4d#section", "proj1a2b3c4d"),
             ("bare_projects_path_fragment", "projects/proj1a2b3c4d", "proj1a2b3c4d"),
             ("trailing_slash", "proj1a2b3c4d/", "proj1a2b3c4d"),
+            ("bare_id_missing_proj_prefix", "1a2b3c4d", "proj1a2b3c4d"),
+            ("bare_id_from_url_missing_prefix", "app.revenuecat.com/projects/1a2b3c4d", "proj1a2b3c4d"),
+            ("bare_id_with_whitespace_missing_prefix", "  1a2b3c4d  ", "proj1a2b3c4d"),
             ("none", None, ""),
             ("empty", "", ""),
             ("whitespace_only", "   ", ""),
@@ -561,3 +576,21 @@ class TestIterateListEndpointNormalization:
 
         called_url = mock_session.return_value.get.call_args.args[0]
         assert called_url == f"{REVENUECAT_API_BASE_URL}/projects/proj_real/customers"
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_restores_missing_proj_prefix_in_request_url(self, mock_session):
+        # A source stored with a bare id must hit the `proj`-prefixed path at
+        # sync time, matching what validation accepted.
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [], "next_page": None})
+
+        list(
+            api_client.iterate_list_endpoint(
+                "sk_test",
+                project_id="64dbb3e3",
+                path_suffix="/customers",
+                endpoint_name="customers",
+            )
+        )
+
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert called_url == f"{REVENUECAT_API_BASE_URL}/projects/proj64dbb3e3/customers"

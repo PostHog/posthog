@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -7,6 +8,11 @@ from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+try:
+    from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+    apply_quarantine_markers = None
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
@@ -458,6 +464,70 @@ def mock_email_mfa_verifier(request, mocker):
     )
 
 
+class _JUnitTimingsPlugin:
+    """Capture wall-clock offsets and surface them as JUnit `<testsuite>` properties.
+
+    Pytest's junit XML emits one `time` per `<testcase>` but no per-test start. The
+    CI trace exporter (`.github/scripts/report_test_timings.py`) reconstructs windows
+    by stacking durations from `<testsuite timestamp>`, so the shared pre-first-test
+    overhead (interpreter import, plugin init, collection, session/package fixture
+    setup) gets visually attributed to the first test span. We record the offset
+    explicitly so the exporter can split it into its own span.
+
+    Important: this measures up to the first test's *call* phase, not its setup
+    phase. The backend CI uses `-o junit_duration_report=call`, so session and
+    module-scoped fixture setup time is excluded from `<testcase time>` and
+    instead lives in this pre-first-call gap.
+    """
+
+    _PROPERTY_SETUP = "posthog.setup_seconds"
+    _PROPERTY_COLLECTION = "posthog.collection_seconds"
+
+    def __init__(self) -> None:
+        self._session_start: float | None = None
+        self._collection_finish: float | None = None
+        self._first_test_call_start: float | None = None
+
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        self._session_start = time.monotonic()
+
+    def pytest_collection_finish(self, session: pytest.Session) -> None:
+        if self._collection_finish is None:
+            self._collection_finish = time.monotonic()
+
+    # `tryfirst` so our timestamp lands just before pytest's default call impl
+    # actually runs the test body — capturing the moment the first call begins,
+    # after session/module fixture setup has completed.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_call(self, item: pytest.Item) -> None:
+        if self._first_test_call_start is None:
+            self._first_test_call_start = time.monotonic()
+
+    @staticmethod
+    def _find_junit_xml_plugin(config: pytest.Config) -> Any:
+        # pytest's junit XML plugin (`_pytest.junitxml.LogXML`) registers itself
+        # without a stable name — `get_plugin("junitxml")` returns the module, not
+        # the instance — so we identify it by its `add_global_property` interface.
+        for _, plugin in config.pluginmanager.list_name_plugin():
+            if hasattr(plugin, "add_global_property"):
+                return plugin
+        return None
+
+    # Must run before pytest_junitxml's own sessionfinish, which serializes the XML
+    # and stops consuming new `add_global_property` calls after that point.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
+        if self._session_start is None:
+            return
+        xml = self._find_junit_xml_plugin(session.config)
+        if xml is None:
+            return
+        if self._first_test_call_start is not None:
+            xml.add_global_property(self._PROPERTY_SETUP, f"{self._first_test_call_start - self._session_start:.6f}")
+        if self._collection_finish is not None:
+            xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
+
+
 def pytest_configure(config):
     """
     Configure pytest-django to allow access to persons databases by default.
@@ -470,6 +540,9 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+    if not config.pluginmanager.hasplugin("posthog-junit-timings"):
+        config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")
 
 
 def _runs_on_internal_pr() -> bool:
@@ -487,3 +560,8 @@ def _runs_on_internal_pr() -> bool:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if apply_quarantine_markers is not None:
+        apply_quarantine_markers(items)

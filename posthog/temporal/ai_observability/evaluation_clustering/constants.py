@@ -51,6 +51,16 @@ CLUSTERING_CHILD_WORKFLOW_ID_PREFIX = "llma-evaluation-clustering-team"
 AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE = "llm-evaluation-detailed"
 AI_OBSERVABILITY_EVALUATION_PRODUCT = "llm-analytics"
 
+# Fixed low-cardinality `rendering` value for eval embeddings. `rendering` is a
+# LowCardinality(String) column AND part of the document_embeddings sorting key, so it must
+# stay a small enum (the render mode) — never a per-run unique string. Job scoping lives in
+# the embedding `metadata` JSON (`{"job_id": ...}`) and is read back via JSONExtractString.
+AI_OBSERVABILITY_EVALUATION_RENDERING = "detailed"
+
+# Metadata key carrying the ClusteringJob id on each eval embedding, used by Stage B to scope
+# a read to one job's accumulated embeddings.
+AI_OBSERVABILITY_EVALUATION_JOB_ID_METADATA_KEY = "job_id"
+
 # Embedding model. Eval text representations are short (typically <1000 chars:
 # evaluator name + one-line description + verdict + reasoning), so the 1536-dim
 # small model is the default choice over the 3072-dim large model used by

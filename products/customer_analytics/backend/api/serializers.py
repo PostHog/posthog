@@ -138,7 +138,10 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Identifier for the account in an external system (e.g. CRM ID). Optional.",
+        help_text=(
+            "Identifier linking this account to its source customer — the analytics group key "
+            "(the customer's organization id), used to match billing and external records. Optional."
+        ),
     )
     properties = AccountPropertiesField(
         source="_properties",

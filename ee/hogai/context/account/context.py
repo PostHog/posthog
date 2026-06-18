@@ -5,6 +5,10 @@ from posthog.models.group.util import get_group_by_key
 from posthog.models.tagged_item import TaggedItem
 from posthog.sync import database_sync_to_async
 
+from products.customer_analytics.backend.constants import (
+    BILLING_SPEND_INSIGHT_SHORT_IDS,
+    BILLING_USAGE_INSIGHT_SHORT_IDS,
+)
 from products.customer_analytics.backend.models import Account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -131,8 +135,15 @@ class AccountContext:
         if group is None:
             return ACCOUNT_ANALYSIS_GROUP_NOT_FOUND_TEMPLATE.format(group_key=account.external_id)
         return ACCOUNT_ANALYSIS_CONNECTED_TEMPLATE.format(
-            group_type_index=group_type_index, group_key=account.external_id
+            group_type_index=group_type_index,
+            group_key=account.external_id,
+            billing_insights_clause=self._billing_insights_clause(),
         )
+
+    def _billing_insights_clause(self) -> str:
+        usage = ", ".join(BILLING_USAGE_INSIGHT_SHORT_IDS)
+        spend = ", ".join(BILLING_SPEND_INSIGHT_SHORT_IDS)
+        return f" (Usage insight short ids: {usage}; Spend insight short ids: {spend})"
 
     def _account_group_type_index(self) -> int | None:
         try:

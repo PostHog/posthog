@@ -4,6 +4,7 @@ export const DISPLAY_TYPES_WITHOUT_LEGEND = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
+    ChartDisplayType.Metric,
     ChartDisplayType.ActionsBarValue,
 ]
 

@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lem
 
 import { SHARING_MODAL_WIDTH, SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { base64Encode } from 'lib/utils'
+import { base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 

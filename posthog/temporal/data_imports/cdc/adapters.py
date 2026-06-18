@@ -7,42 +7,26 @@ Each database engine needs its own adapter that knows how to:
 - Clean up resources (drop slot, drop publication)
 - Check replication lag
 
-Currently only Postgres is implemented. When adding MySQL or another engine,
-create an adapter in ``sources/<engine>/cdc/adapter.py`` and register it below.
+Postgres (and Supabase, which is Postgres on the wire) are implemented. When adding
+MySQL or another engine, create an adapter in ``sources/<engine>/cdc/adapter.py`` and
+register it in ``_cdc_adapters`` below.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
+
+from posthog.temporal.data_imports.cdc.types import CDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-
-ManagementMode = Literal["posthog", "self_managed"]
-
-
-@dataclasses.dataclass(frozen=True)
-class CDCConfig:
-    """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
-
-    Holds fields that apply to any change-stream engine (slot/publication-style
-    identifiers, lag thresholds, management policy). Engine adapters return their
-    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
-    """
-
-    enabled: bool
-    slot_name: str
-    publication_name: str
-    management_mode: ManagementMode
-    lag_warning_threshold_mb: int
-    lag_critical_threshold_mb: int
-    auto_drop_slot: bool
 
 
 CDCConfigT_co = TypeVar("CDCConfigT_co", bound=CDCConfig, covariant=True)
@@ -73,6 +57,27 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None: ...
 
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
+
+    def get_retention_cap_mb(self, conn: Any) -> int | None:
+        """Engine-enforced cap on retained change-stream backlog in MB (PG:
+        max_slot_wal_keep_size). None when unlimited or unknown. Once the backlog
+        crosses this cap the engine invalidates the slot itself, so safety nets
+        must act below it."""
+        ...
+
+    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+        """Whether the exception means the engine invalidated or dropped the
+        change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
+        such that it cannot be resumed and must be recreated."""
+        ...
+
+    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+        """Drop and recreate the change-stream resource after invalidation, against the
+        existing capture definition (recreating it when PostHog owns it). ``tables`` is
+        the capture set used if the definition must be recreated. Returns ``cdc_*``
+        job_inputs updates (e.g. the new consistent point). Raises when recreation isn't
+        possible (e.g. a customer-owned publication is missing)."""
+        ...
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...
 
@@ -121,25 +126,44 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ...
 
 
+def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
+    """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
+    is a single entry here — everything else derives from this map."""
+    # Supabase is Postgres on the wire, so it reuses the Postgres adapter verbatim.
+    postgres_adapter = PostgresCDCAdapter()
+    return {
+        ExternalDataSourceType.POSTGRES: postgres_adapter,
+        ExternalDataSourceType.SUPABASE: postgres_adapter,
+    }
+
+
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.
 
     Raises ValueError if the source type doesn't support CDC.
     """
-    from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
-    adapters: dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]] = {
-        ExternalDataSourceType.POSTGRES: PostgresCDCAdapter(),
-    }
-
     try:
         source_type = ExternalDataSourceType(source.source_type)
     except ValueError as e:
         raise ValueError(f"CDC is not supported for source type: {source.source_type}") from e
 
-    adapter = adapters.get(source_type)
+    adapter = _cdc_adapters().get(source_type)
     if adapter is None:
         raise ValueError(f"CDC is not supported for source type: {source.source_type}")
     return adapter
+
+
+def cdc_supported_source_types() -> list[ExternalDataSourceType]:
+    """Source types that support CDC. Use for queries (e.g. ``source_type__in=...``)."""
+    return list(_cdc_adapters().keys())
+
+
+def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:
+    """Whether the given source type (enum or raw string) supports CDC."""
+    if source_type is None:
+        return False
+    try:
+        resolved = ExternalDataSourceType(source_type)
+    except ValueError:
+        return False
+    return resolved in _cdc_adapters()

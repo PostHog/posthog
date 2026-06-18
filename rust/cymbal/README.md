@@ -25,7 +25,7 @@ controls a deterministic event-level rollout. Events selected for remote
 processing are grouped per team, flattened into exception-level `ResolveItem`s,
 and submitted over a bidirectional `Resolve` stream. Each item carries JSON
 `metadata` bytes for resolver-specific context such as
-`apple_debug_images_json`, and each terminal `ResolveOutcome` is correlated by
+`debug_images_json`, and each terminal `ResolveOutcome` is correlated by
 item id. Sampled remote attempts do not fall back to local resolution if the
 remote pool fails; unsampled events use the inline local exception and frame
 resolvers and then rejoin the same properties/grouping/linking pipeline.

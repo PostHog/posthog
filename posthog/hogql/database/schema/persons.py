@@ -2,8 +2,6 @@ from typing import Optional, Self, cast
 
 import posthoganalytics
 
-from posthog.schema import PersonsArgMaxVersion
-
 from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
@@ -32,6 +30,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.models.organization import Organization
+from posthog.schema_enums import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id", nullable=False),

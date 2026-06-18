@@ -4,7 +4,14 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
@@ -44,6 +51,20 @@ class AuthorizedUrlsCheck(HealthCheck):
             title="No authorized URLs configured",
             summary=issue.payload.get("reason", "Authorized URLs are not set"),
             link="/web/health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        title = "No authorized URLs configured"
+        summary = issue.payload.get("reason", "No authorized URLs configured. Some filters won't work correctly.")
+        return SignalContent(
+            description=(
+                "This project has no authorized URLs (app URLs) configured. Without them, the toolbar can't "
+                "launch on your site and some web-analytics filters won't work correctly. Recommend adding your "
+                "site's domains under Project settings → Authorized URLs."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

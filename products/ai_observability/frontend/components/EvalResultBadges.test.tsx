@@ -63,6 +63,41 @@ describe('getEvalBadgeProps', () => {
         ['null result', makeRun({ result: null }), { type: 'muted', label: 'N/A' }],
         ['true result', makeRun({ result: true }), { type: 'success', label: 'True' }],
         ['false result', makeRun({ result: false }), { type: 'danger', label: 'False' }],
+        [
+            'positive sentiment',
+            makeRun({
+                evaluation_type: 'sentiment',
+                result: null,
+                sentiment_label: 'positive',
+                sentiment_score: 0.91,
+            }),
+            { type: 'success', label: 'Positive (91%)' },
+        ],
+        [
+            'neutral sentiment',
+            makeRun({
+                evaluation_type: 'sentiment',
+                result: null,
+                sentiment_label: 'neutral',
+                sentiment_score: 0.67,
+            }),
+            { type: 'none', label: 'Neutral (67%)' },
+        ],
+        [
+            'negative sentiment',
+            makeRun({
+                evaluation_type: 'sentiment',
+                result: null,
+                sentiment_label: 'negative',
+                sentiment_score: 0.82,
+            }),
+            { type: 'danger', label: 'Negative (82%)' },
+        ],
+        [
+            'unknown sentiment',
+            makeRun({ evaluation_type: 'sentiment', result: null, sentiment_label: null, sentiment_score: null }),
+            { type: 'muted', label: 'Unknown' },
+        ],
     ])('%s', (_name, run, expected) => {
         const props = getEvalBadgeProps(run)
         expect(props.type).toBe(expected.type)

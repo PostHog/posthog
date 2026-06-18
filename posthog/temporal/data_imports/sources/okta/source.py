@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OKTA,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Okta",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Okta org domain and an API token to pull your Okta data into the PostHog Data warehouse.

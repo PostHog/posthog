@@ -8958,6 +8958,18 @@ export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
+    task_id: zod
+        .uuid()
+        .nullable()
+        .describe(
+            "ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association."
+        ),
+})
+
+/**
  * Get count of all files in a folder.
  */
 export const desktopFileSystemCountCreateBodyTypeMax = 100

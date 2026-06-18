@@ -11,11 +11,10 @@ from django.db.models import Q
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
-from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
-
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -29,10 +28,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
+from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
@@ -43,14 +44,16 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    columns_in_position_order,
     remove_named_tuples,
+    stamp_column_positions,
 )
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
 
 if TYPE_CHECKING:
-    pass
+    from posthog.schema import HogQLQueryModifiers
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -88,6 +91,7 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
     hogql: str
     clickhouse: str
     valid: NotRequired[bool]
+    position: NotRequired[int]
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
@@ -162,6 +166,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     class Meta:
         db_table = "posthog_datawarehousetable"
 
+    def save(self, *args, **kwargs):
+        if isinstance(self.columns, dict):
+            stamp_column_positions(self.columns)
+        super().save(*args, **kwargs)
+
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
@@ -201,6 +210,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 select=[ast.Call(name="count", args=[ast.Field(chain=[column_key])])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
+
+            # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
+            # where this model loads in every process.
+            from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
             tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             execute_hogql_query(
@@ -457,13 +470,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         )(name=column_name, nullable=is_nullable)
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
+        self, modifiers: Optional["HogQLQueryModifiers"] = None
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
         structure = []
-        for column, type in columns.items():
+        # jsonb scrambles key order, so restore the stamped column positions
+        for column, type in columns_in_position_order(columns):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
@@ -515,6 +529,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_catalog=postgres_catalog,
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_mysql:
+            job_inputs = self.external_data_source.job_inputs or {}
+            mysql_schema = (
+                self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
+                else job_inputs.get("schema") or job_inputs.get("database", "")
+            )
+            mysql_table_name = (
+                self.options.get(DIRECT_MYSQL_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MYSQL_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMySQLTable(
+                name=self.name,
+                fields=fields,
+                mysql_schema=mysql_schema,
+                mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

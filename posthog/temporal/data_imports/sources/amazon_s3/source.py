@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class AmazonS3Source(SimpleSource[AmazonS3SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_S3,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
+            keywords=["s3"],
             label="Amazon S3",
             iconPath="/static/services/aws-s3.png",
             fields=cast(list[FieldType], []),

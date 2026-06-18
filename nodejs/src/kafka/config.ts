@@ -1,4 +1,4 @@
-import { GlobalConfig } from 'node-rdkafka'
+import { ConsumerGlobalConfig, GlobalConfig } from 'node-rdkafka'
 
 import { defaultConfig } from '../config/config'
 
@@ -71,4 +71,25 @@ export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig =
     // That said we also want to be able to add defaults on the global config object
     // So what we do is we first find all values from the default config object and then in addition we add the env ones.
     return parseEnvToRdkafkaConfig(`KAFKA_${target}_`, { skipKeysInDefaultConfig: true })
+}
+
+/**
+ * With the KIP-848 protocol (`group.protocol=consumer`, e.g. via
+ * KAFKA_CONSUMER_GROUP_PROTOCOL=consumer) group session and assignment
+ * settings are broker-side: librdkafka rejects the whole config at startup if
+ * any classic-only key is explicitly set. Strip them after merging so the
+ * hardcoded classic defaults don't break consumers opted into the new
+ * protocol. Use `group.remote.assignor` instead of
+ * `partition.assignment.strategy` to pick the server-side assignor.
+ */
+export function stripClassicProtocolConfig(config: ConsumerGlobalConfig): ConsumerGlobalConfig {
+    if (config['group.protocol'] !== 'consumer') {
+        return config
+    }
+    const stripped = { ...config }
+    delete stripped['session.timeout.ms']
+    delete stripped['heartbeat.interval.ms']
+    delete stripped['partition.assignment.strategy']
+    delete stripped['group.protocol.type']
+    return stripped
 }

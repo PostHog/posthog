@@ -397,11 +397,7 @@ async fn invalid_payload_and_metadata_formats_are_invalid_payload_errors() {
                 deadline_ms: 1_000,
             },
             make_item_with_metadata(2, &exc, b"not-json".to_vec()),
-            make_item_with_metadata(
-                3,
-                &exc,
-                br#"{"apple_debug_images_json":"not-a-list"}"#.to_vec(),
-            ),
+            make_item_with_metadata(3, &exc, br#"{"debug_images_json":"not-a-list"}"#.to_vec()),
         ],
     )
     .await;

@@ -8,41 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod.string().optional().describe('The pagination cursor value.'),
-    status: zod
-        .enum(['completed', 'failed', 'skipped', 'starting'])
-        .optional()
-        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
-})
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -346,4 +311,39 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
+})
+
+export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod.string().optional().describe('The pagination cursor value.'),
+    status: zod
+        .enum(['completed', 'failed', 'skipped', 'starting'])
+        .optional()
+        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
+})
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
 })

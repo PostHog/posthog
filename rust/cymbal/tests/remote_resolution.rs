@@ -377,7 +377,7 @@ async fn accepted_outcomes_release_routing_slots_before_terminal_completion() {
 }
 
 #[tokio::test]
-async fn metadata_encodes_apple_debug_images_as_json_field() {
+async fn metadata_encodes_debug_images_json() {
     let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
     let mut evt = build_event(1);
@@ -402,9 +402,11 @@ async fn metadata_encodes_apple_debug_images_as_json_field() {
     let metadata: serde_json::Value =
         serde_json::from_slice(&items[0].metadata).expect("metadata is json");
     assert_eq!(
-        metadata["apple_debug_images_json"][0]["debug_id"],
+        metadata["debug_images_json"][0]["debug_id"],
         serde_json::Value::String("ABCDEF".to_string())
     );
+    // The legacy apple-specific key is no longer written.
+    assert!(metadata.get("apple_debug_images_json").is_none());
 }
 
 #[tokio::test]

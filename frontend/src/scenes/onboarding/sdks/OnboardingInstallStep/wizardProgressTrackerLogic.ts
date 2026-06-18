@@ -1,7 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { elapsedSecondsFrom } from 'lib/utils/dateTimeUtils'
+import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'

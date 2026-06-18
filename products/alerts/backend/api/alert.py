@@ -1,9 +1,7 @@
 import uuid
 from zoneinfo import ZoneInfo
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import OuterRef, QuerySet, Subquery
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
@@ -23,9 +21,9 @@ from posthog.schema import (
 from posthog.api.documentation import extend_schema_field
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import User
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -39,6 +37,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
@@ -179,7 +178,7 @@ class RelativeDateTimeField(serializers.DateTimeField):
         return data
 
 
-class AlertSerializer(serializers.ModelSerializer):
+class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -300,6 +299,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "investigation_agent_enabled",
             "investigation_gates_notifications",
             "investigation_inconclusive_action",
+            "search_match_type",
         ]
         read_only_fields = [
             "id",
@@ -786,22 +786,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-            )
-            .filter(Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY) | Q(_name_full__gt=MIN_NAME_TRIGRAM_SIMILARITY))
-            .annotate(_search_score=F("_name_word") + F("_name_full"))
-            .order_by("-_search_score", "-created_at")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="alert.search",
+            fields=(NAME_FIELD,),
+            tiebreakers=("-created_at",),
         )
 
     CHECKS_DEFAULT_LIMIT = 5
@@ -915,8 +905,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
-        from posthog.tasks.alerts.detector import simulate_detector_on_insight
-
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
 

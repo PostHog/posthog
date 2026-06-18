@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
@@ -27,7 +25,6 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS]: true }
 const stickinessBar = (extra?: Parameters<typeof buildStickinessQuery>[0]): ReturnType<typeof buildStickinessQuery> =>
     buildStickinessQuery({ stickinessFilter: { display: ChartDisplayType.ActionsBar }, ...extra })
 
@@ -38,7 +35,6 @@ describe('StickinessBarChart', () => {
     ])('renders a $layout bar chart from a StickinessQuery', async ({ display }) => {
         renderInsight({
             query: stickinessBar({ stickinessFilter: { display } }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(
@@ -57,7 +53,6 @@ describe('StickinessBarChart', () => {
                     { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                 ],
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(
@@ -69,7 +64,7 @@ describe('StickinessBarChart', () => {
     })
 
     it('y-axis: renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
-        renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
+        renderInsight({ query: stickinessBar() })
 
         await screen.findByRole('img', { name: /chart with/i })
         await waitFor(() => {
@@ -80,7 +75,7 @@ describe('StickinessBarChart', () => {
     })
 
     it('tooltip: percent value + "stickiness on {interval} {day}" title (not a calendar date)', async () => {
-        renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
+        renderInsight({ query: stickinessBar() })
 
         const tooltip = await chart.hoverTooltip(2)
         // Days are 1-indexed in the mock, so bucket 2 == day 3.
@@ -95,7 +90,6 @@ describe('StickinessBarChart', () => {
             query: stickinessBar({
                 series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
             }),
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await waitFor(
@@ -108,7 +102,7 @@ describe('StickinessBarChart', () => {
     })
 
     it('click → persons modal: opens with a "stickiness on {interval} {day}" title', async () => {
-        renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
+        renderInsight({ query: stickinessBar() })
 
         await chart.clickAtIndex(2)
 
@@ -127,7 +121,6 @@ describe('StickinessBarChart', () => {
         renderInsight({
             query: stickinessBar(),
             context: { onDataPointClick },
-            featureFlags: HOG_CHARTS_FLAG,
         })
 
         await chart.clickAtIndex(2)

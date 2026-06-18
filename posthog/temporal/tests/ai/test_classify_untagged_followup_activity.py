@@ -7,8 +7,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflowInputs
-from posthog.temporal.ai.slack_app import classify_message_is_agent_directed, classify_untagged_followup_activity
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    classify_message_is_agent_directed,
+    classify_untagged_followup_activity,
+)
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
