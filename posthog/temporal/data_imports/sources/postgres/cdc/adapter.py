@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     remove_table_from_publication,
     slot_exists,
 )
+from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
@@ -40,16 +41,21 @@ class PostgresCDCAdapter:
             PgCDCConnectionParams,
             PgCDCStreamReader,
         )
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         inputs = source.job_inputs or {}
         cdc_config = self.parse_cdc_config(source)
+        # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
+        # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
+        # is not force-upgraded on the data path.
+        config = PostgresSource().parse_config(inputs)
         params = PgCDCConnectionParams(
             host=inputs.get("host", ""),
             port=int(inputs.get("port", 5432)),
             database=inputs.get("database", ""),
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
-            sslmode=inputs.get("sslmode", "prefer"),
+            require_ssl=source_requires_ssl(source, config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )
