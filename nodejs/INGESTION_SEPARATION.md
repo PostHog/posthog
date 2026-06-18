@@ -244,10 +244,11 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       concrete `createAiEventSubpipeline`. Guard baseline 2 -> 1. The guard now scopes to production
       files (test files are composition roots that wire real impls across domains — e.g. cdp's
       HogTransformer and the ai factory — so their cross-lane wiring is Phase 3's concern, not the guard's).
-- [ ] Resolve `ingestion-consumer` -> `analytics` (the last baselined edge). This is a composition-root
-      edge, not ai/analytics: the consumer (SHARED, at `src/ingestion/`) builds the analytics joined
-      pipeline. Options: move the consumer into the `analytics` lane (it is the analytics consumer; the
-      other lanes own their consumers) to empty the baseline, or treat it as a composition root.
+- [x] Resolve `ingestion-consumer` -> `analytics` (the last baselined edge). Moved
+      `src/ingestion/ingestion-consumer.ts` (+ its test) into the `analytics` lane
+      (`src/ingestion/analytics/`) — it is the analytics consumer (every other lane already owns its
+      consumer), so the edge becomes lane-internal. **Guard baseline is now empty (`[]`) — the
+      intra-ingestion DAG is clean: no lane imports another lane, and no shared code imports a lane.**
 - [ ] **Exit gate:** `pnpm test:full` green.
 - [ ] **Exit gate:** `pnpm test:full` green.
 
@@ -347,3 +348,10 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   prettier clean, guard baseline shrank 2 -> 1. The remaining edge is `ingestion-consumer -> analytics`
   (composition-root, not ai/analytics). Pipeline behavior is covered by the ai/analytics integration +
   e2e tests, which need infra -> CI gate.
+- Phase 2 COMPLETE — intra-ingestion DAG is clean: moved `src/ingestion/ingestion-consumer.ts` (+ test)
+  into the `analytics` lane (it is the analytics consumer; the other lanes already own theirs), so the
+  last `ingestion-consumer -> analytics` edge became lane-internal. Guard baseline is now `[]` (empty):
+  no lane imports another lane, and no shared/common ingestion code imports a lane. 39 imports rewritten
+  across 6 files; tsc 0 new errors, eslint + prettier clean, guard green. All eight lanes (analytics,
+  ai, heatmaps, error-tracking, logs, metrics, session-replay, ingestionwarnings) are isolated. Next:
+  Phase 3 (split mixed cdp/ingestion test files) and Phase 4 (CI path-based test selection).
