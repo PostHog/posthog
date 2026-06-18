@@ -325,6 +325,14 @@ def metric_variant_to_statistic(
     variant: ExperimentStatsBaseValidated,
 ) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
+        # A thresholded mean is a binary "did the user reach N" outcome, so it must be
+        # analyzed as a proportion (Bernoulli), not a continuous mean (Gaussian).
+        # The query builder emits total_sum as the count of users who crossed.
+        if metric.threshold is not None:
+            return ProportionStatistic(
+                n=variant.number_of_samples,
+                sum=int(variant.sum),
+            )
         return SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,

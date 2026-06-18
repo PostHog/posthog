@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import columns_in_position_order, stamp_column_positions
 
 
 class TestResolveTableAndFolderNames:
@@ -247,3 +248,34 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+class TestMergeColumnsPositions:
+    def test_partial_introspection_preserves_column_order(self):
+        # "b" transiently missing from introspection: its preserved entry keeps position=1, and
+        # the present columns carry theirs over, so re-stamping doesn't scramble the order.
+        existing = {
+            "a": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 0},
+            "b": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 1},
+            "c": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 2},
+        }
+        db_columns = {"a": "String", "c": "String"}
+        table_schema_dict = {"a": "StringDatabaseField", "c": "StringDatabaseField"}
+
+        merged = merge_columns(db_columns, table_schema_dict, existing)
+        stamp_column_positions(merged)
+
+        assert [name for name, _ in columns_in_position_order(merged)] == ["a", "b", "c"]
+
+    def test_new_column_appends_after_existing_order(self):
+        existing = {
+            "a": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 0},
+            "b": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 1},
+        }
+        db_columns = {"new_col": "String", "a": "String", "b": "String"}
+        table_schema_dict = {"new_col": "StringDatabaseField", "a": "StringDatabaseField", "b": "StringDatabaseField"}
+
+        merged = merge_columns(db_columns, table_schema_dict, existing)
+        stamp_column_positions(merged)
+
+        assert [name for name, _ in columns_in_position_order(merged)] == ["a", "b", "new_col"]

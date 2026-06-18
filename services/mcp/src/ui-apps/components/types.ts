@@ -1,3 +1,5 @@
+import type { YAxisFormat } from '@posthog/quill-charts'
+
 import type { AnalyticsMetadata } from '../types'
 
 // Base payload that all tool results share
@@ -15,6 +17,8 @@ export type ChartDisplayType =
     | 'ActionsLineGraph'
     | 'ActionsLineGraphCumulative'
     | 'ActionsBar'
+    | 'ActionsStackedBar'
+    | 'ActionsUnstackedBar'
     | 'ActionsBarValue'
     | 'ActionsAreaGraph'
     | 'BoldNumber'
@@ -27,7 +31,17 @@ export interface TrendsFilter {
     display?: ChartDisplayType
     showLegend?: boolean
     showValuesOnSeries?: boolean
-    aggregationAxisFormat?: 'numeric' | 'duration' | 'duration_ms' | 'percentage'
+    showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showPercentStackView?: boolean
+    aggregationAxisFormat?: YAxisFormat
+    aggregationAxisPrefix?: string
+    aggregationAxisPostfix?: string
+    decimalPlaces?: number
+    minDecimalPlaces?: number
 }
 
 export interface TrendsQuery {

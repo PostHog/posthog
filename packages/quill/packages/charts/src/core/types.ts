@@ -8,6 +8,8 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Skip canvas painting while still mounting the canvas. For deterministic visual-snapshot tests. */
+    skipDraw?: boolean
 }
 
 /** Default axis id used when a series doesn't specify one. */
@@ -127,7 +129,12 @@ export interface TooltipContext<Meta = unknown> {
     label: string
     /** One entry per visible series with its value and color at this index. `fraction` is set
      *  for radial charts (share of total) so renderers don't need to look the slice back up. */
-    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
+    seriesData: {
+        series: Series<Meta>
+        value: number
+        color: string
+        fraction?: number
+    }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -215,6 +222,32 @@ export interface ChartConfig {
     maxCategoryLabelWidth?: number
 }
 
+/** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
+ *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
+ *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
+ *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+export interface ChartLegendConfig {
+    /** Render the legend. Default false. */
+    show?: boolean
+    /** Where the legend sits relative to the plot. Default 'bottom'. */
+    position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Legend alignment along its axis. Default 'center'. */
+    align?: 'start' | 'center' | 'end'
+    /** Gap in px between the legend and the plot. */
+    gap?: number
+    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
+     *  set false for a static, read-only legend. */
+    interactive?: boolean
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
+     *  omit for chart-managed (uncontrolled) toggling. */
+    hiddenKeys?: string[]
+    /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
+     *  is set (controlled). */
+    defaultHiddenKeys?: string[]
+    /** Called whenever a series is toggled, with its key and resulting hidden state. */
+    onToggleSeries?: (key: string, hidden: boolean) => void
+}
+
 export interface TooltipConfig {
     /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
     enabled?: boolean
@@ -299,12 +332,16 @@ export interface BarChartConfig extends ChartConfig {
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
     bars?: BarsConfig
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
