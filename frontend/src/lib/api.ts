@@ -6874,10 +6874,6 @@ const api = {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
 
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
-        },
-
         async compose(data: {
             message: string
             recipient_email: string
