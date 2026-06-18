@@ -9,9 +9,10 @@ import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 const USAGE_WINDOW_DAYS = 30
 
-// Gateway usage is read from $ai_generation events, which the gateway emits for every request.
+// Gateway usage is read from $ai_generation events the gateway stamps with $ai_gateway = true,
+// which separates them from SDK-emitted LLM events that share the $ai_generation event name.
 // The events table is team-scoped and api.query resolves the team from the request context.
-const GATEWAY_EVENTS_WHERE = `event = '$ai_generation' AND timestamp >= now() - INTERVAL ${USAGE_WINDOW_DAYS} DAY`
+const GATEWAY_EVENTS_WHERE = `event = '$ai_generation' AND properties.$ai_gateway = true AND timestamp >= now() - INTERVAL ${USAGE_WINDOW_DAYS} DAY`
 
 export interface GatewayUsage {
     requests: number

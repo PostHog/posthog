@@ -13,7 +13,6 @@ export enum Scene {
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
-    AIGatewayDetail = 'AIGatewayDetail',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',

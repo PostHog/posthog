@@ -10,8 +10,9 @@ import { mswDecorator } from '~/mocks/browser'
 const queryDecorator = (hasData: boolean): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         post: {
-            'api/environments/:team_id/query/': (req) => {
-                const hogql = String((req.body as { query?: { query?: string } })?.query?.query ?? '')
+            'api/environments/:team_id/query/': async ({ request }) => {
+                const body = (await request.json()) as { query?: { query?: string } }
+                const hogql = String(body?.query?.query ?? '')
                 if (hogql.includes('GROUP BY model')) {
                     return [
                         200,

@@ -1,25 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
 
-// Placeholder balance: the gateway has no balance endpoint yet (products/ai_gateway/backend/routes.py
-// is an empty stub), so this is a frontend mock until that lands.
-const MOCK_BALANCE_USD = 42.5
-
 const TOP_UP_PRESETS_USD = [25, 50, 100, 250]
 
+// The gateway has no balance endpoint yet (products/ai_gateway/backend/routes.py is an empty
+// stub), so the balance is shown as a Preview placeholder until that lands.
 export function GatewayBalanceCard(): JSX.Element {
     const { openTopUpModal } = useActions(aiGatewayLogic)
 
     return (
         <div className="border rounded p-4 min-w-48 flex-1 flex items-center justify-between gap-4">
             <div>
-                <div className="text-secondary text-xs uppercase">Balance</div>
-                <div className="text-2xl font-semibold">{humanFriendlyCurrency(MOCK_BALANCE_USD)}</div>
+                <div className="text-secondary text-xs uppercase flex items-center gap-1.5">
+                    Balance
+                    <LemonTag type="warning">Preview</LemonTag>
+                </div>
+                <div className="text-2xl font-semibold">—</div>
             </div>
             <LemonButton type="primary" onClick={openTopUpModal}>
                 Top up
