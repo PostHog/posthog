@@ -1834,11 +1834,13 @@ dependencies = [
  "limiters",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prometheus-rw-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
  "serde_json",
+ "snap",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
@@ -7809,6 +7811,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus-rw-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
 name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
@@ -9761,6 +9771,12 @@ dependencies = [
  "static_assertions",
  "version_check",
 ]
+
+[[package]]
+name = "snap"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
 
 [[package]]
 name = "socket2"

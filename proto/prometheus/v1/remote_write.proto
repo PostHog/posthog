@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package prometheus.v1;
+
+// Minimal subset of the Prometheus remote-write v1 protocol
+// (github.com/prometheus/prometheus/prompb) sufficient to decode a write
+// request. Field numbers MUST match upstream for wire compatibility.
+//
+// TimeSeries fields 3 (exemplars) and 4 (native histograms) are intentionally
+// omitted: proto3 skips unknown fields during decoding, so a v1 sender that
+// includes them is decoded without error and those payloads are dropped. Native
+// histogram and exemplar support is deferred (and would require RW v2 for
+// per-series type metadata anyway).
+
+message WriteRequest {
+  repeated TimeSeries timeseries = 1;
+  // Field 2 is reserved upstream.
+  repeated MetricMetadata metadata = 3;
+}
+
+message TimeSeries {
+  repeated Label labels = 1;
+  repeated Sample samples = 2;
+}
+
+message Label {
+  string name = 1;
+  string value = 2;
+}
+
+message Sample {
+  double value = 1;
+  // Milliseconds since the Unix epoch.
+  int64 timestamp = 2;
+}
+
+message MetricMetadata {
+  enum MetricType {
+    UNKNOWN = 0;
+    COUNTER = 1;
+    GAUGE = 2;
+    HISTOGRAM = 3;
+    GAUGEHISTOGRAM = 4;
+    SUMMARY = 5;
+    INFO = 6;
+    STATESET = 7;
+  }
+
+  MetricType type = 1;
+  string metric_family_name = 2;
+  string help = 4;
+  string unit = 5;
+}

@@ -51,6 +51,7 @@ members = [
   "personhog-leader",
   "personhog-writer",
   "personhog-proto",
+  "prometheus-rw-proto",
   "personhog-replica",
   "personhog-router",
   "affected-services",
@@ -142,6 +143,7 @@ serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
 siphasher = "1.0.1"
+snap = "1"
 sqlx = { version = "0.8.6", features = [
   "chrono",
   "json",
