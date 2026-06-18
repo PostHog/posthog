@@ -4219,6 +4219,8 @@ class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
         conn = mock.MagicMock()
+        conn.closed = False
+        conn.broken = False
         conn.cursor.return_value.__enter__.return_value.execute.side_effect = exc
         return conn
 
@@ -4249,6 +4251,22 @@ class TestRlsActiveFromConnErrorHandling:
                 "current transaction is aborted, commands ignored until end of transaction block"
             )
         )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    @pytest.mark.parametrize("attr", ["closed", "broken"])
+    def test_dropped_connection_is_not_captured(self, attr):
+        # The shared connection can be dropped by an earlier best-effort probe or a transient blip
+        # (SSH-tunnel hiccup, idle cull), so our `cursor()` call raises `OperationalError: the
+        # connection is closed`. That's a downstream symptom the caller already degrades quietly —
+        # don't flood error tracking with it.
+        conn = mock.MagicMock()
+        conn.closed = False
+        conn.broken = False
+        setattr(conn, attr, True)
+        conn.cursor.side_effect = psycopg.OperationalError("the connection is closed")
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
