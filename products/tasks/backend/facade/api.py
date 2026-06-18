@@ -19,11 +19,11 @@ from collections.abc import Iterable
 from datetime import timedelta
 from uuid import UUID
 
-from django.db.models import Count
+from django.db.models import CharField, Count, Exists, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 from . import contracts
@@ -35,24 +35,31 @@ TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
+SandboxSnapshotStatus = SandboxSnapshot.Status
 
 __all__ = [
     "SandboxNetworkAccessLevel",
+    "SandboxSnapshotStatus",
     "TaskOriginProduct",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "create_and_run_task",
+    "create_completed_sandbox_snapshot",
+    "create_run",
     "create_sandbox_connection_token",
     "fail_task_run",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
+    "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
     "get_task_run",
     "get_task_run_state_counts",
     "is_task_visible_to_user",
+    "latest_task_run_pr_url_subquery",
     "send_cancel",
     "send_user_message",
     "task_exists",
+    "task_run_pr_url_exists_subquery",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
 ]
@@ -127,6 +134,15 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
     )
 
 
+def _sandbox_snapshot_to_dto(snapshot: SandboxSnapshot) -> contracts.SandboxSnapshotDTO:
+    return contracts.SandboxSnapshotDTO(
+        id=snapshot.id,
+        external_id=snapshot.external_id,
+        status=snapshot.status,
+        repos=list(snapshot.repos or []),
+    )
+
+
 # --- Reads ---
 
 
@@ -155,6 +171,12 @@ def is_task_visible_to_user(task_id: str | UUID, user_id: int | None) -> bool:
     return Task.objects.filter(task_visibility_q(user_id), pk=task_id).exists()
 
 
+def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDTO | None:
+    """Fetch a sandbox snapshot as a DTO."""
+    snapshot = SandboxSnapshot.objects.filter(id=snapshot_id).first()
+    return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
@@ -169,6 +191,29 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
         .distinct("task_id")
     )
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+
+
+def task_run_pr_url_exists_subquery(**task_run_filter) -> Exists:
+    """``Exists`` over runs matching ``task_run_filter`` that produced a non-empty output.pr_url.
+
+    The caller supplies the correlation filter (e.g. ``task__signal_report_tasks__report_id=
+    OuterRef("id")`` plus its own relationship value). Returns a query expression to embed in
+    the caller's queryset — no ORM instances cross the boundary, and the tasks facade stays
+    free of the caller's domain.
+    """
+    return Exists(TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False).exclude(output__pr_url=""))
+
+
+def latest_task_run_pr_url_subquery(**task_run_filter) -> Subquery:
+    """``Subquery`` of the latest non-empty output.pr_url for runs matching ``task_run_filter``."""
+    return Subquery(
+        TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .order_by("-created_at")
+        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
+        .values("output_pr_url_text")[:1],
+        output_field=CharField(),
+    )
 
 
 def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contracts.TaskRunDTO]:
@@ -266,6 +311,19 @@ def create_and_run_task(
     )
 
 
+def create_run(
+    task_id: str | UUID,
+    *,
+    mode: str = "background",
+    extra_state: dict | None = None,
+    branch: str | None = None,
+) -> contracts.TaskRunDTO:
+    """Create a new run for an existing task (e.g. resuming an interactive sandbox session)."""
+    task = Task.objects.get(id=task_id)
+    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+    return _task_run_to_dto(run, task=task)
+
+
 def update_task_run_state(
     run_id: str | UUID,
     *,
@@ -329,6 +387,12 @@ def upsert_internal_sandbox_env(
             setattr(keeper, key, value)
         keeper.save(update_fields=list(defaults.keys()))
         return keeper.id
+
+
+def create_completed_sandbox_snapshot(external_id: str) -> UUID:
+    """Record a completed sandbox snapshot for an externally-built image; return its id."""
+    snapshot = SandboxSnapshot.objects.create(external_id=external_id, status=SandboxSnapshot.Status.COMPLETE)
+    return snapshot.id
 
 
 # --- Id-based bridges to the sandbox/agent-command surface ---

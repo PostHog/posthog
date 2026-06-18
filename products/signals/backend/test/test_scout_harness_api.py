@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
@@ -27,7 +31,9 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def _authenticate_as_scout(test: APIBaseTest) -> None:
@@ -60,6 +66,8 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
 
 
 def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="scout run",
@@ -73,8 +81,11 @@ def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
     return task_run
 
 
-def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, **overrides) -> SignalScoutRun:
+def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) -> SignalScoutRun:
     """Build a SignalScoutRun bridge row whose TaskRun is in the given status."""
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    if task_run_status is None:
+        task_run_status = TaskRun.Status.IN_PROGRESS
     config, _ = SignalScoutConfig.objects.get_or_create(
         team=team, skill_name="signals-scout-general", defaults={"emit": True}
     )
@@ -156,6 +167,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(errors.id)]
 
     def test_list_surfaces_error_and_failure_reason_for_failed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
         response = self.client.get(self._list_url())
@@ -165,6 +177,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["failure_reason"] == "boom: sandbox died"
 
     def test_retrieve_returns_bridge_projection(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
@@ -435,6 +448,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         mock_emit.assert_not_called()
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

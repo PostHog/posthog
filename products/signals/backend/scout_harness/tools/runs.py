@@ -18,10 +18,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from products.signals.backend.models import SignalScoutRun
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
@@ -182,13 +185,18 @@ def _derive_failure(task_run: TaskRun | None) -> tuple[str | None, str | None]:
     `failure_reason` is what a bulk run scan reads to see *why* a run emitted nothing without
     pulling every stack trace.
     """
-    if task_run is None or task_run.status not in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
+    if task_run is None or task_run.status not in (
+        tasks_facade.TaskRunStatus.FAILED,
+        tasks_facade.TaskRunStatus.CANCELLED,
+    ):
         return None, None
     error = task_run.error_message or None
     message = (task_run.error_message or "").strip()
     if message:
         return error, message.splitlines()[0][:MAX_FAILURE_REASON_LENGTH]
-    fallback = "cancelled" if task_run.status == TaskRun.Status.CANCELLED else "failed (no error message recorded)"
+    fallback = (
+        "cancelled" if task_run.status == tasks_facade.TaskRunStatus.CANCELLED else "failed (no error message recorded)"
+    )
     return error, fallback
 
 

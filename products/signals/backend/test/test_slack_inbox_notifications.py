@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
+
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -28,7 +30,6 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
-from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest.mark.parametrize(
@@ -348,6 +349,8 @@ def _create_implementation_task_with_run(
     *,
     pr_url: str | None = None,
 ) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="Implementation task",

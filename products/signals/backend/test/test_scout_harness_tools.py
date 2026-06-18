@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 import pytest_asyncio
@@ -44,10 +46,14 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
 )
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def _make_task_run(team, *, status: str | None = None) -> TaskRun:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="scout run",
@@ -67,6 +73,7 @@ def _create_run(team, **overrides) -> SignalScoutRun:
     Default TaskRun status is COMPLETED so summary/detail surface a terminal
     state — tests that need IN_PROGRESS pass `task_run_status` explicitly.
     """
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task_run_status = overrides.pop("task_run_status", TaskRun.Status.COMPLETED)
     task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
@@ -139,6 +146,7 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_status_from_linked_task_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
 
         hits = search_recent_runs(team_id=self.team.id, limit=1)
@@ -220,6 +228,7 @@ class TestSearchRecentRuns(BaseTest):
         assert [h.run_id for h in hits] == [str(v1.id)]
 
     def test_failure_reason_and_error_surface_for_failed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
 
@@ -233,6 +242,7 @@ class TestSearchRecentRuns(BaseTest):
         assert detail.failure_reason == "boom: sandbox died"
 
     def test_failure_reason_falls_back_when_no_error_message(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.CANCELLED)
 
         hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
@@ -242,6 +252,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.run_id == str(run.id)
 
     def test_no_failure_reason_for_completed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
 
         hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
@@ -250,6 +261,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.failure_reason is None
 
     def test_completed_run_with_error_message_does_not_surface_error(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         # A stray error_message on a run that still reached COMPLETED must not surface as a
         # failure signal — `error` and `failure_reason` are gated on terminal-failure status.
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
@@ -261,6 +273,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.failure_reason is None
 
     def test_failure_reason_truncated_to_max_length(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
         long_message = "x" * (MAX_FAILURE_REASON_LENGTH + 50)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message=long_message)
@@ -647,6 +660,7 @@ async def ateam_emit(aorganization_emit):
 
 @pytest_asyncio.fixture
 async def arun_emit(ateam_emit):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam_emit)
     task_run = await database_sync_to_async(_make_task_run)(ateam_emit, status=TaskRun.Status.IN_PROGRESS)
     run = await database_sync_to_async(SignalScoutRun.objects.create)(
@@ -1052,6 +1066,7 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
     """Same guard as the async path, exercised against `emit_finding_sync`."""
     from posthog.models import Organization, Team
 
+    TaskRun = apps.get_model("tasks", "TaskRun")
     org = Organization.objects.create(name="sync-mismatch-org", is_ai_data_processing_approved=True)
     owning_team = Team.objects.create(organization=org, name="owner")
     other_team = Team.objects.create(organization=org, name="other")

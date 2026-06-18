@@ -1,10 +1,12 @@
 import json
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,7 +17,9 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task, TaskRun
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -490,7 +494,9 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def _create_implementation_task_with_run(
         self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
-    ) -> tuple[Task, TaskRun]:
+    ) -> "tuple[Task, TaskRun]":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="Implementation task",
@@ -557,6 +563,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] is None
 
     def test_implementation_pr_url_uses_latest_task_run(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
         task = Task.objects.create(
             team=self.team,

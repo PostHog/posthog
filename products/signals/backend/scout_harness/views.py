@@ -393,7 +393,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def emit_signal(self, request: Request, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
-        from products.tasks.backend.models import TaskRun
+        from products.tasks.backend.facade import api as tasks_facade
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run")
@@ -402,7 +402,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if run is None:
             raise exceptions.NotFound()
-        if run.task_run.status != TaskRun.Status.IN_PROGRESS:
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise exceptions.ValidationError(
                 {"status": f"Findings can only be emitted on in-progress runs (current: {run.task_run.status})."}
             )

@@ -4,7 +4,7 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -25,9 +25,11 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -163,14 +165,14 @@ async def arun_signals_scout(
             skill=skill,
             run_id=run_id,
             task_run_id=task_run_id,
-            status=TaskRun.Status.COMPLETED.value,
+            status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
         )
         return RunResult(
             run_id=str(run_id),
             task_run_id=task_run_id,
-            status=TaskRun.Status.COMPLETED.value,
+            status=tasks_facade.TaskRunStatus.COMPLETED.value,
             last_message=last_message,
             runtime_s=runtime_s,
             skill_name=skill.name,
@@ -211,14 +213,14 @@ async def arun_signals_scout(
             skill=skill,
             run_id=run_id,
             task_run_id=failed_task_run_id,
-            status=TaskRun.Status.FAILED.value,
+            status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
         )
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
             task_run_id=None,
-            status=TaskRun.Status.FAILED.value,
+            status=tasks_facade.TaskRunStatus.FAILED.value,
             last_message=None,
             runtime_s=runtime_s,
             skill_name=skill.name,
@@ -251,7 +253,7 @@ async def arun_signals_scout(
             skill=skill,
             run_id=run_id,
             task_run_id=None,
-            status=TaskRun.Status.CANCELLED.value,
+            status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
         )
@@ -276,7 +278,7 @@ async def _spawn_and_run(
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
-        SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+        tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
     )
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
     # sandbox. The kwarg stays wired so the management command can still pass
@@ -331,7 +333,7 @@ async def _spawn_and_run(
         model=SignalScoutRunSummary,
         step_name=_step_name(skill),
         verbose=verbose,
-        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
         # Tag every scout $ai_generation with a coarse pipeline stage so scout spend is
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id).
         # Constant 'scout' keeps ai_stage a low-cardinality stage enum (peer of research /
@@ -395,7 +397,7 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
         .filter(
             team_id=team_id,
             skill_name=skill_name,
-            task_run__status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
         )
         .exists()
     )

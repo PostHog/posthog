@@ -104,6 +104,16 @@ class SandboxEnvironmentDTO:
 
 
 @dataclass(frozen=True)
+class SandboxSnapshotDTO:
+    """A snapshot of a sandbox image."""
+
+    id: UUID
+    external_id: str
+    status: str
+    repos: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class SignalReportPrUrlDTO:
     """The PR URL produced by the latest task run for a signal report."""
 

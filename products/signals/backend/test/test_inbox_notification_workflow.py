@@ -3,6 +3,7 @@ import uuid
 import pytest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import override_settings
 
 from temporalio import activity
@@ -19,7 +20,6 @@ from products.signals.backend.temporal.inbox_notification import (
     _compute_inbox_notification_state,
     _send_report_inbox_notifications,
 )
-from products.tasks.backend.models import Task, TaskRun
 
 TASK_QUEUE = "test-inbox-notification-queue"
 
@@ -31,6 +31,8 @@ def _make_report(team: Team, status: str = SignalReport.Status.READY) -> SignalR
 
 
 def _link_implementation_task(team: Team, report: SignalReport, *, pr_url: str | None, run_status: str) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
     )
@@ -58,6 +60,7 @@ def test_state_no_implementation_task(team):
 
 @pytest.mark.django_db
 def test_state_task_with_pr(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url="https://github.com/o/r/pull/1", run_status=TaskRun.Status.COMPLETED)
     state = _compute_inbox_notification_state(team.id, str(report.id))
@@ -66,6 +69,7 @@ def test_state_task_with_pr(team):
 
 @pytest.mark.django_db
 def test_state_task_running_no_pr(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.IN_PROGRESS)
     state = _compute_inbox_notification_state(team.id, str(report.id))
@@ -74,6 +78,7 @@ def test_state_task_running_no_pr(team):
 
 @pytest.mark.django_db
 def test_state_task_failed_no_pr_is_terminal(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.FAILED)
     state = _compute_inbox_notification_state(team.id, str(report.id))
