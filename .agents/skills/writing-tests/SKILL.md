@@ -12,14 +12,6 @@ description: >
 The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
 This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
 
-Judge every test on two independent axes, not a single "more vs fewer" dial:
-
-- **Value** — does this catch a realistic mistake _we actually make_? Maximize this.
-- **Cost** — how far down the test pyramid does it sit? Minimize this.
-
-You should have _thousands_ of fast, dependency-free tests; what you ration is the slow ones (a database, ClickHouse, a browser).
-"Don't write low-value tests" never means "write fewer tests" — it means kill the ones that catch nothing (below) and push the rest as far down the pyramid as they go.
-
 ## The gate: one question
 
 Before writing any test, answer in one sentence:
