@@ -16,11 +16,16 @@ import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './das
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { folderLabel } from './dashboardsFileSystemUtils'
 
-function FinderDashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.Element {
-    const { renamingDashboardId } = useValues(dashboardsFileSystemLogic)
+function FinderDashboardCard({
+    dashboard,
+    isRenaming,
+}: {
+    dashboard: DashboardBasicType
+    isRenaming: boolean
+}): JSX.Element {
     const { renameDashboard, stopRenaming } = useActions(dashboardsFileSystemLogic)
 
-    if (renamingDashboardId === dashboard.id) {
+    if (isRenaming) {
         return (
             <LemonCard className="flex flex-col gap-1 h-full">
                 <IconDashboard className="text-2xl text-muted" />
@@ -53,7 +58,7 @@ function FinderDashboardCard({ dashboard }: { dashboard: DashboardBasicType }): 
                     </LemonCard>
                 </Link>
                 <div className="absolute top-1 right-1">
-                    <DashboardCardMenu dashboardId={dashboard.id} dashboardName={dashboard.name || ''} />
+                    <DashboardCardMenu dashboardId={dashboard.id} />
                 </div>
             </div>
         </DraggableDashboard>
@@ -64,7 +69,8 @@ function FinderDashboardCard({ dashboard }: { dashboard: DashboardBasicType }): 
 // drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete) plus the
 // clipboard paste affordance. Reuses the same FileSystem folder structure as the grid arm and sidebar tree.
 export function DashboardsFinder(): JSX.Element {
-    const { currentFolderContents, breadcrumb, currentFolder, clipboard } = useValues(dashboardsFileSystemLogic)
+    const { currentFolderContents, breadcrumb, currentFolder, clipboard, renamingDashboardId } =
+        useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -114,7 +120,11 @@ export function DashboardsFinder(): JSX.Element {
                         </DroppableFolder>
                     ))}
                     {currentFolderContents.dashboards.map((dashboard) => (
-                        <FinderDashboardCard key={dashboard.id} dashboard={dashboard} />
+                        <FinderDashboardCard
+                            key={dashboard.id}
+                            dashboard={dashboard}
+                            isRenaming={renamingDashboardId === dashboard.id}
+                        />
                     ))}
                 </div>
             </div>

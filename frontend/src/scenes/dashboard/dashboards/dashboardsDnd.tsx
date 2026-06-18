@@ -10,6 +10,8 @@ import {
 } from '@dnd-kit/core'
 import { ReactNode } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { dashboardDraggableId, folderDroppableId, parseDashboardDragEnd } from './dashboardsFileSystemUtils'
 
 // Shared drag-to-folder wiring for the grid and finder arms: a card is draggable, a folder is droppable,
@@ -66,7 +68,7 @@ export function DroppableFolder({
 }): JSX.Element {
     const { setNodeRef, isOver } = useDroppable({ id: folderDroppableId(folder) })
     return (
-        <div ref={setNodeRef} className={isOver ? `${className ?? ''} ring-2 ring-accent rounded` : className}>
+        <div ref={setNodeRef} className={cn(className, isOver && 'ring-2 ring-accent rounded')}>
             {children}
         </div>
     )

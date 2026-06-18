@@ -4,6 +4,7 @@ import { DashboardBasicType } from '~/types'
 
 // Dashboards with no folder entry live here by default (matches FileSystemSyncMixin's base folder).
 export const UNFILED_DASHBOARDS_FOLDER = 'Unfiled/Dashboards'
+const UNFILED_SEGMENTS = splitPath(UNFILED_DASHBOARDS_FOLDER)
 
 export interface DashboardFolderGroup {
     folder: string
@@ -101,8 +102,9 @@ export function folderContents(
 
     for (const dashboard of dashboards) {
         const entry = entryByRef[String(dashboard.id)]
-        const folder = (entry?.path && parentFolder(entry.path)) || UNFILED_DASHBOARDS_FOLDER
-        const segments = splitPath(folder)
+        // Parent segments of the dashboard's path in one split (no joinPath→splitPath round-trip).
+        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
         const withinCurrent = currentSegments.every((segment, index) => segments[index] === segment)
         if (!withinCurrent) {
             continue

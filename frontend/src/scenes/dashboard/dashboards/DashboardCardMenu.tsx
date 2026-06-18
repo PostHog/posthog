@@ -2,71 +2,43 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
-
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    Button,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+} from '@posthog/quill'
+
 import { urls } from 'scenes/urls'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
-// Per-card actions for the grid/finder arms. NOTE: uses lib/ui/DropdownMenu (the proven, app-wide menu)
-// rather than @posthog/quill per CLAUDE.md — quill menus have no app precedent yet and their runtime
-// rendering is unverified here; converting this to quill is a tracked follow-up.
-export function DashboardCardMenu({
-    dashboardId,
-    dashboardName,
-}: {
-    dashboardId: number
-    dashboardName: string
-}): JSX.Element {
+// Per-card actions for the grid/finder arms.
+export function DashboardCardMenu({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { cutDashboard, copyDashboard, startRenaming, deleteDashboardWithConfirm } =
         useActions(dashboardsFileSystemLogic)
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive iconOnly aria-label="Dashboard actions">
-                    <IconEllipsis className="text-tertiary" />
-                </ButtonPrimitive>
+            <DropdownMenuTrigger render={<Button variant="default" size="icon-sm" aria-label="Dashboard actions" />}>
+                <IconEllipsis className="text-tertiary" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="bottom">
                 <DropdownMenuGroup>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => router.actions.push(urls.dashboard(dashboardId))}>
-                            Open
-                        </ButtonPrimitive>
+                    <DropdownMenuItem onClick={() => router.actions.push(urls.dashboard(dashboardId))}>
+                        Open
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => startRenaming(dashboardId)}>
-                            Rename
-                        </ButtonPrimitive>
+                    <DropdownMenuItem onClick={() => startRenaming(dashboardId)}>Rename</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => cutDashboard(dashboardId)}>Cut</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => copyDashboard(dashboardId)}>
+                        <IconCopy />
+                        Copy
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => cutDashboard(dashboardId)}>
-                            Cut
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => copyDashboard(dashboardId)}>
-                            <IconCopy />
-                            Copy
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            menuItem
-                            variant="danger"
-                            onClick={() => deleteDashboardWithConfirm(dashboardId, dashboardName)}
-                        >
-                            <IconTrash />
-                            Delete
-                        </ButtonPrimitive>
+                    <DropdownMenuItem variant="destructive" onClick={() => deleteDashboardWithConfirm(dashboardId)}>
+                        <IconTrash />
+                        Delete
                     </DropdownMenuItem>
                 </DropdownMenuGroup>
             </DropdownMenuContent>

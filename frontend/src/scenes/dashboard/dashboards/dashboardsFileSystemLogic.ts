@@ -1,9 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { LemonDialog } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -41,7 +40,9 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             projectTreeDataLogic,
             ['moveItem'],
             dashboardsModel,
-            ['duplicateDashboard', 'updateDashboard', 'deleteDashboard'],
+            ['duplicateDashboard', 'updateDashboard'],
+            deleteDashboardLogic,
+            ['showDeleteDashboardModal'],
         ],
     })),
     actions({
@@ -55,7 +56,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         clearClipboard: true,
         pasteIntoFolder: (folder: string) => ({ folder }),
         renameDashboard: (dashboardId: number, name: string) => ({ dashboardId, name }),
-        deleteDashboardWithConfirm: (dashboardId: number, name: string) => ({ dashboardId, name }),
+        deleteDashboardWithConfirm: (dashboardId: number) => ({ dashboardId }),
         startRenaming: (dashboardId: number) => ({ dashboardId }),
         stopRenaming: true,
     }),
@@ -140,7 +141,6 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 // behavior (no new sharing/subscription handling — see CH-03). The copy lands in its default
                 // folder; auto-placing it into `folder` needs the new entry after duplication (follow-up).
                 actions.duplicateDashboard({ id: item.dashboardId, name: source?.name, duplicateTiles: true })
-                actions.loadDashboardFileSystemEntries()
             }
             actions.clearClipboard()
         },
@@ -151,17 +151,15 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 actions.updateDashboard({ id: dashboardId, name: trimmed, allowUndo: true })
             }
         },
-        deleteDashboardWithConfirm: ({ dashboardId, name }) => {
-            LemonDialog.open({
-                title: `Delete ${name || 'this dashboard'}?`,
-                description: 'This moves the dashboard to the trash — you can restore it from there.',
-                primaryButton: {
-                    status: 'danger',
-                    children: 'Delete',
-                    onClick: () => actions.deleteDashboard({ id: dashboardId, deleteInsights: false }),
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
+        deleteDashboardWithConfirm: ({ dashboardId }) => {
+            // Reuse the canonical delete modal (already rendered in Dashboards.tsx) — it owns the
+            // confirmation and the "also delete insights" choice.
+            actions.showDeleteDashboardModal(dashboardId)
+        },
+        // A copy=duplicate paste creates a dashboard server-side; refetch the subtree once it lands so
+        // the copy appears (it syncs its own FileSystem entry via FileSystemSyncMixin).
+        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
+            actions.loadDashboardFileSystemEntries()
         },
     })),
     afterMount(({ actions }) => {

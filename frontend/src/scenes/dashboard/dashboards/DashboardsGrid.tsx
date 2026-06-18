@@ -30,18 +30,22 @@ function DashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.El
     )
 }
 
-function FolderGroup({ group }: { group: DashboardFolderGroup }): JSX.Element {
-    const { collapsedFolders } = useValues(dashboardsFileSystemLogic)
-    const { toggleFolder } = useActions(dashboardsFileSystemLogic)
-    const collapsed = !!collapsedFolders[group.folder]
-
+function FolderGroup({
+    group,
+    collapsed,
+    onToggle,
+}: {
+    group: DashboardFolderGroup
+    collapsed: boolean
+    onToggle: () => void
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <DroppableFolder folder={group.folder}>
                 <button
                     type="button"
                     className="flex items-center gap-2 text-left font-semibold p-1 w-full"
-                    onClick={() => toggleFolder(group.folder)}
+                    onClick={onToggle}
                 >
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <IconFolder className="text-muted" />
@@ -64,9 +68,9 @@ function FolderGroup({ group }: { group: DashboardFolderGroup }): JSX.Element {
 // same folder structure the sidebar tree shows. Drag a card onto a folder header to file it (the move
 // delegates to projectTreeDataLogic). No drill-in navigation or clipboard — that's the finder arm.
 export function DashboardsGrid(): JSX.Element {
-    const { dashboardsByFolder } = useValues(dashboardsFileSystemLogic)
+    const { dashboardsByFolder, collapsedFolders } = useValues(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { moveDashboardToFolder } = useActions(dashboardsFileSystemLogic)
+    const { moveDashboardToFolder, toggleFolder } = useActions(dashboardsFileSystemLogic)
 
     if (dashboardsLoading && dashboardsByFolder.length === 0) {
         return <Spinner className="text-2xl" />
@@ -76,7 +80,12 @@ export function DashboardsGrid(): JSX.Element {
         <DashboardsDndContext onMove={moveDashboardToFolder}>
             <div className="flex flex-col gap-6" data-attr="dashboards-grid">
                 {dashboardsByFolder.map((group) => (
-                    <FolderGroup key={group.folder} group={group} />
+                    <FolderGroup
+                        key={group.folder}
+                        group={group}
+                        collapsed={!!collapsedFolders[group.folder]}
+                        onToggle={() => toggleFolder(group.folder)}
+                    />
                 ))}
             </div>
         </DashboardsDndContext>
