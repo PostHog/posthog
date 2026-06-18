@@ -19,7 +19,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     EmitActionReadyInputs,
     ProcessVisionActionInputs,
     SynthesisStatus,
-    SynthesizeActionInputs,
+    SynthesizeGroupSummaryInputs,
     UpdateVisionActionRunInputs,
 )
 
@@ -32,7 +32,7 @@ with wf.unsafe.imports_passed_through():
         update_vision_action_run_activity,
         validate_vision_action_activity,
     )
-    from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_action_activity
+    from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
 
 _RECORD_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=5), maximum_attempts=3)
 _SYNTH_RETRY = common.RetryPolicy(
@@ -78,8 +78,8 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 return  # final_status stays SKIPPED (the initialized default)
 
             synth = await wf.execute_activity(
-                synthesize_action_activity,
-                SynthesizeActionInputs(run_id=run_id),
+                synthesize_group_summary_activity,
+                SynthesizeGroupSummaryInputs(run_id=run_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_SYNTH_RETRY,
             )

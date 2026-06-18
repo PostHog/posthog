@@ -39,7 +39,7 @@ from products.replay_vision.backend.temporal.vision_actions import (
     create_vision_action_run_activity,
     emit_action_ready_activity,
     evaluate_due_vision_actions_activity,
-    synthesize_action_activity,
+    synthesize_group_summary_activity,
     update_vision_action_run_activity,
     validate_vision_action_activity,
 )
@@ -82,7 +82,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     evaluate_due_vision_actions_activity,
     create_vision_action_run_activity,
     validate_vision_action_activity,
-    synthesize_action_activity,
+    synthesize_group_summary_activity,
     emit_action_ready_activity,
     update_vision_action_run_activity,
 ]
@@ -99,7 +99,7 @@ __all__ = [
     "create_vision_action_run_activity",
     "emit_action_ready_activity",
     "evaluate_due_vision_actions_activity",
-    "synthesize_action_activity",
+    "synthesize_group_summary_activity",
     "update_vision_action_run_activity",
     "validate_vision_action_activity",
     "advance_scanner_watermark_activity",

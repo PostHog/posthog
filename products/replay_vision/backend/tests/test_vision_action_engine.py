@@ -13,14 +13,14 @@ from products.replay_vision.backend.models import ReplayScanner, VisionAction, V
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
-from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_action_activity
+from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
 from products.replay_vision.backend.temporal.vision_actions.types import (
     CreateVisionActionRunInputs,
     EmitActionReadyInputs,
     EvaluateDueVisionActionsInputs,
     ProcessVisionActionInputs,
     SynthesisStatus,
-    SynthesizeActionResult,
+    SynthesizeGroupSummaryResult,
     UpdateVisionActionRunInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
@@ -237,13 +237,13 @@ async def test_process_maps_synthesis_status(
         results={
             act.create_vision_action_run_activity: uuid.uuid4(),
             act.validate_vision_action_activity: None,
-            synthesize_action_activity: SynthesizeActionResult(status=synth_status),
+            synthesize_group_summary_activity: SynthesizeGroupSummaryResult(status=synth_status),
         }
     )
     await _run_process(_process_inputs(), mocks)
 
     call_fns = mocks.calls()
-    assert synthesize_action_activity in call_fns
+    assert synthesize_group_summary_activity in call_fns
     assert (act.emit_action_ready_activity in call_fns) is expect_emit
     assert _final_status(mocks) == expected_final
     # The schedule cursor is advanced by the eligibility claim, never by this workflow.
@@ -271,7 +271,7 @@ async def test_process_synthesis_failure_records_failed_and_reraises() -> None:
             act.create_vision_action_run_activity: uuid.uuid4(),
             act.validate_vision_action_activity: None,
         },
-        errors={synthesize_action_activity: RuntimeError("llm exploded")},
+        errors={synthesize_group_summary_activity: RuntimeError("llm exploded")},
     )
     with pytest.raises(RuntimeError, match="llm exploded"):
         await _run_process(_process_inputs(), mocks)
@@ -286,7 +286,7 @@ async def test_update_run_failure_does_not_mask_body_error() -> None:
     # the update failure must not clobber it.
     mocks = _Mocks(
         errors={
-            synthesize_action_activity: RuntimeError("llm exploded"),
+            synthesize_group_summary_activity: RuntimeError("llm exploded"),
             act.update_vision_action_run_activity: RuntimeError("update boom"),
         },
         results={
