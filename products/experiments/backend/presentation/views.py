@@ -109,6 +109,11 @@ LIST_DEFERRED_FIELDS = (
     "secondary_metrics_ordered_uuids",
 )
 
+# The viewset's `list` method shadows the builtin `list` in the class namespace, so a
+# `list[str]` annotation there resolves to that method (a runtime crash, and a mypy error).
+# Reference this module-level alias instead.
+RequiredScopes = list[str]
+
 
 def flag_evaluation_contexts_prefetch() -> Prefetch:
     return Prefetch(
@@ -140,7 +145,6 @@ def list_is_legacy_annotation() -> Case:
         default=Value(False),
         output_field=BooleanField(),
     )
-
 
 PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
 
@@ -362,9 +366,7 @@ class EnterpriseExperimentsViewSet(
             request_data=getattr(request, "data", None),
         )
 
-    # Quoted return type: the `list` method defined above shadows the builtin in the class
-    # namespace, so an eagerly-evaluated `list[str]` annotation would resolve to that method.
-    def dangerously_get_required_scopes(self, request: Request, view: Any) -> "list[str] | None":
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
         # Archiving with disable_feature_flag=true also disables and archives the linked flag,
         # which is a feature_flag write — require feature_flag:write on the token, not just
         # experiment:write. Other actions fall back to their own scopes.
