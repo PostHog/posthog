@@ -876,7 +876,7 @@ class TestIsTransientConnectDrop:
 
 class TestConnectTransientRetry:
     def test_retries_transient_drop_then_succeeds(self, mocker):
-        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
@@ -891,6 +891,7 @@ class TestConnectTransientRetry:
             assert yielded is conn
 
         assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(1)
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
