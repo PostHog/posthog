@@ -1,13 +1,20 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::Json;
+use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use prometheus_rw_proto::prometheus::v1::{metric_metadata::MetricType, WriteRequest};
 use prost::Message;
+use serde::Deserialize;
 use serde_json::json;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::metric_record::{override_timestamp, KafkaMetricRow};
+use crate::service::Service;
 
 const METRIC_NAME_LABEL: &str = "__name__";
 const JOB_LABEL: &str = "job";
@@ -172,4 +179,102 @@ fn classify(name: &str, declared: Option<MetricType>) -> (&'static str, bool, &'
     } else {
         ("gauge", false, "")
     }
+}
+
+#[derive(Deserialize)]
+pub struct RemoteWriteQueryParams {
+    token: Option<String>,
+}
+
+/// Resolve the project token from (in order) the URL path, the Authorization
+/// header (Bearer or bare), or the `token` query param.
+fn extract_token(
+    path_token: Option<String>,
+    headers: &HeaderMap,
+    query_token: Option<&str>,
+) -> Option<String> {
+    if let Some(token) = path_token {
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+    if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
+        let token = auth
+            .strip_prefix("Bearer ")
+            .or_else(|| auth.strip_prefix("bearer "))
+            .unwrap_or(auth)
+            .trim();
+        if !token.is_empty() {
+            return Some(token.to_string());
+        }
+    }
+    query_token.filter(|t| !t.is_empty()).map(str::to_string)
+}
+
+/// Prometheus remote-write v1 ingestion endpoint.
+///
+/// Snappy-decodes the protobuf body, maps it to `KafkaMetricRow` records, and
+/// produces them through the shared `KafkaSink` so the rest of the pipeline is
+/// identical to OTLP ingestion. Response codes follow remote-write semantics:
+/// 204 on success, 400 on a permanent decode failure (sender drops the batch),
+/// 5xx on a transient produce failure (sender retries).
+#[tracing::instrument(skip_all, fields(token))]
+pub async fn export_prometheus_remote_write_http(
+    State(service): State<Service>,
+    path_token: Option<Path<String>>,
+    Query(query_params): Query<RemoteWriteQueryParams>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> std::result::Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let token = match extract_token(
+        path_token.map(|Path(t)| t),
+        &headers,
+        query_params.token.as_deref(),
+    ) {
+        Some(token) => token,
+        None => {
+            error!("No token provided");
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "No token provided"})),
+            ));
+        }
+    };
+
+    if service.token_dropper.should_drop(&token, "") {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Invalid token"})),
+        ));
+    }
+    tracing::Span::current().record("token", &token);
+
+    let write_request = match decode_write_request(&body) {
+        Ok(request) => request,
+        Err(e) => {
+            error!("Failed to decode remote-write request: {e}");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("{e}") })),
+            ));
+        }
+    };
+
+    let (rows, timestamps_overridden) = write_request_to_kafka_rows(write_request);
+    let row_count = rows.len();
+
+    if let Err(e) = service
+        .sink
+        .write_metrics(&token, rows, body.len() as u64, timestamps_overridden)
+        .await
+    {
+        error!("Failed to send remote-write metrics to Kafka: {e}");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal server error"})),
+        ));
+    }
+
+    debug!("Sent {row_count} remote-write data points to Kafka");
+    Ok(StatusCode::NO_CONTENT)
 }

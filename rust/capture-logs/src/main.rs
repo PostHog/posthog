@@ -7,6 +7,7 @@ use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
+use capture_logs::prometheus_remote_write::export_prometheus_remote_write_http;
 use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
@@ -178,12 +179,30 @@ async fn main() {
             "/i/v1/logs/datadog/:token/api/v2/logs",
             post(datadog::export_datadog_logs_http).options(options_handler),
         )
-        .with_state(logs_service)
+        .with_state(logs_service.clone())
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())
-        .layer(axum::middleware::from_fn(translate_compression_query_param))
-        .layer(cors);
+        .layer(axum::middleware::from_fn(translate_compression_query_param));
+
+    // Prometheus remote-write sends `Content-Encoding: snappy`, which
+    // RequestDecompressionLayer rejects with 415 before the handler runs. This
+    // route is deliberately kept off that layer (and the gzip query-param
+    // shim); the handler snappy-decodes the body itself.
+    let prometheus_router = Router::new()
+        .route(
+            "/i/v1/prometheus/write",
+            post(export_prometheus_remote_write_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/prometheus/write/:token",
+            post(export_prometheus_remote_write_http).options(options_handler),
+        )
+        .with_state(logs_service)
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
+        .layer(axum::middleware::from_fn(track_metrics));
+
+    let http_router = http_router.merge(prometheus_router).layer(cors);
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

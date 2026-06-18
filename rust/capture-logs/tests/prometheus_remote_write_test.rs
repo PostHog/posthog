@@ -243,3 +243,67 @@ fn snappy_round_trip_decodes_and_maps() {
 fn rejects_non_snappy_garbage() {
     assert!(decode_write_request(b"not snappy at all").is_err());
 }
+
+/// The prometheus route is deliberately kept off `RequestDecompressionLayer`, so
+/// a `Content-Encoding: snappy` request reaches the handler with the raw body to
+/// decode itself — proving the 415 problem is avoided.
+#[tokio::test]
+async fn snappy_body_reaches_handler_without_decompression_layer() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use bytes::Bytes;
+    use tower::ServiceExt;
+
+    async fn echo(body: Bytes) -> Bytes {
+        body
+    }
+
+    let app = Router::new().route("/i/v1/prometheus/write", post(echo));
+
+    let compressed = snap::raw::Encoder::new().compress_vec(b"hello").unwrap();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/i/v1/prometheus/write")
+        .header("content-encoding", "snappy")
+        .body(Body::from(compressed.clone()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_success(),
+        "expected 2xx, got {}",
+        resp.status()
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&bytes[..], compressed.as_slice());
+}
+
+/// Regression guard: the layer the OTLP/logs routes use rejects snappy with 415,
+/// which is exactly why the prometheus route must not pass through it.
+#[tokio::test]
+async fn request_decompression_layer_rejects_snappy_with_415() {
+    use axum::{body::Body, http::Request, http::StatusCode, routing::post, Router};
+    use bytes::Bytes;
+    use tower::ServiceExt;
+    use tower_http::decompression::RequestDecompressionLayer;
+
+    async fn echo(body: Bytes) -> Bytes {
+        body
+    }
+
+    let app = Router::new()
+        .route("/i/v1/metrics", post(echo))
+        .layer(RequestDecompressionLayer::new());
+
+    let compressed = snap::raw::Encoder::new().compress_vec(b"hello").unwrap();
+    let req = Request::builder()
+        .method("POST")
+        .uri("/i/v1/metrics")
+        .header("content-encoding", "snappy")
+        .body(Body::from(compressed))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
