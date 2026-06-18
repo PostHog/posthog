@@ -212,11 +212,3 @@
     opacity: 1;
     pointer-events: auto;
 }
-
-// Touch devices have no hover, so keep the control reachable.
-@media (hover: none) {
-    .CardMeta__refresh {
-        opacity: 1;
-        pointer-events: auto;
-    }
-}
