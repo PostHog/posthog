@@ -18,6 +18,7 @@ from .adroll.source import AdRollSource
 from .adyen.source import AdyenSource
 from .agilecrm.source import AgileCRMSource
 from .aha.source import AhaSource
+from .ahrefs.source import AhrefsSource
 from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airtable.source import AirtableSource

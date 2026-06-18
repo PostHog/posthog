@@ -31,7 +31,7 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric, resolve_action_names
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
@@ -104,6 +104,34 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 @extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
 class ExperimentRunningTimeCalculationField(serializers.JSONField):
     pass
+
+
+class ExperimentListSerializer(serializers.ListSerializer):
+    """Batches action-name resolution across a whole page of experiments.
+
+    ``ExperimentSerializer.to_representation`` refreshes stale cached action names on every
+    metric, which would otherwise issue one ``Action`` query per metric per experiment. Here we
+    resolve every referenced action in a single query and hand the map down via the shared
+    serializer context, so a 100-experiment page does one action query instead of hundreds.
+    """
+
+    def to_representation(self, data):
+        instances = list(data)
+
+        metric_queries: list[dict[str, Any] | None] = []
+        team: Team | None = None
+        for instance in instances:
+            team = instance.team
+            metric_queries.extend(instance.metrics or [])
+            metric_queries.extend(instance.metrics_secondary or [])
+            # Saved metrics are prefetched via experimenttosavedmetric_set
+            for relation in instance.experimenttosavedmetric_set.all():
+                metric_queries.append(relation.saved_metric.query)
+
+        if team is not None:
+            self.context["actions_by_id"] = resolve_action_names(metric_queries, team)
+
+        return super().to_representation(instances)
 
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -302,6 +330,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "status",
             "user_access_level",
         ]
+        list_serializer_class = ExperimentListSerializer
 
     def get_fields(self):
         fields = super().get_fields()
@@ -326,12 +355,16 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "explicitDate": True,
         }
 
+        # actions_by_id is preloaded once per page by ExperimentListSerializer to avoid an
+        # Action query per metric; None on detail/launch/archive paths (falls back to a query).
+        actions_by_id = self.context.get("actions_by_id")
+
         # Refresh action names in inline metrics (metrics and metrics_secondary)
         # The columns are nullable, so the keys can be present with a None value
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team, actions_by_id)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
                     metric = refreshed_metric
