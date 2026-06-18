@@ -3092,7 +3092,6 @@ def _extract_inbox_hints(payload: dict) -> int | None:
         if action_id in (
             onboarding.INBOX_CREATE_ACTION_ID,
             onboarding.INBOX_JOIN_ACTION_ID,
-            onboarding.INBOX_GITHUB_CONNECT_ACTION_ID,
         ):
             try:
                 value = json.loads(action.get("value") or "{}")

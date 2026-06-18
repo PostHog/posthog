@@ -37,7 +37,6 @@ logger = structlog.get_logger(__name__)
 # Block Kit action ids for the onboarding DM, kept in sync with the interactivity router.
 INBOX_CREATE_ACTION_ID = "slack_inbox_create"
 INBOX_JOIN_ACTION_ID = "slack_inbox_join"
-INBOX_GITHUB_CONNECT_ACTION_ID = "slack_inbox_connect_github"
 # The block_id carries the integration id so the checkbox interaction can be region-routed.
 INBOX_SOURCES_CHECKBOXES_ACTION = "slack_inbox_sources_select"
 INBOX_SOURCES_BLOCK_PREFIX = "slack_inbox_sources_block"
@@ -111,12 +110,12 @@ def _github_blocks(integration: Integration, *, done: bool) -> list[dict]:
     if done:
         blocks.append(_done("Connected"))
         return blocks
+    # Pure URL button (no action_id): clicking just opens OAuth in the browser and fires no
+    # interaction. The callback returns to Slack; the message updates next time it's rebuilt.
     button = {
         "type": "button",
         "text": {"type": "plain_text", "text": "Connect GitHub"},
         "url": _github_connect_url(integration.team_id),
-        "value": json.dumps({"integration_id": integration.id}),
-        "action_id": INBOX_GITHUB_CONNECT_ACTION_ID,
         "style": "primary",
     }
     blocks.append({"type": "actions", "elements": [button]})

@@ -172,7 +172,6 @@ class TestOnboarding:
         assert any(
             f"/integrations/connect/github/?project_id={self.team.id}" in u and "connect_from=slack" in u for u in urls
         )
-        assert onboarding.INBOX_GITHUB_CONNECT_ACTION_ID in self._action_ids(blocks)
         assert onboarding.INBOX_CREATE_ACTION_ID in self._action_ids(blocks)
 
     @patch("posthog.models.integration.WebClient")
@@ -224,7 +223,6 @@ class TestOnboarding:
 
         _, blocks = onboarding.build_onboarding_dm(self.integration, SlackIntegration(self.integration))
 
-        assert onboarding.INBOX_GITHUB_CONNECT_ACTION_ID not in self._action_ids(blocks)
         assert not any("/integrations/connect/github" in u for u in self._url_buttons(blocks))
 
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=123)
@@ -291,7 +289,7 @@ class TestOnboarding:
 
         assert all_done != []  # posted unconditionally on install
         assert onboarding.INBOX_JOIN_ACTION_ID not in self._action_ids(all_done)
-        assert onboarding.INBOX_GITHUB_CONNECT_ACTION_ID not in self._action_ids(all_done)
+        assert not any("/integrations/connect/github" in u for u in self._url_buttons(all_done))
 
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=None)
     @patch("posthog.models.integration.WebClient")

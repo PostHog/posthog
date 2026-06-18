@@ -23,9 +23,9 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 @receiver(post_save, sender=Integration)
 def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> start the #posthog-inbox onboarding workflow off the request thread.
-    Gated on ``channels:manage``. Re-auth uses update_or_create (created=False), so only first installs
-    onboard."""
+    """Fresh Slack install -> enqueue the #posthog-inbox onboarding Temporal workflow on commit (the
+    enqueue runs inline; the workflow itself runs on a Temporal worker). Gated on ``channels:manage``.
+    Re-auth uses update_or_create (created=False), so only first installs onboard."""
     if not created or instance.kind != "slack":
         return
 
