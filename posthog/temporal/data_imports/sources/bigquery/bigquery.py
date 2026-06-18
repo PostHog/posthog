@@ -274,17 +274,24 @@ def bigquery_client(
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     project_id = _normalize_identifier(project_id)
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "token_uri": token_uri,
-            "client_email": client_email,
-            "project_id": project_id,
-        },
-        scopes=BIGQUERY_SCOPES,
+    # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
+    # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
+    # call is logged and metered alongside the other warehouse sources.
+    authed_session = AuthorizedSession(credentials)
+    tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
+    authed_session.mount("https://", tracked_adapter)
+    authed_session.mount("http://", tracked_adapter)
+    client = bigquery.Client(
+        project=project_id,
+        location=location,
+        credentials=credentials,
+        _http=authed_session,
     )
-    return BigQueryAuthInfo(project_id=project_id, credentials=credentials)
+
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int) -> BigQueryAuthInfo:
@@ -325,7 +332,6 @@ def bigquery_storage_read_client(credentials: google_auth_credentials.Credential
     """Manage a BigQuery Storage client."""
     # The credentials are now passed as an argument to bigquery_client,
     # so the service_account.Credentials.from_service_account_info block is no longer needed here.
-    # The project_id normalization was already handled in Conflict 1.
     # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
     # interceptors, then hand it to the transport. Passing a `channel` makes the
     # transport ignore credentials, so they must already be baked into the channel
