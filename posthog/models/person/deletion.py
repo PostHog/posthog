@@ -138,11 +138,11 @@ def _set_distinct_id_version_floor_via_orm(team_id: int, distinct_id: str, versi
     db_alias = router.db_for_write(PersonDistinctId) or "default"
     with transaction.atomic(using=db_alias):
         person_distinct_id = (
-            PersonDistinctId.objects.filter(
+            PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                 team_id=team_id, distinct_id=distinct_id
-            )  # nosemgrep: no-direct-persons-db-orm
+            )
             .select_related("person")
-            .first()  # nosemgrep: no-direct-persons-db-orm
+            .first()
         )
         if person_distinct_id is None:
             logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
