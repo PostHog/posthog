@@ -242,7 +242,9 @@ export const ExperimentResultsGetSchema = z.object({
         .boolean()
         .optional()
         .default(false)
-        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+        .describe(
+            'Recalculate results synchronously, bypassing the query cache (same as the Refresh button in the experiment UI). Defaults to false.'
+        ),
 })
 
 export const InsightQueryInputSchema = z.object({

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ApiClient } from '@/api/client'
+import { ApiClient, experimentQueryRefresh } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
 
 describe('ApiClient', () => {
@@ -306,6 +306,16 @@ describe('ApiClient', () => {
             expect(url).not.toContain('filters_override')
 
             vi.unstubAllGlobals()
+        })
+    })
+
+    describe('experimentQueryRefresh', () => {
+        it('returns force_blocking when refresh is true', () => {
+            expect(experimentQueryRefresh(true)).toBe('force_blocking')
+        })
+
+        it('returns undefined when refresh is false', () => {
+            expect(experimentQueryRefresh(false)).toBeUndefined()
         })
     })
 })
