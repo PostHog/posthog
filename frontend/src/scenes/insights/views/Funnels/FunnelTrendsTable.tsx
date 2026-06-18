@@ -23,6 +23,7 @@ import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
 type FunnelTrendSeries = {
     id: number
+    colorIndex: number
     data: number[]
     days: string[]
     labels: string[]
@@ -162,7 +163,11 @@ export function FunnelTrendsTable(): JSX.Element | null {
             rowKey="id"
             data-attr="funnel-trends-table"
             firstColumnSticky
-            rowRibbonColor={(row) => getFunnelsColor(row as unknown as FunnelStepWithConversionMetrics)}
+            // getFunnelsColor positions colors by `order`, which trend rows don't carry. Feed
+            // colorIndex into that slot so each series gets the same color as its line in the chart.
+            rowRibbonColor={(row) =>
+                getFunnelsColor({ ...row, order: row.colorIndex } as unknown as FunnelStepWithConversionMetrics)
+            }
         />
     )
 }
