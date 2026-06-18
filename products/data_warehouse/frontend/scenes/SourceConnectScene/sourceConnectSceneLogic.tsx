@@ -10,8 +10,9 @@ import { ApiConfig } from '~/lib/api'
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
-import { externalDataSourcesStoreCredentialsCreate } from '../../generated/api'
-import type { SourceCredentialApi } from '../../generated/api.schemas'
+import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_sources/frontend/generated/api'
+import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
 import type { sourceConnectSceneLogicType } from './sourceConnectSceneLogicType'

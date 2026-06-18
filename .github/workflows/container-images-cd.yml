@@ -138,6 +138,27 @@ jobs:
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
+            # Boot the image we're about to ship before dispatching the deploy. A file missing from the
+            # build context (e.g. dropped by an over-broad .dockerignore) surfaces here as an ImportError
+            # and blocks the deploy, instead of crash-looping in production. These are the same vars the
+            # Dockerfile's collectstatic uses; STATIC_COLLECTION=1 in particular lets Django boot without
+            # live services or a real SECRET_KEY (settings/access.py otherwise exits on the default key).
+            # Runs before the backend wait so a broken image fails fast; skipped on manual
+            # workflow_dispatch (break-glass), like the backend gate below.
+            - name: Boot Django from the built image
+              if: github.event_name == 'push'
+              env:
+                  IMAGE: ghcr.io/posthog/posthog:${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  docker pull "$IMAGE"
+                  docker run --rm \
+                      -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 \
+                      -e STATIC_COLLECTION=1 \
+                      -e DATABASE_URL=postgres:/// \
+                      -e REDIS_URL=redis:/// \
+                      "$IMAGE" sh -c 'python -c "import posthog.asgi" && python manage.py check'
+
             # Gate the deploy on backend CI. The image is already built and pushed above
             # (ci-backend.yml runs in parallel on the same commit) — we only hold the
             # deploy *dispatch* to Charts until this commit's backend suite is green.
@@ -328,7 +349,7 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

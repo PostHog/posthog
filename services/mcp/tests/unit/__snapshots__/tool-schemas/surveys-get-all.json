@@ -4,6 +4,13 @@
         "archived": {
             "type": "boolean"
         },
+        "ids": {
+            "description": "Multiple values may be separated by commas.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

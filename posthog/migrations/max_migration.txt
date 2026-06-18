@@ -1,1 +1,1 @@
-1224_columnconfiguration_properties
+1227_alter_datadeletionrequest_delete_all_events

@@ -52,9 +52,10 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
 interface RenderKeybindProps {
     keybind: string[][]
     className?: string
+    minimal?: boolean
 }
 
-export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.Element {
+export function RenderKeybind({ keybind, className, minimal }: RenderKeybindProps): JSX.Element {
     return (
         <span className={cn('inline-flex items-center gap-1', className)}>
             {keybind.map((keybindOption, index) => {
@@ -79,6 +80,7 @@ export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.E
                         <KeyboardShortcut
                             {...Object.fromEntries(keybindOption.map((key: string) => [key, true]))}
                             className="text-xs"
+                            minimal={minimal}
                         />
                     </React.Fragment>
                 )

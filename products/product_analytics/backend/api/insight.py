@@ -61,7 +61,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.helpers.trigram_search import (
@@ -149,13 +149,11 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 
 
 def _get_insight_type(insight: Insight) -> str:
-    """Return a normalized lowercase insight type string for analytics."""
+    """Return a normalized lowercase insight type string for analytics (used by the dashboard tile event)."""
     if insight.query:
-        # New query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", etc.
         source = insight.query.get("source", insight.query)
-        kind = source.get("kind", "")
+        kind = source.get("kind", "") if isinstance(source, dict) else ""
         return kind.replace("Query", "").lower() if kind else "json"
-    # Legacy filter-based insight
     return str(insight.filters.get("insight", "TRENDS")).lower()
 
 
@@ -195,7 +193,11 @@ def log_and_report_insight_activity(
             report_user_action(
                 user,
                 f"insight {activity}",
-                {"insight_id": insight_short_id},
+                {
+                    "insight_id": insight_short_id,
+                    **insight.get_analytics_query_kinds(),
+                    **insight.get_analytics_query_metadata(),
+                },
                 team=team,
                 organization=organization,
                 request=request,
@@ -1095,13 +1097,19 @@ class InsightSerializer(InsightBasicSerializer):
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                # Reuse the request's single UserAccessControl across all of a dashboard's insight
+                # runners, so the cache fingerprint resolves access once per request, not per tile.
+                view = self.context.get("view")
+                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
                         execution_mode=execution_mode,
-                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        user=request_user,
+                        user_access_control=request_user_access_control,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
@@ -1847,6 +1855,19 @@ When set, the specified dashboard's filters and date range override will be appl
             serialized_data["layouts"] = layouts
 
         response = Response(serialized_data)
+
+        # Track non-web reads (API/MCP/wizard/…) as a distinct event so programmatic
+        # reads are measurable without inflating the web-only `insight viewed` metric.
+        if get_event_source(request) != EventSource.WEB:
+            report_user_action(
+                request.user,
+                "insight read",
+                # Sibling `insight created/updated/deleted` events store the short_id under `insight_id`;
+                # match that (plus query/source kind) so reads correlate with the rest of the lifecycle.
+                {"insight_id": instance.short_id, **instance.get_analytics_query_kinds()},
+                team=self.team,
+                request=request,
+            )
 
         return response
 

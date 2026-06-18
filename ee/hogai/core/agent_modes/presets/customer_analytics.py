@@ -32,6 +32,8 @@ CUSTOMER_ANALYTICS_MODE_DESCRIPTION = (
     "analytics or SQL. "
     "For a quick 'show me usage' ask, point users to the account's Usage tab in the Accounts list rather "
     "than building a new insight. "
+    "When you give the user a link to an account, link to that specific account so it opens directly, not "
+    "to the bare accounts list. "
     "When the user investigates a single account across several turns — follow-up questions or digging "
     "into an issue — offer once to capture the investigation as a note: a timeline of what was checked "
     "and what you found, saved with upsert_account_notebook. If they decline, don't ask again. "

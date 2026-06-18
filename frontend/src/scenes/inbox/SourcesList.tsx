@@ -214,7 +214,7 @@ export function SourcesList(): JSX.Element {
             <Source
                 icon={<IconHeartPlus className="size-5 text-danger" />}
                 title="PostHog Health checks"
-                description="Instrumentation issues — missing events, proxy gaps, outdated SDKs → Signals"
+                description="Instrumentation issues – missing events, proxy gaps, outdated SDKs → Signals"
                 variant="available"
                 checked={!!healthChecksConfig?.enabled}
                 loading={isHealthChecksToggling}

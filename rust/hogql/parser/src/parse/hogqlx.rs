@@ -27,7 +27,7 @@
 use super::{identifier_text, kw_valid_as_identifier, unquote_single_string, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
-use crate::lex::{Lexer, TokenKind};
+use crate::lex::{Lexer, Token, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// True when peek/peek_next look like the start of a HogQLX tag —
@@ -79,9 +79,44 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// recoverable.
     pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<E::Value, ParseError> {
         self.hogqlx_text_lookahead_depth += 1;
+        // cpp pushes HOGQLX_TAG_OPEN at `<`; those tag modes have no
+        // HASH_COMMENT rule, so a `#` between attributes must reject
+        // (TAG_UNEXPECTED) instead of being skipped as a comment. The
+        // flag covers the whole element — attributes, children, closing
+        // tag — and the `{ … }` arms flip it back off, matching
+        // TAG_LBRACE's pushMode(DEFAULT_MODE).
+        let was_in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer.set_in_hogqlx_tag(true);
         let result = self.parse_hogqlx_tag_element_inner();
+        self.lexer.set_in_hogqlx_tag(was_in_tag);
+        if result.is_ok() && !was_in_tag {
+            // The peek window past the element was pre-loaded under tag
+            // mode; re-lex it so a `#` comment after the tag is skipped
+            // again.
+            self.reseek_peek_window(self.last_consumed_end);
+        }
         self.hogqlx_text_lookahead_depth -= 1;
         result
+    }
+
+    /// Re-lex `peek0` / `peek1` from `pos` after a tag-mode flip changed
+    /// how the upcoming bytes tokenise. A lex failure parks a synthetic
+    /// `Eof` in the failing slot — the same recovery `bump()` applies
+    /// inside tag bodies — so raw text bytes (`&`, `!`, …) right after
+    /// the boundary stay recoverable for the byte-walking text consumer.
+    fn reseek_peek_window(&mut self, pos: usize) {
+        let in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer = Lexer::with_pos(self.src, pos);
+        self.lexer.set_in_hogqlx_tag(in_tag);
+        self.peek0 = self.next_token_or_synthetic_eof();
+        self.peek1 = self.next_token_or_synthetic_eof();
+    }
+
+    fn next_token_or_synthetic_eof(&mut self) -> Token {
+        match self.lexer.next_token() {
+            Ok(t) => t,
+            Err(_) => Token::eof(self.lexer.pos()),
+        }
     }
 
     fn parse_hogqlx_tag_element_inner(&mut self) -> Result<E::Value, ParseError> {
@@ -170,8 +205,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             TokenKind::LBrace => {
                 self.bump()?;
+                // cpp's TAG_LBRACE pushes DEFAULT_MODE — `#` comments
+                // apply again inside the braced value. Re-lex the peek
+                // window on both edges; it was pre-loaded under the
+                // other mode.
+                self.lexer.set_in_hogqlx_tag(false);
+                self.reseek_peek_window(self.last_consumed_end);
                 let expr = self.parse_expr_bp(0)?;
                 self.expect(TokenKind::RBrace, "}")?;
+                self.lexer.set_in_hogqlx_tag(true);
+                self.reseek_peek_window(self.last_consumed_end);
                 expr
             }
             _ => {
@@ -233,8 +276,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 TokenKind::LBrace => {
                     self.bump()?;
+                    // TAG_LBRACE → DEFAULT_MODE, same as the
+                    // attribute-value arm. No re-lex after the `}` —
+                    // the loop's `consume_hogqlx_text` byte-walks from
+                    // `last_consumed_end` and re-seeks the window
+                    // itself.
+                    self.lexer.set_in_hogqlx_tag(false);
+                    self.reseek_peek_window(self.last_consumed_end);
                     let expr = self.parse_expr_bp(0)?;
                     self.expect(TokenKind::RBrace, "}")?;
+                    self.lexer.set_in_hogqlx_tag(true);
                     children.push(expr);
                 }
                 TokenKind::Eof => {
