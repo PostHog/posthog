@@ -385,6 +385,13 @@ export function stepsWithConversionMetrics(
     stepReference: FunnelStepReference,
     optionalSteps: number[] = []
 ): FunnelStepWithConversionMetrics[] {
+    const compareBars = steps[0]?.nested_breakdown
+    const isCompare = compareBars?.some((b) => b.compare_label != null) ?? false
+    // Compare bars share one baseline (the larger period's first step) so both periods sit on a
+    // common scale: the previous bar shows its real volume instead of always starting full height,
+    // and the tallest bar never exceeds the column.
+    const compareBasisCount = isCompare ? Math.max(...(compareBars?.map((b) => b.count) ?? [0])) : 0
+
     let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
         // Use lastNonOptionalStep for previousCount calculation (this is the last non-optional step we've seen)
@@ -408,10 +415,13 @@ export function stepsWithConversionMetrics(
                 droppedOffFromPrevious: nestedDroppedOffFromPrevious,
                 conversionRates: {
                     ...conversionRates,
-                    fromBasisStep:
-                        stepReference === FunnelStepReference.total
-                            ? conversionRates.total
-                            : conversionRates.fromPrevious,
+                    fromBasisStep: isCompare
+                        ? compareBasisCount === 0
+                            ? 0
+                            : breakdown.count / compareBasisCount
+                        : stepReference === FunnelStepReference.total
+                          ? conversionRates.total
+                          : conversionRates.fromPrevious,
                 },
             }
         })

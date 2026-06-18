@@ -1482,6 +1482,22 @@ describe('funnelDataLogic', () => {
             expect(steps[1].nested_breakdown?.[1].count).toBe(60)
         })
 
+        it('scales both periods against a shared baseline so the previous bar reflects its volume', async () => {
+            await loadStepsCompare(funnelResultStepsCompare.result)
+
+            const steps = logic.values.visibleStepsWithConversionMetrics
+
+            // Bar height (fromBasisStep) is relative to the larger period's first step (200).
+            expect(steps[0].nested_breakdown?.[0].conversionRates.fromBasisStep).toBe(1) // 200/200
+            expect(steps[0].nested_breakdown?.[1].conversionRates.fromBasisStep).toBe(150 / 200) // not full height
+            expect(steps[1].nested_breakdown?.[0].conversionRates.fromBasisStep).toBe(100 / 200)
+            expect(steps[1].nested_breakdown?.[1].conversionRates.fromBasisStep).toBe(60 / 200)
+
+            // Tooltip conversion rates stay per-period: previous step 1 converts 60/150 of its own funnel.
+            expect(steps[0].nested_breakdown?.[1].conversionRates.total).toBe(1)
+            expect(steps[1].nested_breakdown?.[1].conversionRates.total).toBe(60 / 150)
+        })
+
         it('renders the previous-period bar desaturated relative to the current bar', async () => {
             await loadStepsCompare(funnelResultStepsCompare.result)
 

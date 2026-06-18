@@ -579,6 +579,49 @@ describe('stepsWithConversionMetrics', () => {
         expect(result[1].nested_breakdown![1].conversionRates.total).toBe(10 / 80)
     })
 
+    it('compare mode — bars share one baseline so the previous bar reflects its volume', () => {
+        // current 200->100, previous 150->60; nested_breakdown is [current, previous] per step.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 150), makeCompareStep(1, 100, 60)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is the larger period's first step (200) — the previous first bar is no longer full height.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(1) // 200/200
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(150 / 200)
+        expect(result[1].nested_breakdown![0].conversionRates.fromBasisStep).toBe(100 / 200)
+        expect(result[1].nested_breakdown![1].conversionRates.fromBasisStep).toBe(60 / 200)
+
+        // Tooltip rates stay per-period.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(1)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(60 / 150)
+    })
+
+    it('compare mode — a larger previous period caps at full height while the current bar shrinks', () => {
+        const steps = [
+            makeNestedStep({
+                count: 200,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 200, order: 0, compare_label: 'current' }),
+                    makeStep({ count: 300, order: 0, compare_label: 'previous' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is max(200, 300) = 300, so the tallest bar is 100% and nothing overflows.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(200 / 300)
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(1)
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [
