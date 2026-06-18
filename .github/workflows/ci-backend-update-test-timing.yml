@@ -205,16 +205,20 @@ jobs:
               id: durations-meta
               env:
                   EVENT_NAME: ${{ github.event_name }}
+                  REF: ${{ github.ref }}
               run: |
-                  # Per-day cache key → one entry per day; GitHub's 7-day inactivity eviction
-                  # keeps the live footprint at ~1-2 entries (~1 MB zstd each), with no manual
-                  # pruning and no pressure on the shared cache budget.
+                  # Per-day cache key → one new entry per day. Restores match by prefix and only
+                  # ever touch the newest entry, so each prior day's entry ages out 7 days after
+                  # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
+                  # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
                   echo "cache_key=posthog-test-durations-$(date -u +%F)" >> "$GITHUB_OUTPUT"
                   # Commit the repo fallback monthly, not daily: only the first few days of the
                   # month open/refresh the PR (the window absorbs an occasionally-skipped
-                  # scheduled run). The cache carries daily freshness; the committed file is
-                  # just the cache-miss floor. Manual dispatch always commits to force a refresh.
-                  if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%-d)" -le 3 ]; then
+                  # scheduled run). The cache carries daily freshness; the committed file is just
+                  # the cache-miss floor. Manual dispatch forces a refresh. Gated to master so a
+                  # workflow_dispatch on another branch can't reset chore/update-test-timings to a
+                  # non-master SHA and open a PR full of unrelated diffs (the cache still saves).
+                  if [ "$REF" = "refs/heads/master" ] && { [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%-d)" -le 3 ]; }; then
                       echo "should_commit=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "should_commit=false" >> "$GITHUB_OUTPUT"
