@@ -4635,6 +4635,8 @@ export interface ExperimentMeanMetricApi {
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
     source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number | null
     /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
