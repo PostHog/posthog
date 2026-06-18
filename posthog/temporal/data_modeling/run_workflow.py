@@ -389,6 +389,14 @@ async def handle_model_ready(
         wrapped = Exception(error_msg)
         wrapped.__cause__ = err
         await handle_error(job, model, queue, wrapped, error_msg, logger)
+    except NonRetryableException as err:
+        # Already-classified, user-actionable failures (schema-config errors, timeouts). materialize_model
+        # has set a user-facing latest_error on the saved query, so mark the job failed without capturing
+        # to error tracking - these are expected failures, not code bugs, and only add noise there.
+        await logger.aexception(
+            "Non-retryable failure materializing model %s: %s", model.label, str(err), job_id=job_id
+        )
+        await handle_error(job, model, queue, err, "Failed to materialize model %s: %s", logger)
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
@@ -641,6 +649,19 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
+        elif "Unable to resolve field" in error_message:
+            # The query references a column that isn't in scope (e.g. a missing join or a stale
+            # column name). This is a schema-configuration error in the query itself, so retrying
+            # won't help - surface it as a user-facing failure rather than a generic exception.
+            sanitized_error = strip_hostname_from_error(error_message)
+            saved_query.latest_error = (
+                f"Query references a field that could not be resolved: {sanitized_error}. "
+                f"Check that the column exists and that any joins needed to bring it into scope are present."
+            )
+            await logger.ainfo("Unable to resolve field for model %s - schema configuration error", model_label)
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, saved_query.latest_error, logger)
+            raise NonRetryableException(f"Unable to resolve field for model {model_label}: {sanitized_error}") from e
         elif "Memory limit" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
