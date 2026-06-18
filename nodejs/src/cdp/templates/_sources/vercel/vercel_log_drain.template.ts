@@ -220,6 +220,11 @@ let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
+    // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
+    // log traffic does not create a person profile per distinct ID — cheaper and faster to query.
+    // Set the "Person processing" input to "identified" to create person profiles for stitching.
+    '$process_person_profile': inputs.person_processing == 'identified',
+
     // PostHog standard properties. $ip and $raw_user_agent are appended
     // below when forward_ip_and_user_agent is enabled (default on, since
     // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
@@ -380,6 +385,26 @@ return {
                 },
             ],
             default: 'rotating_salt',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'person_processing',
+            type: 'choice',
+            label: 'Person processing',
+            description:
+                'Whether each event creates a person profile. "Anonymous" (default) emits $process_person_profile=false so high-cardinality log traffic does not create a person profile per distinct ID — cheaper, faster to query, and recommended for aggregate traffic and bot analysis. "Identified" creates a person profile per distinct ID for person-level stitching (billed on the person-profiles line).',
+            choices: [
+                {
+                    value: 'anonymous',
+                    label: 'Anonymous — no person profiles (recommended for log traffic)',
+                },
+                {
+                    value: 'identified',
+                    label: 'Identified — create a person profile per distinct ID',
+                },
+            ],
+            default: 'anonymous',
             secret: false,
             required: true,
         },
