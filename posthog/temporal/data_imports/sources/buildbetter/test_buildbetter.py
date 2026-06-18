@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.buildbetter.buildbetter import (
     _make_paginated_request,
     buildbetter_source,
 )
+from posthog.temporal.data_imports.sources.buildbetter.queries import INTERVIEWS_QUERY
 from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -31,6 +32,13 @@ def _make_manager(can_resume: bool = False, state: BuildBetterResumeConfig | Non
 
 def _interview_payload(ids: list[str]) -> dict:
     return {"data": {"interview": [{"id": i} for i in ids]}}
+
+
+class TestInterviewsQuery:
+    def test_does_not_request_unsupported_monologues_field(self) -> None:
+        # BuildBetter removed `monologues` from the `interview` type, which made the whole
+        # query fail schema validation and aborted every interviews import.
+        assert "monologues" not in INTERVIEWS_QUERY
 
 
 class TestMakePaginatedRequest:

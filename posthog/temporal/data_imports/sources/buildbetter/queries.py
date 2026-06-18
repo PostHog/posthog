@@ -48,13 +48,6 @@ query PaginatedInterviews($limit: Int!, $offset: Int!, $where: interview_bool_ex
             content
             created_at
         }
-        monologues(order_by: {start_sec: asc}) {
-            id
-            speaker
-            text
-            start_sec
-            end_sec
-        }
     }
 }"""
 
