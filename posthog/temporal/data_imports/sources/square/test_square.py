@@ -122,6 +122,7 @@ class TestIsInvalidCursorError:
             ("invalid_cursor_code", 400, {"errors": [{"code": "INVALID_CURSOR"}]}, True),
             ("unrelated_400", 400, {"errors": [{"field": "sort_field", "code": "INVALID_VALUE"}]}, False),
             ("empty_400", 400, {}, False),
+            ("null_errors", 400, {"errors": None}, False),
             ("not_a_400", 404, {"errors": [{"field": "cursor"}]}, False),
         ]
     )
@@ -266,6 +267,23 @@ class TestGetRowsPagination:
         assert sent_params[0] == {"cursor": "stale-cursor"}
         assert "cursor" not in sent_params[1]
         assert sent_params[2] == {"cursor": "cur-1"}
+
+    def test_invalid_cursor_restart_evicts_stale_cursor_within_single_page(self) -> None:
+        # When the restart finishes within a single page there's no fresh next_cursor
+        # to persist, so the restart must explicitly overwrite the stale cursor — else
+        # it would linger until its TTL and force a full re-scan on every later sync.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
+
+        responses = [
+            _make_response({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400),
+            _make_response({"customers": [{"id": "c1"}]}),
+        ]
+        self._drive("customers", manager, responses)
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [SquareResumeConfig(cursor="")]
 
     def test_invalid_cursor_only_restarts_once(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

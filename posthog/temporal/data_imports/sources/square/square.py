@@ -41,7 +41,7 @@ def _is_invalid_cursor_error(response: requests.Response) -> bool:
     if response.status_code != 400:
         return False
     try:
-        errors = response.json().get("errors", [])
+        errors = response.json().get("errors") or []
     except ValueError:
         return False
     return any(error.get("field") == "cursor" or error.get("code") == "INVALID_CURSOR" for error in errors)
@@ -179,6 +179,13 @@ def get_rows(
             if cursor is None or restarted_after_invalid_cursor:
                 raise
             logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
+            # Overwrite the stale cursor in the resume store now. Otherwise, if the
+            # restart finishes within a single page (no fresh next_cursor to save),
+            # the expired cursor lingers until its TTL and every later sync re-scans
+            # the whole stream. An empty cursor is falsy, so the next load resumes
+            # from the start rather than replaying the bad value.
+            if config.paginated:
+                resumable_source_manager.save_state(SquareResumeConfig(cursor=""))
             cursor = None
             restarted_after_invalid_cursor = True
             continue
