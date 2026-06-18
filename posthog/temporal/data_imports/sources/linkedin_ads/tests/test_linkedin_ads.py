@@ -651,8 +651,8 @@ class TestLinkedinAdsSource:
         """Hitting the daily limit before any data is fetched stops cleanly with no rows and no state."""
 
         def rate_limit_immediately():
+            yield from ()  # makes this a generator that yields nothing before raising
             raise LinkedinAdsDailyRateLimitError('LinkedIn daily rate limit reached (429): {"status":429}')
-            yield  # pragma: no cover — makes this a generator
 
         mock_client = mock.MagicMock()
         mock_client.get_data_by_resource.return_value = rate_limit_immediately()
