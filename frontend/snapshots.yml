@@ -4040,6 +4040,10 @@ snapshots:
         hash: v1.k794b7964.cc26937830dc95deb164b13bda7327a6a7bed094f2670332b6ea0885ffb15733.j8pxbf3h92E8pkD9KCSQrlBeFY3UUEmF7E_6XJg47kQ
     mcp-apps-funnels--three-step--light:
         hash: v1.k794b7964.a4cf6cff88ffb74e40e2dbe91cc266054f699eeae2d39d40019f3ed184ba030e.g12F2_uMZw3-VDO3TX1BqQu01X5UDRFTag0fO0WcrTc
+    mcp-apps-insight-actors--event-counts--light:
+        hash: v1.k794b7964.f3ff99b4ec1920b2df7c65cb407482896b99b2ea34d4bfbb4cad722b05d25f9a.6K2QCgM8Znsuz_zMA2jTZW884aJ29-cvc1OWldMEzgc
+    mcp-apps-insight-actors--with-recordings--light:
+        hash: v1.k794b7964.af9ec36dd0d406f45eec2bf3fafb8dbe63b0eba139c5fff4b33e83cf24668f8e.hQ3brX3MIHwfCM95Re7Ti6Z8bsY2zq-He2uM63uuvUw
     mcp-apps-lifecycle--grouped--light:
         hash: v1.k794b7964.fa32f317c7015ae73b5b5c38e11209e6a51967de4e0457ae29f7eedb8ea8fce8._OUjY62EdIDs4LQbOyr1ORBmTYMn9AZ5BHWC9e4Bx5c
     mcp-apps-lifecycle--stacked--light:
