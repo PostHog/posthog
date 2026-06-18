@@ -18,6 +18,15 @@ The user-claimed device flow (`service_auth`, `anonymous`) is not supported yet.
 {% for scope, description in scopes %}- `{{ scope }}` — {{ description }}
 {% endfor %}
 
+## Changing scopes
+
+Access tokens carry the scope set granted when they were issued.
+Scopes do not change on refresh — refreshing a token returns the same or narrower scopes, never more.
+
+If your app needs additional scopes — for example a newly required scope, or a request that returns `403` because the token is missing a required scope — start a new authorization at `{{ base_url }}/authorize`.
+The user re-consents and the new token carries the updated scopes.
+PostHog does not push new scopes to existing tokens; the client must re-authorize.
+
 ## Links
 
 - Pricing: https://posthog.com/pricing
