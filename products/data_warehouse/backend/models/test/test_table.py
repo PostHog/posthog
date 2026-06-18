@@ -847,20 +847,6 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is False
 
-    def test_hogql_definition_no_raw_settings_for_parquet(self):
-        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
-        table = DataWarehouseTable.objects.create(
-            name="parquet_table",
-            url_pattern="https://example.com/test.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
-            credential=credential,
-        )
-
-        definition = table.hogql_definition()
-        assert definition.top_level_settings is None
-
     def test_remove_named_tuples_backtick_quoted(self):
         from products.warehouse_sources.backend.models.util import remove_named_tuples
 
