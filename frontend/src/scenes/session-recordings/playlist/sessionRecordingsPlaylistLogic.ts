@@ -1449,9 +1449,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
         const buildURL = (
             replace: boolean
-        ):
-            | [string, ReplayURLSearchParamTypes, Record<string, any>, { replace: boolean }]
-            | undefined => {
+        ): [string, ReplayURLSearchParamTypes, Record<string, any>, { replace: boolean }] | undefined => {
             // Skip URL writes while we are applying state from an incoming URL change.
             // Otherwise the dispatched setFilters call below this listener turns right back
             // into router.replace, re-entering this logic plus every sibling scene's
