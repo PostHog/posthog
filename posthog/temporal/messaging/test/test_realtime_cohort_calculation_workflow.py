@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     _batch_update_cohort_metrics,
+    build_final_query,
     flush_kafka_batch,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
@@ -1668,7 +1669,6 @@ class TestFinalQueryMembershipStatuses:
     )
     def test_only_entered_and_left_statuses_are_emitted(self, rows, expected_statuses):
         """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop."""
-        status_counts: dict[str, int] = {"entered": 0, "left": 0}
         observed: dict[str, str] = {}
 
         for row in rows:
@@ -1677,10 +1677,33 @@ class TestFinalQueryMembershipStatuses:
                 f"Query should only emit 'entered' or 'left'; got {status!r}. "
                 "'unchanged' rows must be filtered out by the WHERE clause."
             )
-            status_counts[status] += 1
             observed[row["person_id"]] = status
 
         assert observed == expected_statuses
+
+    def test_build_final_query_contains_expected_predicates(self):
+        """build_final_query must contain the key SQL predicates from the optimized query.
+
+        Asserts that regressions (e.g. reverting to CASE/ELSE or GROUP BY team_id) are caught
+        by directly inspecting the produced SQL.
+        """
+        sql = build_final_query("SELECT id FROM nowhere")
+
+        # Status is computed with if(), not CASE ... ELSE 'unchanged'
+        assert "if(previous_members.person_id IS NULL, 'entered', 'left')" in sql
+        assert "CASE" not in sql
+        assert "'unchanged'" not in sql
+
+        # Unchanged rows are filtered by NULL checks, not a string IN list
+        assert "(previous_members.person_id IS NULL) OR (current_matches.id IS NULL)" in sql
+        assert "status IN" not in sql
+
+        # cohort_membership subquery groups only by person_id, not team_id
+        assert "GROUP BY person_id" in sql
+        assert "GROUP BY team_id" not in sql
+
+        # The inner subquery is embedded correctly
+        assert "SELECT id FROM nowhere" in sql
 
     def test_if_expression_matches_full_outer_join_semantics(self):
         """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
