@@ -822,11 +822,27 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagRolloutSummaryApi {
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    effectively_full_rollout: boolean
+    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+    has_targeting_conditions: boolean
+    /**
+     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+     * @nullable
+     */
+    max_rollout_percentage: number | null
+    /** True if the flag serves multiple variants (has a multivariate variant set). */
+    is_multivariate: boolean
+}
+
 export interface FeatureFlagStatusResponseApi {
-    /** Flag status: active, stale, deleted, or unknown */
+    /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
+    /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+    rollout: FeatureFlagRolloutSummaryApi
 }
 
 export interface FeatureFlagTestEvaluationRequestApi {
@@ -1251,9 +1267,10 @@ export const ModelNameEnumApi = {
  * * `monthly` - monthly
  * * `yearly` - yearly
  */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+export type ScheduledChangeRecurrenceIntervalEnumApi =
+    (typeof ScheduledChangeRecurrenceIntervalEnumApi)[keyof typeof ScheduledChangeRecurrenceIntervalEnumApi]
 
-export const RecurrenceIntervalEnumApi = {
+export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1294,7 +1311,7 @@ export interface ScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1354,7 +1371,7 @@ export interface PatchedScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1388,7 +1405,7 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
     /**

@@ -161,11 +161,7 @@
 
     .quill-button--variant-outline:not(:disabled):hover {
         color: var(--foreground);
-        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
-    }
-
-    :is(.dark, [theme='dark']) .quill-button--variant-outline:not(:disabled):hover {
-        color: var(--foreground);
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-outline[aria-expanded='true'] {

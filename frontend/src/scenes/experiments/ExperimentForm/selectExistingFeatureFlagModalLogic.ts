@@ -11,16 +11,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
 
+import type { FeatureFlagModalFilters } from '../experimentsLogic'
 import type { selectExistingFeatureFlagModalLogicType } from './selectExistingFeatureFlagModalLogicType'
 
-export interface FeatureFlagModalFilters {
-    active?: string
-    created_by_id?: number
-    search?: string
-    order?: string
-    page?: number
-    evaluation_runtime?: string
-}
+// Canonical definition lives in experimentsLogic; re-exported so existing importers keep working.
+export type { FeatureFlagModalFilters }
 
 const DEFAULT_FILTERS: FeatureFlagModalFilters = {
     active: undefined,

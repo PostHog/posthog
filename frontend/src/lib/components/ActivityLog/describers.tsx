@@ -14,6 +14,7 @@ import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-export
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
 import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
+import { exportedAssetActivityDescriber } from 'scenes/exports/activityDescriptions'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
@@ -55,6 +56,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchExportActivityDescriber
         case ActivityScope.BATCH_IMPORT:
             return batchImportActivityDescriber
+        case ActivityScope.EXPORTED_ASSET:
+            return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:
             return dashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:

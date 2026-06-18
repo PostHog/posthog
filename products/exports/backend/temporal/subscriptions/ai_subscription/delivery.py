@@ -10,6 +10,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.email import EmailMessage
+from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -255,7 +256,13 @@ def send_email_ai_subscription_credit_limited(
     message.send(send_async=False)
 
 
-def _build_ai_slack_message(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> SlackMessageData:
+def _build_ai_slack_message(
+    subscription: Subscription,
+    markdown: str,
+    *,
+    delivery_id: uuid.UUID,
+    integration: Integration | None = None,
+) -> SlackMessageData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(_strip_external_links_markdown(markdown)))
@@ -276,19 +283,18 @@ def _build_ai_slack_message(subscription: Subscription, markdown: str, *, delive
     )
     feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
     feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
+
+    action_elements: list[dict] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Manage subscription"},
+            "url": f"{subscription_url}?{utm_tags}",
+        }
+    ]
     blocks.extend(
         [
             {"type": "divider"},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Manage subscription"},
-                        "url": f"{subscription_url}?{utm_tags}",
-                    }
-                ],
-            },
+            {"type": "actions", "elements": action_elements},
             {
                 "type": "context",
                 "elements": [
@@ -303,6 +309,9 @@ def _build_ai_slack_message(subscription: Subscription, markdown: str, *, delive
             },
         ]
     )
+    # AI consent is enforced upstream before this report is built, so the hint always shows here.
+    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
+        blocks.append(explore_hint)
 
     thread_messages = [
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
@@ -318,7 +327,7 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id)
+    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 

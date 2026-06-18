@@ -55,7 +55,12 @@ export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
 
 export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
-    created_by_id: zod.string().optional().describe('The User ID which initially created the feature flag.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+        ),
     evaluation_runtime: zod
         .enum(['all', 'client', 'server'])
         .optional()
