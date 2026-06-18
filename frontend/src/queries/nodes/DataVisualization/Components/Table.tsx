@@ -7,6 +7,7 @@ import React from 'react'
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -19,6 +20,7 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ColumnScalar } from '../types'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -69,16 +71,27 @@ function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<a
         return 0
     }
     if (aValue == null) {
-        return -1
+        return 1
     }
     if (bValue == null) {
-        return 1
+        return -1
     }
     if (typeof aValue === 'number' && typeof bValue === 'number') {
         return aValue - bValue
     }
+    // Date/datetime columns compare on parsed epoch ms, so values with different formats or
+    // timezones sort chronologically rather than lexicographically.
+    if (isDateColumn(a?.type) && isDateColumn(b?.type)) {
+        const aTime = dayjs(aValue as string | number | Date).valueOf()
+        const bTime = dayjs(bValue as string | number | Date).valueOf()
+        if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+            return aTime - bTime
+        }
+    }
     return String(aValue).localeCompare(String(bValue), undefined, { numeric: true })
 }
+
+const isDateColumn = (type: ColumnScalar | undefined): boolean => type === 'DATE' || type === 'DATETIME'
 
 // Plain-text representation of a cell, used as the hover title so clipped content is
 // still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
@@ -272,6 +285,7 @@ export const Table = (props: TableProps): JSX.Element => {
             columns={tableColumns}
             pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
             loading={responseLoading}
+            useURLForSorting={false}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="15rem"
             emptyState={
