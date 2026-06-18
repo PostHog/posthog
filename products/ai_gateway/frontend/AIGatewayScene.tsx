@@ -5,6 +5,7 @@ import { ComponentType } from 'react'
 import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RobotHog } from 'lib/components/hedgehogs'
 import { Link } from 'lib/lemon-ui/Link'
 import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
 import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
@@ -21,6 +22,11 @@ import { aiGatewayLogic, EndpointProvider, EndpointTab } from './aiGatewayLogic'
 import { GatewayBalanceCard, GatewayTopUpModal } from './GatewayTopUp'
 import { ModelBreakdownTable, SpendChart, UsageMetrics } from './gatewayUsage'
 
+const AI_GATEWAY_DESCRIPTION =
+    'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at the gateway and ' +
+    'PostHog tracks its usage, cost, and spend for you. Any project secret key with the llm_gateway:read scope ' +
+    'can call it, and you can add or rotate keys anytime with no downtime.'
+
 export const scene: SceneExport = {
     component: AIGatewayScene,
     logic: aiGatewayLogic,
@@ -28,8 +34,12 @@ export const scene: SceneExport = {
 }
 
 export function AIGatewayScene(): JSX.Element {
-    const { usage, usageLoading, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading } =
+    const { usage, usageLoading, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading, hasUsage } =
         useValues(aiGatewayLogic)
+
+    // Until both usage queries resolve we can't tell a brand-new team from an active one, so keep showing
+    // the dashboard (with skeletons) and only fall back to the intro once we know there's genuinely no usage.
+    const isEmpty = !usageLoading && !modelUsageLoading && !hasUsage
 
     return (
         <SceneContent>
@@ -38,16 +48,26 @@ export function AIGatewayScene(): JSX.Element {
                 description="Every major LLM through one endpoint, billed at cost."
                 resourceType={{ type: 'ai_gateway' }}
             />
-            <SceneSection title="Usage" description="Last 30 days" titleSize="sm">
-                <div className="flex gap-2 flex-wrap">
-                    <UsageMetrics usage={usage} loading={usageLoading} />
-                    <GatewayBalanceCard />
-                </div>
-                <SpendChart data={spendChart.data} labels={spendChart.labels} loading={spendSeriesLoading} />
-            </SceneSection>
-            <SceneSection title="By model" description="Spend and tokens per model, last 30 days" titleSize="sm">
-                <ModelBreakdownTable rows={modelUsage} loading={modelUsageLoading} />
-            </SceneSection>
+            {isEmpty ? (
+                <GatewayIntro />
+            ) : (
+                <>
+                    <SceneSection title="Usage" description="Last 30 days" titleSize="sm">
+                        <div className="flex gap-2 flex-wrap">
+                            <UsageMetrics usage={usage} loading={usageLoading} />
+                            <GatewayBalanceCard />
+                        </div>
+                        <SpendChart data={spendChart.data} labels={spendChart.labels} loading={spendSeriesLoading} />
+                    </SceneSection>
+                    <SceneSection
+                        title="By model"
+                        description="Spend and tokens per model, last 30 days"
+                        titleSize="sm"
+                    >
+                        <ModelBreakdownTable rows={modelUsage} loading={modelUsageLoading} />
+                    </SceneSection>
+                </>
+            )}
             <SceneSection
                 title="Connect your app"
                 titleSize="sm"
@@ -61,8 +81,21 @@ export function AIGatewayScene(): JSX.Element {
             >
                 <GatewayEndpoint />
             </SceneSection>
-            <GatewayTopUpModal />
+            {!isEmpty && <GatewayTopUpModal />}
         </SceneContent>
+    )
+}
+
+// Shown until a team sends its first request, where the zeroed-out dashboard would otherwise read as broken.
+function GatewayIntro(): JSX.Element {
+    return (
+        <div className="border-2 border-dashed border-primary w-full p-6 rounded flex items-center gap-6">
+            <RobotHog className="w-24 hidden md:block shrink-0" />
+            <div className="flex-shrink">
+                <h3 className="m-0">No gateway usage yet</h3>
+                <p className="ml-0 mt-1 mb-0 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>
+            </div>
+        </div>
     )
 }
 
@@ -80,7 +113,7 @@ function GatewayEndpoint(): JSX.Element {
     }
 
     const gatewayBase = preflight.ai_gateway_url.replace(/\/$/, '')
-    const key = '<phs_ project secret key with the llm_gateway:read scope>'
+    const key = '<your phs_… project secret key with the llm_gateway:read scope>'
 
     // provider → language → snippet. The OpenAI SDK appends "chat/completions" to base + "/v1";
     // the Anthropic SDK appends "/v1/messages" to the gateway base.

@@ -59,6 +59,10 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             (s) => [s.spendSeries],
             (spendSeries): { data: number[]; labels: string[] } => buildSpendChartData(spendSeries),
         ],
+        hasUsage: [
+            (s) => [s.usage, s.modelUsage],
+            (usage, modelUsage): boolean => (usage?.requests ?? 0) > 0 || modelUsage.length > 0,
+        ],
     }),
     listeners(({ values, actions }) => ({
         confirmTopUp: () => {

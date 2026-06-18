@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
+import { fetchGatewayUsage, fetchGatewayUsageByModel } from './gatewayUsage'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { info: jest.fn() } }))
 
@@ -37,6 +38,23 @@ describe('aiGatewayLogic', () => {
         ])
         expect(logic.values.usage).toEqual({ requests: 12, inputTokens: 100, outputTokens: 200, costUsd: 3.5 })
         expect(logic.values.modelUsage).toEqual([{ model: 'gpt-5-mini', requests: 12, tokens: 300, costUsd: 3.5 }])
+        expect(logic.values.hasUsage).toBe(true)
+    })
+
+    it('reports no usage for a team that has never called the gateway', async () => {
+        jest.mocked(fetchGatewayUsage).mockResolvedValueOnce({
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            costUsd: 0,
+        })
+        jest.mocked(fetchGatewayUsageByModel).mockResolvedValueOnce([])
+
+        const emptyLogic = aiGatewayLogic()
+        emptyLogic.mount()
+        await expectLogic(emptyLogic).toDispatchActions(['loadUsageSuccess', 'loadModelUsageSuccess'])
+        expect(emptyLogic.values.hasUsage).toBe(false)
+        emptyLogic.unmount()
     })
 
     it('confirming a top up closes the modal', async () => {
