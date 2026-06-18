@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/tasks/frontend/types'
@@ -15,6 +16,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
@@ -23,7 +25,12 @@ import type { scoutFleetLogicType } from './scoutFleetLogicType'
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
+// The runs endpoint caps each page at 100 rows newest-first. To cover the whole
+// window we walk back page-by-page via a `date_to` cursor (the oldest run's
+// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a
+// pathologically busy fleet can't spin forever — hitting it flags the window truncated.
 const RUNS_PAGE_LIMIT = 100
+const MAX_RUNS_PAGES = 15
 
 /**
  * Cloud port of desktop's scouts fleet hooks (`useScoutConfigs`, `useScoutRuns`,
@@ -66,10 +73,43 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
             {
                 loadRunsWindow: async () => {
-                    const runs = await api.signalScout.runs.list({ limit: RUNS_PAGE_LIMIT })
-                    // The endpoint caps at 100 rows; if it returned a full page there may be
-                    // older runs in the window we can't see, so flag the window as truncated.
-                    return { runs, complete: runs.length < RUNS_PAGE_LIMIT }
+                    // Walk the full window newest→oldest, paginating via a `date_to` cursor so
+                    // every scout shows its real run history (not just the fleet-wide newest 100).
+                    const windowStart = dayjs().subtract(SCOUT_RUNS_WINDOW_HOURS, 'hours').toISOString()
+                    const seen = new Set<string>()
+                    const runs: SignalScoutRunSummary[] = []
+                    let cursor: string | undefined
+                    let complete = false
+
+                    for (let page = 0; page < MAX_RUNS_PAGES; page++) {
+                        const pageRuns = await api.signalScout.runs.list({
+                            limit: RUNS_PAGE_LIMIT,
+                            date_from: windowStart,
+                            date_to: cursor,
+                        })
+                        for (const run of pageRuns) {
+                            // Cursor is `started_at` but the filter is exclusive on `created_at`;
+                            // dedupe by run_id in case a boundary row reappears across pages.
+                            if (!seen.has(run.run_id)) {
+                                seen.add(run.run_id)
+                                runs.push(run)
+                            }
+                        }
+                        // A short page means we reached the start of the window — nothing older left.
+                        if (pageRuns.length < RUNS_PAGE_LIMIT) {
+                            complete = true
+                            break
+                        }
+                        const oldest = pageRuns[pageRuns.length - 1]
+                        // No usable cursor (or no forward progress) — stop rather than loop.
+                        if (!oldest.started_at || oldest.started_at === cursor) {
+                            complete = true
+                            break
+                        }
+                        cursor = oldest.started_at
+                    }
+
+                    return { runs, complete }
                 },
             },
         ],
