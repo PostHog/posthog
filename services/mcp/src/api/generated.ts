@@ -20869,7 +20869,7 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -20957,7 +20957,7 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
-      /** Requested sync mode for the schema.
+      /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -35187,7 +35187,7 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental

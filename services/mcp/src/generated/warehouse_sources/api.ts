@@ -53,7 +53,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
+            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -153,7 +153,7 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
+            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -262,7 +262,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
+            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -362,7 +362,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
+            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -462,7 +462,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
+            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod

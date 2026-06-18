@@ -29,6 +29,7 @@ from products.data_warehouse.backend.data_load.service import (
     external_data_workflow_exists,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
@@ -187,7 +188,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         choices=ExternalDataSchema.SyncType.choices,
         required=False,
         allow_null=True,
-        help_text="Sync strategy: incremental, full_refresh, append, or cdc.",
+        help_text="Sync strategy: incremental, full_refresh, append, cdc, or xmin.",
     )
     incremental_field = serializers.CharField(
         required=False, allow_null=True, help_text="Column name used to track sync progress."
@@ -490,6 +491,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
 
+        # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
+        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres, the flag is
+        # on for the team, and the table actually advertises xmin support — otherwise a raw PATCH would
+        # persist an xmin schema that silently degrades to full_refresh.
+        if sync_type == ExternalDataSchema.SyncType.XMIN:
+            from posthog.models import Team
+
+            if instance.source.source_type != ExternalDataSourceType.POSTGRES:
+                raise ValidationError("xmin replication is only available for Postgres sources.")
+            team = Team.objects.get(id=self.context["team_id"])
+            if not is_xmin_enabled_for_team(team):
+                raise ValidationError("xmin replication is not enabled for this team")
+            if not self._xmin_available_for_schema(instance):
+                raise ValidationError(
+                    f"xmin replication is not available for table '{instance.name}'. "
+                    "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
+                )
+
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
         if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
@@ -576,6 +595,27 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             elif not payload.get("primary_key_columns"):
                 raise ValidationError(
                     f"CDC requires a primary key on table '{instance.name}'. "
+                    "Provide primary_key_columns or refresh schema discovery to pick one up."
+                )
+
+            validated_data["sync_type_config"] = payload
+        elif sync_type == ExternalDataSchema.SyncType.XMIN:
+            payload = instance.sync_type_config
+
+            # xmin requires a primary key for clean upsert dedup, mirroring CDC. Accept the caller's
+            # PK or reuse what discovery already stored; refuse the switch when neither is set.
+            new_pk = data.get("primary_key_columns")
+            if new_pk:
+                old_pk = payload.get("primary_key_columns")
+                if new_pk != old_pk and instance.table is not None:
+                    raise ValidationError(
+                        "Primary key cannot be changed after data has been synced. "
+                        "Delete the synced data first, then change the primary key."
+                    )
+                payload["primary_key_columns"] = new_pk
+            elif not payload.get("primary_key_columns"):
+                raise ValidationError(
+                    f"xmin replication requires a primary key on table '{instance.name}'. "
                     "Provide primary_key_columns or refresh schema discovery to pick one up."
                 )
 
@@ -792,6 +832,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         except Exception:
             return False
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
+
+    def _xmin_available_for_schema(self, schema: ExternalDataSchema) -> bool:
+        """True when the source advertises xmin support for this table (Postgres heap table or
+        materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
+        has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
+        source = schema.source
+        if not source.job_inputs:
+            return False
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+            config = source_impl.parse_config(source.job_inputs)
+            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+        except Exception:
+            return False
+        return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
@@ -1117,12 +1173,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        # xmin is Postgres-only — name Postgres in the gate rather than relying on the flag's implicit
+        # False, so the capability can never leak to another SQL source.
+        xmin_available = schema.supports_xmin if source.source_type == ExternalDataSourceType.POSTGRES else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
+            "xmin_available": xmin_available,
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,
