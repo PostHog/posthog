@@ -124,7 +124,9 @@ class TestQueriedAccessControlledResources(BaseTest):
             team=self.team, name="my_warehouse_view", query={"kind": "HogQLQuery", "query": "select 1 as a"}
         )
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_view"), self.team)
-        assert result == {"warehouse_view"}
+        # warehouse_table is included too: a non-materialized view reads underlying tables, and a cache
+        # hit skips that resolution, so the user's table denials must partition the key.
+        assert result == {"warehouse_view", "warehouse_table"}
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")

@@ -68,6 +68,10 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             )
             if non_system_names & view_names:
                 scopes.add("warehouse_view")
+                # A non-materialized view re-resolves to its underlying warehouse tables at execution.
+                # A cache hit skips that resolution, so fold warehouse_table denials into the key too —
+                # otherwise a user denied an underlying table could be served a cached view result.
+                scopes.add("warehouse_table")
 
         return scopes
 
