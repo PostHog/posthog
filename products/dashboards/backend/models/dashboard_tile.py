@@ -56,6 +56,12 @@ class DashboardTileManager(models.Manager):
         return super().get_queryset().exclude(deleted=True).exclude(dashboard__deleted=True)
 
 
+class DashboardTileDisplayMode(models.TextChoices):
+    CHART = "chart", "Chart only"
+    CHART_AND_TABLE = "chart_and_table", "Chart and detailed results"
+    TABLE = "table", "Detailed results only"
+
+
 class DashboardTile(models.Model):
     # Relations
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
@@ -104,6 +110,17 @@ class DashboardTile(models.Model):
     show_description = models.BooleanField(null=True, blank=True)
 
     transparent_background = models.BooleanField(null=True, blank=True)
+
+    display_mode = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=DashboardTileDisplayMode.choices,
+        help_text=(
+            "How an insight tile renders its chart vs its detailed-results table. "
+            "Null defaults to chart only. Currently surfaced for funnel insights."
+        ),
+    )
 
     deleted = models.BooleanField(null=True, blank=True)
 

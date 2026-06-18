@@ -1489,6 +1489,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         "filters_overrides",
         "show_description",
         "transparent_background",
+        "display_mode",
         "deleted",
     }
 
@@ -1756,14 +1757,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
             tile, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
             return tile, created
-        elif (
-            "deleted" in tile_data
-            or "color" in tile_data
-            or "layouts" in tile_data
-            or "filters_overrides" in tile_data
-            or "show_description" in tile_data
-            or "transparent_background" in tile_data
-        ):
+        elif any(field in tile_data for field in DashboardSerializer.TILE_DISPLAY_FIELDS):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
             updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
             # The dashboard UI soft-deletes tiles through this PATCH path rather than the

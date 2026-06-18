@@ -7220,6 +7220,20 @@ export namespace Schemas {
       team: number;
     }
 
+    /**
+     * * `chart` - Chart only
+     * * `chart_and_table` - Chart and detailed results
+     * * `table` - Detailed results only
+     */
+    export type DisplayModeEnum = typeof DisplayModeEnum[keyof typeof DisplayModeEnum];
+
+
+    export const DisplayModeEnum = {
+      Chart: 'chart',
+      ChartAndTable: 'chart_and_table',
+      Table: 'table',
+    } as const;
+
     export interface DashboardTile {
       id?: number;
       insight: Insight;
@@ -7237,6 +7251,12 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
+      /** How an insight tile renders its chart vs its detailed-results table. Null defaults to chart only. Currently surfaced for funnel insights.
+       *
+       * * `chart` - Chart only
+       * * `chart_and_table` - Chart and detailed results
+       * * `table` - Detailed results only */
+      display_mode?: DisplayModeEnum | BlankEnum | null;
     }
 
     export interface AddDashboardWidgetsBatchResponse {

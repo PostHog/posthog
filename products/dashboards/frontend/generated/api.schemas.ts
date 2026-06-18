@@ -7850,6 +7850,19 @@ export interface DashboardWidgetApi {
     team: number
 }
 
+/**
+ * * `chart` - Chart only
+ * * `chart_and_table` - Chart and detailed results
+ * * `table` - Detailed results only
+ */
+export type DisplayModeEnumApi = (typeof DisplayModeEnumApi)[keyof typeof DisplayModeEnumApi]
+
+export const DisplayModeEnumApi = {
+    Chart: 'chart',
+    ChartAndTable: 'chart_and_table',
+    Table: 'table',
+} as const
+
 export interface DashboardTileApi {
     id?: number
     insight: InsightApi
@@ -7867,6 +7880,12 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
+    /** How an insight tile renders its chart vs its detailed-results table. Null defaults to chart only. Currently surfaced for funnel insights.
+     *
+     * * `chart` - Chart only
+     * * `chart_and_table` - Chart and detailed results
+     * * `table` - Detailed results only */
+    display_mode?: DisplayModeEnumApi | BlankEnumApi | null
 }
 
 export interface DeleteTileRequestApi {

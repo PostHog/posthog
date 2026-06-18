@@ -99,6 +99,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "widget": None,
             "show_description": None,
             "transparent_background": None,
+            "display_mode": None,
         }
 
     @staticmethod
