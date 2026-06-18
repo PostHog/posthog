@@ -6,9 +6,10 @@ import { cn } from 'lib/utils/css-classes'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
-import { DashboardsTable } from './DashboardsTable'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { FolderTreeNode } from './dashboardsFileSystemUtils'
+import { DashboardsTable } from './DashboardsTable'
+import { NewFolderButton } from './NewFolderButton'
 
 interface TreeNodeProps {
     node: FolderTreeNode
@@ -82,6 +83,9 @@ export function DashboardsTree(): JSX.Element {
     return (
         <div className="grid grid-cols-[240px_1fr] gap-4" data-attr="dashboards-tree">
             <div className="flex flex-col gap-0.5 border-r border-border pr-2" aria-label="Folder tree">
+                <div className="pb-1">
+                    <NewFolderButton />
+                </div>
                 <button
                     type="button"
                     className={cn(

@@ -11,6 +11,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardCard } from './DashboardCard'
 import { DashboardsDndContext, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
+import { NewFolderButton } from './NewFolderButton'
 
 // Explorer arm (variant=explorer): drill-in folder navigation + organizing. Drill into folders via the
 // breadcrumb, drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete)
@@ -49,6 +50,7 @@ export function DashboardsExplorer(): JSX.Element {
                             Paste into this folder
                         </LemonButton>
                     ) : null}
+                    <NewFolderButton />
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
                     {compactedSubfolders.map((subfolder) => (

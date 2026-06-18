@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { calculateMovePath, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
@@ -67,6 +67,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         deleteDashboardWithConfirm: (dashboardId: number) => ({ dashboardId }),
         startRenaming: (dashboardId: number) => ({ dashboardId }),
         stopRenaming: true,
+        // Create a folder inside the current folder (the UI prompts for the name).
+        createFolder: (name: string) => ({ name }),
     }),
     loaders({
         dashboardFileSystemEntries: [
@@ -215,6 +217,21 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             // Without this the folder structure silently collapses to Unfiled (kea-loaders only
             // console.errors), so the degraded state would look like a genuinely flat project.
             lemonToast.error('Could not load dashboard folders — they may appear unorganized. Refresh to retry.')
+        },
+        createFolder: async ({ name }) => {
+            const trimmed = name.trim()
+            if (!trimmed) {
+                return
+            }
+            const path = joinPath([...(values.currentFolder ? splitPath(values.currentFolder) : []), trimmed])
+            try {
+                await api.fileSystem.create({ type: 'folder', path } as FileSystemEntry)
+                actions.loadFolderEntries()
+                actions.navigateToFolder(path)
+                lemonToast.success(`Created folder "${trimmed}"`)
+            } catch {
+                lemonToast.error('Could not create the folder.')
+            }
         },
     })),
     afterMount(({ actions }) => {

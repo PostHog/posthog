@@ -42,6 +42,7 @@ describe('dashboardsFileSystemLogic', () => {
             path: 'Product/A',
         } as any)
         jest.spyOn(api, 'create').mockResolvedValue({ id: 99, name: 'A (Copy)', tiles: [] } as any)
+        jest.spyOn(api.fileSystem, 'create').mockResolvedValue({ id: 'fs-new', type: 'folder', path: 'x' } as any)
         jest.spyOn(api, 'update').mockResolvedValue({ id: 1, name: 'Renamed', tiles: [] } as any)
         initKeaTests()
         unmountEventUsage = eventUsageLogic.mount()
@@ -142,6 +143,25 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(logic, () => logic.actions.renameDashboard(2, 'X')).toMatchValues({
             renamingDashboardId: null,
         })
+    })
+
+    it('createFolder creates a folder under the current folder, refetches, and navigates in', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        logic.actions.navigateToFolder('Marketing')
+        ;(api.fileSystem.create as jest.Mock).mockClear()
+        await expectLogic(logic, () => logic.actions.createFolder('Ideas')).toDispatchActions([
+            'createFolder',
+            'loadFolderEntries',
+        ])
+        expect(api.fileSystem.create).toHaveBeenCalledWith({ type: 'folder', path: 'Marketing/Ideas' })
+        expect(logic.values.currentFolder).toEqual('Marketing/Ideas')
+    })
+
+    it('createFolder ignores a blank name', async () => {
+        ;(api.fileSystem.create as jest.Mock).mockClear()
+        logic.actions.createFolder('   ')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(api.fileSystem.create).not.toHaveBeenCalled()
     })
 
     it('toasts an error when loading dashboard folders fails', async () => {

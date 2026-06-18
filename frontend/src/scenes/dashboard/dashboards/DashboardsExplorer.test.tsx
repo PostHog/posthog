@@ -36,6 +36,7 @@ describe('DashboardsExplorer', () => {
             moveDashboardToFolder: jest.fn(),
             renameDashboard,
             stopRenaming,
+            createFolder: jest.fn(),
         })
     })
 

@@ -25,7 +25,7 @@ describe('DashboardsTree', () => {
     beforeEach(() => {
         navigateToFolder.mockClear()
         toggleFolder.mockClear()
-        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, toggleFolder })
+        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, toggleFolder, createFolder: jest.fn() })
     })
 
     function mockValues(overrides: Record<string, any>): void {
