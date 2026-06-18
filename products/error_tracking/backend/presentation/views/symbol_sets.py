@@ -113,10 +113,21 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField(allow_null=True, help_text="Release associated with this symbol set"))
     def get_release(self, obj):
+        from products.error_tracking.backend.facade import contracts
         from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseSerializer
 
         if obj.release:
-            return ErrorTrackingReleaseSerializer(obj.release).data
+            release = obj.release
+            dto = contracts.ErrorTrackingRelease(
+                id=release.id,
+                hash_id=release.hash_id,
+                team_id=release.team_id,
+                created_at=release.created_at,
+                metadata=release.metadata,
+                version=release.version,
+                project=release.project,
+            )
+            return ErrorTrackingReleaseSerializer(dto).data
         return None
 
 
