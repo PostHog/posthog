@@ -50,13 +50,14 @@ class Command(BaseCommand):
         total_refresh = 0
         changed_access = 0
         changed_refresh = 0
+        skipped_empty = 0
 
         for application in applications:
             self.stdout.write(f"Application {application.id} ({application.name}):")
 
-            access_tokens = OAuthAccessToken.objects.filter(
-                application=application,
-            ).exclude(revoked__isnull=False)
+            # OAuthAccessToken has no `revoked` column (only refresh tokens do); a revoked
+            # access token is hard-deleted, so live tokens are the unexpired ones.
+            access_tokens = OAuthAccessToken.objects.filter(application=application)
             for access_token in access_tokens.iterator(chunk_size=200):
                 total_access += 1
                 if access_token.expires and access_token.expires < timezone.now():
@@ -67,6 +68,18 @@ class Command(BaseCommand):
                 old_scope = list(access_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
                 new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
+                # _compute_partner_scoped_teams returns [] when the base team is gone or the
+                # user lost access. An empty scoped_teams is treated as unrestricted by the
+                # OAuth permission check (permissions.py), so writing [] here would strip the
+                # project restriction from a live token. Leave the existing scope intact and
+                # report it for re-authorization, matching the fail-closed issuance/refresh paths.
+                if not new_scope:
+                    skipped_empty += 1
+                    self.stdout.write(
+                        f"  access_token={access_token.pk} user={user.id} old={sorted(old_scope)} "
+                        f"new=[] (empty scope; left unchanged, needs re-authorization)"
+                    )
+                    continue
                 if sorted(new_scope) == sorted(old_scope):
                     continue
                 changed_access += 1
@@ -96,6 +109,15 @@ class Command(BaseCommand):
                 old_scope = list(refresh_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
                 new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
+                # Same fail-closed rule as access tokens: never overwrite a restricted scope
+                # with an empty (unrestricted) one. Leave it for re-authorization.
+                if not new_scope:
+                    skipped_empty += 1
+                    self.stdout.write(
+                        f"  refresh_token={refresh_token.pk} user={user.id} old={sorted(old_scope)} "
+                        f"new=[] (empty scope; left unchanged, needs re-authorization)"
+                    )
+                    continue
                 if sorted(new_scope) == sorted(old_scope):
                     continue
                 changed_refresh += 1
@@ -116,5 +138,6 @@ class Command(BaseCommand):
         verb = "Would update" if dry_run else "Updated"
         self.stdout.write(
             f"{verb} {changed_access}/{total_access} access tokens and "
-            f"{changed_refresh}/{total_refresh} refresh tokens."
+            f"{changed_refresh}/{total_refresh} refresh tokens. "
+            f"{skipped_empty} tokens left unchanged with empty recomputed scope (need re-authorization)."
         )

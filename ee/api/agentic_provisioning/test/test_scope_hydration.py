@@ -1,3 +1,6 @@
+from io import StringIO
+
+from django.core.management import call_command
 from django.test import override_settings
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
@@ -242,6 +245,80 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         refresh_token.refresh_from_db()
         assert refresh_token.revoked is None
         assert OAuthAccessToken.objects.filter(token=token).exists()
+
+    def test_backfill_rehydrates_stale_access_and_refresh_scope(self):
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
+        assert access_token.scoped_teams == [self.team.id]
+
+        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
+        stripe_app.provisioning_partner_type = "stripe"
+        stripe_app.save()
+        newly_provisioned = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Newly provisioned",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=newly_provisioned,
+            defaults={"stripe_project_id": "proj_new", "application": stripe_app},
+        )
+
+        call_command("backfill_agentic_provisioning_scope", stdout=StringIO())
+
+        access_token.refresh_from_db()
+        refresh_token.refresh_from_db()
+        assert self.team.id in access_token.scoped_teams
+        assert newly_provisioned.id in access_token.scoped_teams
+        assert self.team.id in refresh_token.scoped_teams
+        assert newly_provisioned.id in refresh_token.scoped_teams
+
+    def test_backfill_leaves_scope_unchanged_when_recomputed_scope_is_empty(self):
+        # When the user has lost access, _compute_partner_scoped_teams returns [].
+        # An empty scoped_teams is unrestricted under the standard permission check, so the
+        # backfill must NOT overwrite a restricted token with [] — it leaves the existing
+        # restriction intact and reports the token for re-authorization.
+        from posthog.constants import AvailableFeature
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
+        assert access_token.scoped_teams == [self.team.id]
+
+        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
+        stripe_app.provisioning_partner_type = "stripe"
+        stripe_app.save()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
+
+        out = StringIO()
+        call_command("backfill_agentic_provisioning_scope", stdout=out)
+
+        access_token.refresh_from_db()
+        refresh_token.refresh_from_db()
+        assert access_token.scoped_teams == [self.team.id]
+        assert refresh_token.scoped_teams == [self.team.id]
+        assert "needs re-authorization" in out.getvalue()
 
     def test_application_none_yields_empty_scope(self):
         # application is never None in practice (oauthrefreshtoken.application_id is
