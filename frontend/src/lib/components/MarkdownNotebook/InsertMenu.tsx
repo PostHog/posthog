@@ -271,23 +271,18 @@ export function buildInsertCommands(
                     },
                 }),
         },
-        {
-            key: 'query-saved-insight',
-            label: 'Saved insight',
-            category: 'Insight',
-            icon: <IconGraph />,
-            // With a picker available, defer insertion until the user chooses an insight in the
-            // search modal; otherwise fall back to inserting an empty node to pick later.
-            run: (targetNodeId) =>
-                openSavedInsightPicker
-                    ? openSavedInsightPicker(targetNodeId)
-                    : insertComponent(targetNodeId, 'Query', {
-                          query: {
-                              kind: 'SavedInsightNode',
-                              shortId: '',
-                          },
-                      }),
-        },
+        // Only offered when a picker is wired up — selecting an insight requires the search modal.
+        ...(openSavedInsightPicker
+            ? [
+                  {
+                      key: 'query-saved-insight',
+                      label: 'Saved insight',
+                      category: 'Insight',
+                      icon: <IconGraph />,
+                      run: (targetNodeId: string) => openSavedInsightPicker(targetNodeId),
+                  },
+              ]
+            : []),
     ]
 
     const sqlCommands: InsertCommand[] = [
