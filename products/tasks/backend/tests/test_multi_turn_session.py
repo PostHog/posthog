@@ -1,4 +1,5 @@
 import json
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -1295,3 +1296,114 @@ class TestCreateTaskAndTriggerForwardsContext:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["sandbox_environment_id"] == expected_env
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ai_stage, expected", [("research", "research"), (None, None)])
+    async def test_forwards_ai_stage(self, ai_stage, expected):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+
+        mock_task = MagicMock()
+        mock_task.latest_run = MagicMock()
+        with patch(
+            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context, ai_stage=ai_stage)
+
+        assert mock_create.call_args.kwargs["ai_stage"] == expected
+
+
+class TestMultiTurnSessionStartFallback:
+    """start() salvages an end-turn the agent produced but that didn't validate against the
+    model (empty, prose, or malformed JSON) via fallback_from_text, instead of failing the
+    whole run. Without a fallback — or on a cancellation — it still fails and ends the run."""
+
+    def _fake_session(self) -> MultiTurnSession:
+        session = MultiTurnSession(
+            task=object(),  # type: ignore[arg-type]
+            task_run=FakeTaskRun(),  # type: ignore[arg-type]
+            _workflow_handle=AsyncMock(),
+        )
+        session.end = AsyncMock()  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        return session
+
+    @pytest.mark.asyncio
+    async def test_salvages_unparseable_text_with_fallback(self):
+        # _Resp requires a JSON object with `value`; prose can't validate, so the fallback
+        # builds the model from the raw close-out text instead of failing the run.
+        session = self._fake_session()
+        prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
+            returned_session, parsed = await MultiTurnSession.start(
+                prompt="x",
+                context=MagicMock(),
+                model=_Resp,
+                fallback_from_text=lambda text: _Resp(value=text),
+            )
+
+        assert returned_session is session
+        assert parsed == _Resp(value=prose)
+        # A salvaged run is NOT ended as failed — the caller persists the result and ends normally.
+        session.end.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_fails_and_ends_run_without_fallback(self):
+        session = self._fake_session()
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(ValueError):
+                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp)
+
+        session.end.assert_awaited_once()  # type: ignore[attr-defined]
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_valid_json_parses_without_invoking_fallback(self):
+        session = self._fake_session()
+        fallback = MagicMock()
+
+        with patch.object(
+            MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, json.dumps({"value": "ok"})))
+        ):
+            _, parsed = await MultiTurnSession.start(
+                prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=fallback
+            )
+
+        assert parsed == _Resp(value="ok")
+        fallback.assert_not_called()
+        session.end.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_raising_fallback_ends_run_instead_of_escaping(self):
+        # A fallback that itself raises (e.g. a stricter model that also rejects the raw text)
+        # must not escape start() before teardown — the run is ended as failed, not left wedged.
+        session = self._fake_session()
+
+        def boom(_text: str) -> _Resp:
+            raise ValueError("stricter model rejects raw text too")
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(ValueError):
+                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=boom)
+
+        session.end.assert_awaited_once()  # type: ignore[attr-defined]
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_cancellation_never_salvages(self):
+        # A Temporal cancellation must propagate and fail the run even when a fallback is set —
+        # salvaging a cancelled turn would mask a genuine timeout as a degraded success.
+        session = self._fake_session()
+        fallback = MagicMock()
+
+        with (
+            patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "some text"))),
+            patch.object(MultiTurnSession, "_parse_and_validate", side_effect=asyncio.CancelledError()),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=fallback)
+
+        fallback.assert_not_called()
+        session.end.assert_awaited_once()  # type: ignore[attr-defined]

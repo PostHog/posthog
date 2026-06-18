@@ -14,10 +14,7 @@ import { FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 // Eligibility matches insightVizDataLogic `hasLegend` (trends / stickiness / lifecycle, excluding DISPLAY_TYPES_WITHOUT_LEGEND).
 
-export function canToggleLegendInInsightQuery(
-    query: QueryBasedInsightModel['query'],
-    hogChartsFunnelEnabled: boolean = false
-): boolean {
+export function canToggleLegendInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
     if (!isInsightVizNode(query)) {
         return false
     }
@@ -26,9 +23,7 @@ export function canToggleLegendInInsightQuery(
 
     if (isFunnelsQuery(source)) {
         return (
-            hogChartsFunnelEnabled &&
-            source.funnelsFilter?.funnelVizType === FunnelVizType.Trends &&
-            hasBreakdownFilter(source.breakdownFilter)
+            source.funnelsFilter?.funnelVizType === FunnelVizType.Trends && hasBreakdownFilter(source.breakdownFilter)
         )
     }
 
@@ -48,22 +43,16 @@ export function canToggleLegendInInsightQuery(
     return !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display))
 }
 
-export function isLegendEnabledInInsightQuery(
-    query: QueryBasedInsightModel['query'],
-    hogChartsFunnelEnabled: boolean = false
-): boolean {
-    if (!canToggleLegendInInsightQuery(query, hogChartsFunnelEnabled) || !isInsightVizNode(query)) {
+export function isLegendEnabledInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
+    if (!canToggleLegendInInsightQuery(query) || !isInsightVizNode(query)) {
         return false
     }
 
     return !!getShowLegend(query.source)
 }
 
-export function getLegendToggleText(
-    query: QueryBasedInsightModel['query'],
-    hogChartsFunnelEnabled: boolean = false
-): string {
-    return isLegendEnabledInInsightQuery(query, hogChartsFunnelEnabled) ? 'Hide legend' : 'Show legend'
+export function getLegendToggleText(query: QueryBasedInsightModel['query']): string {
+    return isLegendEnabledInInsightQuery(query) ? 'Hide legend' : 'Show legend'
 }
 
 export function toggleLegendInInsightQuery(query: QueryBasedInsightModel['query']): QueryBasedInsightModel['query'] {

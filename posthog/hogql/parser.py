@@ -1721,6 +1721,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             negated=bool(ctx.NOT()),
         )
 
+    def visitColumnExprNullSafeEq(self, ctx: HogQLParser.ColumnExprNullSafeEqContext):
+        # MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b`
+        return ast.IsDistinctFrom(
+            left=self.visit(ctx.columnExpr(0)),
+            right=self.visit(ctx.columnExpr(1)),
+            negated=True,
+        )
+
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
         args = [self.visit(ctx.columnExpr()), self.visit(ctx.string())]
         if ctx.LEADING():

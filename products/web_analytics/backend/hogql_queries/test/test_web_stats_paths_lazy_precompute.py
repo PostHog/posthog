@@ -19,6 +19,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -155,8 +156,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
 
@@ -490,7 +490,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     )
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
-        "lazy path returns None on `usedLazyPrecompute` despite jobs being created "
+        "lazy path returns None on `preComputeStrategy` despite jobs being created "
         "(`test_unfiltered_round_trip_creates_precompute_job` passes). Same root "
         "cause as `test_lazy_result_matches_raw_result`: suspected read-after-write "
         "visibility on the Distributed lazy read. `@unittest.skip` placed AFTER "
@@ -507,7 +507,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed_two_sessions()
         with self._enable_lazy():
             response = self._run(self._build_query(order_by=[field, direction]))
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
