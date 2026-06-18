@@ -4351,7 +4351,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '~/ingestion/common/persons/person-merge-types'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4375,7 +4375,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '~/ingestion/common/persons/person-merge-types'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4404,7 +4404,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '~/ingestion/common/persons/person-merge-types'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
