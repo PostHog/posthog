@@ -28,6 +28,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsValuesRetrieveParams,
     LogsViewApi,
+    LogsViewInputApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
     PaginatedLogsAlertEventListApi,
@@ -35,7 +36,7 @@ import type {
     PaginatedLogsViewListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsSamplingRuleApi,
-    PatchedLogsViewApi,
+    PatchedLogsViewInputApi,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -663,14 +664,14 @@ export const getLogsViewsCreateUrl = (projectId: string) => {
 
 export const logsViewsCreate = async (
     projectId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
+    logsViewInputApi: LogsViewInputApi,
     options?: RequestInit
 ): Promise<LogsViewApi> => {
     return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
+        body: JSON.stringify(logsViewInputApi),
     })
 }
 
@@ -696,14 +697,14 @@ export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
 export const logsViewsUpdate = async (
     projectId: string,
     shortId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
+    logsViewInputApi: LogsViewInputApi,
     options?: RequestInit
 ): Promise<LogsViewApi> => {
     return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
+        body: JSON.stringify(logsViewInputApi),
     })
 }
 
@@ -714,14 +715,14 @@ export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string)
 export const logsViewsPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedLogsViewApi?: NonReadonly<PatchedLogsViewApi>,
+    patchedLogsViewInputApi?: PatchedLogsViewInputApi,
     options?: RequestInit
 ): Promise<LogsViewApi> => {
     return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedLogsViewApi),
+        body: JSON.stringify(patchedLogsViewInputApi),
     })
 }
 

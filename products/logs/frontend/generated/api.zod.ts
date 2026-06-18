@@ -1064,39 +1064,58 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsViewsCreateBodyNameMax = 400
 
+export const logsViewsCreateBodyPinnedDefault = false
+
 export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsCreateBodyNameMax),
+    name: zod.string().max(logsViewsCreateBodyNameMax).describe('User-visible name for the saved view.'),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
-    pinned: zod.boolean().optional(),
+    pinned: zod
+        .boolean()
+        .default(logsViewsCreateBodyPinnedDefault)
+        .describe('Whether the view is pinned in the saved-views list.'),
 })
 
 export const logsViewsUpdateBodyNameMax = 400
 
+export const logsViewsUpdateBodyPinnedDefault = false
+
 export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsUpdateBodyNameMax),
+    name: zod.string().max(logsViewsUpdateBodyNameMax).describe('User-visible name for the saved view.'),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
-    pinned: zod.boolean().optional(),
+    pinned: zod
+        .boolean()
+        .default(logsViewsUpdateBodyPinnedDefault)
+        .describe('Whether the view is pinned in the saved-views list.'),
 })
 
 export const logsViewsPartialUpdateBodyNameMax = 400
 
+export const logsViewsPartialUpdateBodyPinnedDefault = false
+
 export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
+    name: zod
+        .string()
+        .max(logsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible name for the saved view.'),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
-    pinned: zod.boolean().optional(),
+    pinned: zod
+        .boolean()
+        .default(logsViewsPartialUpdateBodyPinnedDefault)
+        .describe('Whether the view is pinned in the saved-views list.'),
 })

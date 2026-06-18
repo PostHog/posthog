@@ -1353,23 +1353,27 @@ export interface _LogsValuesResponseApi {
     refreshing: boolean
 }
 
+export interface LogsUserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
 /**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
 export type LogsViewApiFilters = { [key: string]: unknown }
 
 export interface LogsViewApi {
-    readonly id: string
-    readonly short_id: string
-    /** @maxLength 400 */
-    name: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-    filters?: LogsViewApiFilters
-    pinned?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
+    filters: LogsViewApiFilters
+    id: string
+    short_id: string
+    name: string
+    pinned: boolean
+    created_at: string
+    updated_at: string
+    created_by: LogsUserBasicInfoApi | null
 }
 
 export interface PaginatedLogsViewListApi {
@@ -1384,20 +1388,35 @@ export interface PaginatedLogsViewListApi {
 /**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
-export type PatchedLogsViewApiFilters = { [key: string]: unknown }
+export type LogsViewInputApiFilters = { [key: string]: unknown }
 
-export interface PatchedLogsViewApi {
-    readonly id?: string
-    readonly short_id?: string
-    /** @maxLength 400 */
+export interface LogsViewInputApi {
+    /**
+     * User-visible name for the saved view.
+     * @maxLength 400
+     */
+    name: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: LogsViewInputApiFilters
+    /** Whether the view is pinned in the saved-views list. */
+    pinned?: boolean
+}
+
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type PatchedLogsViewInputApiFilters = { [key: string]: unknown }
+
+export interface PatchedLogsViewInputApi {
+    /**
+     * User-visible name for the saved view.
+     * @maxLength 400
+     */
     name?: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-    filters?: PatchedLogsViewApiFilters
+    filters?: PatchedLogsViewInputApiFilters
+    /** Whether the view is pinned in the saved-views list. */
     pinned?: boolean
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly updated_at?: string | null
 }
 
 export type LogsAlertsListParams = {

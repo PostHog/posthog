@@ -26891,23 +26891,44 @@ export namespace Schemas {
       notes: string;
     }
 
+    export interface LogsUserBasicInfo {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
     export type LogsViewFilters = { [key: string]: unknown };
 
     export interface LogsView {
-      readonly id: string;
-      readonly short_id: string;
-      /** @maxLength 400 */
+      /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+      filters: LogsViewFilters;
+      id: string;
+      short_id: string;
+      name: string;
+      pinned: boolean;
+      created_at: string;
+      updated_at: string;
+      created_by: LogsUserBasicInfo | null;
+    }
+
+    /**
+     * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+     */
+    export type LogsViewInputFilters = { [key: string]: unknown };
+
+    export interface LogsViewInput {
+      /**
+         * User-visible name for the saved view.
+         * @maxLength 400
+         */
       name: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-      filters?: LogsViewFilters;
+      filters?: LogsViewInputFilters;
+      /** Whether the view is pinned in the saved-views list. */
       pinned?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly updated_at: string | null;
     }
 
     /**
@@ -36146,20 +36167,18 @@ export namespace Schemas {
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
-    export type PatchedLogsViewFilters = { [key: string]: unknown };
+    export type PatchedLogsViewInputFilters = { [key: string]: unknown };
 
-    export interface PatchedLogsView {
-      readonly id?: string;
-      readonly short_id?: string;
-      /** @maxLength 400 */
+    export interface PatchedLogsViewInput {
+      /**
+         * User-visible name for the saved view.
+         * @maxLength 400
+         */
       name?: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-      filters?: PatchedLogsViewFilters;
+      filters?: PatchedLogsViewInputFilters;
+      /** Whether the view is pinned in the saved-views list. */
       pinned?: boolean;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** @nullable */
-      readonly updated_at?: string | null;
     }
 
     export interface PatchedMCPServerInstallationUpdate {
