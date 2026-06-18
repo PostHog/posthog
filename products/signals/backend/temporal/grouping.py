@@ -50,6 +50,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -678,8 +679,9 @@ class AssignAndEmitSignalOutput:
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int]:
-        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count)."""
+    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int, bool, str, int]:
+        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count,
+        reresearch_capped, report_status, report_signal_count)."""
         with transaction.atomic():
             promoted = False
 
@@ -720,7 +722,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts, True, report.run_count
+                    return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -738,15 +740,17 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            # - SUPPRESSED reports gather signals indefinitely but are never promoted.
-            # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
-            #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
-            # - READY and RESOLVED reports are re-promoted on every new signal so the pipeline
-            #   reruns with latest evidence (resolved: issue recurred post-merge fix).
-            # - CANDIDATE re-promotes on every new signal to self-heal from failed spawn attempts. Concurrent runs blocked by Temporal.
+            # Promotion rules by status:
+            # - SUPPRESSED: never promoted.
+            # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
+            #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
+            # - READY / RESOLVED: re-research on every new signal (resolved = issue recurred), but only
+            #   while signal_count <= RERESEARCH_MAX_SIGNALS; past the cap, signals are collected, not researched.
+            # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
+            is_reresearch = report.status == SignalReport.Status.READY or report.status == SignalReport.Status.RESOLVED
+            reresearch_capped = is_reresearch and report.signal_count > RERESEARCH_MAX_SIGNALS
             if (
-                report.status == SignalReport.Status.READY
-                or report.status == SignalReport.Status.RESOLVED
+                (is_reresearch and not reresearch_capped)
                 or report.status == SignalReport.Status.CANDIDATE
                 or (
                     report.status == SignalReport.Status.POTENTIAL
@@ -788,13 +792,28 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 timestamp=ts,
                 metadata=metadata,
             )
-
-            return report_id, promoted, ts, False, report.run_count
+            return (
+                report_id,
+                promoted,
+                ts,
+                False,
+                report.run_count,
+                reresearch_capped,
+                report.status,
+                report.signal_count,
+            )
 
     try:
-        report_id, promoted, ts, matched_deleted, run_count = await database_sync_to_async(
-            do_assign_and_emit, thread_sensitive=False
-        )()
+        (
+            report_id,
+            promoted,
+            ts,
+            matched_deleted,
+            run_count,
+            reresearch_capped,
+            report_status,
+            report_signal_count,
+        ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
 
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
@@ -858,7 +877,32 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
-
+            # Over-cap signal on an already-researched report: assigned/emitted but no re-research
+            # spawned. Emitted so the saved re-research volume is trackable.
+            if reresearch_capped:
+                try:
+                    posthoganalytics.capture(
+                        event="signal_report_reresearch_skipped",
+                        distinct_id=str(team.uuid),
+                        properties={
+                            "report_id": report_id,
+                            "signal_count": report_signal_count,
+                            "status": report_status,
+                            "source_product": input.source_product,
+                            "source_type": input.source_type,
+                            "source_id": input.source_id,
+                            "threshold": RERESEARCH_MAX_SIGNALS,
+                        },
+                        groups=groups(team.organization, team),
+                    )
+                except Exception as e:
+                    posthoganalytics.capture_exception(e)
+                    logger.exception(
+                        "Failed to capture signal_report_reresearch_skipped event",
+                        report_id=report_id,
+                        team_id=input.team_id,
+                        source_id=input.source_id,
+                    )
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,

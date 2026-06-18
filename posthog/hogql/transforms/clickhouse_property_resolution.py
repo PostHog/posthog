@@ -393,11 +393,16 @@ _OPTIMIZER_COMPATIBLE_COMPARISONS = {
 }
 
 
+# The fired subset of the range-rewrite outcomes (`_RANGE_REWRITE_RESULTS` in observability.py). Kept explicit so a
+# future outcome label opts into the usage side effect below deliberately rather than via a name prefix.
+_FIRED_RANGE_REWRITE_RESULTS = frozenset({"fired_compare", "fired_if_null"})
+
+
 def _record_range_rewrite(context: HogQLContext, result: str) -> None:
     if context.type_observability is None:
         return
     context.type_observability.record_materialized_range_rewrite(result)
-    if result.startswith("fired"):
+    if result in _FIRED_RANGE_REWRITE_RESULTS:
         # A fired rewrite reads the materialized column directly, bypassing the value-substitution path that normally
         # accounts for the materialized access, so record the usage here.
         context.type_observability.record_materialized_property_usage("materialized_column")
@@ -836,7 +841,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         cmp = _call(op_name, [prop.bare_column(), _const(node.right.value)])
         if prop.source.is_nullable:
-            _record_range_rewrite(self.context, "fired_compare")
+            _record_range_rewrite(self.context, "fired_if_null")
             return _call("and", [cmp, prop.is_not_null()])
         # Non-nullable: exclude the '' / 'null' sentinels inline so the bare comparison stays index-eligible.
         _record_range_rewrite(self.context, "fired_compare")
@@ -859,7 +864,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind != "materialized_column" or _is_string_column(source):
+        if source is None:
+            return None  # no backing column — not a rewrite candidate, nothing to record
+        if source.kind != "materialized_column" or _is_string_column(source):
+            # The backing column stores the value as a string (string mat column, dmat, or property-group map), where a
+            # bare range comparison would order lexicographically — unsafe, so the rewrite is skipped. This is the
+            # common shape: numeric/datetime properties materialize to string columns unless a typed column was created.
+            _record_range_rewrite(self.context, "skipped")
             return None
 
         physical = _column_constant_type(source)
@@ -897,7 +908,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         column = _OptimizableProperty(field_type=field_type, key=property_name, source=source)
         cmp = _call(op_name, [column.bare_column(), right_expr])
-        _record_range_rewrite(self.context, "fired_compare")
+        _record_range_rewrite(self.context, "fired_if_null")  # always nullable here, so the rewrite is null-guarded
         return _call("and", [cmp, column.is_not_null()])
 
     def _operand_semantic_type(self, expr: ast.Expr) -> ast.ConstantType | None:

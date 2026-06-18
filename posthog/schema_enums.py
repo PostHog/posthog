@@ -3312,6 +3312,12 @@ class WebAnalyticsOrderByFields(StrEnum):
     ERRORS = "Errors"
 
 
+class WebAnalyticsPreComputeStrategy(StrEnum):
+    PRE_AGGREGATED = "pre_aggregated"
+    LAZY_PRECOMPUTE = "lazy_precompute"
+    LIVE = "live"
+
+
 class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
