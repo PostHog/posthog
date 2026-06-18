@@ -1,13 +1,13 @@
-# Dashboards Finder/grid experiment — criteria matrix
+# Dashboards control/explorer/tree experiment — criteria matrix
 
 Source spec: [2026-06-17-dashboards-finder-grid-experiment-design.md](2026-06-17-dashboards-finder-grid-experiment-design.md)
-Generated: 2026-06-17 (fresh-eyes test architect, proof-driven-dev Phase 2)
+Generated: 2026-06-17 (fresh-eyes test architect, proof-driven-dev Phase 2); updated for the control/explorer/tree reframe.
+
+> **Reframe note:** the experiment is now `control` / `explorer` / `tree` — the flat-card **grid arm was dropped**. `explorer` is the arm formerly called "finder" (drill-in). `tree` is a persistent `LemonTree` folder panel beside the familiar dashboards table, scoped recursively. REQ-04/REQ-05 (the grid arm) are **retired**; new requirements cover the tree arm, the explorer's new affordances (search, compacted chains, breadcrumb sibling dropdowns, "Move to…" picker, "New folder"), and the folder-rows data layer (empty folders). Items genuinely not built on the current branch are marked **DEFERRED**.
 
 ## Scale and triage (auto-applied while user away — confirm at human checkpoint)
 
-31 requirements, 246 edge cases. The per-requirement density (~8) is appropriate for a complex feature,
-but the total confirms this is **two bodies of work**: a frontend feature (REQ-01–15) and an experiment/measurement
-layer (REQ-16–31). It is multi-PR. The matrix below is the full contract; the triage groups it into shippable increments.
+The matrix below is the full contract; the triage groups it into shippable increments. After the primary-metric pivot to **folder-organization adoption**, the load-bearing instrumentation is the arm-agnostic `dashboard moved to folder` event (REQ-17, fired on the shared `projectTreeDataLogic` move path) — so REQ-16 (`opened from list`) moved to the measurement increment and is **DEFERRED**. This remains **two bodies of work**: a frontend feature and an experiment/measurement layer. It is multi-PR.
 
 Triage was applied by **rule** (not per-item by a human, who was away) — please confirm/adjust at the checkpoint:
 
@@ -20,11 +20,13 @@ Triage was applied by **rule** (not per-item by a human, who was away) — pleas
 
 ### Suggested PR increments (build order)
 
-1. **Foundation + Grid arm + core metric** — REQ-01, 02, 03, 04, 05, 07, 13(read+move), 16, 24. Ships behind the flag; control untouched; the `grid` arm fully usable; primary-metric event emitting.
-2. **Finder arm** — REQ-06, 09, 10, 11 (folder-first nav, multi-select, rename, context menu).
-3. **Clipboard + duplication** — REQ-08, 12 (cut=move, copy=duplicate, semantics).
-4. **Measurement + analysis** — REQ-17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31 (events, guardrails, robust/CUPED metric, segmentation, decision rules, staged rollout). Several are analysis/config + queries, not UI code.
-5. **Feedback affordance + icons** — REQ-14, 15 (small).
+The current branch bundles the foundation, **both** treatment arms (explorer + tree), the shared folder-data layer, the explorer's organizing toolkit (drag, per-card menu, "Move to…", clipboard, rename, "New folder"), and the load-bearing primary-metric event — all behind the flag, control untouched.
+
+1. **Foundation + both arms + core metric** (on this branch) — REQ-01, 02, 03, 06, 07, 08, 10, 11, 12, 13, 15, 17, 32, 33, 34, 35, 36, 37. Variant switch; control byte-for-byte unchanged; explorer + tree usable; folder rows loaded (empty folders appear); `dashboard moved to folder` emitting on the shared move path.
+2. **Measurement + analysis** — REQ-16 (DEFERRED `opened from list`), 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 24 (events, guardrails, robust/CUPED metric, segmentation, decision rules, staged rollout, exposure/group). Several are analysis/config + queries, not UI code.
+3. **Power features deferred from increment 1** — REQ-09 (multi-select / bulk), the move-event prop contract (`method` / `multi_select_count`), the feedback affordance + analytics events (REQ-14, 18, 19, 20), and copy=paste placement in the target folder.
+
+> **Retired:** REQ-04 (grid cards under folder headers) and REQ-05 (grid drag-to-header) are retired with the grid arm. Their useful drag/no-op/rollback edge cases are folded into the tree/explorer drag requirement (REQ-33).
 
 ## Challenge items (spec under-specifies — must be pinned in the plan)
 
@@ -33,8 +35,8 @@ Triage was applied by **rule** (not per-item by a human, who was away) — pleas
 - CH-03: copy=duplicate inheritance policy — sharing/public state and subscriptions must NOT be silently carried to the duplicate (no accidental public exposure / surprise re-sends). Define the exact policy. (EC-12c, EC-12d)
 - CH-04: same-dashboard re-open is NOT a pogo-stick (only opening a _different_ dashboard counts as a failed first-open). (EC-21c)
 - CH-05: multi-tab opens (A in one tab, B in another, same session) must not be miscounted as a pogo-stick. (EC-21i, EC-24a)
-- CH-06: "New dashboard" created while drilled into a finder subfolder — define where it lands (current folder vs Unfiled). (EC-07d)
-- CH-07: sidebar-vs-finder folder-create must not double-count `dashboard folder created`. (EC-18a)
+- CH-06: "New dashboard" created while drilled into an explorer subfolder — define where it lands (current folder vs Unfiled). (EC-07d)
+- CH-07: sidebar-vs-explorer/tree folder-create must not double-count `dashboard folder created` (a measurement-increment event). (EC-18a)
 - CH-08: CUPED handling for projects with no pre-exposure data (new projects) — drop vs impute; must not bias. (EC-23e)
 - CH-09: platform validation (gating, before build) — group-level experiment + winsorized/median custom-property metric + CUPED must be confirmed supported. (EC-24e, EC-23h, EC-31d)
 
@@ -43,7 +45,7 @@ Triage was applied by **rule** (not per-item by a human, who was away) — pleas
 ```text
 REQUIREMENTS:
   - id: REQ-01  priority: must-have
-    description: Multivariate feature flag `dashboards-list-view` resolves to one of three arms (control | grid | finder)
+    description: Multivariate feature flag `dashboards-list-view` resolves to one of three arms (control | explorer | tree)
     happy_path: An enrolled project receives a stable variant; the dashboards page renders the matching arm for every member of that project.
     proof_type: [test]
     edge_cases:
@@ -55,17 +57,18 @@ REQUIREMENTS:
       - EC-01f [must] mapped component fails to mount (lazy-import error) → error boundary falls back to control [test]
       - EC-01g [must] flag returns boolean instead of string → coerce safely to control [test]
       - EC-01h [must] unauthenticated/expired session at load → flag path doesn't break the scene auth redirect [test]
-      - EC-01i [nice] registry lookup case-sensitivity ("Finder" vs "finder") → only defined casing resolves [test]
+      - EC-01i [nice] registry lookup case-sensitivity ("Explorer" vs "explorer") → only defined casing resolves [test]
 
   - id: REQ-02  priority: must-have
     description: Variant registry maps variant → component, mirroring authFlowVariants.ts
-    happy_path: Registry exposes exactly control/grid/finder → DashboardsTable/Grid/Finder; DashboardsContent renders the mapped component.
+    happy_path: resolveDashboardsListViewVariant + DASHBOARDS_LIST_VIEW_VARIANTS expose exactly control/explorer/tree; DashboardsContent renders DashboardsTableContainer / DashboardsExplorer / DashboardsTree accordingly.
     proof_type: [test]
     edge_cases:
       - EC-02a [must] missing key → control default, not undefined [test]
       - EC-02b [must] single source of arm defs — no duplicated switch elsewhere [test]
-      - EC-02c [must] control (DashboardsTable) byte-for-byte unchanged vs baseline [test, visual]
+      - EC-02c [must] control (DashboardsTableContainer) byte-for-byte unchanged vs baseline [test, visual]
       - EC-02d [must] default fallback is control specifically, never a treatment arm [test]
+      - EC-02e [must] retired strings ("grid", "finder") resolve to control, not a treatment arm [test]
 
   - id: REQ-03  priority: must-have
     description: Control arm renders today's flat list unchanged
@@ -78,84 +81,59 @@ REQUIREMENTS:
       - EC-03d [must] existing "Move to folder" `…` menu still works in control [test]
       - EC-03e [nice] mobile/tablet identical to baseline [visual]
 
-  - id: REQ-04  priority: must-have
-    description: Grid arm renders cards grouped under collapsible folder headers
-    happy_path: variant=grid renders cards grouped under collapsible folder section headers, all visible (no drill-in), reusing dashboardsLogic.
-    proof_type: [test, visual]
-    edge_cases:
-      - EC-04a [must] zero folders (all Unfiled) → single Unfiled header, no dangling headers [visual]
-      - EC-04b [nice] empty folder → header with zero-count affordance, not omitted [visual]
-      - EC-04c [nice] exactly one dashboard in one folder [visual]
-      - EC-04d [must] very large (50 folders / 1000 cards) → performant, no DOM blowup [test, visual]
-      - EC-04e [nice] unicode/emoji/RTL folder name [visual]
-      - EC-04f [nice] extremely long folder name truncates/wraps [visual]
-      - EC-04g [must] collapse/expand persists per session, independent per folder [test, visual-flow]
-      - EC-04h [must] nested folders render as headers in a stable order [test, visual]
-      - EC-04i [nice] folder data loading → skeleton, not flash of "no dashboards" [visual]
-      - EC-04j [nice] mobile/tablet reflow [visual]
-      - EC-04k [must] stable sort with identical values [test]
-      - EC-04l [nice] keyboard navigation of headers/cards [test, manual]
+  - id: REQ-04  priority: RETIRED
+    description: "[RETIRED with the grid arm] Grid arm renders cards grouped under collapsible folder headers"
+    happy_path: N/A — the flat-card grid arm was dropped in the control/explorer/tree reframe. Folder-grouping and collapse behavior now live in the explorer (subfolder cards) and tree (LemonTree expand/collapse) arms — see REQ-06, REQ-32. Empty-folder and stable-order coverage moved to REQ-37 (folder-rows data layer).
+    proof_type: []
+    edge_cases: []
 
-  - id: REQ-05  priority: must-have
-    description: Grid drag-a-card-onto-a-folder-header to file a dashboard
-    happy_path: Dragging a card onto a folder header moves the dashboard (via projectTreeDataLogic), reflected in the sidebar tree.
-    proof_type: [test, visual-flow]
-    edge_cases:
-      - EC-05a [must] drop onto current folder (no-op) → no move event, no API call [test]
-      - EC-05b [must] drop outside any header → cancels cleanly [test, visual-flow]
-      - EC-05c [must] Escape/tab-close mid-drag → no partial move [test]
-      - EC-05d [must] move 403 → revert, error surfaced, optimistic rollback [test]
-      - EC-05e [must] move 404 (target folder deleted) → graceful, not orphaned [test]
-      - EC-05f [must] move 409 (concurrent rename/move) → reconcile or roll back [test]
-      - EC-05g [must] network timeout → rollback, retry, no silent loss [test]
-      - EC-05h [must] concurrent move by another member → reconciles without throw [test]
-      - EC-05i [must] rapid double-drag → debounced/queued, not double-move [test]
-      - EC-05j [must] drop after unmount → no setState-on-unmounted / orphaned write [test]
-      - EC-05k [nice] touch-drag on tablet → works or degrades to menu-move [manual, visual-flow]
-      - EC-05l [must] keyboard users have a non-drag move path (menu) [test, manual]
+  - id: REQ-05  priority: RETIRED
+    description: "[RETIRED with the grid arm] Grid drag-a-card-onto-a-folder-header to file a dashboard"
+    happy_path: N/A — drag-to-folder survives in both treatment arms but onto folder *cards* (explorer), not collapsible headers. The drag/no-op/rollback/keyboard-fallback edge cases moved to REQ-33.
+    proof_type: []
+    edge_cases: []
 
   - id: REQ-06  priority: must-have
-    description: Finder arm is folder-first by default — drill-in navigation + breadcrumb
-    happy_path: variant=finder opens the top-level folder hierarchy; clicking a folder drills in; breadcrumb reflects the path.
+    description: Explorer arm is folder-first by default — drill-in navigation + breadcrumb (with sibling-folder dropdowns) + compacted single-child chains
+    happy_path: variant=explorer opens the top-level folder hierarchy as folder + dashboard cards; clicking a folder card drills in; the breadcrumb reflects the path, each crumb navigates, and crumbs with siblings carry a jump-to-sibling dropdown; single-child folder chains compact to one card (one click to a buried dashboard).
     proof_type: [test, visual, visual-flow]
     edge_cases:
-      - EC-06a [must] cold-start (all Unfiled) → opens to Unfiled node; extra nav step present (measured risk); find path still reaches dashboards [test, visual-flow]
-      - EC-06b [must] drill into empty folder → empty view with back/breadcrumb, not a dead end [visual, visual-flow]
-      - EC-06c [nice] deep nesting → breadcrumb truncates gracefully, drill in/out correct [test, visual]
+      - EC-06a [must] cold-start (all Unfiled) → opens to the Unfiled subtree; extra nav step present (measured risk); find path still reaches dashboards [test, visual-flow]
+      - EC-06b [must] drill into empty folder → "This folder is empty" view, breadcrumb still navigates back, not a dead end [visual, visual-flow]
+      - EC-06c [must] single-child folder chain → compacts to one card labeled "A / B / C", clicking navigates to the chain end (compactFolderChain) [test, visual]
       - EC-06d [must] breadcrumb click to an ancestor deleted by another user → fallback to nearest valid ancestor/root [test]
-      - EC-06e [nice] browser back/forward maps to folder path or is explicitly excluded [test]
-      - EC-06f [must] refresh while drilled in → restores to that folder (URL) or root deterministically [test]
-      - EC-06g [nice] unicode/emoji/long name in breadcrumb [visual]
-      - EC-06h [must] subtree load 500/503 → error+retry, not infinite spinner [test]
-      - EC-06i [must] subtree unexpected shape (missing children) → render empty, no crash [test]
-      - EC-06j [must] drill-in while loading → pending, no double-fetch [test]
+      - EC-06e [must] crumb with >1 sibling → sibling dropdown lists the siblings, selecting one navigates; crumb with no siblings shows no dropdown (folderSiblings) [test, visual]
+      - EC-06f [must] navigate state is per-tab (currentFolder is a reducer, not URL) → multiple tabs drilled to different folders stay independent [test]
+      - EC-06g [nice] unicode/emoji/long name in breadcrumb + sibling dropdown [visual]
+      - EC-06h [must] folder rows load 500/503 → toast error + retry path, not infinite spinner; structure degrades to Unfiled, not a crash [test]
+      - EC-06i [must] folder/dashboard rows unexpected shape (missing path/ref) → render under Unfiled, no crash [test]
+      - EC-06j [must] drill-in while loading → spinner only while empty + loading + not searching; no double-fetch [test]
       - EC-06k [nice] mobile/tablet folder-first nav usable [visual]
-      - EC-06l [nice] keyboard/screen-reader navigable [test, manual]
-      - EC-06m [must] multiple tabs drilled to different folders → independent per-tab nav state [test]
+      - EC-06l [nice] keyboard/screen-reader navigable (breadcrumb buttons, folder cards) [test, manual]
 
   - id: REQ-07  priority: must-have
     description: Held-constant chrome across arms (tabs, search, filters, New dashboard, data)
     happy_path: Tab bar, search, filters, "New dashboard" identical across arms; only the body differs.
     proof_type: [test, visual]
     edge_cases:
-      - EC-07a [must] switch tab in grid/finder → body re-renders filtered set, chrome unchanged [test, visual-flow]
-      - EC-07b [must] zero search results → same empty affordance as control [test, visual]
-      - EC-07c [must] one result across folders → consistent, open_source=search [test]
-      - EC-07d [must] New dashboard created while drilled into a finder subfolder → lands per defined rule (CH-06) [test]
-      - EC-07e [must] filter + grouping in grid → empty/hidden folders consistent [test, visual]
-      - EC-07f [nice] Templates tab inside a folder-first arm → defined fallback (templates not folderable) [test, visual]
+      - EC-07a [must] switch tab in explorer/tree → body re-renders filtered set, chrome unchanged [test, visual-flow]
+      - EC-07b [must] zero search results → explorer shows "No dashboards match your search"; tree/control show their empty affordance [test, visual]
+      - EC-07c [must] explorer search flips to a flat results grid (DashboardsFiltersBar drives dashboardsLogic.filters.search) [test]
+      - EC-07d [must] New dashboard created while drilled into an explorer subfolder → lands per defined rule (CH-06) — DEFERRED until CH-06 pinned [test]
+      - EC-07e [must] filter applied in tree → recursive subtree content reflects the filtered set, tree panel unchanged [test, visual]
+      - EC-07f [nice] Templates tab inside a folder arm → defined fallback (templates not folderable) [test, visual]
       - EC-07g [must] search HTML/script injection → rendered safe, no XSS [test]
       - EC-07h [nice] unicode/emoji search query [test]
 
   - id: REQ-08  priority: must-have
-    description: Finder clipboard state machine (cut+paste=move, copy+paste=duplicate)
-    happy_path: cut marks for move, copy marks for duplicate; paste performs move (/move/) or duplicate (duplicateDashboard) then clears the buffer.
+    description: Explorer clipboard state machine (cut+paste=move, copy+paste=duplicate)
+    happy_path: cut marks for move, copy marks for duplicate; the "Paste into this folder" button shows only when the buffer is non-empty; paste performs move (moveDashboardToFolder → moveItem) or duplicate (duplicateDashboard) then clears the buffer.
     proof_type: [test, visual-flow]
     edge_cases:
-      - EC-08a [must] paste with empty buffer → disabled/no-op, no API call [test]
-      - EC-08b [must] cut then paste into own folder → no-op move, buffer clears [test]
-      - EC-08c [must] copy then paste into same folder → disambiguated name, no overwrite [test]
-      - EC-08d [must] cut then navigate/close before paste → cut item NOT deleted (CH-02) [test]
+      - EC-08a [must] empty buffer → no "Paste" affordance rendered; pasteIntoFolder with null buffer is a no-op [test]
+      - EC-08b [must] cut then paste into own folder → no-op move (calculateMovePath isValidMove=false), buffer clears [test]
+      - EC-08c [must] copy=paste lands the duplicate in its default (Unfiled) folder, not the paste-target — placement DEFERRED (CH-03 inheritance still honored) [test]
+      - EC-08d [must] cut then navigate/close before paste → cut item NOT deleted (CH-02 — clipboard is intent only) [test]
       - EC-08e [must] cut item deleted by another user before paste → 404 handled, buffer clears with error [test]
       - EC-08f [must] paste-move target folder deleted concurrently → error, item stays [test]
       - EC-08g [must] duplicate returns 500 mid-op → no half-created dashboard [test]
@@ -166,9 +144,9 @@ REQUIREMENTS:
       - EC-08l [nice] quota exceeded on duplicate → 422 surfaced, buffer state defined [test]
       - EC-08m [must] paste after navigation → no setState-on-unmounted; lands or aborts cleanly [test]
 
-  - id: REQ-09  priority: must-have
-    description: Multi-select + bulk move via clipboard/drag
-    happy_path: shift-range multi-select; one cut/copy+paste (or drag) applies to all; multi_select_count reflects the count.
+  - id: REQ-09  priority: DEFERRED
+    description: "[DEFERRED — not built] Multi-select + bulk move via clipboard/drag"
+    happy_path: shift-range multi-select; one cut/copy+paste (or drag) applies to all; multi_select_count reflects the count. Not built on the current branch — organizing is one item at a time; `multi_select_count` is part of the deferred move-event prop contract. Edge cases retained for the future increment.
     proof_type: [test, visual-flow]
     edge_cases:
       - EC-09a [must] select one (degenerate) → count=1, single behavior [test]
@@ -181,40 +159,40 @@ REQUIREMENTS:
       - EC-09h [nice] keyboard shift+arrow range selection [test, manual]
 
   - id: REQ-10  priority: must-have
-    description: Rename-in-place (folders/dashboards) in finder
-    happy_path: rename turns label editable; commit via projectTreeDataLogic; sidebar stays consistent.
+    description: Inline rename-in-place (dashboards) in the explorer
+    happy_path: Rename (from the per-card menu) turns the card label into an autofocused input; onBlur is the single commit path (renameDashboard → dashboardsModel.updateDashboard with undo); Enter blurs to commit, Escape resets the value then stopRenaming so the unmount-blur is a no-op.
     proof_type: [test, visual-flow]
     edge_cases:
-      - EC-10a [must] empty/whitespace name → field error, original retained [test]
-      - EC-10b [must] name collision in folder → rejected/disambiguated, no silent overwrite [test]
+      - EC-10a [must] empty/whitespace name → trimmed to empty → no-op (renameDashboard guards trimmed && trimmed !== current) [test]
+      - EC-10b [must] name collision → updateDashboard handles per existing dashboard-rename behavior, no silent data loss [test]
       - EC-10c [nice] unicode/emoji/RTL accepted and rendered [test, visual]
       - EC-10d [must] HTML/script injection in name → escaped, no XSS [test]
-      - EC-10e [nice] extremely long name → rejected at boundary or truncated [test]
-      - EC-10f [must] API 403/409 → reverts, error, optimistic rollback [test]
-      - EC-10g [must] Escape cancels → original restored, no API call [test]
-      - EC-10h [must] concurrent rename → last-write reconciles, no flicker loop [test]
-      - EC-10i [must] blur vs Enter → defined commit-vs-cancel [test]
-      - EC-10j [must] rename unchanged → no-op, no spurious event [test]
-      - EC-10k [nice] keyboard-only rename (F2/Enter/Esc) [test, manual]
+      - EC-10e [nice] extremely long name → handled per existing updateDashboard boundary [test]
+      - EC-10f [must] updateDashboard error → existing model error handling (undo support) [test]
+      - EC-10g [must] Escape cancels → original value restored, stopRenaming, no updateDashboard call [test]
+      - EC-10h [must] Enter then unmount → single commit (Enter blurs once; reducer clears renamingDashboardId on renameDashboard) [test]
+      - EC-10i [must] rename unchanged → no-op, no updateDashboard call [test]
+      - EC-10j [nice] folder rename → DEFERRED (only dashboard inline-rename is built; folder rename via sidebar) [test]
+      - EC-10k [nice] keyboard-only rename (Enter/Esc) [test, manual]
 
   - id: REQ-11  priority: must-have
-    description: Right-click context menu in finder
-    happy_path: right-click opens a menu (cut/copy/paste, move-to-folder, rename, delete); selecting invokes the flow.
+    description: Per-card actions menu in the explorer/tree cards (Open / Rename / Move to… / Cut / Copy / Delete)
+    happy_path: A DropdownMenu on each dashboard card exposes Open (router push), Rename (startRenaming), Move to… (moveToLogic.openMoveToModal with the card's FileSystem entry), Cut, Copy, and Delete (deleteDashboardLogic.showDeleteDashboardModal). It is a click-triggered actions dropdown, not a right-click context menu.
     proof_type: [test, visual]
     edge_cases:
-      - EC-11a [must] right-click empty canvas → only context-appropriate actions (New folder/Paste) [test, visual]
-      - EC-11b [must] paste buffer empty → Paste disabled, not inconsistently hidden [test]
-      - EC-11c [nice] near viewport edge → repositions on-screen [visual]
-      - EC-11d [must] during loading → data-dependent actions disabled [test]
+      - EC-11a [must] "Move to…" appears only when the card's FileSystem entry is resolved (entryByRef) [test]
+      - EC-11b [must] "Paste into this folder" lives on the breadcrumb row, shown only with a non-empty buffer (REQ-08) [test]
+      - EC-11c [nice] menu near viewport edge → quill DropdownMenu repositions on-screen [visual]
+      - EC-11d [must] Move to… opens the canonical searchable FolderSelect modal (moveToLogic), not a bespoke picker [test]
       - EC-11e [must] item deleted by another user → action 404s gracefully [test]
-      - EC-11f [must] delete folder containing dashboards → confirm + defined cascade [test]
-      - EC-11g [nice] keyboard access (Shift+F10/Menu) + arrows [test, manual]
-      - EC-11h [must] right-click on multi-selection → applies to whole selection [test]
-      - EC-11i [must] permission-denied user → destructive actions hidden/disabled [test]
+      - EC-11f [must] Delete → canonical confirm + "also delete insights" modal (deleteDashboardLogic), defined cascade [test]
+      - EC-11g [nice] keyboard access to the dropdown trigger + items [test, manual]
+      - EC-11h [must] right-click on multi-selection → DEFERRED (multi-select not built, REQ-09) [test]
+      - EC-11i [must] permission-denied user → destructive actions follow existing model/delete-modal guards [test]
 
   - id: REQ-12  priority: must-have
-    description: copy=duplicate preserves correct dashboard semantics (tiles, sharing, subscriptions)
-    happy_path: copy+paste creates a real dashboard via duplicateDashboard in the target folder, tiles duplicated, sharing/subscriptions per policy (CH-03).
+    description: copy=duplicate preserves correct dashboard semantics (tiles, sharing, subscriptions) by reusing the canonical duplicate
+    happy_path: copy+paste calls dashboardsModel.duplicateDashboard({ duplicateTiles: true }) so the copy inherits exactly the established Duplicate behavior (no new sharing/subscription handling); CH-03 is honored by reuse. The copy lands in its default (Unfiled) folder — target-folder placement is DEFERRED (see EC-08c).
     proof_type: [test]
     edge_cases:
       - EC-12a [must] duplicate zero-tile dashboard → clean empty duplicate [test]
@@ -223,25 +201,25 @@ REQUIREMENTS:
       - EC-12d [must] duplicate with active subscriptions → NOT silently copied (CH-03) [test]
       - EC-12e [must] duplicate then delete source → duplicate independent (deep copy) [test]
       - EC-12f [nice] tiles referencing soft-deleted insights → graceful, no crash [test]
-      - EC-12g [must] name collision in target → disambiguated [test]
+      - EC-12g [must] name collision in target → disambiguated by existing duplicate behavior [test]
       - EC-12h [must] team/project isolation → duplicate stays in same team [test]
 
   - id: REQ-13  priority: must-have
-    description: Writes delegate to projectTreeDataLogic; sidebar stays consistent (single source of truth)
-    happy_path: every mutation calls existing projectTreeDataLogic actions; sidebar reflects changes; FileSystem rows are the single source of truth.
+    description: Writes delegate to existing infra (single source of truth); sidebar stays consistent
+    happy_path: every mutation delegates — move → projectTreeDataLogic.moveItem, "Move to…" → moveToLogic, duplicate/rename → dashboardsModel, delete → deleteDashboardLogic, new folder → api.fileSystem.create; FileSystem rows are the single source of truth, so the sidebar reflects changes.
     proof_type: [test]
     edge_cases:
-      - EC-13a [must] finder move updates sidebar without manual refresh [test]
-      - EC-13b [must] folder created in sidebar appears in finder/grid and vice versa [test]
+      - EC-13a [must] explorer/tree move updates sidebar without manual refresh (shared moveItem path) [test]
+      - EC-13b [must] folder created in sidebar appears in explorer/tree and vice versa (folder rows reloaded) [test]
       - EC-13c [must] rollback on server error reverts BOTH body and sidebar [test]
-      - EC-13d [nice] undo of a finder move restores both views [test]
+      - EC-13d [nice] undo of a move restores both views (moveItem undo) [test]
       - EC-13e [must] concurrent writes from body + sidebar → no duplicate calls, consistent [test]
-      - EC-13f [must] delete folder from sidebar while finder drilled into it → finder navigates up, no stale pane [test]
-      - EC-13g [must] projectTreeDataLogic not mounted when a write fires → reaches logic (lazy) or queues, no dropped mutation [test]
+      - EC-13f [must] folder deleted in sidebar while explorer drilled into it → navigates up / degrades, no stale pane [test]
+      - EC-13g [must] new folder created via api.fileSystem.create → loadFolderEntries refetch + navigate into it; failure surfaces a toast [test]
 
-  - id: REQ-14  priority: nice-to-have
-    description: "Not a fan? tell us" feedback affordance in non-control arms only
-    happy_path: grid/finder show a lightweight feedback control; control does not; captures qualitative feedback, no exposure-leaking toggle.
+  - id: REQ-14  priority: DEFERRED
+    description: "[DEFERRED — not built] \"Not a fan? tell us\" feedback affordance in non-control arms only"
+    happy_path: explorer/tree show a lightweight feedback control; control does not; captures qualitative feedback, no exposure-leaking toggle. Not built on the current branch; edge cases retained for the later increment.
     proof_type: [test, visual]
     edge_cases:
       - EC-14a [must] control does NOT render the affordance [test, visual]
@@ -254,25 +232,25 @@ REQUIREMENTS:
       - EC-14h [nice] copy reads low-pressure + Sentence casing [manual]
 
   - id: REQ-15  priority: nice-to-have
-    description: Generic dashboard type-icon in grid/finder (v1, no thumbnails)
-    happy_path: cards/rows show a generic dashboard glyph; consistent across all dashboards.
+    description: Generic dashboard / folder type-icons in explorer/tree (v1, no thumbnails)
+    happy_path: explorer cards use IconDashboard / IconFolder; the tree uses LemonTree's folder rendering; consistent across all dashboards.
     proof_type: [visual, manual]
     edge_cases:
-      - EC-15a [must] folder vs dashboard icons distinguishable [visual]
+      - EC-15a [must] folder (IconFolder) vs dashboard (IconDashboard) icons distinguishable [visual]
       - EC-15b [nice] renders at all sizes/viewports [visual]
-      - EC-15c [must] icon present even when metadata partially missing, never broken-image [test, visual]
+      - EC-15c [must] icon present even when metadata partially missing (name falls back to "Untitled"), never broken-image [test, visual]
       - EC-15d [nice] "too samey" manual judgment flag [manual]
 
-  - id: REQ-16  priority: must-have
-    description: Event `dashboard opened from list` {ms_since_list_loaded, used_search, clicks_before_open, open_source}
-    happy_path: opening a dashboard from the list fires exactly one event with those props; open_source in {root, folder, grouped, search}.
+  - id: REQ-16  priority: DEFERRED
+    description: "[DEFERRED to the measurement increment] Event `dashboard opened from list` {ms_since_list_loaded, used_search, clicks_before_open, open_source}"
+    happy_path: opening a dashboard from the list fires exactly one event with those props; open_source in {root, folder, search}. Not instrumented on the current branch — adoption (REQ-17/REQ-28) became the primary, so opened-from-list is the time-to-open secondary, moved to the measurement increment. Edge cases retained.
     proof_type: [test]
     edge_cases:
       - EC-16a [must] open without search → used_search=false, open_source != search [test]
       - EC-16b [must] open via search → open_source=search, used_search=true [test]
       - EC-16c [must] idle-tab ms → raw or capped per defined contract (idle cap is in the metric) [test]
       - EC-16d [must] same dashboard opened twice → two events (or defined dedupe), ms from list load each time [test]
-      - EC-16e [must] open_source enums exactly the documented set per arm [test]
+      - EC-16e [must] open_source enums exactly the documented set per arm (root | folder | search — `grouped` retired with the grid arm) [test]
       - EC-16f [must] clicks_before_open at 0 and large → accurate [test]
       - EC-16g [must] keyboard open (Enter) → event fires with correct props [test]
       - EC-16h [must] list never finished loading → ms from a defined anchor, not NaN/negative [test]
@@ -281,33 +259,33 @@ REQUIREMENTS:
       - EC-16k [must] clock skew/negative elapsed → clamped >= 0 [test]
 
   - id: REQ-17  priority: must-have
-    description: Event `dashboard moved to folder` {method (drag|menu|clipboard), multi_select_count}
-    happy_path: a successful move fires once with method + multi_select_count.
+    description: Event `dashboard moved to folder` {from_path, to_path} — the load-bearing primary-metric (adoption) signal
+    happy_path: a successful move fires the event once on the SHARED, arm-agnostic projectTreeDataLogic move path, so every move (drag, per-card menu, "Move to…", clipboard) and every arm count toward folder-organization adoption identically; props are from_path + to_path.
     proof_type: [test]
     edge_cases:
-      - EC-17a [must] single-item → count=1 [test]
-      - EC-17b [must] bulk N → defined contract (one event count=N, or N events), consistent [test]
-      - EC-17c [must] method enum exactly drag|menu|clipboard [test]
+      - EC-17a [must] fires on a real move regardless of trigger (drag / menu / Move to… / clipboard) — single shared path [test]
+      - EC-17b [must] props are from_path + to_path; `method` + `multi_select_count` are DEFERRED (shared path can't attribute the interaction) [test]
+      - EC-17c [must] fires once per move, not per render [test]
       - EC-17d [must] failed/rolled-back move does NOT fire (no false positives) [test]
-      - EC-17e [must] no-op move does NOT fire [test]
-      - EC-17f [must] partial bulk → count = items actually moved [test]
-      - EC-17g [must] carries project group + $feature [test]
+      - EC-17e [must] no-op move (same folder, isValidMove=false) does NOT fire [test]
+      - EC-17f [must] bulk move count → DEFERRED with multi-select (REQ-09) [test]
+      - EC-17g [must] carries project group + $feature (wired in the measurement increment) [test]
 
-  - id: REQ-18  priority: must-have
-    description: Folder lifecycle events `dashboard folder created|renamed|deleted`
-    happy_path: create/rename/delete a folder from grid/finder fires the corresponding single event.
+  - id: REQ-18  priority: DEFERRED
+    description: "[DEFERRED to the measurement increment] Folder lifecycle events `dashboard folder created|renamed|deleted`"
+    happy_path: create/rename/delete a folder from explorer/tree fires the corresponding single event. Not emitted on the current branch (folder create/delete delegate to api.fileSystem.create / deleteDashboardLogic without a dedicated analytics event yet). Edge cases retained.
     proof_type: [test]
     edge_cases:
-      - EC-18a [must] finder vs sidebar create → no double-count (CH-07) [test]
+      - EC-18a [must] explorer/tree vs sidebar create → no double-count (CH-07) [test]
       - EC-18b [must] no-op rename does NOT fire renamed [test]
       - EC-18c [must] failed delete (403/409) does NOT fire deleted [test]
       - EC-18d [must] delete folder w/ dashboards → single delete event (not per child) per contract [test]
       - EC-18e [nice] rapid create-then-delete → both fire in order [test]
       - EC-18f [must] all three carry project group + $feature [test]
 
-  - id: REQ-19  priority: must-have
-    description: Event `dashboards clipboard action` {action (cut|copy|paste), result (move|duplicate), item_count}
-    happy_path: each clipboard op fires; cut/copy carry action+item_count; paste carries result=move|duplicate.
+  - id: REQ-19  priority: DEFERRED
+    description: "[DEFERRED to the measurement increment] Event `dashboards clipboard action` {action (cut|copy|paste), result (move|duplicate), item_count}"
+    happy_path: each clipboard op fires; cut/copy carry action+item_count; paste carries result=move|duplicate. Not emitted on the current branch — the clipboard works (REQ-08) but a paste resolving to a move still fires the shared `dashboard moved to folder` event (REQ-17), so adoption is captured; the dedicated clipboard analytics event is deferred. Edge cases retained.
     proof_type: [test]
     edge_cases:
       - EC-19a [must] action enum cut|copy|paste; result only on paste [test]
@@ -318,9 +296,9 @@ REQUIREMENTS:
       - EC-19f [must] carries project group + $feature [test]
       - EC-19g [must] empty-buffer paste fires NO event [test]
 
-  - id: REQ-20  priority: nice-to-have
-    description: Event `dashboards view feedback` from the "not a fan?" affordance
-    happy_path: submitting feedback fires one event carrying arm/variant context.
+  - id: REQ-20  priority: DEFERRED
+    description: "[DEFERRED — depends on REQ-14] Event `dashboards view feedback` from the \"not a fan?\" affordance"
+    happy_path: submitting feedback fires one event carrying arm/variant context. Not built (the affordance itself, REQ-14, is deferred). Edge cases retained.
     proof_type: [test]
     edge_cases:
       - EC-20a [must] fires only in non-control arms [test]
@@ -331,7 +309,7 @@ REQUIREMENTS:
 
   - id: REQ-21  priority: must-have
     description: First-open-success / anti-pogo-stick guardrail from existing pageview sequences (backtestable)
-    happy_path: a find "succeeds" iff the first dashboard opened in a session is the one kept (no bounce-to-list + open of a DIFFERENT dashboard in-window); pogo-stick rate must not rise C/B vs A.
+    happy_path: a find "succeeds" iff the first dashboard opened in a session is the one kept (no bounce-to-list + open of a DIFFERENT dashboard in-window); pogo-stick rate must not rise for explorer/tree vs control.
     proof_type: [test]
     edge_cases:
       - EC-21a [must] open A, stay → success [test]
@@ -346,7 +324,7 @@ REQUIREMENTS:
 
   - id: REQ-22  priority: must-have
     description: Find-conversion (non-bounce) guardrail; first-class for cold-start
-    happy_path: share of list visits that open >= 1 dashboard in-session, per arm/project; must not drop C/B vs A, esp. cold-start.
+    happy_path: share of list visits that open >= 1 dashboard in-session, per arm/project; must not drop for explorer/tree vs control, esp. cold-start.
     proof_type: [test]
     edge_cases:
       - EC-22a [must] visit opens >=1 → converted [test]
@@ -394,7 +372,7 @@ REQUIREMENTS:
       - EC-25b [must] user in multiple projects in different arms → per-project assignment, no cross-leak [test]
       - EC-25c [must] project with no group id → defined fallback (control), no random per-person split [test]
       - EC-25d [nice] new member mid-experiment → inherits project's arm [test]
-      - EC-25e [must] folder filed by finder member visible to all, but each renders their (same) arm [test]
+      - EC-25e [must] folder filed by an explorer/tree member visible to all, but each renders their (same) arm [test]
 
   - id: REQ-26  priority: must-have
     description: Pre-exposure dashboard-count segmentation (1-5 / 6-20 / 21+), pinned pre-exposure
@@ -420,7 +398,7 @@ REQUIREMENTS:
 
   - id: REQ-28  priority: must-have
     description: PRIMARY metric — folder-organization adoption: share of exposed projects that create a real (non-Unfiled) folder or move a dashboard into one within the window
-    happy_path: project-level adoption proportion at a low single-digit baseline, per arm; ship/no-ship gated on this PLUS the guardrails; derived from the new move/folder events; expected C ≤ B. Organizing depth (moves/creations per organizing project) is the supporting secondary.
+    happy_path: project-level adoption proportion at a low single-digit baseline, per arm; ship/no-ship gated on this PLUS the guardrails; derived primarily from the shared `dashboard moved to folder` event (REQ-17). Explorer and tree are compared to find which paradigm drives deeper organizing. Organizing depth (moves/creations per organizing project) is the supporting secondary.
     proof_type: [test]
     edge_cases:
       - EC-28a [must] zero-organizing user counted in denominator [test]
@@ -440,12 +418,12 @@ REQUIREMENTS:
 
   - id: REQ-30  priority: must-have
     description: Ship/no-ship decision rules — adoption primary + guardrail vetoes + cold-start contingency
-    happy_path: ship on an adoption lift over A with NO guardrail regression (first-open success, find-conversion, engagement); A-vs-B, A-vs-C, and C-vs-B are all real reads; cold-start contingency (ship C / gate B) honored.
+    happy_path: ship the winning treatment arm on an adoption lift over control with NO guardrail regression (first-open success, find-conversion, engagement); A-vs-explorer, A-vs-tree, and explorer-vs-tree are all real reads; cold-start contingency (ship tree / gate explorer) honored.
     proof_type: [test, manual]
     edge_cases:
-      - EC-30a [must] B beats A but pogo-stick regresses → NO-SHIP B (guardrail veto) [test]
-      - EC-30b [must] B beats A but cold-start find-conversion drops → contingency (ship C / gate B) [test]
-      - EC-30c [must] C-vs-B is a real read but not the sole ship gate (adoption lift + guardrails gate) [test, manual]
+      - EC-30a [must] explorer beats control but pogo-stick regresses → NO-SHIP explorer (guardrail veto) [test]
+      - EC-30b [must] explorer beats control but cold-start find-conversion drops → contingency (ship tree / gate explorer) [test]
+      - EC-30c [must] explorer-vs-tree is a real read but not the sole ship gate (adoption lift + guardrails gate) [test, manual]
       - EC-30d [nice] adoption result below the pre-registered MDE → require the powered threshold before ship [manual]
       - EC-30e [must] both null → keep A, bank learning, no fishing [test, manual]
       - EC-30f [must] guardrail regression with no primary win → no-ship [test]
@@ -460,9 +438,90 @@ REQUIREMENTS:
       - EC-31c [nice] friendly-account list finite/explicit, no accidental broad enable [manual]
       - EC-31d [must] metric-validation go/no-go gate blocks start if primary is insane (CH-09) [manual]
 
+  # --- New requirements added in the control/explorer/tree reframe ---
+
+  - id: REQ-32  priority: must-have
+    description: Tree arm — persistent LemonTree folder panel (left) beside the dashboards table (right), scoped recursively
+    happy_path: variant=tree renders the sidebar's LemonTree as a left panel (with an "All dashboards" root) beside DashboardsTable on the right; clicking a folder shows every dashboard at or below it recursively (root = all); the table keeps its own search/filters bar + row actions, so organizing happens there.
+    proof_type: [test, visual, visual-flow]
+    edge_cases:
+      - EC-32a [must] root ("All dashboards") selected → table shows all dashboards (subtreeDashboards with empty prefix) [test]
+      - EC-32b [must] folder selected → table shows that folder's subtree recursively, including nested folders' dashboards [test]
+      - EC-32c [must] empty folder selected → empty table, panel still navigable, not a dead end [test, visual]
+      - EC-32d [must] expand/collapse a tree node → toggleFolder flips one folder; expandedItemIds derives from collapsedFolders [test]
+      - EC-32e [must] active folder highlighted (isItemActive matches currentFolder) [visual]
+      - EC-32f [nice] deep nesting / long folder names render in the fixed-width (240px) panel without breaking layout [visual]
+      - EC-32g [must] folder rows include empty folders so childless folders still appear and are clickable (record.type='folder') [test]
+      - EC-32h [nice] mobile/tablet two-column reflow [visual]
+      - EC-32i [nice] keyboard/screen-reader navigable tree + "All dashboards" button [test, manual]
+
+  - id: REQ-33  priority: must-have
+    description: Drag-a-dashboard-onto-a-folder to file it (explorer folder cards) via the shared dnd helper
+    happy_path: dragging a dashboard card onto a folder (DroppableFolder) calls moveDashboardToFolder → projectTreeDataLogic.moveItem; the 10px mouse-activation distance keeps a plain click a navigation/open and only a longer drag a move; native link drag is cancelled so dnd-kit owns the gesture.
+    proof_type: [test, visual-flow]
+    edge_cases:
+      - EC-33a [must] drop onto current/own folder → no-op (calculateMovePath isValidMove=false), no move event [test]
+      - EC-33b [must] drop outside any folder → parseDashboardDragEnd returns null, cancels cleanly [test]
+      - EC-33c [must] drag before folder rows load → entry missing; stays quiet while loading, otherwise warns (no silent no-op) [test]
+      - EC-33d [must] move error → projectTreeDataLogic rollback (shared move path) [test]
+      - EC-33e [must] plain click still navigates the card link, not a drag (activation distance) [test, visual-flow]
+      - EC-33f [nice] touch-drag on tablet (250ms delay / 5px tolerance) → works or degrades to the per-card "Move to…" menu [manual, visual-flow]
+      - EC-33g [must] keyboard/non-drag users have a move path via the per-card menu (REQ-11) [test, manual]
+
+  - id: REQ-34  priority: must-have
+    description: Explorer global name search flips to a flat results grid
+    happy_path: when the shared filters bar has a non-empty search query, the explorer abandons folder navigation and renders a flat grid of all matching dashboards (dashboardsLogic.dashboards); clearing the query restores folder navigation.
+    proof_type: [test, visual, visual-flow]
+    edge_cases:
+      - EC-34a [must] non-empty search.trim() → flat results grid, breadcrumb/folder cards hidden [test, visual-flow]
+      - EC-34b [must] zero matches → "No dashboards match your search" message, not a blank grid [test, visual]
+      - EC-34c [must] clearing search → returns to the previously-drilled folder (currentFolder preserved) [test, visual-flow]
+      - EC-34d [must] whitespace-only query → treated as no search (trim) [test]
+      - EC-34e [must] search result cards keep the per-card actions menu + rename [test]
+      - EC-34f [must] search HTML/script injection rendered safe (REQ-07g) [test]
+
+  - id: REQ-35  priority: must-have
+    description: "\"New folder\" affordance (explorer + tree) creates a folder inside the current folder"
+    happy_path: a "New folder" button (atop the tree / on the explorer breadcrumb row) opens a name dialog; on submit, createFolder joins the name under currentFolder, calls api.fileSystem.create({type:'folder'}), reloads folder rows, navigates into the new folder, and toasts success.
+    proof_type: [test, visual-flow]
+    edge_cases:
+      - EC-35a [must] empty/whitespace name → dialog field error, no create call (LemonDialog errors + createFolder trim guard) [test]
+      - EC-35b [must] created at root vs inside a drilled folder → path = currentFolder + name [test]
+      - EC-35c [must] api.fileSystem.create failure → error toast, no navigation, no phantom folder [test]
+      - EC-35d [must] new empty folder appears immediately as a navigable/droppable target (folder rows reloaded) [test]
+      - EC-35e [nice] unicode/emoji/long folder name accepted [test, visual]
+      - EC-35f [must] folder-create analytics event (REQ-18) → DEFERRED [test]
+
+  - id: REQ-36  priority: must-have
+    description: "\"Move to…\" picker delegates to the canonical searchable FolderSelect modal (moveToLogic)"
+    happy_path: the per-card "Move to…" action opens moveToLogic.openMoveToModal with the dashboard's FileSystem entry; the existing FolderSelect modal performs the move (no bespoke picker), so the sidebar stays consistent and the shared move event fires.
+    proof_type: [test]
+    edge_cases:
+      - EC-36a [must] action shown only when the card's FileSystem entry is resolved (entryByRef) [test]
+      - EC-36b [must] move via the modal fires the shared `dashboard moved to folder` event (REQ-17) [test]
+      - EC-36c [must] cancel the modal → no move, no event [test]
+      - EC-36d [must] move into the current folder → no-op per the modal's own handling [test]
+
+  - id: REQ-37  priority: must-have
+    description: Folder-rows data layer — load BOTH dashboard and folder FileSystem rows so empty folders appear
+    happy_path: dashboardsFileSystemLogic loads type=dashboard rows (index each dashboard to its folder via ref) AND type=folder rows (so empty/just-created folders appear), then derives folderTree, folderContents/compactedSubfolders, subtreeDashboards, and the breadcrumb; dashboards with no row fall back to Unfiled/Dashboards.
+    proof_type: [test]
+    edge_cases:
+      - EC-37a [must] empty folder (folder row, no dashboards) → appears in folderTree + as a subfolder card / tree node [test]
+      - EC-37b [must] dashboard with no FileSystem row → grouped under Unfiled/Dashboards [test]
+      - EC-37c [must] folder tree is stable-sorted (shallowest-first build, label localeCompare) [test]
+      - EC-37d [must] ancestors of a deep folder all appear even if only the leaf has dashboards (addWithAncestors) [test]
+      - EC-37e [must] >=500 dashboard or folder rows → single-page read, surplus dashboards fall back to Unfiled, console.warn on cap hit; pagination DEFERRED [test]
+      - EC-37f [must] dashboard + folder row load run on mount (afterMount) and refetch after duplicate/new-folder [test]
+      - EC-37g [must] folder rows load failure → toast error, structure degrades to Unfiled, no crash (loadDashboardFileSystemEntriesFailure) [test]
+      - EC-37h [nice] malformed row (missing path/ref) → skipped/Unfiled, no crash [test]
+
 SUMMARY:
-  total_requirements: 31
-  total_edge_cases: 246
-  proof_types (overlapping buckets): test ~168, visual 36, visual_flow 10, manual 32
-  priority (rule-applied, confirm at checkpoint): must-have core ~ REQ-01..13,16,17,18,19,21,22,23,24,25,26,27,28,30,31; nice-to-have REQ-14,15,20,29 + flagged [nice] edge cases
+  total_requirements: 37 (REQ-04, REQ-05 retired; REQ-32..37 added in the control/explorer/tree reframe)
+  arms: control | explorer | tree (grid retired)
+  built_on_current_branch: REQ-01,02,03,06,07,08,10,11,12,13,15,17,32,33,34,35,36,37 (foundation + both arms + folder-rows layer + load-bearing move event)
+  deferred (measurement increment / later): REQ-09 (multi-select), REQ-14 (feedback affordance), REQ-16 (opened from list), REQ-18/19/20 (folder-lifecycle / clipboard / feedback events), the REQ-17 method+multi_select_count props, copy=paste target-folder placement, pagination
+  retired_with_grid_arm: REQ-04, REQ-05
+  measurement/analysis (not UI): REQ-21,22,23,24,25,26,27,28,29,30,31
+  priority (rule-applied, confirm at checkpoint): must-have core ~ REQ-01,02,03,06,07,08,10,11,12,13,17,21,22,23,24,25,26,27,28,30,31,32,33,34,35,36,37; nice-to-have REQ-15,29 + flagged [nice] edge cases; DEFERRED REQ-09,14,16,18,19,20
 ```
