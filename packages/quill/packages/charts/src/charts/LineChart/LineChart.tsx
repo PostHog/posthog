@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { drawArea, drawAxes, drawGrid, drawLine, drawLineHoverPoints, drawPoints } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { withVerticalClip } from '../../core/canvas-renderer'
@@ -80,23 +82,25 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
     } = config ?? {}
 
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
+
     const hasMultipleFilledSeries = useMemo(() => {
-        const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
+        const filledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData)
         return filledSeries.length >= 2
-    }, [series])
+    }, [visibleSeries])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
-            return computePercentStackData(series, labels)
+            return computePercentStackData(visibleSeries, labels)
         }
         // Only stack when there are 2+ fillable series — a single area series has nothing to stack
         // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
         // renderer, which disables the gradient fill path.
         if (hasMultipleFilledSeries) {
-            return computeStackData(series, labels)
+            return computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [percentStackView, hasMultipleFilledSeries, series, labels])
+    }, [percentStackView, hasMultipleFilledSeries, visibleSeries, labels])
 
     const chartConfig = useMemo(() => {
         const base = { ...config, isPercent: percentStackView }
@@ -134,7 +138,9 @@ function LineChartInner<Meta = unknown>({
             // a side-channel ref — every render gets a self-contained ChartScales object,
             // which avoids strict-mode / concurrent-rendering races between the createScales
             // pass and the static-draw effect.
-            const lineChartPrivate: LineChartPrivate = { __lineChart: d3Scales }
+            const lineChartPrivate: LineChartPrivate = {
+                __lineChart: d3Scales,
+            }
 
             return {
                 x: (label: string) => d3Scales.x(label),
@@ -181,7 +187,10 @@ function LineChartInner<Meta = unknown>({
                         continue
                     }
 
-                    const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScale(s) }
+                    const drawCtx: DrawContext = {
+                        ...baseDrawCtx,
+                        yScale: resolveYScale(s),
+                    }
                     const band = stackedData?.get(s.key)
                     const yValues = band?.top
 
@@ -212,7 +221,10 @@ function LineChartInner<Meta = unknown>({
                 if (x == null) {
                     return null
                 }
-                return { x, y: resolveYScaleForSeries(scales, s)(data[hoverIndex]) }
+                return {
+                    x,
+                    y: resolveYScaleForSeries(scales, s)(data[hoverIndex]),
+                }
             })
         },
         [stackedData]
@@ -224,23 +236,25 @@ function LineChartInner<Meta = unknown>({
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
-        <Chart
-            series={series}
-            labels={labels}
-            config={chartConfig}
-            theme={theme}
-            createScales={createScales}
-            drawStatic={drawStatic}
-            drawHover={drawHover}
-            tooltip={tooltip}
-            onPointClick={onPointClick}
-            onDateRangeZoom={onDateRangeZoom}
-            className={className}
-            dataAttr={dataAttr}
-            resolveValue={resolveValue}
-            resolvePositionValue={resolvePositionValue}
-        >
-            {children}
-        </Chart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-line-legend">
+            <Chart
+                series={visibleSeries}
+                labels={labels}
+                config={chartConfig}
+                theme={theme}
+                createScales={createScales}
+                drawStatic={drawStatic}
+                drawHover={drawHover}
+                tooltip={tooltip}
+                onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
+                className={className}
+                dataAttr={dataAttr}
+                resolveValue={resolveValue}
+                resolvePositionValue={resolvePositionValue}
+            >
+                {children}
+            </Chart>
+        </ChartLegend>
     )
 }
