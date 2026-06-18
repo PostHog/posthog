@@ -27,10 +27,6 @@ from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
 
-def events_table_clickhouse_name() -> str:
-    return "events"
-
-
 def events_table_clickhouse_table_ref() -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
@@ -48,7 +44,7 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return events_table_clickhouse_name()
+        return "events"
 
     def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:
@@ -76,7 +72,7 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
-        return events_table_clickhouse_name()
+        return "events"
 
     def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:
@@ -167,7 +163,7 @@ class EventsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return events_table_clickhouse_name()
+        return "events"
 
     def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:

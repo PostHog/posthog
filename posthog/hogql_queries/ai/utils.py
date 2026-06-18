@@ -1,4 +1,3 @@
-import ast as py_ast
 from abc import ABC
 from datetime import datetime
 from typing import Any, Optional
@@ -75,10 +74,7 @@ def parse_ai_property_value(value: Any) -> Any:
     try:
         parsed = orjson.loads(value)
     except orjson.JSONDecodeError:
-        try:
-            parsed = py_ast.literal_eval(value)
-        except (SyntaxError, ValueError):
-            return value
+        return value
 
     if isinstance(parsed, list):
         return [parse_ai_property_value(item) for item in parsed]

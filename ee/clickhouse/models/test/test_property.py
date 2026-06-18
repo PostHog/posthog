@@ -1111,6 +1111,63 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             ),
         )
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_get_property_string_expr_falls_back_for_percent_key_on_new_events_schema(self):
+        string_expr = get_property_string_expr("events", "bad%key", "%(key)s", "properties")
+
+        self.assertEqual(
+            string_expr,
+            (
+                """replaceRegexpAll(JSONExtractRaw(toString(properties), %(key)s), '^"|"$', '')""",
+                False,
+            ),
+        )
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_prop_filter_json_extract_uses_typed_events_json_presence(self):
+        browser_is_set, _ = prop_filter_json_extract(
+            Property(key="$browser", operator="is_set", value="is_set"),
+            0,
+            allow_denormalized_props=False,
+        )
+        browser_is_not_set, _ = prop_filter_json_extract(
+            Property(key="$browser", operator="is_not_set", value="is_not_set"),
+            0,
+            allow_denormalized_props=False,
+        )
+        trace_is_set, _ = prop_filter_json_extract(
+            Property(key="$ai_trace_id", operator="is_set", value="is_set"),
+            0,
+            allow_denormalized_props=False,
+        )
+        dynamic_is_set, _ = prop_filter_json_extract(
+            Property(key="some_random_prop", operator="is_set", value="is_set"),
+            0,
+            allow_denormalized_props=False,
+        )
+
+        assert browser_is_set == " AND notEmpty(properties.`$browser`)"
+        assert browser_is_not_set == " AND empty(properties.`$browser`)"
+        assert trace_is_set == " AND isNotNull(properties.`$ai_trace_id`)"
+        assert dynamic_is_set == " AND isNotNull(properties.some_random_prop)"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_prop_filter_json_extract_falls_back_for_percent_key_on_new_events_schema(self):
+        exact_query, params = prop_filter_json_extract(
+            Property(key="bad%key", operator="exact", value="x"),
+            0,
+            allow_denormalized_props=False,
+        )
+        is_set_query, _ = prop_filter_json_extract(
+            Property(key="bad%key", operator="is_set", value="is_set"),
+            0,
+            allow_denormalized_props=False,
+        )
+
+        assert "JSONExtractRaw(toString(properties), %(k_0)s)" in exact_query
+        assert "JSONHas(toString(properties), %(k_0)s)" in is_set_query
+        assert params["k_0"] == "bad%key"
+
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):

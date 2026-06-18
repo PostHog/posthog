@@ -438,7 +438,14 @@ class PropertySwapper(CloningVisitor):
                     chain=[*field_arg.chain, property_path[0]],
                     type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
                 )
-            return property_field
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toString", args=[property_field], type=ast.StringType(nullable=False)),
+                    ast.Constant(value="", inline_sentinel=True),
+                ],
+                type=ast.StringType(nullable=False),
+            )
 
         if scalar_cast := _JSON_EXTRACT_SCALAR_CASTS.get(node.name):
             cast_type, default_value = scalar_cast

@@ -22,6 +22,7 @@ from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
 from posthog.models.event import Selector
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
@@ -79,15 +80,58 @@ def _use_events_json_schema_subcolumns(
     )
 
 
-def _events_json_subcolumn_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
+def _can_use_events_json_subcolumn(property_name: str) -> bool:
+    return "%" not in property_name
+
+
+def _events_json_column_expr(column: str, table_alias: Optional[str]) -> str:
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
-    field_prefix = column if "." in column else f"{table_string}{column}"
-    return f"{field_prefix}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
+    return column if "." in column else f"{table_string}{column}"
+
+
+def _events_json_subcolumn_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
+    return (
+        f"{_events_json_column_expr(column, table_alias)}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
+    )
 
 
 def _events_json_subcolumn_string_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
     field = _events_json_subcolumn_expr(column, property_name, table_alias)
     return f"ifNull(toString({field}), '')"
+
+
+def _events_json_subcolumn_type(materialised_table_column: str, property_name: str) -> str | None:
+    subcolumns_by_column = {
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    }
+    return subcolumns_by_column[materialised_table_column].get(property_name)
+
+
+def _events_json_subcolumn_presence_expr(
+    column: str,
+    property_name: str,
+    table_alias: Optional[str],
+    materialised_table_column: str,
+    *,
+    is_present: bool,
+) -> str | None:
+    if not _can_use_events_json_subcolumn(property_name):
+        return None
+
+    field = _events_json_subcolumn_expr(column, property_name, table_alias)
+    column_type = _events_json_subcolumn_type(materialised_table_column, property_name)
+    if column_type is None or column_type.startswith("Nullable("):
+        function = "isNotNull" if is_present else "isNull"
+        return f"{function}({field})"
+    if column_type == "String":
+        function = "notEmpty" if is_present else "empty"
+        return f"{function}({field})"
+    raise ValueError(f"Unsupported non-nullable events JSON subcolumn type for {property_name}: {column_type}")
+
+
+def _events_json_raw_extract_expr(column: str, var: str, table_alias: Optional[str]) -> str:
+    return trim_quotes_expr(f"JSONExtractRaw(toString({_events_json_column_expr(column, table_alias)}), {var})")
 
 
 def _date_property_expr(property_expr: str) -> str:
@@ -451,10 +495,6 @@ def prop_filter_json_extract(
     if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
 
-    presence_expr = (
-        _events_json_subcolumn_expr(prop_var, str(prop.key), table_name) if uses_events_json_subcolumn else None
-    )
-
     operator = prop.operator
     if prop.negation:
         operator = negate_operator(operator or "exact")
@@ -530,10 +570,26 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if presence_expr is not None:
+        if uses_events_json_subcolumn and (
+            presence_expr := _events_json_subcolumn_presence_expr(
+                prop_var,
+                str(prop.key),
+                table_name,
+                materialised_table_column,
+                is_present=True,
+            )
+        ):
             return (
-                " {property_operator} isNotNull({left})".format(
-                    left=presence_expr, property_operator=property_operator
+                " {property_operator} {left}".format(left=presence_expr, property_operator=property_operator),
+                params,
+            )
+        if uses_events_json_subcolumn:
+            return (
+                " {property_operator} JSONHas(toString({prop_var}), %(k{prepend}_{idx})s)".format(
+                    idx=idx,
+                    prepend=prepend,
+                    prop_var=_events_json_column_expr(prop_var, table_name),
+                    property_operator=property_operator,
                 ),
                 params,
             )
@@ -556,9 +612,28 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if presence_expr is not None:
+        if uses_events_json_subcolumn and (
+            presence_expr := _events_json_subcolumn_presence_expr(
+                prop_var,
+                str(prop.key),
+                table_name,
+                materialised_table_column,
+                is_present=False,
+            )
+        ):
             return (
-                " {property_operator} isNull({left})".format(left=presence_expr, property_operator=property_operator),
+                " {property_operator} {left}".format(left=presence_expr, property_operator=property_operator),
+                params,
+            )
+        if uses_events_json_subcolumn:
+            return (
+                " {property_operator} (isNull({left}) OR NOT JSONHas(toString({prop_var}), %(k{prepend}_{idx})s))".format(
+                    idx=idx,
+                    prepend=prepend,
+                    prop_var=_events_json_column_expr(prop_var, table_name),
+                    left=property_expr,
+                    property_operator=property_operator,
+                ),
                 params,
             )
         if is_denormalized:
@@ -767,10 +842,13 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
-
     if _use_events_json_schema_subcolumns(table, materialised_table_column, use_json_schema_subcolumns):
-        return _events_json_subcolumn_string_expr(column, str(property_name), table_alias), False
+        property_name_string = str(property_name)
+        if _can_use_events_json_subcolumn(property_name_string):
+            return _events_json_subcolumn_string_expr(column, property_name_string, table_alias), False
+        return _events_json_raw_extract_expr(column, var, table_alias), False
+
+    table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
     if (
         allow_denormalized_props

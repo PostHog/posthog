@@ -73,10 +73,6 @@ def EVENTS_PROPERTIES_COLUMN() -> str:
     return f"toJSONString(events.properties) AS properties, {EVENTS_PROPERTIES_JSON_PRESENT_PATHS('events.properties')} AS property_paths"
 
 
-def EVENTS_PROPERTIES_JOIN(events_alias: str = "events") -> str:
-    return ""
-
-
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
     "$active_feature_flags": "String",
     "$ai_experiment_id": "Nullable(String)",
@@ -1117,7 +1113,6 @@ SELECT
     events.created_at AS created_at
 FROM
     {events_table} AS events
-{properties_join}
 where events.team_id = %(team_id)s
 {conditions}
 ORDER BY events.timestamp {order} {limit}
@@ -1134,7 +1129,6 @@ SELECT
     events.elements_chain AS elements_chain,
     events.created_at AS created_at
 FROM {events_table} AS events
-{properties_join}
 WHERE
 events.team_id = %(team_id)s
 {conditions}
@@ -1153,7 +1147,6 @@ SELECT
     events.elements_chain AS elements_chain,
     events.created_at AS created_at
 FROM {events_table} AS events
-{properties_join}
 WHERE events.uuid = %(event_id)s AND events.team_id = %(team_id)s
 """
 
@@ -1202,7 +1195,6 @@ SELECT
     events.elements_chain AS elements_chain,
     events.created_at AS created_at
 FROM {events_table} AS events
-{properties_join}
 WHERE
 events.team_id = %(team_id)s
 {filters}

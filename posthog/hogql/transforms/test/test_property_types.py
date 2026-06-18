@@ -677,6 +677,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "toJSONString" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_nested_jsonextractstring_uses_string_default(self):
+        printed = self._print_select("select JSONExtractString(properties, 'metadata', 'score') from events")
+
+        assert "ifNull(toString(events.properties.metadata.score), '')" in printed, printed
+        assert "JSONExtractString" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_jsonextract_non_nullable_type_uses_default(self):
         printed = self._print_select("select JSONExtract(properties, 'score', 'Float64') from events")
 

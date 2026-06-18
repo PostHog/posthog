@@ -7,7 +7,7 @@ from django.utils import timezone
 import orjson
 from parameterized import parameterized
 
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin, merge_heavy_properties
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin, merge_heavy_properties, parse_ai_property_value
 
 
 class TestTaxonomyUtils(BaseTest):
@@ -70,3 +70,13 @@ class TestMergeHeavyProperties(BaseTest):
     def test_maps_each_column_to_correct_property(self, column_name, expected_prop):
         result = merge_heavy_properties("{}", {column_name: '"test_value"'})
         self.assertEqual(result[expected_prop], "test_value")
+
+    @parameterized.expand(
+        [
+            ("None",),
+            ("False",),
+            ("{'not': 'json'}",),
+        ]
+    )
+    def test_parse_ai_property_value_preserves_invalid_json_strings(self, value):
+        self.assertEqual(parse_ai_property_value(value), value)

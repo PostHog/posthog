@@ -41,12 +41,7 @@ from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
-from posthog.models.event.sql import (
-    EVENTS_PROPERTIES_COLUMN,
-    EVENTS_PROPERTIES_JOIN,
-    EVENTS_QUERY_TABLE,
-    SELECT_ONE_EVENT_SQL,
-)
+from posthog.models.event.sql import EVENTS_PROPERTIES_COLUMN, EVENTS_QUERY_TABLE, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -465,7 +460,6 @@ class EventViewSet(
             SELECT_ONE_EVENT_SQL.format(
                 events_table=EVENTS_QUERY_TABLE(),
                 properties_column=EVENTS_PROPERTIES_COLUMN(),
-                properties_join=EVENTS_PROPERTIES_JOIN(),
             ),
             {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
             team_id=self.team.pk,

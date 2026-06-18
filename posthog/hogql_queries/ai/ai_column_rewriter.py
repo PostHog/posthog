@@ -117,7 +117,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain: list[str | int] = ["events", "properties", prop_name, *chain[2:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain)
             # Native column (timestamp, event, distinct_id, etc.) — just swap table prefix
             return ast.Field(chain=["events", *chain[1:]])
 
@@ -127,7 +127,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain = ["properties", prop_name, *chain[1:]]
-                return _wrap_for_events_type(col_name, prop_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain)
 
         return super().visit_field(node)
 
@@ -181,7 +181,7 @@ def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     )
 
 
-def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int]) -> ast.Expr:
+def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
     """Wrap a rewritten property reference to preserve the ai_events column type.
 
     On the events table, properties are strings (JSON extraction). Aggregate functions
