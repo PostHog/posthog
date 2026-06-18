@@ -2,7 +2,13 @@ import pytest
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    QueryErrorCategory,
+    classify_query_error,
+    clickhouse_error_type,
+    wrap_clickhouse_query_error,
+)
 
 
 @pytest.mark.parametrize(
@@ -77,6 +83,44 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             ),
             "CHQueryErrorS3Error",
             "Code: 499.\nS3 error occurred. (Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet)",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Could not list objects in bucket 'labzip-db' with prefix 'data/olz/olz/folders/', "
+                "S3 exception: `InvalidAccessKeyId`, message: 'The AWS Access Key Id you provided does not exist in our records.'. "
+                "(S3_ERROR) (version 25.8.12.129 (official build))",
+                code=499,
+            ),
+            "CHQueryErrorS3PermissionError",
+            "Could not access the S3 data source for this query. The credentials are invalid, expired, or lack "
+            "permission for the configured bucket. Check the access key, secret, and bucket permissions for your "
+            "self-managed source. (S3 error: InvalidAccessKeyId)",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Access Denied. S3 exception: `AccessDenied`. (S3_ERROR)",
+                code=499,
+            ),
+            "CHQueryErrorS3PermissionError",
+            "Could not access the S3 data source for this query. The credentials are invalid, expired, or lack "
+            "permission for the configured bucket. Check the access key, secret, and bucket permissions for your "
+            "self-managed source. (S3 error: AccessDenied)",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist'. (S3_ERROR)",
+                code=499,
+            ),
+            "CHQueryErrorS3PermissionError",
+            "Could not access the S3 data source for this query. The credentials are invalid, expired, or lack "
+            "permission for the configured bucket. Check the access key, secret, and bucket permissions for your "
+            "self-managed source. (S3 error: NoSuchBucket)",
             499,
             "CHQueryErrorS3Error",
         ),
@@ -159,3 +203,19 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code
     assert label == expected_ch_error
+
+
+@pytest.mark.parametrize("marker", ["InvalidAccessKeyId", "AccessDenied", "NoSuchBucket", "SignatureDoesNotMatch"])
+def test_permanent_s3_error_is_not_transient_and_is_user_error(marker):
+    error = ServerException(f"Code: 499. DB::Exception: S3 exception: `{marker}`. (S3_ERROR)", code=499)
+    wrapped = wrap_clickhouse_query_error(error)
+    # Never retried — a revoked/rotated credential will not succeed on retry.
+    assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
+    # Surfaced to the user as a data-source error rather than captured as an internal exception.
+    assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+def test_transient_s3_error_stays_transient():
+    error = ServerException("Code: 499. DB::Exception: SlowDown, please reduce your request rate. (S3_ERROR)", code=499)
+    wrapped = wrap_clickhouse_query_error(error)
+    assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

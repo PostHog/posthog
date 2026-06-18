@@ -82,6 +82,33 @@ def clickhouse_error_type(e: Exception) -> str:
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
+# S3 error codes whose cause is a permanent credential, permission, or bucket misconfiguration.
+# Retrying will never succeed, so these are surfaced to the user rather than captured internally.
+# These are AWS S3 error codes as relayed verbatim in the ClickHouse S3_ERROR message.
+S3_PERMANENT_ERROR_MARKERS = (
+    "InvalidAccessKeyId",
+    "SignatureDoesNotMatch",
+    "AccessDenied",
+    "AllAccessDisabled",
+    "AccountProblem",
+    "NoSuchBucket",
+    "InvalidBucketName",
+    "PermanentRedirect",
+    "AuthorizationHeaderMalformed",
+    "InvalidToken",
+    "ExpiredToken",
+    "TokenRefreshRequired",
+)
+
+
+def match_permanent_s3_error(message: str) -> Optional[str]:
+    "Return the permanent S3 error marker present in `message`, or None for transient/unknown S3 errors."
+    for marker in S3_PERMANENT_ERROR_MARKERS:
+        if marker in message:
+            return marker
+    return None
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
@@ -115,6 +142,13 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
+        if match_permanent_s3_error(err.message):
+            # Permanent S3 failures (bad credentials, missing bucket, denied access) will never
+            # succeed on retry. Surface them to the user as a data-source misconfiguration instead
+            # of capturing them as an internal exception or pointlessly retrying. The raw message is
+            # preserved on the exception (consumers like the warehouse source setup match against it);
+            # CHQueryErrorS3PermissionError.__str__ renders the clean user-facing message.
+            return CHQueryErrorS3PermissionError(err.message, code=err.code, code_name="s3_permission_error")
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
 
     # user query errors - pass through original message with proper code_name
@@ -164,6 +198,10 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    if isinstance(e, ExposedCHQueryError):
+        # User-safe CH errors are user errors regardless of what the shared error-code lookup says
+        # (e.g. a permanent S3 credential failure shares code 499 with transient S3 errors).
+        return QueryErrorCategory.USER_ERROR
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -199,6 +237,24 @@ class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
 
 class CHQueryErrorS3Error(InternalCHQueryError):
     pass
+
+
+class CHQueryErrorS3PermissionError(ExposedCHQueryError):
+    """Permanent S3 credential/permission/bucket failure on a self-managed warehouse source.
+
+    User-facing (the customer must fix their credentials) and never retried — a rotated or revoked
+    access key will never succeed on retry. The raw ClickHouse message is kept on the exception so
+    other consumers can still pattern-match it; ``__str__`` renders a clean, non-verbose message."""
+
+    def __str__(self) -> str:
+        base = (
+            "Could not access the S3 data source for this query. The credentials are invalid, "
+            "expired, or lack permission for the configured bucket. Check the access key, secret, "
+            "and bucket permissions for your self-managed source."
+        )
+        if marker := match_permanent_s3_error(str(self.message)):
+            return f"{base} (S3 error: {marker})"
+        return base
 
 
 # User query errors - these are errors caused by user input/queries
@@ -968,4 +1024,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
+# CHQueryErrorS3PermissionError is deliberately excluded: a permanent S3 credential/permission
+# failure will never succeed on retry, so it is surfaced to the user instead.
 CH_TRANSIENT_ERRORS = (CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error)
