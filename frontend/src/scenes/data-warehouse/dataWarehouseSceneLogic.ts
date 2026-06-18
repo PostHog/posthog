@@ -10,6 +10,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export enum DataWarehouseTab {
+    OVERVIEW = 'overview',
     SETTINGS = 'settings',
     MODELING = 'modeling',
 }
@@ -26,7 +27,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     }),
     reducers({
         selectedTab: [
-            DataWarehouseTab.SETTINGS as DataWarehouseTab,
+            DataWarehouseTab.OVERVIEW as DataWarehouseTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -38,6 +39,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (featureFlags): DataWarehouseTab[] => {
                 const tabs: DataWarehouseTab[] = []
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+                    tabs.push(DataWarehouseTab.OVERVIEW)
                     tabs.push(DataWarehouseTab.SETTINGS)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
