@@ -8,6 +8,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { getClaudeCodeMeta, resolveToolCall } from './mcpToolMessageResolver'
 import { parseSandboxQuestions } from './sandboxQuestionUtils'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
@@ -267,30 +268,6 @@ async function fetchRunStatus(
     }
 }
 
-/** Matches `mcp__posthog__exec` (and plugin/regional variants). Ported from Twig posthog-exec-display.ts. */
-const POSTHOG_EXEC_TOOL_RE = /^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$/
-
-interface ResolvedToolKey {
-    resolvedKey: string
-    innerToolName?: string
-    innerInput?: Record<string, unknown>
-}
-
-/** Reads `_meta.claudeCode` off a tool frame's `_meta` without trusting its shape. */
-function getClaudeCodeMeta(meta: unknown): Record<string, unknown> | undefined {
-    if (typeof meta !== 'object' || meta === null) {
-        return undefined
-    }
-    const claudeCode = (meta as { claudeCode?: unknown }).claudeCode
-    return typeof claudeCode === 'object' && claudeCode !== null ? (claudeCode as Record<string, unknown>) : undefined
-}
-
-/** Stable SDK tool name (`"Edit"`, `"TodoWrite"`) from `_meta.claudeCode.toolName`; undefined when absent. */
-export function extractClaudeToolName(meta: unknown): string | undefined {
-    const claudeCode = getClaudeCodeMeta(meta)
-    return typeof claudeCode?.toolName === 'string' && claudeCode.toolName ? claudeCode.toolName : undefined
-}
-
 /**
  * Permission-denial reason from `_meta.claudeCode.toolResponse`, preferring `decisionReason` over
  * the generic `message`. Returns undefined when no `_meta` is present (the inline `canUseTool` path),
@@ -310,54 +287,6 @@ export function extractDenialReason(meta: unknown): string | undefined {
         return r.message
     }
     return undefined
-}
-
-/**
- * Resolves the registry key for a tool call. The single-exec `posthog` MCP server exposes one
- * outer `exec` tool; the inner tool name is parsed out of `rawInput.command`. Non-exec MCP tools
- * and Claude built-ins look up by their wire name directly. Claude built-ins carry no wire
- * `toolName`, so `claudeToolName` (from `_meta.claudeCode.toolName`) is preferred as the fallback.
- */
-export function resolveToolKey(
-    serverName: string,
-    toolName: string,
-    input: Record<string, unknown>,
-    claudeToolName?: string
-): ResolvedToolKey {
-    const fullName = `mcp__${serverName}__${toolName}`
-
-    if (POSTHOG_EXEC_TOOL_RE.test(fullName) && typeof input.command === 'string') {
-        const verbMatch = input.command.match(/^\s*(tools|search|info|schema|call)(?:\s+([\s\S]*))?\s*$/)
-        if (!verbMatch) {
-            return { resolvedKey: '__posthog_exec_unknown__' }
-        }
-
-        const verb = verbMatch[1] as 'tools' | 'search' | 'info' | 'schema' | 'call'
-        const rest = (verbMatch[2] ?? '').trim()
-
-        if (verb !== 'call') {
-            return { resolvedKey: `__posthog_exec_${verb}__` }
-        }
-
-        const callMatch = rest.match(/^(?:--json\s+)?([a-zA-Z0-9_-]+)\s*([\s\S]*)$/)
-        if (!callMatch) {
-            return { resolvedKey: '__posthog_exec_unknown__' }
-        }
-
-        const innerToolName = callMatch[1]
-        const jsonBody = (callMatch[2] ?? '').trim()
-        let innerInput: Record<string, unknown> = {}
-        if (jsonBody) {
-            try {
-                innerInput = JSON.parse(jsonBody)
-            } catch {
-                // leave empty
-            }
-        }
-        return { resolvedKey: innerToolName, innerToolName, innerInput }
-    }
-
-    return { resolvedKey: toolName || claudeToolName || '' }
 }
 
 /**
@@ -457,10 +386,9 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
  * Parses a permission request into a `PermissionRequestRecord` — either the live
  * `data.type === 'permission_request'` SSE envelope or the `_posthog/permission_request`
  * notification params the agent-server persists to the run log (both carry the same fields).
- * The toolCall payload mirrors the ACP `tool_call` shape; reusing `resolveToolKey` keys the
- * request onto the same `toolCallId` as the rendered tool card. Returns null when the frame
- * is malformed or carries no usable options. The wire payload is typed, not validated, so
- * every field read keeps its runtime check.
+ * The toolCall payload mirrors the ACP `tool_call` shape. Returns null when the frame is malformed
+ * or carries no usable options. The wire payload is typed, not validated, so every field read keeps
+ * its runtime check.
  */
 export function parsePermissionRequestFrame(
     frame: PermissionRequestFrame | PosthogPermissionRequestParams
@@ -482,30 +410,21 @@ export function parsePermissionRequestFrame(
     }
 
     const rawServerName = String(toolCall.serverName ?? 'posthog')
-    // MCP-tool approval frames stamp the inner SDK tool name under `_meta.claudeCode.toolName`; pass
-    // it through so the card names the inner tool. No-op when absent (the field may not be present yet).
-    const claudeToolName = extractClaudeToolName(toolCall._meta)
-    const wireToolName = String(toolCall.toolName ?? '')
-    const rawToolName = wireToolName || (claudeToolName ? '' : String(toolCall.title ?? ''))
+    const rawToolName = String(toolCall.toolName ?? '')
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
-    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
-        rawServerName,
-        wireToolName,
-        input,
-        claudeToolName
-    )
 
     // Canonical ACP tool name (e.g. `mcp__posthog__exec`, or a built-in like `Bash`). The wire puts
     // it on `_meta.claudeCode.toolName`; the bare fields are the fallback. The default permission
     // policy classifies off this — `mcp__`-prefixed vs built-in, plus the exec sub-tool.
-    const meta = (toolCall._meta ?? {}) as Record<string, unknown>
-    const claudeCode = (meta.claudeCode ?? {}) as Record<string, unknown>
+    const meta = toolCall._meta
+    const metaRecord = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {}
+    const claudeCode = getClaudeCodeMeta(meta) ?? {}
     const toolName = String(claudeCode.toolName ?? toolCall.toolName ?? rawToolName)
 
     // `AskUserQuestion` is routed through the permission framework by the agent (Twig): the question
     // payload rides `_meta.codeToolKind === 'question'` + `_meta.questions`. When present, this renders
     // the interactive question overlay (not the approve/decline card) and is never auto-approved.
-    const questions = meta.codeToolKind === 'question' ? parseSandboxQuestions(meta) : []
+    const questions = metaRecord.codeToolKind === 'question' ? parseSandboxQuestions(metaRecord) : []
 
     return {
         requestId,
@@ -519,16 +438,13 @@ export function parsePermissionRequestFrame(
             toolCallId,
             rawServerName,
             rawToolName,
-            innerToolName,
-            resolvedKey,
-            claudeToolName,
             input,
-            innerInput,
             status: mapAcpStatus(toolCall.status),
             title: toolCall.title as string | undefined,
             kind: toolCall.kind as string | undefined,
             locations: toolCall.locations as { path: string; line?: number }[] | undefined,
             contentBlocks: Array.isArray(toolCall.content) ? toolCall.content : [],
+            meta,
         },
     }
 }
@@ -1299,11 +1215,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {
                 conversation_id: props.conversationId,
                 trace_id: values.traceId,
                 request_id: record.requestId,
-                tool_call_name: record.rawToolCall.resolvedKey,
+                tool_call_name: resolvedToolCall.resolvedKey,
                 tool_call_id: record.toolCallId,
                 run_id: activeRun?.runId,
                 task_id: activeRun?.taskId,
@@ -1335,11 +1252,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // conversation_id / trace_id are correlated by the caller (the SSE bypasses Django);
             // emit what this logic knows.
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_requested', {
                 conversation_id: props.conversationId,
                 trace_id: values.traceId,
                 request_id: record.requestId,
-                tool_call_name: record.rawToolCall.resolvedKey,
+                tool_call_name: resolvedToolCall.resolvedKey,
                 tool_call_id: record.toolCallId,
                 run_id: activeRun?.runId,
                 task_id: activeRun?.taskId,
@@ -1699,32 +1617,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         break
                     }
                     const rawServerName = String(update.serverName ?? 'posthog')
-                    const claudeToolName = extractClaudeToolName(update._meta)
-                    const wireToolName = String(update.toolName ?? '')
-                    // `rawToolName` is the displayed name (wire name, or the human title for built-ins
-                    // that carry no name); the resolver keys off the wire name + SDK name instead.
-                    const rawToolName = wireToolName || (claudeToolName ? '' : String(update.title ?? ''))
+                    const rawToolName = String(update.toolName ?? '')
                     const input = update.rawInput ?? update.input ?? {}
-                    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
-                        rawServerName,
-                        wireToolName,
-                        input,
-                        claudeToolName
-                    )
                     actions.upsertToolInvocation({
                         toolCallId,
                         rawServerName,
                         rawToolName,
-                        innerToolName,
-                        resolvedKey,
-                        claudeToolName,
                         input,
-                        innerInput,
                         status: mapAcpStatus(update.status),
                         title: update.title,
                         kind: update.kind,
                         locations: update.locations,
                         contentBlocks: Array.isArray(update.content) ? update.content : [],
+                        meta: update._meta,
                     })
                     break
                 }
@@ -1759,40 +1664,29 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         // tool card still renders instead of silently vanishing. No completion telemetry
                         // here — without the creation frame there's no reliable start time or tool name.
                         const rawServerName = 'posthog'
-                        const rawToolName = String(update.title ?? '')
-                        const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
-                            rawServerName,
-                            rawToolName,
-                            rawInput ?? {}
-                        )
+                        const rawToolName = ''
                         actions.upsertToolInvocation({
                             toolCallId,
                             rawServerName,
                             rawToolName,
-                            innerToolName,
-                            resolvedKey,
                             input: rawInput ?? {},
-                            innerInput,
                             status,
                             title: update.title,
                             locations: update.locations,
                             contentBlocks: updateContent,
+                            meta: update._meta,
                             ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
                         })
                         break
                     }
 
-                    // The tool's args stream in across updates (e.g. an `exec` command or a tool's
-                    // input building up), so fold the latest rawInput in and re-resolve the registry
-                    // key from it rather than freezing the empty input the initial tool_call carried.
-                    const reResolved = rawInput
-                        ? resolveToolKey(
-                              existing.rawServerName,
-                              existing.rawToolName,
-                              rawInput,
-                              existing.claudeToolName
-                          )
-                        : undefined
+                    const nextInput = rawInput ?? existing.input
+                    const nextMeta = update._meta ?? existing.meta
+                    const resolvedForTelemetry = resolveToolCall({
+                        ...existing,
+                        input: nextInput,
+                        meta: nextMeta,
+                    })
                     actions.updateToolInvocation(toolCallId, {
                         status,
                         title: update.title ?? existing.title,
@@ -1802,20 +1696,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         contentBlocks: [...existing.contentBlocks, ...updateContent],
                         error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
                         ...(rawInput ? { input: rawInput } : {}),
-                        ...(reResolved
-                            ? {
-                                  resolvedKey: reResolved.resolvedKey,
-                                  innerToolName: reResolved.innerToolName,
-                                  innerInput: reResolved.innerInput,
-                              }
-                            : {}),
+                        ...(update._meta ? { meta: update._meta } : {}),
                     })
                     // TOOL_CALL_COMPLETED telemetry (optional) — emit once when a tool call first
                     // transitions to a terminal status. `duration_ms` is measured from the turn start
                     // since per-tool start timing isn't carried on the wire. Suppressed while replaying
                     // history so a reopen doesn't re-count prior-session tool calls; the missing-creation
-                    // case is handled above and never reaches here. Report the freshly re-resolved key
-                    // (e.g. an `exec`-wrapped inner tool) rather than the stale initial one.
+                    // case is handled above and never reaches here. Report the key resolved from the
+                    // latest raw input/meta without storing it in stream state.
                     if (
                         cache.bootstrapReplay !== true &&
                         (status === 'completed' || status === 'failed') &&
@@ -1827,7 +1715,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             conversation_id: props.conversationId,
                             trace_id: values.traceId,
                             tool_call_id: toolCallId,
-                            tool_qualified_name: reResolved?.resolvedKey ?? existing.resolvedKey,
+                            tool_qualified_name: resolvedForTelemetry.resolvedKey,
                             status,
                             duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
                             execution_type: 'sandbox',

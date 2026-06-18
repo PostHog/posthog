@@ -9,10 +9,14 @@ import {
     extractVisualizationArtifact,
 } from './extractors'
 
-function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): McpToolCallMessage {
+function toolMessage(
+    rawOutput: unknown,
+    innerInput?: Record<string, unknown>,
+    resolvedKey = 'test-tool'
+): McpToolCallMessage {
     return {
         id: 'call-1',
-        resolvedKey: 'test-tool',
+        resolvedKey,
         rawServerName: 'posthog',
         rawToolName: 'mcp__posthog__exec',
         rawInput: {},
@@ -138,6 +142,19 @@ describe('mcp tool adapter extractors', () => {
             const result = extractQueryResult(toolMessage({ query: { kind: 'TracesQuery' }, results: [] }))
             expect(result?.content.query).toEqual({ kind: 'DataTableNode', source: { kind: 'TracesQuery' } })
             expect(result?.url).toBeNull()
+        })
+
+        it('uses the tool input when optimized streamed results omit structured raw output', () => {
+            const result = extractQueryResult(
+                toolMessage(undefined, { kind: 'TrendsQuery', series: [], output_format: 'optimized' }, 'query-trends')
+            )
+            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
+            expect(result?.url).toBeNull()
+        })
+
+        it('infers the query kind from the wrapper tool key when the input omits kind', () => {
+            const result = extractQueryResult(toolMessage(undefined, { series: [] }, 'query-trends'))
+            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
         })
 
         it('wraps the actors wrapper output (ActorsQuery envelope) untouched in a DataTableNode', () => {
