@@ -122,7 +122,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "delegation_invite": "66",
     "provisioning_welcome": "67",
     "baa_signed_ai_disabled": "68",
-    "oauth_scope_expansion_notice": "70",
+    "oauth_scope_expansion_notice": "71",
 }
 
 
