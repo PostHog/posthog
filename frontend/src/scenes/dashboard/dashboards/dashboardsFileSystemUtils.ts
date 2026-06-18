@@ -175,6 +175,21 @@ export function folderLabel(folder: string): string {
     return splitPath(folder).at(-1) ?? folder
 }
 
+// Sibling folders of `path` (the children of its parent), for the explorer breadcrumb's jump-to-sibling
+// dropdown. A top-level path's siblings are the tree roots; returns [] if the parent isn't in the tree.
+export function folderSiblings(path: string, folderTree: FolderTreeNode[]): FolderTreeNode[] {
+    const segments = splitPath(path)
+    let level = folderTree
+    for (let depth = 1; depth < segments.length; depth++) {
+        const ancestor = level.find((node) => node.path === joinPath(segments.slice(0, depth)))
+        if (!ancestor) {
+            return []
+        }
+        level = ancestor.children
+    }
+    return level
+}
+
 export interface CompactedSubfolder {
     // The deepest folder to navigate to (the end of a single-child chain) when the card is clicked.
     path: string

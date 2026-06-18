@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconFolder } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconFolder } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -11,6 +12,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardCard } from './DashboardCard'
 import { DashboardsDndContext, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
+import { folderSiblings } from './dashboardsFileSystemUtils'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 import { dashboardsLogic } from './dashboardsLogic'
 import { NewFolderButton } from './NewFolderButton'
@@ -20,8 +22,15 @@ import { NewFolderButton } from './NewFolderButton'
 // delete) plus the clipboard paste affordance. A search query flips to a flat global results grid. Shares
 // the FileSystem folder structure (dashboard + folder rows) with the tree arm and sidebar.
 export function DashboardsExplorer(): JSX.Element {
-    const { currentFolderContents, compactedSubfolders, breadcrumb, currentFolder, clipboard, renamingDashboardId } =
-        useValues(dashboardsFileSystemLogic)
+    const {
+        currentFolderContents,
+        compactedSubfolders,
+        breadcrumb,
+        currentFolder,
+        clipboard,
+        renamingDashboardId,
+        folderTree,
+    } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     // The dashboards list is already filtered by the shared search/filters bar; a search query switches
@@ -58,18 +67,47 @@ export function DashboardsExplorer(): JSX.Element {
                     <>
                         <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
-                                {breadcrumb.map((crumb, index) => (
-                                    <span key={crumb.path} className="flex items-center gap-1">
-                                        {index > 0 ? <IconChevronRight className="text-muted" /> : null}
-                                        <button
-                                            type="button"
-                                            className="font-medium"
-                                            onClick={() => navigateToFolder(crumb.path)}
-                                        >
-                                            {crumb.label}
-                                        </button>
-                                    </span>
-                                ))}
+                                {breadcrumb.map((crumb, index) => {
+                                    // Sibling folders, for a jump-to-sibling dropdown (skip the root crumb).
+                                    const siblings = index > 0 ? folderSiblings(crumb.path, folderTree) : []
+                                    return (
+                                        <span key={crumb.path} className="flex items-center gap-1">
+                                            {index > 0 ? <IconChevronRight className="text-muted" /> : null}
+                                            <button
+                                                type="button"
+                                                className="font-medium"
+                                                onClick={() => navigateToFolder(crumb.path)}
+                                            >
+                                                {crumb.label}
+                                            </button>
+                                            {siblings.length > 1 ? (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger
+                                                        render={
+                                                            <Button
+                                                                variant="default"
+                                                                size="icon-sm"
+                                                                aria-label={`Switch ${crumb.label} folder`}
+                                                            />
+                                                        }
+                                                    >
+                                                        <IconChevronDown className="text-tertiary" />
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="start" side="bottom">
+                                                        {siblings.map((sibling) => (
+                                                            <DropdownMenuItem
+                                                                key={sibling.path}
+                                                                onClick={() => navigateToFolder(sibling.path)}
+                                                            >
+                                                                {sibling.label}
+                                                            </DropdownMenuItem>
+                                                        ))}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            ) : null}
+                                        </span>
+                                    )
+                                })}
                             </div>
                             {clipboard ? (
                                 <LemonButton

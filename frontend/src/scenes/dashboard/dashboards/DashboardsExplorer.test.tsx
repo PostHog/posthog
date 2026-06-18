@@ -51,6 +51,7 @@ describe('DashboardsExplorer', () => {
             currentFolderContents: { subfolders: [], dashboards: [] },
             dashboards: [],
             filters: { search: '' },
+            folderTree: [],
             ...overrides,
         })
     }

@@ -10,6 +10,7 @@ import {
     folderContents,
     folderDroppableId,
     folderLabel,
+    folderSiblings,
     parseDashboardDragEnd,
     subtreeDashboards,
 } from './dashboardsFileSystemUtils'
@@ -97,6 +98,14 @@ describe('dashboardsFileSystemUtils', () => {
 
     it('folderLabel returns the last path segment', () => {
         expect(folderLabel('Marketing/Q1')).toEqual('Q1')
+    })
+
+    it('folderSiblings returns the siblings of a path (children of its parent)', () => {
+        const tree = buildFolderTree([], {}, ['Marketing/Q1', 'Marketing/Q2', 'Product'])
+        // siblings of a top-level folder = the tree roots
+        expect(folderSiblings('Marketing', tree).map((node) => node.path)).toEqual(['Marketing', 'Product'])
+        // siblings of a nested folder = its parent's children
+        expect(folderSiblings('Marketing/Q1', tree).map((node) => node.path)).toEqual(['Marketing/Q1', 'Marketing/Q2'])
     })
 
     it('compactFolderChain collapses a single-child pass-through chain to the deepest folder', () => {
