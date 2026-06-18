@@ -45,9 +45,11 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlBarGraph } from './SqlBarGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import {
     AREA_FILL_OPACITY,
+    canRenderSqlBarGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
@@ -734,6 +736,10 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
 
     if (newChartsEnabled && canRenderSqlLineGraph(props)) {
         return <SqlLineGraph {...props} />
+    }
+
+    if (newChartsEnabled && canRenderSqlBarGraph(props)) {
+        return <SqlBarGraph {...props} />
     }
 
     return <LegacyLineGraph {...props} />

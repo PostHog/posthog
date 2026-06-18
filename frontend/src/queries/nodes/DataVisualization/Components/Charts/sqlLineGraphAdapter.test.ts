@@ -7,8 +7,11 @@ import { LineGraphProps } from './LineGraph'
 import {
     AREA_FILL_OPACITY,
     MAX_SERIES,
+    barLayoutForDisplay,
+    buildBarChartConfig,
     buildLineChartConfig,
     buildSeries,
+    canRenderSqlBarGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
@@ -65,6 +68,62 @@ describe('sqlLineGraphAdapter', () => {
         it('falls back when any series targets the right y-axis', () => {
             const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
             expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+        })
+    })
+
+    describe('canRenderSqlBarGraph', () => {
+        it.each([
+            ['line graph', ChartDisplayType.ActionsLineGraph, false],
+            ['area graph', ChartDisplayType.ActionsAreaGraph, false],
+            ['bar graph', ChartDisplayType.ActionsBar, true],
+            ['stacked bar graph', ChartDisplayType.ActionsStackedBar, true],
+        ])('returns %s support correctly for %s', (_name, visualizationType, expected) => {
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType }))).toBe(expected)
+        })
+
+        it.each([
+            ['line', 'line' as const],
+            ['area', 'area' as const],
+        ])('falls back when any series overrides display to %s (mixed combo chart)', (_name, displayType) => {
+            const yData = [ySeries('a', [1]), ySeries('b', [2], { display: { displayType } })]
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        it('falls back when any series has a trend line', () => {
+            const yData = [ySeries('a', [1], { display: { trendLine: true } })]
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        it('falls back when any series targets the right y-axis', () => {
+            const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+    })
+
+    describe('barLayoutForDisplay', () => {
+        it.each([
+            ['grouped bars for a bar graph', ChartDisplayType.ActionsBar, {}, 'grouped'],
+            ['stacked bars for a stacked bar graph', ChartDisplayType.ActionsStackedBar, {}, 'stacked'],
+            [
+                'percent bars when stackBars100 is on for a stacked bar graph',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                'percent',
+            ],
+            [
+                'grouped bars even with stackBars100 (only meaningful for stacked)',
+                ChartDisplayType.ActionsBar,
+                { stackBars100: true },
+                'grouped',
+            ],
+        ])('returns %s', (_name, visualizationType, chartSettings, expected) => {
+            expect(barLayoutForDisplay(visualizationType, chartSettings as ChartSettings)).toBe(expected)
         })
     })
 
@@ -170,6 +229,64 @@ describe('sqlLineGraphAdapter', () => {
         it('defaults to a linear scale with grid shown', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
             expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
+        })
+    })
+
+    describe('buildBarChartConfig', () => {
+        const dateXData: AxisSeries<string> = {
+            column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
+            data: ['2024-01-01', '2024-01-02'],
+        }
+
+        it.each([
+            ['grouped', ChartDisplayType.ActionsBar, {}, 'grouped'],
+            ['stacked', ChartDisplayType.ActionsStackedBar, {}, 'stacked'],
+            ['percent', ChartDisplayType.ActionsStackedBar, { stackBars100: true }, 'percent'],
+        ])('maps %s display to the %s bar layout', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: chartSettings as ChartSettings,
+                timezone: 'UTC',
+                visualizationType,
+            })
+            expect(config.barLayout).toBe(expected)
+        })
+
+        it('shares the date x-axis tick formatter with the line config', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+        })
+
+        it('maps logarithmic scale and y-axis settings like the line config', () => {
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Count', scale: 'logarithmic', showGridLines: false, showTicks: false },
+            }
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.yAxis).toMatchObject({ label: 'Count', scale: 'log', showGrid: false, hide: true })
+        })
+
+        it('forces a linear y-axis scale for percent-stacked bars', () => {
+            const chartSettings: ChartSettings = {
+                stackBars100: true,
+                leftYAxisSettings: { scale: 'logarithmic' },
+            }
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+            })
+            expect(config.yAxis?.scale).toBe('linear')
         })
     })
 })

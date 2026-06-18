@@ -1,5 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { type Series, type TimeSeriesLineChartConfig, createXAxisTickCallback } from '@posthog/quill-charts'
+import {
+    type Series,
+    type TimeSeriesBarChartConfig,
+    type TimeSeriesLineChartConfig,
+    type XAxisConfig,
+    type YAxisConfig,
+    createXAxisTickCallback,
+} from '@posthog/quill-charts'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -52,6 +59,49 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
     return true
 }
 
+/**
+ * Bar and stacked-bar charts render via quill's `TimeSeriesBarChart`. Mixed bar/line/area series
+ * (a per-series `displayType` override) need quill's `ComboChart`, which isn't ported yet, so those
+ * — along with trend lines and right-axis series — fall back to the legacy chart.js path.
+ */
+export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
+    const { visualizationType, yData } = props
+
+    if (visualizationType !== ChartDisplayType.ActionsBar && visualizationType !== ChartDisplayType.ActionsStackedBar) {
+        return false
+    }
+    if (
+        yData?.some((series) => {
+            const displayType = series.settings?.display?.displayType
+            return displayType === 'line' || displayType === 'area'
+        })
+    ) {
+        return false
+    }
+    if (yData?.some((series) => series.settings?.display?.trendLine)) {
+        return false
+    }
+    if (yData?.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
+        return false
+    }
+    return true
+}
+
+/**
+ * Maps the SQL insight display type onto a quill bar layout: grouped bars for {@link
+ * ChartDisplayType.ActionsBar}, stacked bars for {@link ChartDisplayType.ActionsStackedBar}, and
+ * percent-stacked when the legacy `stackBars100` setting is on (only meaningful for stacked bars).
+ */
+export function barLayoutForDisplay(
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings
+): NonNullable<TimeSeriesBarChartConfig['barLayout']> {
+    if (visualizationType === ChartDisplayType.ActionsStackedBar) {
+        return chartSettings.stackBars100 ? 'percent' : 'stacked'
+    }
+    return 'grouped'
+}
+
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
 export function exceedsMaxSeries(yData: LineGraphProps['yData'], dashboardId: LineGraphProps['dashboardId']): boolean {
     return !!yData && yData.length > MAX_SERIES && !dashboardId
@@ -95,28 +145,64 @@ interface BuildConfigArgs {
     goalLines?: GoalLine[]
 }
 
+export interface BuildBarConfigArgs extends BuildConfigArgs {
+    visualizationType: ChartDisplayType
+}
+
+function buildXAxisConfig(xData: AxisSeries<string>, chartSettings: ChartSettings, timezone: string): XAxisConfig {
+    const isDateAxis = xData.column.type.name === 'DATE' || xData.column.type.name === 'DATETIME'
+
+    return {
+        label: chartSettings.xAxisLabel,
+        tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
+        hide: chartSettings.showXAxisTicks === false,
+    }
+}
+
+function buildYAxisConfig(
+    chartSettings: ChartSettings,
+    { forceLinear = false }: { forceLinear?: boolean } = {}
+): YAxisConfig {
+    const yAxis = chartSettings.leftYAxisSettings
+
+    return {
+        label: yAxis?.label,
+        // A logarithmic scale is meaningless for percent-stacked fractions, so force linear there.
+        scale: !forceLinear && yAxis?.scale === 'logarithmic' ? 'log' : 'linear',
+        showGrid: yAxis?.showGridLines ?? true,
+        hide: yAxis?.showTicks === false,
+    }
+}
+
 export function buildLineChartConfig({
     xData,
     chartSettings,
     timezone,
     goalLines,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
-    const isDateAxis = xData.column.type.name === 'DATE' || xData.column.type.name === 'DATETIME'
-    const yAxis = chartSettings.leftYAxisSettings
+    return {
+        xAxis: buildXAxisConfig(xData, chartSettings, timezone),
+        yAxis: buildYAxisConfig(chartSettings),
+        goalLines: schemaGoalLinesToConfigs(goalLines),
+        tooltip: { enabled: true, pinnable: true },
+    }
+}
+
+export function buildBarChartConfig({
+    xData,
+    chartSettings,
+    timezone,
+    goalLines,
+    visualizationType,
+}: BuildBarConfigArgs): TimeSeriesBarChartConfig {
+    const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
 
     return {
-        xAxis: {
-            label: chartSettings.xAxisLabel,
-            tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
-            hide: chartSettings.showXAxisTicks === false,
-        },
-        yAxis: {
-            label: yAxis?.label,
-            scale: yAxis?.scale === 'logarithmic' ? 'log' : 'linear',
-            showGrid: yAxis?.showGridLines ?? true,
-            hide: yAxis?.showTicks === false,
-        },
+        xAxis: buildXAxisConfig(xData, chartSettings, timezone),
+        // quill's percent layout converts the data to 0–1 fractions and auto-formats the axis as %.
+        yAxis: buildYAxisConfig(chartSettings, { forceLinear: barLayout === 'percent' }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        barLayout,
         tooltip: { enabled: true, pinnable: true },
     }
 }
