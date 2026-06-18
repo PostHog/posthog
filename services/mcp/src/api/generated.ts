@@ -11190,6 +11190,14 @@ export namespace Schemas {
       value?: unknown;
     }
 
+    export interface GroupPropFilter {
+      type: 'group';
+      key: string;
+      value?: unknown;
+      operator?: string | null;
+      group_type_index?: number | null;
+    }
+
     export interface BehavioralFilter {
       bytecode?: unknown[] | null;
       bytecode_error?: string | null;
@@ -11209,7 +11217,7 @@ export namespace Schemas {
       seq_event_type?: string | null;
       total_periods?: number | null;
       min_periods?: number | null;
-      event_filters?: (EventPropFilter | HogQLFilter)[] | null;
+      event_filters?: (EventPropFilter | HogQLFilter | GroupPropFilter)[] | null;
       explicit_datetime?: string | null;
       explicit_datetime_to?: string | null;
     }

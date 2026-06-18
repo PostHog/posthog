@@ -97,6 +97,15 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                                         key: zod.string(),
                                                         value: zod.unknown().optional(),
                                                     }),
+                                                    zod.object({
+                                                        type: zod.literal('group'),
+                                                        key: zod.string(),
+                                                        value: zod.unknown().optional(),
+                                                        operator: zod.union([zod.string(), zod.null()]).optional(),
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                    }),
                                                 ])
                                             ),
                                             zod.null(),
@@ -234,6 +243,15 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                         type: zod.literal('hogql'),
                                                         key: zod.string(),
                                                         value: zod.unknown().optional(),
+                                                    }),
+                                                    zod.object({
+                                                        type: zod.literal('group'),
+                                                        key: zod.string(),
+                                                        value: zod.unknown().optional(),
+                                                        operator: zod.union([zod.string(), zod.null()]).optional(),
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
                                                     }),
                                                 ])
                                             ),

@@ -34,6 +34,14 @@ export interface HogQLFilterApi {
     value?: unknown
 }
 
+export interface GroupPropFilterApi {
+    type: 'group'
+    key: string
+    value?: unknown
+    operator?: string | null
+    group_type_index?: number | null
+}
+
 export interface BehavioralFilterApi {
     bytecode?: unknown[] | null
     bytecode_error?: string | null
@@ -53,7 +61,7 @@ export interface BehavioralFilterApi {
     seq_event_type?: string | null
     total_periods?: number | null
     min_periods?: number | null
-    event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
+    event_filters?: (EventPropFilterApi | HogQLFilterApi | GroupPropFilterApi)[] | null
     explicit_datetime?: string | null
     explicit_datetime_to?: string | null
 }
