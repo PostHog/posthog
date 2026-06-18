@@ -349,7 +349,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportInsightCreated: (query: Node | null) => ({ query }),
+        reportInsightStarted: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
@@ -1211,11 +1211,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportInsightCreated: async ({ query }, breakpoint) => {
-            // "insight created" essentially means that the user clicked "New insight"
+        reportInsightStarted: async ({ query }, breakpoint) => {
+            // "insight started" means the user opened a blank insight editor (intent — it may never be
+            // persisted). The actual creation is tracked server-side as "insight created".
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
+            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
         },
         reportInsightMetadataAiGenerated: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generated', { query_kind: queryKind })
@@ -1247,6 +1248,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 insight_id: insightModel.id,
                 insight_short_id: insightModel.short_id,
                 ...sanitizeQuery(query),
+            }
+
+            // The view path passes a bare source node, so sanitizeQuery's `query_kind`/`query_source_kind`
+            // describe the source rather than the wrapper. Override them from the full stored query so
+            // `query_kind` consistently means the top-level node, matching every other insight event.
+            const modelQuery = insightModel.query as Node | null | undefined
+            if (modelQuery) {
+                payload.query_kind = modelQuery.kind
+                payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : undefined
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'

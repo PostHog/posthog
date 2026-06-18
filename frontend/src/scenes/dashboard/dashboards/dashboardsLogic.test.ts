@@ -174,8 +174,8 @@ describe('dashboardsLogic', () => {
         const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': (req) => {
-                    if (req.url.searchParams.get('search')) {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('search')) {
                         return [200, { count: 1, next: null, previous: null, results: [needleDashboard] }]
                     }
                     return [200, { count: 7, next: null, previous: null, results: allDashboards }]
@@ -216,8 +216,8 @@ describe('dashboardsLogic', () => {
         let lastRequestUrl: URL | null = null
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': (req) => {
-                    lastRequestUrl = req.url
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    lastRequestUrl = new URL(request.url)
                     return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
             },

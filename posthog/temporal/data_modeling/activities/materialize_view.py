@@ -35,7 +35,7 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.endpoints.backend.services.materialization import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 

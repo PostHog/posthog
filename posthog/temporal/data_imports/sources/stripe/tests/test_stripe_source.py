@@ -1,5 +1,6 @@
 import pytest
 
+from posthog.temporal.data_imports.sources.generated_configs import StripeAuthMethodConfig, StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
 
@@ -20,6 +21,9 @@ class TestStripeSource:
             # IP allowlist rejection — matched on the stable phrase, ignoring the appended IP address.
             "The API key provided does not allow requests from your IP address.",
             "The API key provided does not allow requests from your IP address (1.2.3.4).",
+            # account_invalid: key not authorized for the configured account, or revoked app access.
+            # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
+            "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -38,3 +42,25 @@ class TestStripeSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "config,expected_message",
+        [
+            # OAuth selected but the integration was never linked (or was deleted): `_get_api_key`
+            # raises ValueError("Missing Stripe integration ID"), an internal string the user can't
+            # act on. validate_credentials must translate it to the reconnect guidance.
+            (
+                StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=None)),
+                "Stripe integration ID is not configured. Please reconnect your Stripe account.",
+            ),
+            (
+                StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key=None)),
+                "Stripe API key is not configured. Please update the source configuration.",
+            ),
+        ],
+    )
+    def test_validate_credentials_missing_config_returns_friendly_message(self, config, expected_message):
+        ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message == expected_message

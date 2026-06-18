@@ -21,7 +21,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql import ValidatedRowFilter, compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -499,6 +503,7 @@ def build_partition_query(
     *,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     """Build a SELECT against one child partition.
 
@@ -513,13 +518,17 @@ def build_partition_query(
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
-        return sql.SQL("SELECT {cols} FROM {schema}.{table}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table}").format(
             cols=select_clause,
             schema=sql.Identifier(child_schema),
             table=sql.Identifier(child_name),
         )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
+        return query
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -528,7 +537,7 @@ def build_partition_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
-    return sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {field} {op} {last_value} ORDER BY {field} ASC").format(
+    query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {field} {op} {last_value}").format(
         cols=select_clause,
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
@@ -536,6 +545,9 @@ def build_partition_query(
         op=operator,
         last_value=sql.Literal(db_incremental_field_last_value),
     )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
 
 
 def iterate_partitions(
