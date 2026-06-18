@@ -1,9 +1,12 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -22,8 +25,8 @@ describe('personalAPIKeysLogic', () => {
                 '/api/projects/': { results: [], count: 0, next: null, previous: null },
             },
             post: {
-                '/api/personal_api_keys/': async (req) => {
-                    capturedCreatePayload = await req.json()
+                '/api/personal_api_keys/': async ({ request }) => {
+                    capturedCreatePayload = await request.json()
                     return [
                         200,
                         {
@@ -43,6 +46,8 @@ describe('personalAPIKeysLogic', () => {
         featureFlagLogic.mount()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        // createKeySuccess opens a LemonDialog with a CodeSnippet, which reads themeLogic.
+        themeLogic.mount()
 
         logic = personalAPIKeysLogic()
         logic.mount()
@@ -59,6 +64,8 @@ describe('personalAPIKeysLogic', () => {
         })
 
         await logic.asyncActions.submitEditingKey()
+        // The form submit's API call settles asynchronously under MSW v2 — drain it
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'insight:write'])
@@ -78,6 +85,8 @@ describe('personalAPIKeysLogic', () => {
         })
 
         await logic.asyncActions.submitEditingKey()
+        // The form submit's API call settles asynchronously under MSW v2 — drain it
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'llm_gateway:read'])
@@ -94,6 +103,8 @@ describe('personalAPIKeysLogic', () => {
         })
 
         await logic.asyncActions.submitEditingKey()
+        // The form submit's API call settles asynchronously under MSW v2 — drain it
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])

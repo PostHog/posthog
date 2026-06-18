@@ -337,7 +337,6 @@ test.describe('Trends insights', () => {
             await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
             await expect(insight.saveButton).toBeEnabled()
             await insight.discard()
-            // Wait for mode transition to complete first (Edit → View)
             await expect(insight.editButton).toBeVisible()
             await insight.trends.waitForChart()
             // Handle race where DateFilter state is lost during mode transition remount

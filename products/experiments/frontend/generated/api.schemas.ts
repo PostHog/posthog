@@ -922,6 +922,126 @@ export interface ShipVariantApi {
 }
 
 /**
+ * * `funnel` - funnel
+ * * `mean_count` - mean_count
+ * * `mean_sum_or_avg` - mean_sum_or_avg
+ * * `ratio` - ratio
+ * * `retention` - retention
+ */
+export type MetricTypeEnumApi = (typeof MetricTypeEnumApi)[keyof typeof MetricTypeEnumApi]
+
+export const MetricTypeEnumApi = {
+    Funnel: 'funnel',
+    MeanCount: 'mean_count',
+    MeanSumOrAvg: 'mean_sum_or_avg',
+    Ratio: 'ratio',
+    Retention: 'retention',
+} as const
+
+/**
+ * Raw control-group statistics the calculator uses to derive a baseline value and variance.
+ *
+ * Supply this when you want the server to compute the baseline value and (for ratio/retention)
+ * the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+ */
+export interface RunningTimeBaselineStatsApi {
+    /**
+     * Number of control-group samples (users/units) observed.
+     * @minimum 0
+     */
+    number_of_samples: number
+    /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
+    sum: number
+    /** Sum of squared metric values. Required for ratio/retention variance. */
+    sum_squares?: number
+    /**
+     * Sum of the denominator values. Required for ratio/retention metrics.
+     * @nullable
+     */
+    denominator_sum?: number | null
+    /**
+     * Sum of squared denominator values (ratio/retention variance).
+     * @nullable
+     */
+    denominator_sum_squares?: number | null
+    /**
+     * Sum of numerator×denominator products, used for the delta-method covariance term.
+     * @nullable
+     */
+    numerator_denominator_sum_product?: number | null
+    /** Per-step counts for funnel metrics; the last entry is the final-step count. */
+    step_counts?: number[]
+}
+
+/**
+ * Inputs for estimating the recommended sample size and running time of an experiment.
+ */
+export interface RunningTimeCalculationInputApi {
+    /** Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).
+     *
+     * * `funnel` - funnel
+     * * `mean_count` - mean_count
+     * * `mean_sum_or_avg` - mean_sum_or_avg
+     * * `ratio` - ratio
+     * * `retention` - retention */
+    metric_type: MetricTypeEnumApi
+    /**
+     * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.
+     * @minimum 0
+     */
+    minimum_detectable_effect: number
+    /**
+     * Total number of variants including control (default 2).
+     * @minimum 2
+     */
+    number_of_variants?: number
+    /**
+     * Expected exposures per day. When provided, the response includes the recommended running time.
+     * @minimum 0
+     * @nullable
+     */
+    exposure_rate_per_day?: number | null
+    /**
+     * Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.
+     * @nullable
+     */
+    baseline_value?: number | null
+    /**
+     * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+     * @nullable
+     */
+    variance?: number | null
+    /** Raw control-group statistics. When provided, the server derives baseline_value and variance. */
+    baseline_stats?: RunningTimeBaselineStatsApi | null
+}
+
+/**
+ * Estimated sample size and running time for the given inputs.
+ */
+export interface RunningTimeCalculationResultApi {
+    /**
+     * Baseline metric value used in the calculation (echoed or derived from stats).
+     * @nullable
+     */
+    baseline_value: number | null
+    /**
+     * Variance used in the calculation; null for funnel metrics (implicit in p(1-p)).
+     * @nullable
+     */
+    variance: number | null
+    /**
+     * Total recommended sample size across all variants. Null if inputs are insufficient.
+     * @nullable
+     */
+    recommended_sample_size: number | null
+    /**
+     * Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.
+     * @nullable
+     */
+    recommended_running_time_days: number | null
+}
+
+/**
  * * `cost` - cost
  * * `latency` - latency
  * * `eval_pass_rate` - eval_pass_rate
@@ -990,9 +1110,9 @@ export type ExperimentsListParams = {
      */
     archived?: boolean
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number
+    created_by_id?: string
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */

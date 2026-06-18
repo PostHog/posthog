@@ -14,6 +14,7 @@ from posthog.schema import (
     PropertyOperator,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -203,7 +204,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, f"expected a READY precompute job for {breakdown_by}"
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
     @parameterized.expand(PARITY_BREAKDOWNS)
@@ -243,7 +244,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.VIEWPORT))
 
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert len(response.results) > 0
         assert all(isinstance(row[0], tuple) and len(row[0]) == 2 for row in response.results)
 
@@ -331,7 +332,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
         assert self._job_count() > 0
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -363,7 +364,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -395,7 +396,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -585,9 +586,9 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(query)
 
         assert self._job_count() == 0
-        # Raw path leaves `usedLazyPrecompute` unset; the failure mode we're
-        # guarding against is the lazy path silently serving with a rewritten sort.
-        assert response.usedLazyPrecompute is not True
+        # Raw path leaves `preComputeStrategy` off the lazy strategy; the failure mode
+        # we're guarding against is the lazy path silently serving with a rewritten sort.
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_pagination_page_two_lazy_matches_raw(self):
@@ -651,7 +652,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(query)
 
         lazy_metrics = self._metrics(lazy_response)
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy_response.hasMore is True, "should report more rows past the requested page"
         assert len(lazy_metrics) == 3
         # Visitors are monotonically non-increasing on the returned page.

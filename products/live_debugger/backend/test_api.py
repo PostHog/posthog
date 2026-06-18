@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
@@ -324,6 +325,38 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    @parameterized.expand(
+        [
+            ("wrong_scope", ["endpoint:read"], status.HTTP_403_FORBIDDEN),
+            ("unauthenticated", None, status.HTTP_401_UNAUTHORIZED),
+        ]
+    )
+    def test_active_breakpoints_endpoint_rejects_invalid_psak_access(self, _name, scopes, expected_status):
+        LiveDebuggerBreakpoint.objects.create(
+            team=self.team,
+            repository="PostHog/posthog",
+            filename="enabled.py",
+            line_number=100,
+            enabled=True,
+        )
+
+        headers = {}
+        if scopes is not None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "invalid-live-debugger", "scopes": scopes},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            headers = {"authorization": f"Bearer {response.json()['value']}"}
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_breakpoints/active/",
+            headers=headers,
+        )
+
+        self.assertEqual(response.status_code, expected_status)
 
     def test_active_breakpoints_filter_by_filename(self):
         LiveDebuggerBreakpoint.objects.create(

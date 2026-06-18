@@ -206,3 +206,6 @@ tools:
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
         enabled: false
+    tracing-spans-symbol-stats-create:
+        operation: tracing_spans_symbol_stats_create
+        enabled: false

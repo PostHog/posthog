@@ -40,6 +40,7 @@ def _patched_activity(source_mock):
 
     schema = mock.MagicMock()
     schema.should_use_incremental_field = False
+    schema.row_filters = None
 
     with (
         mock.patch.object(module, "tag_queries"),

@@ -126,11 +126,12 @@ skill with `posthog:signals-scout-config-create {"skill_name": "signals-scout-<s
 setting any of the fields below in the same call — including creating it disabled or in
 dry-run **before it ever runs**. (It's an upsert: if the coordinator already auto-registered
 the row, your fields are applied to it.) Otherwise the coordinator auto-registers an enabled
-hourly default on its next tick (up to ~30 min). For an **existing scout**, tune with
-`posthog:signals-scout-config-update` (find the `id` via `-config-list`):
+config on the default every-3-hours schedule on its next tick (up to ~30 min). For an
+**existing scout**, tune with `posthog:signals-scout-config-update` (find the `id` via
+`-config-list`):
 
-- `run_interval_minutes` — 10 to 43200. Default 60 (hourly). Slow a chatty or expensive
-  scout by raising this.
+- `run_interval_minutes` — 10 to 43200. Default 180 (every 3 hours). Slow a chatty or
+  expensive scout by raising this.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its findings straight to the inbox. The
   standard flow is to make a scout and let it emit — seeing what actually lands is the
@@ -149,14 +150,14 @@ actually lands.
    soon — set it at creation via
    `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 10}`
    right after `skill-create`, rather than waiting for the coordinator to
-   auto-register an hourly default.
+   auto-register the default every-3-hours schedule.
 2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
    emitted), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full
    reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 3. Refine the body — tighten the discriminator, add disqualifiers for whatever it
    false-positived on, fix the emit calibration.
 4. Once it's landing the right findings, restore the interval to something sustainable
-   (hourly+).
+   (the 3h default or longer).
 
 **Want to be extra careful?** Set `emit=false` to dry-run first — create the config with
 `emit=false` via `-config-create` so the scout never has a live first run; it runs and logs

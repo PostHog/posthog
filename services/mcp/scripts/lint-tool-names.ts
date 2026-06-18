@@ -27,7 +27,7 @@ import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions } from './lib/definitions.mjs'
-import { checkReferencesInText, type Violation } from './lib/tool-references'
+import { checkReferencesInText, type ReferenceFinding, type Violation } from './lib/tool-references'
 import {
     CategoryConfigSchema,
     MAX_TOOL_NAME_LENGTH,
@@ -128,15 +128,15 @@ function discoverSkillNames(): Set<string> {
     return skillNames
 }
 
-function validateToolReferences(violations: Violation[], toolNames: Set<string>): void {
+function collectToolReferenceFindings(findings: ReferenceFinding[], toolNames: Set<string>): void {
     const skillNames = discoverSkillNames()
     const seen = new Set<string>()
 
-    // YAML sources first so violations point at the editable file, not the generated JSON.
+    // YAML sources first so findings point at the editable file, not the generated JSON.
     const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
     for (const def of definitions) {
         const label = path.relative(REPO_ROOT, def.filePath)
-        checkReferencesInText(fs.readFileSync(def.filePath, 'utf-8'), label, toolNames, skillNames, seen, violations)
+        checkReferencesInText(fs.readFileSync(def.filePath, 'utf-8'), label, toolNames, skillNames, seen, findings)
     }
 
     if (fs.existsSync(SCHEMA_DIR)) {
@@ -151,13 +151,14 @@ function validateToolReferences(violations: Violation[], toolNames: Set<string>)
                 toolNames,
                 skillNames,
                 seen,
-                violations
+                findings
             )
         }
     }
 
     // The tool-schema snapshots carry serializer help_text (via the OpenAPI spec); a hit here
-    // means the fix belongs in a Django serializer, followed by regeneration.
+    // means the fix belongs in a Django serializer, followed by regeneration. The label stays a
+    // clean repo-relative path so the CI annotation lands on the file.
     const snapshotsDir = path.resolve(MCP_ROOT, 'tests', 'unit', '__snapshots__', 'tool-schemas')
     if (fs.existsSync(snapshotsDir)) {
         for (const file of fs.readdirSync(snapshotsDir)) {
@@ -165,10 +166,31 @@ function validateToolReferences(violations: Violation[], toolNames: Set<string>)
                 continue
             }
             const filePath = path.join(snapshotsDir, file)
-            const label = `${path.relative(REPO_ROOT, filePath)} (fix the serializer help_text, then regenerate)`
-            checkReferencesInText(fs.readFileSync(filePath, 'utf-8'), label, toolNames, skillNames, seen, violations)
+            const label = path.relative(REPO_ROOT, filePath)
+            checkReferencesInText(fs.readFileSync(filePath, 'utf-8'), label, toolNames, skillNames, seen, findings)
         }
     }
+}
+
+// Reference findings are advisory: surface them (as CI annotations on the offending line, or plain
+// warnings locally) but never fail the lint, because the check is a heuristic that can misfire.
+function emitReferenceFindings(findings: ReferenceFinding[]): void {
+    if (findings.length === 0) {
+        return
+    }
+    const inGithubActions = process.env.GITHUB_ACTIONS === 'true'
+    for (const f of findings) {
+        if (inGithubActions) {
+            process.stdout.write(
+                `::warning file=${f.source},line=${f.line},col=${f.col},title=Possible stale reference::${f.message}\n`
+            )
+        } else {
+            process.stderr.write(`${f.source}:${f.line}:${f.col}: warning: ${f.message}\n`)
+        }
+    }
+    process.stderr.write(
+        `\nNote: ${findings.length} possible stale tool/skill reference(s) flagged above (advisory, not blocking).\n`
+    )
 }
 
 function main(): void {
@@ -182,24 +204,24 @@ function main(): void {
         hasErrors = validateJsonDefinitions(jsonFile, violations, knownToolNames) || hasErrors
     }
 
-    validateToolReferences(violations, knownToolNames)
+    const referenceFindings: ReferenceFinding[] = []
+    collectToolReferenceFindings(referenceFindings, knownToolNames)
+    emitReferenceFindings(referenceFindings)
 
     if (violations.length === 0) {
         if (!hasErrors) {
             process.stdout.write(
-                `All tool names pass validation (max ${MAX_TOOL_NAME_LENGTH} chars, pattern ${TOOL_NAME_PATTERN}) and all tool/skill references resolve.\n`
+                `All tool names pass validation (max ${MAX_TOOL_NAME_LENGTH} chars, pattern ${TOOL_NAME_PATTERN}).\n`
             )
         }
         return
     }
 
-    process.stderr.write(`Found ${violations.length} tool name / reference violation(s):\n\n`)
+    process.stderr.write(`Found ${violations.length} tool name violation(s):\n\n`)
     for (const v of violations) {
         process.stderr.write(`  ${v.tool}: ${v.reason} (${v.source})\n`)
     }
-    process.stderr.write(
-        `\nTo fix: shorten/rename the tool name, or correct the stale reference in the description. False positive? Add it to REFERENCE_ALLOWLIST in scripts/lib/tool-references.ts.\n`
-    )
+    process.stderr.write(`\nTo fix: shorten or rename the tool name to satisfy the length/pattern constraints.\n`)
     process.exitCode = 1
 }
 
