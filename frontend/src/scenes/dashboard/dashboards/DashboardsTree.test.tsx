@@ -15,6 +15,17 @@ jest.mock('./DashboardsTable', () => ({
         </div>
     ),
 }))
+// Stub LemonTree: render each folder's name (recursively) as a button that fires onFolderClick.
+jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
+    const renderNodes = (items: any[], onFolderClick: any): any =>
+        items.map((item: any) => (
+            <div key={item.id}>
+                <button onClick={() => onFolderClick(item)}>{item.name}</button>
+                {item.children ? renderNodes(item.children, onFolderClick) : null}
+            </div>
+        ))
+    return { LemonTree: ({ data, onFolderClick }: any) => <div>{renderNodes(data, onFolderClick)}</div> }
+})
 
 describe('DashboardsTree', () => {
     const navigateToFolder = jest.fn()
@@ -39,7 +50,7 @@ describe('DashboardsTree', () => {
         })
     }
 
-    it('renders the full folder tree (nested) and the scoped dashboards table', () => {
+    it('renders the folder tree (nested) and the scoped dashboards table', () => {
         mockValues({
             folderTree: [
                 {
@@ -54,7 +65,6 @@ describe('DashboardsTree', () => {
         expect(screen.getByText('All dashboards')).toBeInTheDocument()
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
-        // The scoped dashboards are handed to the table (mocked here to render their names).
         expect(screen.getByText('Revenue')).toBeInTheDocument()
     })
 
@@ -65,19 +75,10 @@ describe('DashboardsTree', () => {
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
     })
 
-    it('collapses a node with children via the chevron without navigating', () => {
-        mockValues({
-            folderTree: [
-                {
-                    path: 'Marketing',
-                    label: 'Marketing',
-                    children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
-                },
-            ],
-        })
+    it('navigates to the root via the All dashboards button', () => {
+        mockValues({ folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }] })
         render(<DashboardsTree />)
-        fireEvent.click(screen.getByLabelText('Collapse folder'))
-        expect(toggleFolder).toHaveBeenCalledWith('Marketing')
-        expect(navigateToFolder).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByText('All dashboards'))
+        expect(navigateToFolder).toHaveBeenCalledWith('')
     })
 })

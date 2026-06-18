@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconFolder } from '@posthog/icons'
+import { IconFolder } from '@posthog/icons'
 
+import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -11,85 +12,48 @@ import { FolderTreeNode } from './dashboardsFileSystemUtils'
 import { DashboardsTable } from './DashboardsTable'
 import { NewFolderButton } from './NewFolderButton'
 
-interface TreeNodeProps {
-    node: FolderTreeNode
-    depth: number
-    currentFolder: string
-    collapsedFolders: Record<string, boolean>
-    onNavigate: (folder: string) => void
-    onToggle: (folder: string) => void
+// Map our folder tree onto LemonTree's item shape. record.type 'folder' makes even childless folders
+// behave as folders (so onFolderClick fires for them), and the path doubles as the unique id.
+function toTreeData(nodes: FolderTreeNode[]): TreeDataItem[] {
+    return nodes.map((node) => ({
+        id: node.path,
+        name: node.label,
+        record: { type: 'folder', path: node.path },
+        children: node.children.length > 0 ? toTreeData(node.children) : undefined,
+    }))
 }
 
-// Recursive folder row. State is read once in DashboardsTree and passed down, so the tree doesn't open
-// one logic subscription per node.
-function TreeNode({ node, depth, currentFolder, collapsedFolders, onNavigate, onToggle }: TreeNodeProps): JSX.Element {
-    const collapsed = !!collapsedFolders[node.path]
-    const hasChildren = node.children.length > 0
-    const isCurrent = currentFolder === node.path
-
-    return (
-        <div>
-            <div
-                className={cn('flex items-center gap-1 rounded', isCurrent && 'bg-accent-highlight-secondary')}
-                style={{ paddingLeft: `${depth * 16}px` }}
-            >
-                <button
-                    type="button"
-                    className="flex items-center justify-center w-4 shrink-0"
-                    aria-label={hasChildren ? (collapsed ? 'Expand folder' : 'Collapse folder') : undefined}
-                    onClick={() => hasChildren && onToggle(node.path)}
-                >
-                    {hasChildren ? collapsed ? <IconChevronRight /> : <IconChevronDown /> : null}
-                </button>
-                <button
-                    type="button"
-                    className="flex items-center gap-1 flex-1 text-left py-1 min-w-0"
-                    data-attr="dashboards-tree-folder"
-                    onClick={() => onNavigate(node.path)}
-                >
-                    <IconFolder className="text-muted shrink-0" />
-                    <span className={cn('truncate', isCurrent && 'font-semibold')}>{node.label}</span>
-                </button>
-            </div>
-            {hasChildren && !collapsed ? (
-                <div>
-                    {node.children.map((child) => (
-                        <TreeNode
-                            key={child.path}
-                            node={child}
-                            depth={depth + 1}
-                            currentFolder={currentFolder}
-                            collapsedFolders={collapsedFolders}
-                            onNavigate={onNavigate}
-                            onToggle={onToggle}
-                        />
-                    ))}
-                </div>
-            ) : null}
-        </div>
-    )
+function collectPaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
+    for (const node of nodes) {
+        acc.push(node.path)
+        collectPaths(node.children, acc)
+    }
+    return acc
 }
 
-// Tree arm (variant=tree): a persistent folder tree on the left (full hierarchy, one click to any folder)
-// beside the familiar dashboards table on the right, scoped to everything at or below the selected folder
-// (root = all). The table brings its own row actions (move to folder, rename, delete, pin), so organizing
-// happens there. Shares the FileSystem folder structure with the explorer arm and sidebar.
+// Tree arm (variant=tree): the sidebar's LemonTree as a persistent folder panel on the left, beside the
+// familiar dashboards table on the right scoped to everything at or below the selected folder (root = all).
+// Expansion reuses the logic's collapsedFolders; the table brings its own row actions (move/rename/delete),
+// so organizing happens there. Shares the FileSystem folder structure with the explorer arm and sidebar.
 export function DashboardsTree(): JSX.Element {
     const { folderTree, currentFolder, currentSubtreeDashboards, collapsedFolders } =
         useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
+    const allPaths = collectPaths(folderTree)
+    const expandedItemIds = allPaths.filter((path) => !collapsedFolders[path])
+
     return (
         <div className="grid grid-cols-[240px_1fr] gap-4" data-attr="dashboards-tree">
-            <div className="flex flex-col gap-0.5 border-r border-border pr-2" aria-label="Folder tree">
-                <div className="pb-1">
+            <div className="flex flex-col gap-1 border-r border-border pr-2" aria-label="Folder tree">
+                <div>
                     <NewFolderButton />
                 </div>
                 <button
                     type="button"
                     className={cn(
-                        'flex items-center gap-1 py-1 w-full text-left rounded',
+                        'flex items-center gap-1 py-1 px-1 w-full text-left rounded',
                         currentFolder === '' && 'font-semibold bg-accent-highlight-secondary'
                     )}
                     onClick={() => navigateToFolder('')}
@@ -97,17 +61,20 @@ export function DashboardsTree(): JSX.Element {
                     <IconFolder className="text-muted shrink-0" />
                     All dashboards
                 </button>
-                {folderTree.map((node) => (
-                    <TreeNode
-                        key={node.path}
-                        node={node}
-                        depth={0}
-                        currentFolder={currentFolder}
-                        collapsedFolders={collapsedFolders}
-                        onNavigate={navigateToFolder}
-                        onToggle={toggleFolder}
-                    />
-                ))}
+                <LemonTree
+                    data={toTreeData(folderTree)}
+                    expandedItemIds={expandedItemIds}
+                    onSetExpandedItemIds={(newIds) => {
+                        // LemonTree hands back the full expanded set; toggle the one folder that changed.
+                        const expanded = new Set(newIds)
+                        const toggled = allPaths.find((path) => !collapsedFolders[path] !== expanded.has(path))
+                        if (toggled) {
+                            toggleFolder(toggled)
+                        }
+                    }}
+                    isItemActive={(item) => item.record?.path === currentFolder}
+                    onFolderClick={(folder) => folder && navigateToFolder((folder.record?.path as string) ?? '')}
+                />
             </div>
             <div className="min-w-0" data-attr="dashboards-tree-content">
                 <DashboardsTable dashboards={currentSubtreeDashboards} dashboardsLoading={dashboardsLoading} />
