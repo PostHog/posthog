@@ -71,6 +71,11 @@ function aliasOf(absNoExt) {
 }
 
 function resolveSpecifier(spec, importer) {
+    // Normalize away a TS/JS extension before resolving. nodenext relative imports carry a
+    // `.js` suffix, but the alias we emit must be extension-less: jest's moduleNameMapper only
+    // strips `.js` from relative specifiers, not from `~/` aliases, so `~/foo.js` would map to a
+    // non-existent `src/foo.js` and fail to resolve at test runtime (tsc tolerates it).
+    spec = spec.replace(/\.(?:c|m)?[jt]sx?$/, '')
     if (spec.startsWith('~/tests/')) {
         return path.join(TESTS, spec.slice('~/tests/'.length))
     }

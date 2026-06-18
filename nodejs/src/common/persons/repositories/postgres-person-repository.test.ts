@@ -17,7 +17,7 @@ import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
-jest.mock('../../../../utils/logger')
+jest.mock('~/utils/logger')
 
 describe('PostgresPersonRepository', () => {
     let hub: Hub
