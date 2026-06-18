@@ -4,6 +4,8 @@ PostHog's own MCP server emits a `mcp_tool_call` event on the shared `events` ta
 
 **HogQL is the primary path here.** Session listing, per-session tool calls, tool-level metrics (error rate, latency, adoption), harness breakdowns, time series, and co-occurrence are all just aggregations over this event — query them with `execute-sql`. The only typed tools are for things SQL can't express: `posthog:mcp-analytics-intent-clusters-retrieve` / `...-recompute` (embedding-based intent clustering) and `posthog:mcp-analytics-sessions-generate-intent` (LLM session summary).
 
+> **Verify property names before querying.** The `$mcp_*` property set drifts as the `@posthog/mcp` SDK evolves — properties get renamed or retired. Confirm a property still exists (and carries data) with `read-data-schema` (`kind: event_properties` / `event_property_values` for `mcp_tool_call`) before relying on it, rather than trusting any single example here.
+
 ## Key properties
 
 | Property                   | Meaning                                                                                                                                  |
@@ -15,7 +17,8 @@ PostHog's own MCP server emits a `mcp_tool_call` event on the shared `events` ta
 | `$mcp_duration_ms`         | Wall-clock duration; cast with `toFloat(...)`.                                                                                           |
 | `$mcp_session_id`          | Session/conversation id — the grouping key for a single agent run.                                                                       |
 | `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                   |
-| `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). The dashboard buckets these into harnesses in the frontend; there is no `category` column. |
+| `mcp_session_client_name`  | Short client token (e.g. `claude-code`, `Anthropic/ClaudeAI`, `cursor-vscode`, sometimes with a `(via mcp-remote …)` suffix). Bucketed into harnesses in the frontend; there is no `category` column. |
+| `$mcp_client_user_agent`   | Full client User-Agent (e.g. `claude-code/2.1.181 (cli)`, `Cursor/3.7.36 (darwin arm64)`). Carries version + runtime mode; use when the short token alone doesn't disambiguate. |
 | `$mcp_tool_category`       | Tool category, when tagged.                                                                                                              |
 | `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                             |
 
@@ -77,7 +80,7 @@ GROUP BY day ORDER BY day
 
 ### Harness (client) bucketing
 
-`$mcp_client_name` is the raw client string the MCP client sends (`claude-code/1.2.3`, `Anthropic/ClaudeAI`, `windsurf`, sometimes with a `(via mcp-remote …)` suffix). A bare `GROUP BY properties.$mcp_client_name` therefore fragments a single harness across version/variant strings. To group by harness, normalize the raw client name in an inner subquery, then bucket it with `multiIf`. This mapping mirrors `HARNESS_CATEGORIES` / `categorizeHarness()` in `products/mcp_analytics/frontend/mcpDashboardOverviewLogic.ts` — keep the two in sync until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+`mcp_session_client_name` is the short client token the MCP client sends (`claude-code`, `Anthropic/ClaudeAI`, `cursor-vscode`, sometimes with a `(via mcp-remote …)` suffix). A bare `GROUP BY properties.mcp_session_client_name` therefore fragments a single harness across variant strings. To group by harness, normalize the raw client name in an inner subquery, then bucket it with `multiIf`. This mapping mirrors `HARNESS_CATEGORIES` / `categorizeHarness()` in `products/mcp_analytics/frontend/mcpDashboardOverviewLogic.ts` — keep the two in sync until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.) For finer per-version/runtime cuts, use `$mcp_client_user_agent` instead (e.g. `claude-code/2.1.181 (cli)`).
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -114,7 +117,7 @@ FROM (
     FROM (
         SELECT
             distinct_id,
-            lower(trim(replaceRegexpOne(toString(properties.$mcp_client_name), '\\s*\\(via mcp-remote[^)]*\\)\\s*', ''))) AS h
+            lower(trim(replaceRegexpOne(toString(properties.mcp_session_client_name), '\\s*\\(via mcp-remote[^)]*\\)\\s*', ''))) AS h
         FROM events
         WHERE event = 'mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     )

@@ -74,8 +74,6 @@ Schema reference for PostHog's core system models, organized by domain:
 From | Relation | To | Join
 Experiment | 1:1 | FeatureFlag | `feature_flag_id`
 Experiment | N:1 | Cohort | `exposure_cohort_id`
-Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
-Survey | N:1 | Insight | `linked_insight_id`
 Cohort | M:N | Person | via `cohortpeople`
 Person | 1:N | PersonDistinctId | `person_id`
 
