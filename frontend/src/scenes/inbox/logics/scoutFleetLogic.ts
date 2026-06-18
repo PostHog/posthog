@@ -48,6 +48,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
         setExpanded: (expanded: boolean) => ({ expanded }),
+        // Started/stopped by the fleet-list component so the always-mounted setup widget
+        // (which only reads configs) doesn't trigger the paginated runs-window polling.
+        startRunsPolling: true,
+        stopRunsPolling: true,
         startScoutChatTask: (prompt: string, taskLabel: string, fallbackTitle: string) => ({
             prompt,
             taskLabel,
@@ -88,8 +92,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             date_to: cursor,
                         })
                         for (const run of pageRuns) {
-                            // Cursor is `started_at` but the filter is exclusive on `created_at`;
-                            // dedupe by run_id in case a boundary row reappears across pages.
+                            // `date_to` is exclusive, so a boundary row can reappear on the next
+                            // page — dedupe by run_id to be safe.
                             if (!seen.has(run.run_id)) {
                                 seen.add(run.run_id)
                                 runs.push(run)
@@ -100,13 +104,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             complete = true
                             break
                         }
+                        // Cursor on `created_at` — the exact field the endpoint filters/orders on, so
+                        // the walk can't skip runs (`started_at` is the TaskRun's time and can differ).
                         const oldest = pageRuns[pageRuns.length - 1]
-                        // No usable cursor (or no forward progress) — stop rather than loop.
-                        if (!oldest.started_at || oldest.started_at === cursor) {
-                            complete = true
+                        // No usable cursor, or the cursor can't advance (a full page of identical
+                        // timestamps): stop, but the page was full so the window is NOT complete.
+                        if (!oldest.created_at || oldest.created_at === cursor) {
                             break
                         }
-                        cursor = oldest.started_at
+                        cursor = oldest.created_at
                     }
 
                     return { runs, complete }
@@ -190,7 +196,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
             const previousConfig = values.scoutConfigs?.find((config) => config.id === configId)
             // Optimistic update so the toggle/select feels instant.
@@ -230,18 +236,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskFailure()
             }
         },
-    })),
-
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            actions.loadScoutConfigs()
+        startRunsPolling: () => {
+            // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
+            // fresh. The keyed disposable replaces any prior poll and is torn down on
+            // stopRunsPolling / unmount / tab hide.
             actions.loadRunsWindow()
-            // Slow poll keeps "running now" + recent emissions fresh. The keyed disposable
-            // is torn down automatically on unmount / tab hide.
             cache.disposables.add(() => {
                 const interval = setInterval(() => actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)
             }, 'runsPoll')
+        },
+        stopRunsPolling: () => {
+            cache.disposables.dispose('runsPoll')
+        },
+    })),
+
+    events(({ actions }) => ({
+        afterMount: () => {
+            // Configs are cheap and the always-mounted setup widget needs them. The paginated
+            // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
+            actions.loadScoutConfigs()
         },
     })),
 ])
