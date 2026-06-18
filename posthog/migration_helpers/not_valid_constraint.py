@@ -32,9 +32,14 @@ nothing:
         ValidateConstraint(model_name="mymodel", name="mymodel_amount_gte_0"),
     ]
 
-Both phases disable lock_timeout / statement_timeout first (like the concurrent
-index helpers): otherwise a deploy-time statement_timeout would kill the VALIDATE
-scan mid-flight on a large table and every bin/migrate retry would do the same.
+The VALIDATE phase disables lock_timeout / statement_timeout first (like the
+concurrent index helpers): otherwise a deploy-time statement_timeout would kill
+the scan mid-flight on a large table and every bin/migrate retry would do the
+same. VALIDATE only takes SHARE UPDATE EXCLUSIVE, so waiting for the lock doesn't
+block traffic. The ADD phase deliberately does NOT touch the timeouts: it's a
+brief metadata-only ALTER under ACCESS EXCLUSIVE, so it should fail fast on lock
+contention (the default lock_timeout) instead of queuing the lock behind in-flight
+queries and stalling the table.
 
 Both phases are idempotent (bin/migrate re-runs the whole migration on failure):
 the add skips if the constraint already exists, the validate skips if it is
@@ -78,6 +83,11 @@ class AddConstraintNotValid(migrations.AddConstraint):
     constraints (build a unique index with `SafeAddIndexConcurrently` instead).
     """
 
+    # django-stubs doesn't expose these AddConstraint instance attributes, so
+    # declare them for mypy (set by AddConstraint.__init__).
+    model_name: str
+    constraint: CheckConstraint
+
     def __init__(self, model_name, constraint) -> None:
         if not isinstance(constraint, CheckConstraint):
             raise ValueError(
@@ -91,7 +101,10 @@ class AddConstraintNotValid(migrations.AddConstraint):
         model = to_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
-        _disable_timeouts(schema_editor)  # a deploy-time lock_timeout must not cancel the brief ACCESS EXCLUSIVE lock
+        # No timeout disabling here: NOT VALID is a brief metadata-only ALTER (no
+        # table scan), so it should keep the default lock_timeout and fail fast on
+        # lock contention rather than queue an ACCESS EXCLUSIVE lock behind in-flight
+        # queries. A bin/migrate retry re-attempts once the lock is free.
         if _constraint_validity(schema_editor, model._meta.db_table, self.constraint.name) is not None:
             return  # already added; a bin/migrate retry is a no-op
         schema_editor.execute(f"{self.constraint.create_sql(model, schema_editor)} NOT VALID")

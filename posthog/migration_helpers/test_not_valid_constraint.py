@@ -210,20 +210,11 @@ def test_validate_constraint_reverse_is_noop(temp_model):
     assert _convalidated(name) is True  # constraint untouched by the reverse
 
 
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "op",
-    [
-        AddConstraintNotValid(model_name=MODEL_NAME, constraint=_check("tchk")),
-        ValidateConstraint(model_name=MODEL_NAME, name="tchk"),
-    ],
-)
-def test_database_forwards_disables_timeouts(op):
-    """Both phases must disable lock_timeout/statement_timeout before issuing DDL,
-    or a deploy-time statement_timeout kills the VALIDATE scan and every retry repeats.
+def _collected_forward_sql(op):
+    """Run op.database_forwards in collect_sql mode and return the emitted SQL.
 
-    collect_sql records the emitted statements instead of running them; the
-    constraint is absent, so the validity probe returns None and the op proceeds.
+    collect_sql records statements instead of running them; the constraint is
+    absent, so the validity probe returns None and the op proceeds to emit DDL.
     """
     state = ProjectState()
     state.add_model(
@@ -233,17 +224,34 @@ def test_database_forwards_disables_timeouts(op):
             fields=[("id", models.AutoField(primary_key=True)), ("amount", models.IntegerField(null=True))],
         )
     )
-
     schema_editor = connection.schema_editor(atomic=False, collect_sql=True)
     schema_editor.__enter__()
     try:
         op.database_forwards("posthog", schema_editor, from_state=state, to_state=state)
     finally:
         schema_editor.__exit__(None, None, None)
+    return "\n".join(schema_editor.collected_sql)
 
-    collected = "\n".join(schema_editor.collected_sql)
+
+@pytest.mark.django_db
+def test_validate_constraint_disables_timeouts():
+    """VALIDATE scans the whole table under SHARE UPDATE EXCLUSIVE (no traffic
+    block), so statement_timeout must be disabled or the scan is killed mid-flight
+    and every bin/migrate retry repeats."""
+    collected = _collected_forward_sql(ValidateConstraint(model_name=MODEL_NAME, name="tchk"))
     assert "SET lock_timeout = 0" in collected
     assert "SET statement_timeout = 0" in collected
+
+
+@pytest.mark.django_db
+def test_add_constraint_not_valid_keeps_lock_timeout():
+    """NOT VALID is a brief metadata-only ALTER under ACCESS EXCLUSIVE, so it must
+    keep the default lock_timeout and fail fast on contention rather than queue the
+    lock behind in-flight queries and stall the table."""
+    collected = _collected_forward_sql(AddConstraintNotValid(model_name=MODEL_NAME, constraint=_check("tchk")))
+    assert "SET lock_timeout = 0" not in collected
+    assert "SET statement_timeout = 0" not in collected
+    assert "ADD CONSTRAINT" in collected.upper()  # the op still emitted its DDL
 
 
 @pytest.mark.parametrize(
