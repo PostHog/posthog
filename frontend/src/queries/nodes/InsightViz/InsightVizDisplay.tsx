@@ -344,56 +344,28 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
-                    <FunnelStepsTable />
-                </SceneSection>
-            )
-        }
-
-        if (
-            isFunnels &&
-            erroredQueryId === null &&
-            timedOutQueryId === null &&
-            isFunnelWithEnoughSteps &&
-            hasFunnelResults &&
-            funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert &&
-            !disableTable
-        ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+            const funnelVizType = funnelsFilter?.funnelVizType
+            const funnelTable =
+                funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />
-                </SceneSection>
-            )
-        }
-
-        if (
-            isFunnels &&
-            erroredQueryId === null &&
-            timedOutQueryId === null &&
-            isFunnelWithEnoughSteps &&
-            hasFunnelResults &&
-            funnelsFilter?.funnelVizType === FunnelVizType.Trends &&
-            !disableTable
-        ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+                ) : funnelVizType === FunnelVizType.Trends ? (
                     <FunnelTrendsTable />
-                </SceneSection>
-            )
+                ) : funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Flow ? (
+                    <FunnelStepsTable />
+                ) : null
+
+            if (funnelTable) {
+                return (
+                    <SceneSection
+                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                        className="mt-4"
+                    >
+                        {funnelTable}
+                    </SceneSection>
+                )
+            }
         }
 
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
