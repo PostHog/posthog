@@ -20494,15 +20494,23 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentMetricsRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
@@ -20569,10 +20577,14 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -41784,6 +41796,15 @@ export namespace Schemas {
       open_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
     }
 
     export interface PullRequestList {
@@ -44068,32 +44089,20 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update
-     */
-    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
-
-
-    export const RecalculateMetricsRequestTriggerEnum = {
-      Manual: 'manual',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-    } as const;
-
-    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
-       * * `manual` - manual
-       * * `experiment_launch` - experiment_launch
-       * * `experiment_stop` - experiment_stop
-       * * `experiment_update` - experiment_update */
-      trigger?: RecalculateMetricsRequestTriggerEnum;
+       * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      trigger?: TriggerEnum;
     }
 
     export interface RecomputeResult {
