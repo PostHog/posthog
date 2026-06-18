@@ -5,6 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
@@ -34,6 +35,8 @@ describe('dashboardsFileSystemLogic', () => {
             ref: '1',
             path: 'Product/A',
         } as any)
+        jest.spyOn(api, 'create').mockResolvedValue({ id: 99, name: 'A (Copy)', tiles: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({ id: 1, name: 'Renamed', tiles: [] } as any)
         initKeaTests()
         unmountEventUsage = eventUsageLogic.mount()
         logic = dashboardsFileSystemLogic()
@@ -75,5 +78,28 @@ describe('dashboardsFileSystemLogic', () => {
                 { label: 'Marketing', path: 'Marketing' },
             ],
         })
+    })
+
+    it('cut then paste moves the dashboard into the folder and clears the clipboard', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        logic.actions.cutDashboard(1)
+        await expectLogic(logic, () => logic.actions.pasteIntoFolder('Marketing')).toDispatchActions([
+            'moveDashboardToFolder',
+            'clearClipboard',
+        ])
+        expect(logic.values.clipboard).toBeNull()
+    })
+
+    it('copy then paste duplicates the dashboard', async () => {
+        logic.actions.copyDashboard(1)
+        await expectLogic(dashboardsModel, () => {
+            logic.actions.pasteIntoFolder('Marketing')
+        }).toDispatchActions(['duplicateDashboard'])
+    })
+
+    it('renameDashboard updates the dashboard name', async () => {
+        await expectLogic(dashboardsModel, () => {
+            logic.actions.renameDashboard(1, 'New name')
+        }).toDispatchActions(['updateDashboard'])
     })
 })
