@@ -1493,6 +1493,20 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the period-over-period change pill on the Metric display.
+     * @default true */
+    metricShowChange?: boolean
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
 }
 
 export type CalendarHeatmapFilter = {
@@ -1525,6 +1539,12 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
+    'metricColorByDirection',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
 ])
 
 export interface BoxPlotDatum {

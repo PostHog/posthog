@@ -10,7 +10,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             if (posthog.isFeatureEnabled('flag-key')) {
                 // Do something differently for this user
                 // Optional: fetch the payload
-                const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
             }
         `,
         react: dedent`

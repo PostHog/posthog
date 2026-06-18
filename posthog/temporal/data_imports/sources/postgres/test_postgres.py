@@ -378,6 +378,33 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "SASL authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Postgres configured with `pam` auth in pg_hba.conf rejects bad credentials with this
+            # wording instead of "password authentication failed for user". Host/port are volatile.
+            'connection failed: connection to server at "98.87.250.60", port 5432 failed: FATAL:  PAM authentication failed for user "postgres"',
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  PAM authentication failed for user "myuser"',
+        ],
+    )
+    def test_pam_authentication_failed_is_non_retryable(self, source, error_msg):
+        # The PostgreSQL "password authentication failed for user" key doesn't substring-match the
+        # PAM wording, so confirm the dedicated key recognises it independent of host/port.
+        non_retryable = source.get_non_retryable_errors()
+        assert "PAM authentication failed" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
+
+    def test_pam_authentication_failed_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "98.87.250.60", port 5432 failed: '
+            'FATAL:  PAM authentication failed for user "postgres"'
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "PAM authentication failure should surface an actionable message"
+        assert "credentials" in friendly[0]
+
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
         # so confirm it's specifically the new key that recognises this message.

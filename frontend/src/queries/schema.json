@@ -4184,6 +4184,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "Metric",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsPie",
                     "type": "string"
                 },
@@ -4306,6 +4310,7 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
@@ -11703,6 +11708,7 @@
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
                 "BoldNumber",
+                "Metric",
                 "ActionsPie",
                 "ActionsBarValue",
                 "ActionsTable",
@@ -17913,6 +17919,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EvaluationRuntime": {
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
         },
         "EventDefinition": {
             "additionalProperties": false,
@@ -28338,8 +28348,7 @@
                     "type": ["string", "null"]
                 },
                 "evaluation_type": {
-                    "enum": ["hog", "llm_judge"],
-                    "type": "string"
+                    "$ref": "#/definitions/EvaluationRuntime"
                 },
                 "hog_source": {
                     "type": ["string", "null"]
@@ -43527,6 +43536,32 @@
                 },
                 "hideWeekends": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Metric display: change pill color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Metric display: color the sparkline by whether the metric increased or decreased.",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Metric display: line color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Metric display: line color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Show the period-over-period change pill on the Metric display.",
                     "type": "boolean"
                 },
                 "minDecimalPlaces": {
