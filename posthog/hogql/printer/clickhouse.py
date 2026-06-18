@@ -102,6 +102,26 @@ class ClickHousePrinter(BasePrinter):
         if node.within_group is not None:
             raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
 
+    def _render_function_params(self, node: ast.Call) -> list[str] | None:
+        if node.params is None:
+            return None
+        # ClickHouse's quantile/median level parameter must be Float64. A bare integer literal
+        # (e.g. quantile(1)(x)) prints as a UInt64 and the query-tree optimizer rejects it with
+        # "should have parameter of type Float64, got 'UInt64'". Emit such levels as floats.
+        coerce_to_float = node.name.lower().startswith(("quantile", "median", "percentile_cont", "percentile_disc"))
+        params: list[str] = []
+        for param in node.params:
+            if (
+                coerce_to_float
+                and isinstance(param, ast.Constant)
+                and isinstance(param.value, int)
+                and not isinstance(param.value, bool)
+            ):
+                params.append(self.visit(ast.Constant(value=float(param.value))))
+            else:
+                params.append(self.visit(param))
+        return params
+
     def _render_function_call(self, node: ast.Call, func_meta) -> str:
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
@@ -243,7 +263,7 @@ class ClickHousePrinter(BasePrinter):
         elif node.name == "trim" and len(args) == 2:
             return f"trim(BOTH {args[1]} FROM {args[0]})"
 
-        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params = self._render_function_params(node)
         params_part = f"({', '.join(params)})" if params is not None else ""
         order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
         args_part = f"({', '.join(args)}{order_by_part})"
@@ -314,7 +334,7 @@ class ClickHousePrinter(BasePrinter):
                 raise QueryError(f"Function '{node.name}' requires exactly one argument")
             return relevant_clickhouse_name.format(args[0])
 
-        params = [self.visit(param) for param in node.params] if node.params is not None else None
+        params = self._render_function_params(node)
         params_part = f"({', '.join(params)})" if params is not None else ""
         args_part = f"({', '.join(args)})"
         return f"{relevant_clickhouse_name}{params_part}{args_part}"

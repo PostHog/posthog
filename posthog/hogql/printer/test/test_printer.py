@@ -1228,6 +1228,9 @@ class TestPrinter(BaseTest):
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
         self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
+        # Integer quantile levels must be coerced to Float64, else ClickHouse rejects the UInt64 parameter.
+        self.assertEqual(self._expr("quantile(1)(event)"), "quantile(1.0)(events.event)")
+        self.assertEqual(self._expr("quantiles(0, 1)(event)"), "quantiles(0.0, 1.0)(events.event)")
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
         self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
