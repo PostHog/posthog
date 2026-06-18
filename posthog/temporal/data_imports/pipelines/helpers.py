@@ -55,8 +55,7 @@ def incremental_type_to_operator(field_type: IncrementalFieldType) -> str:
     # everything equal to that day. `>=` re-fetches the boundary day so primary-key dedup
     # (or append acceptance) can close the gap. Every other field type carries enough
     # resolution that `>` is safe and avoids re-shipping the boundary row on every sync.
-    # xmin uses an inclusive lower bound (the previous run's snapshot ceiling) AND an
-    # exclusive upper bound (this run's ceiling), so its lower comparison is `>=`.
+    # xmin's lower bound (the previous run's ceiling) is inclusive, so it also uses `>=`.
     if field_type == IncrementalFieldType.Date or field_type == IncrementalFieldType.XID:
         return ">="
     return ">"

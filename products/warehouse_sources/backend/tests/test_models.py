@@ -126,8 +126,7 @@ def test_is_xmin(sync_type: str | None, expected: bool) -> None:
 @pytest.mark.parametrize(
     "sync_type_config,expected",
     [
-        # xmin_ceiling here is epoch 1: (1 << 32) + 42 = 4294967338.
-        ({"xmin_last_value": 42, "xmin_ceiling": 4294967338, "xmin_num_wraparound": 1}, (42, 4294967338, 1)),
+        ({"xmin_last_value": 42, "xmin_ceiling": (1 << 32) + 42, "xmin_num_wraparound": 1}, (42, (1 << 32) + 42, 1)),
         ({}, (None, None, None)),
         (None, (None, None, None)),
     ],

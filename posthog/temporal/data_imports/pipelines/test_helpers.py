@@ -30,9 +30,7 @@ PATH = "products.data_modeling.backend.models.datawarehouse_saved_query"
 @pytest.mark.parametrize(
     "field_type,expected",
     [
-        # Date and XID are the inclusive cases — Date because day-granularity cursors
-        # otherwise lose rows landed on the boundary day, XID because the xmin lower bound
-        # (the previous run's ceiling) is inclusive.
+        # Date and XID are the inclusive (`>=`) cases.
         (IncrementalFieldType.Date, ">="),
         (IncrementalFieldType.XID, ">="),
         (IncrementalFieldType.DateTime, ">"),

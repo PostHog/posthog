@@ -129,24 +129,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def xmin_last_value(self) -> int | None:
-        """Lower bound (inclusive) for the next xmin sync — the bare 32-bit xid of the
-        previous run's snapshot ceiling. ``None`` means the table has never synced, so the
-        read path seeds a full initial snapshot."""
         if self.sync_type_config:
             return self.sync_type_config.get("xmin_last_value", None)
         return None
 
     @property
     def xmin_ceiling(self) -> int | None:
-        """The full 64-bit ``xid8`` (epoch + xid) of the last run's ceiling — durable and
-        wraparound-safe, used to compute the wraparound delta between runs."""
         if self.sync_type_config:
             return self.sync_type_config.get("xmin_ceiling", None)
         return None
 
     @property
     def xmin_num_wraparound(self) -> int | None:
-        """The transaction-id epoch (high 32 bits of ``xmin_ceiling``) at the last run."""
         if self.sync_type_config:
             return self.sync_type_config.get("xmin_num_wraparound", None)
         return None
@@ -388,13 +382,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save()
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
-        """Persist this run's snapshot ceiling as the cursor for the next xmin run.
-
-        Called once at job completion (after data is durably written), never per-batch —
-        the ceiling is captured before streaming and only becomes the new lower bound once
-        the run's rows are safely persisted, so a mid-run crash re-reads the window rather
-        than skipping it.
-        """
+        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+        # instead of skipping it.
         self.sync_type_config["xmin_last_value"] = ceiling_xid
         self.sync_type_config["xmin_ceiling"] = ceiling_xid8
         self.sync_type_config["xmin_num_wraparound"] = num_wraparound

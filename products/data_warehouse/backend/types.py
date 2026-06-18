@@ -12,8 +12,7 @@ class IncrementalFieldType(StrEnum):
     Timestamp = "timestamp"
     # MongoDB specific
     ObjectID = "objectid"
-    # Postgres xmin system column (cursorless incremental). Synthetic — never a real
-    # information_schema column; advertised per-table via SourceSchema.supports_xmin.
+    # Postgres xmin system column — synthetic cursor, never in information_schema
     XID = "xid"
 
 
