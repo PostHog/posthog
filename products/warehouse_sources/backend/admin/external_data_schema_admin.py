@@ -17,7 +17,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFo
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.data_load.service import (
-    _get_cdc_extraction_schedule_id,
     pause_external_data_schedule,
     unpause_external_data_schedule,
 )
@@ -398,7 +397,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
             # above is paused once streaming starts, so surface the real one too.
             if obj.is_cdc:
-                extra_context["cdc_extraction_schedule_id"] = _get_cdc_extraction_schedule_id(str(obj.source_id))
+                extra_context["cdc_extraction_schedule_id"] = f"cdc-extraction-{obj.source_id}"
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Team")
