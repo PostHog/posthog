@@ -40,6 +40,7 @@ export type InsertCommand = {
     aliases?: string[]
     icon?: ReactNode
     closeOnRun?: boolean
+    disabled?: boolean
     run: (targetNodeId: string) => void
 }
 

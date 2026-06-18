@@ -216,6 +216,7 @@ export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    isAskAIDisabled?: boolean
     createAIChatId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
@@ -386,6 +387,7 @@ export function MarkdownNotebook({
     value,
     onChange,
     onAskAI,
+    isAskAIDisabled = false,
     createAIChatId = createDefaultAIChatId,
     mode = 'edit',
     registry,
@@ -2427,9 +2429,10 @@ export function MarkdownNotebook({
                 (nodeId) => {
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
-                onAskAI ? openAIPrompt : undefined
+                onAskAI ? openAIPrompt : undefined,
+                isAskAIDisabled
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt]
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, isAskAIDisabled]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -3221,7 +3224,7 @@ export function MarkdownNotebook({
     }
 
     const askAIAboutSelection = (): void => {
-        if (!floatingToolbar || !onAskAI) {
+        if (!floatingToolbar || !onAskAI || isAskAIDisabled) {
             return
         }
 
@@ -4630,6 +4633,9 @@ export function MarkdownNotebook({
             }
             return false
         }
+        if (selectedCommand.disabled) {
+            return true
+        }
 
         selectedCommand.run(nodeId)
         if (selectedCommand.closeOnRun === false) {
@@ -5341,6 +5347,7 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
+                            isAskAIDisabled={isAskAIDisabled}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

@@ -3272,6 +3272,36 @@ ${queryMarkdown}`)
         expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
     })
 
+    it('disables Ask AI in the insert menu while an AI request is active', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                onAskAI,
+                onChange,
+                isAskAIDisabled: true,
+            })
+        )
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        const askAIButton = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+        expect(askAIButton.textContent).toEqual('Ask AI')
+        expect(askAIButton.disabled).toBe(true)
+        expect(askAIButton.getAttribute('aria-selected')).toEqual('true')
+
+        fireEvent.click(askAIButton)
+        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
+
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+    })
+
     it('animates the live AI thinking placeholder without editing markdown', () => {
         jest.useFakeTimers()
         const onChange = jest.fn()

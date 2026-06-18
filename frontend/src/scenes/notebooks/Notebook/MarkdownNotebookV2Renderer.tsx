@@ -431,6 +431,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                 remoteCarets={remoteCarets}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                 onAskAI={isEditable ? handleAskAI : undefined}
+                isAskAIDisabled={inlineAIRequests.length > 0}
                 createAIChatId={uuid}
                 deferRemoteValue={markdownEditorInteractionActive}
                 onInteractionStateChange={setMarkdownEditorInteractionActive}
