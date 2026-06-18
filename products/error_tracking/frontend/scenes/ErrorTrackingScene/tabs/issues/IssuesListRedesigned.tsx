@@ -19,9 +19,10 @@ import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/iss
 import { IssueCountCell, IssueVolumeCell } from './issueListCells'
 import { IssueRowRedesigned } from './IssueRowRedesigned'
 
-// Title takes the remaining space; the sparkline + three counts get fixed tracks so
-// every row lines up without any table chrome.
-const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_13rem_5rem_5rem_5rem] items-center gap-x-3'
+// Title takes the remaining space; the sparkline + three (roomier) count tracks line up every row
+// without table chrome. The volume cell carries pr to open a gap before the count group.
+const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_13rem_6.5rem_6.5rem_6.5rem] items-center gap-x-3'
+const VOLUME_GAP = 'pr-5'
 
 /**
  * Table-less issues list. Renders each issue as a plain hover row (Linear-style) instead of the
@@ -82,7 +83,7 @@ const ColumnHeaders = ({ results }: { results: ErrorTrackingIssue[] }): JSX.Elem
             <div className="min-w-0">
                 {selectedIssueIds.length > 0 ? <IssueActions issues={results} selectedIds={selectedIssueIds} /> : null}
             </div>
-            <div className="text-center text-xs font-medium text-muted">Volume</div>
+            <div className={cn(VOLUME_GAP, 'text-center text-xs font-medium text-muted')}>Volume</div>
             <SortableCountHeader field="occurrences" label="Occurrences" />
             <SortableCountHeader field="sessions" label="Sessions" />
             <SortableCountHeader field="users" label="Users" />
@@ -110,7 +111,9 @@ const IssueRow = ({
             <div className="min-w-0">
                 <IssueRowRedesigned results={results} record={record} recordIndex={recordIndex} />
             </div>
-            <IssueVolumeCell record={record} />
+            <div className={VOLUME_GAP}>
+                <IssueVolumeCell record={record} />
+            </div>
             <div className="text-center">
                 <IssueCountCell record={record} columnName="occurrences" />
             </div>
@@ -133,7 +136,9 @@ const LoadingRows = (): JSX.Element => {
                         <LemonSkeleton className="h-4 w-1/3" />
                         <LemonSkeleton className="h-3 w-2/3" />
                     </div>
-                    <LemonSkeleton className="h-8 w-full" />
+                    <div className={VOLUME_GAP}>
+                        <LemonSkeleton className="h-8 w-full" />
+                    </div>
                     <LemonSkeleton className="h-4 w-10 justify-self-center" />
                     <LemonSkeleton className="h-4 w-10 justify-self-center" />
                     <LemonSkeleton className="h-4 w-10 justify-self-center" />
