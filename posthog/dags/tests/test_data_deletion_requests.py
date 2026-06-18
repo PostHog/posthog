@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
 from uuid import uuid4
@@ -1775,16 +1776,15 @@ def test_pickup_sensor_run_key_changes_across_attempts():
 
 
 def _property_removal_ctx(**overrides) -> DeletionRequestContext:
-    kwargs = {
-        "request_id": str(uuid4()),
-        "team_id": TEAM_ID,
-        "start_time": datetime.now() - timedelta(days=7),
-        "end_time": datetime.now(),
-        "events": ["$pageview"],
-        "properties": ["$ip"],
-    }
-    kwargs.update(overrides)
-    return DeletionRequestContext(**kwargs)
+    base = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        events=["$pageview"],
+        properties=["$ip"],
+    )
+    return replace(base, **overrides)
 
 
 def test_property_removal_where_scopes_to_events_by_default():
