@@ -93,9 +93,14 @@ describe('Tool schema snapshots', () => {
             'dashboard-widgets': true,
             'agent-platform': true,
         }
-        const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
-            a.name.localeCompare(b.name)
-        )
+        // insight-create / insight-update embed the full InsightQuery union (every assistant
+        // query schema, inlined), producing ~17k-line snapshots that are pure redundant churn —
+        // those query schemas are already snapshotted via the query-* wrapper tools. Skip them
+        // here; their wrapper shape is trivial and the query bodies are covered elsewhere.
+        const SKIP_OVERSIZED = new Set(['insight-create', 'insight-update'])
+        const tools = [...(await getToolsFromContext(context, { featureFlags }))]
+            .filter((tool) => !SKIP_OVERSIZED.has(tool.name))
+            .sort((a, b) => a.name.localeCompare(b.name))
 
         expect(tools.length).toBeGreaterThan(0)
 
