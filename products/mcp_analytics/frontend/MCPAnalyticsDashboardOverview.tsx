@@ -33,6 +33,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRows,
         toolRowsLoading,
         dateFilter,
+        bucketGranularity,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -66,6 +67,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 loading={activityRowsLoading}
                                 theme={theme}
                                 timezone={timezone}
+                                interval={bucketGranularity}
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
@@ -79,6 +81,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         loading={toolDailyRowsLoading}
                         theme={theme}
                         timezone={timezone}
+                        interval={bucketGranularity}
                     />
                 </div>
             </section>

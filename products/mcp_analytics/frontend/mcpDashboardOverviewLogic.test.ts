@@ -10,6 +10,7 @@ import {
     type BucketRow,
     buildKPIs,
     buildKpiWindow,
+    bucketGranularityForWindow,
     buildToolDailySeries,
     categorizeHarness,
     deltaPct,
@@ -132,23 +133,61 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('bucketGranularityForWindow', () => {
+        it.each([
+            ['-1h', 'minute'],
+            ['-3h', 'minute'],
+            ['-6h', 'hour'],
+            ['-24h', 'hour'],
+            ['-2d', 'hour'],
+            ['-7d', 'day'],
+            ['-30d', 'day'],
+        ])('picks %s -> %s buckets', (dateFrom, expected) => {
+            expect(bucketGranularityForWindow({ dateFrom, dateTo: null }, 'UTC')).toBe(expected)
+        })
+    })
+
     describe('buildKpiWindow', () => {
         it.each([
-            ['2024-01-08', '2024-01-15', '2024-01-08', '2023-12-31'],
-            ['2024-01-01', '2024-01-31', '2024-01-01', '2023-12-01'],
+            ['2024-01-08', '2024-01-15', 'day', '2024-01-08', '2023-12-31'],
+            ['2024-01-01', '2024-01-31', 'day', '2024-01-01', '2023-12-01'],
         ])(
             'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
-            (dateFrom, dateTo, expectedCutoff, expectedPriorStart) => {
-                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC')
-                expect(window.currentStartDay).toBe(expectedCutoff)
+            (dateFrom, dateTo, granularity, expectedCutoff, expectedPriorStart) => {
+                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC', granularity as 'day')
+                expect(window.currentStartBucket).toBe(expectedCutoff)
                 expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
-                // The two halves of the comparison must span an equal number of daily buckets,
-                // otherwise every delta is biased toward whichever side has the extra day.
-                const priorBuckets = dayjs(window.currentStartDay).diff(dayjs(window.dateFrom), 'day')
-                const currentBuckets = dayjs(window.dateTo).diff(dayjs(window.currentStartDay), 'day') + 1
+                // The two halves of the comparison must span an equal number of buckets,
+                // otherwise every delta is biased toward whichever side has the extra bucket.
+                const priorBuckets = dayjs(window.currentStartBucket).diff(dayjs(window.dateFrom), granularity as 'day')
+                const currentBuckets =
+                    dayjs(window.dateTo).diff(dayjs(window.currentStartBucket), granularity as 'day') + 1
                 expect(priorBuckets).toBe(currentBuckets)
             }
         )
+
+        it('produces an hour-aligned cutoff and an equal prior window for sub-day ranges', () => {
+            const window = buildKpiWindow(
+                { dateFrom: '2024-01-08T05:00:00Z', dateTo: '2024-01-08T09:00:00Z' },
+                'UTC',
+                'hour'
+            )
+            // 5 inclusive hour buckets (05:00..09:00), so the prior window steps back 5 hours.
+            expect(window.currentStartBucket).toBe('2024-01-08 05:00:00')
+            expect(dayjs(window.dateFrom).toISOString()).toBe('2024-01-08T00:00:00.000Z')
+        })
+
+        it('resolves the relative -7d default against now with a symmetric prior window', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const window = buildKpiWindow({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
+                expect(window.currentStartBucket).toBe('2026-06-11')
+                // doubled window: prior 8 day-buckets before the cutoff
+                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('buildKPIs', () => {
