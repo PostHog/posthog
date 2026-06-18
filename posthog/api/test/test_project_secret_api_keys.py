@@ -3,8 +3,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from parameterized import parameterized
-
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
