@@ -421,9 +421,9 @@ def _fan_out_get_rows(
         stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
 
         for run in runs:
-            run_id = run.get("id")
-            if run_id is None:
-                continue
+            # Direct access on the run's id (its primary key): a run without one is a broken
+            # response that should fail loudly, not get silently dropped.
+            run_id = run["id"]
             # Only fan out parents at/above the watermark; older ones were synced before.
             if parent_cutoff is not None and _is_older_than_cutoff(run.get(parent_field), parent_cutoff):
                 continue
@@ -655,12 +655,12 @@ def create_repo_webhook(
     )
 
 
-def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
-    """Return (hook_id, error). Matches on config.url == webhook_url."""
-    headers = _get_headers(token)
+def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
+    ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup."""
     try:
         response = make_tracked_session().get(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=_get_headers(token), params={"per_page": 100}, timeout=30
         )
     except requests.exceptions.RequestException as e:
         return None, str(e)
@@ -671,12 +671,24 @@ def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | N
         return None, f"{response.status_code} {response.text}"
 
     hooks = response.json()
-    if not isinstance(hooks, list):
-        return None, None
+    return (hooks if isinstance(hooks, list) else []), None
+
+
+def _match_hook_by_url(hooks: list[dict[str, Any]], webhook_url: str) -> dict[str, Any] | None:
+    """Return the hook whose config.url matches webhook_url, or None."""
     for hook in hooks:
         if hook.get("config", {}).get("url") == webhook_url:
-            return hook.get("id"), None
-    return None, None
+            return hook
+    return None
+
+
+def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
+    """Return (hook_id, error). Matches on config.url == webhook_url."""
+    hooks, error = _list_repo_hooks(token, repo)
+    if error is not None:
+        return None, error
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    return (hook.get("id") if hook else None), None
 
 
 def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDeletionResult:
@@ -713,32 +725,22 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
 
 def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
     """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
-    headers = _get_headers(token)
-    try:
-        response = make_tracked_session().get(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, params={"per_page": 100}, timeout=30
-        )
-    except requests.exceptions.RequestException as e:
-        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {e}")
-
-    if _is_repo_hook_permission_error(response):
+    hooks, error = _list_repo_hooks(token, repo)
+    if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
             error="Your GitHub token lacks the admin:repo_hook scope needed to read repository webhooks.",
         )
-    if not response.ok:
-        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {response.status_code}")
+    if error is not None:
+        return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error}")
 
-    hooks = response.json()
-    if isinstance(hooks, list):
-        for hook in hooks:
-            if hook.get("config", {}).get("url") == webhook_url:
-                return ExternalWebhookInfo(
-                    exists=True,
-                    url=webhook_url,
-                    enabled_events=hook.get("events"),
-                    status="active" if hook.get("active") else "disabled",
-                    created_at=hook.get("created_at"),
-                )
-
-    return ExternalWebhookInfo(exists=False)
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        return ExternalWebhookInfo(exists=False)
+    return ExternalWebhookInfo(
+        exists=True,
+        url=webhook_url,
+        enabled_events=hook.get("events"),
+        status="active" if hook.get("active") else "disabled",
+        created_at=hook.get("created_at"),
+    )
