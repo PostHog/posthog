@@ -368,10 +368,10 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_ordering_skips_unknown_clause_keeps_valid_ones(self):
         """An unrecognized clause (e.g. a stale persisted field) is skipped, not fatal:
         the valid clauses still apply instead of silently reverting to the default order."""
-        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
         r_p1 = self._create_report(title="P1 report", summary="s", signal_count=1, total_weight=1.0)
-        self._priority_artefact(r_p3, priority="P3")
+        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
         self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p3, priority="P3")
 
         response = self.client.get(self._list_url(status="ready", ordering="bogus_field,priority"))
         assert response.status_code == status.HTTP_200_OK
