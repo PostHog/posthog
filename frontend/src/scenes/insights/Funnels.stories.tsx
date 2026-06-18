@@ -73,6 +73,18 @@ FunnelLeftToRightEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 
+// Steps viz with "Compare to previous" on: each step renders a current and a (desaturated) previous
+// bar. The funnels-compare flag gates the toggle — without it the compare data degrades to a single
+// bar per step and the snapshot is wrong.
+export const FunnelLeftToRightCompare: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightCompare.json')
+)
+FunnelLeftToRightCompare.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
+}
+FunnelLeftToRightCompare.play = waitForFunnelToStabilize
+
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )

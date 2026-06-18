@@ -1,5 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { formatDateRange } from 'lib/utils/datetime'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { clamp, percentage } from 'lib/utils/numbers'
@@ -174,6 +175,90 @@ export function aggregateBreakdownResult(
 
 export function isBreakdownFunnelResults(results: FunnelResultType): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
+}
+
+/** Whether a STEPS result is a compare-tagged flat list (both periods' steps tagged with
+ * `compare_label`, no breakdown). Breakdown compare lands in a later slice. */
+export function isFunnelStepsCompareResult(results: FunnelResultType): results is FunnelStep[] {
+    return (
+        Array.isArray(results) &&
+        results.length > 0 &&
+        !Array.isArray(results[0]) &&
+        (results as FunnelStep[]).some((step) => step.compare_label != null)
+    )
+}
+
+const COMPARE_TO_UNIT: Record<string, dayjs.ManipulateType> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    y: 'year',
+}
+
+function parseCompareToOffset(
+    compareTo: string | null | undefined
+): { amount: number; unit: dayjs.ManipulateType } | null {
+    const match = compareTo?.match(/^-?(\d+)([hdwmy])$/)
+    return match ? { amount: parseInt(match[1], 10), unit: COMPARE_TO_UNIT[match[2]] } : null
+}
+
+/**
+ * Human-friendly date range for a funnel compare period, derived from the resolved current range
+ * plus the compare offset — the frontend mirror of the backend's previous-period shifting (the
+ * merged response only carries the current period's resolved range). Returns null when the range
+ * is unavailable.
+ */
+export function funnelComparePeriodDateRange(
+    compareLabel: 'current' | 'previous',
+    resolvedDateRange: { date_from?: string | null; date_to?: string | null } | null | undefined,
+    compareTo?: string | null
+): string | null {
+    const from = resolvedDateRange?.date_from ? dayjs(resolvedDateRange.date_from) : null
+    const to = resolvedDateRange?.date_to ? dayjs(resolvedDateRange.date_to) : null
+    if (!from || !to || !from.isValid() || !to.isValid()) {
+        return null
+    }
+    if (compareLabel === 'current') {
+        return formatDateRange(from, to)
+    }
+    const offset = parseCompareToOffset(compareTo)
+    if (offset) {
+        return formatDateRange(from.subtract(offset.amount, offset.unit), to.subtract(offset.amount, offset.unit))
+    }
+    // Default previous period: the equal-length window ending the day before the current window.
+    const previousTo = from.subtract(1, 'day')
+    const previousFrom = previousTo.subtract(to.diff(from, 'day'), 'day')
+    return formatDateRange(previousFrom, previousTo)
+}
+
+/** Desaturate a series color to the "previous period" treatment (50% opacity), matching the
+ * dimmed previous-period series in trends (`LineGraph.processDataset`). */
+export function dimPreviousPeriodColor(color: string): string {
+    // Only plain 6-digit hex gets an alpha suffix; anything already carrying alpha or a
+    // non-hex format is left untouched.
+    return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}80` : color
+}
+
+/**
+ * Reshape a compare-tagged flat STEPS result into one step per order, each carrying a
+ * `nested_breakdown` of `[currentSeries, previousSeries]`. This reuses the breakdown rendering
+ * path (`StepBars` draws one bar per `nested_breakdown` entry) to draw two grouped bars per step.
+ * The series keep their `compare_label` so the previous bar can be desaturated and the tooltip
+ * labelled by period.
+ */
+export function aggregateFunnelCompareResult(results: FunnelStep[]): FunnelStepWithNestedBreakdown[] {
+    const current = results.filter((step) => step.compare_label === 'current').sort((a, b) => a.order - b.order)
+    const previous = results.filter((step) => step.compare_label === 'previous').sort((a, b) => a.order - b.order)
+
+    return current.map((step, i) => ({
+        ...step,
+        // Both bars keep the step's `order` so they share the step's color (funnel bars are colored
+        // per step); the previous bar is then dimmed via its `compare_label`. The array position
+        // (current first, previous second) is what `stepsWithConversionMetrics` uses for per-period
+        // conversion rates, and `StepBars` keys the bars on `compare_label`.
+        nested_breakdown: [{ ...step }, ...(previous[i] ? [{ ...previous[i] }] : [])],
+    }))
 }
 
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */

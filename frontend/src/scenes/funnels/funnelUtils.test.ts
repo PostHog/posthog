@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { formatDateRange } from 'lib/utils'
 
 import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -13,7 +14,9 @@ import {
 
 import {
     aggregateBreakdownResult,
+    dimPreviousPeriodColor,
     EMPTY_BREAKDOWN_VALUES,
+    funnelComparePeriodDateRange,
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
@@ -858,5 +861,43 @@ describe('hasBreakdown', () => {
         { scenario: 'null', breakdownValue: null, expected: true },
     ])('returns $expected for $scenario', ({ breakdownValue, expected }) => {
         expect(hasBreakdown(breakdownValue as Parameters<typeof hasBreakdown>[0])).toBe(expected)
+    })
+})
+
+describe('funnelComparePeriodDateRange', () => {
+    const resolved = { date_from: '2021-06-07', date_to: '2021-06-13' }
+
+    it('returns the current window for the current period', () => {
+        expect(funnelComparePeriodDateRange('current', resolved)).toBe(
+            formatDateRange(dayjs('2021-06-07'), dayjs('2021-06-13'))
+        )
+    })
+
+    it('returns the preceding equal-length window for the default previous period', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved)).toBe(
+            formatDateRange(dayjs('2021-05-31'), dayjs('2021-06-06'))
+        )
+    })
+
+    it('shifts the previous window by a custom compare_to offset', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved, '-30d')).toBe(
+            formatDateRange(dayjs('2021-05-08'), dayjs('2021-05-14'))
+        )
+    })
+
+    it('returns null when the resolved range is missing', () => {
+        expect(funnelComparePeriodDateRange('current', null)).toBeNull()
+        expect(funnelComparePeriodDateRange('previous', { date_from: null, date_to: null })).toBeNull()
+    })
+})
+
+describe('dimPreviousPeriodColor', () => {
+    it('dims a 6-digit hex to 50% opacity (matching the trends previous-period treatment)', () => {
+        expect(dimPreviousPeriodColor('#1d4aff')).toBe('#1d4aff80')
+    })
+
+    it('leaves colors that already carry alpha or a non-hex format unchanged', () => {
+        expect(dimPreviousPeriodColor('#1d4aff80')).toBe('#1d4aff80')
+        expect(dimPreviousPeriodColor('rgba(29, 74, 255, 0.5)')).toBe('rgba(29, 74, 255, 0.5)')
     })
 })

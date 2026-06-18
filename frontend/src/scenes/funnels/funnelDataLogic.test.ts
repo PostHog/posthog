@@ -11,6 +11,7 @@ import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, Insig
 
 import {
     funnelResult,
+    funnelResultStepsCompare,
     funnelResultTimeToConvert,
     funnelResultTimeToConvertCompare,
     funnelResultTimeToConvertWithoutConversions,
@@ -21,6 +22,7 @@ import {
     funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
 import { funnelDataLogic } from './funnelDataLogic'
+import { dimPreviousPeriodColor } from './funnelUtils'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -1437,6 +1439,86 @@ describe('funnelDataLogic', () => {
             expect(currentUs.colorIndex).toBe(previousUs.colorIndex)
             expect(currentUk.colorIndex).toBe(previousUk.colorIndex)
             expect(currentUs.colorIndex).not.toBe(currentUk.colorIndex)
+        })
+    })
+
+    describe('steps compare (grouped bars)', () => {
+        const stepsQuery: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [],
+            funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+            compareFilter: { compare: true },
+        }
+
+        async function loadStepsCompare(result: unknown): Promise<void> {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(stepsQuery)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+        }
+
+        it('reshapes a compare-tagged flat result into one step per order with current+previous bars', async () => {
+            await loadStepsCompare(funnelResultStepsCompare.result)
+
+            const steps = logic.values.visibleStepsWithConversionMetrics
+            // One column per funnel step (not one per period).
+            expect(steps).toHaveLength(2)
+
+            // Each step renders two bars: current then previous, tagged accordingly.
+            steps.forEach((step) => {
+                expect(step.nested_breakdown).toHaveLength(2)
+                expect(step.nested_breakdown?.[0].compare_label).toBe('current')
+                expect(step.nested_breakdown?.[1].compare_label).toBe('previous')
+            })
+
+            // Counts come from the respective period (current 200->100, previous 150->60).
+            expect(steps[0].nested_breakdown?.[0].count).toBe(200)
+            expect(steps[0].nested_breakdown?.[1].count).toBe(150)
+            expect(steps[1].nested_breakdown?.[0].count).toBe(100)
+            expect(steps[1].nested_breakdown?.[1].count).toBe(60)
+        })
+
+        it('renders the previous-period bar desaturated relative to the current bar', async () => {
+            await loadStepsCompare(funnelResultStepsCompare.result)
+
+            const step = logic.values.visibleStepsWithConversionMetrics[0]
+            const currentSeries = step.nested_breakdown![0]
+            const previousSeries = step.nested_breakdown![1]
+
+            const currentColor = logic.values.getFunnelsColor(currentSeries)
+            const previousColor = logic.values.getFunnelsColor(previousSeries)
+
+            // Both bars share the base hue; the previous one is dimmed to 50% opacity.
+            expect(previousColor).toBe(dimPreviousPeriodColor(currentColor))
+            expect(previousColor).not.toBe(currentColor)
+        })
+
+        it('leaves a non-compared steps funnel unchanged (single bar per step)', async () => {
+            const stepsQueryNoCompare: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: funnelResult.result,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(stepsQueryNoCompare)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            expect(logic.values.isComparedFunnel).toBe(false)
+            const steps = logic.values.visibleStepsWithConversionMetrics
+            expect(steps).toHaveLength(2)
+            steps.forEach((step) => {
+                expect(step.nested_breakdown).toHaveLength(1)
+                expect(step.nested_breakdown?.[0].compare_label).toBeUndefined()
+            })
         })
     })
 })

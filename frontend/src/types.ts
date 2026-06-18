@@ -3352,6 +3352,9 @@ export interface FunnelStep {
     data?: number[]
     days?: string[]
 
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
+
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 

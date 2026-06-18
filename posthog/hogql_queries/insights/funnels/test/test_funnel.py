@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -12,6 +13,7 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -24,6 +26,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    CompareFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -6000,3 +6003,122 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         bing = groups_by_breakdown[("bing.com",)]
         assert bing[0]["count"] == 1
         assert bing[1]["count"] == 1
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous on the default funnel STEPS (bar) viz. Reuses the tagged-row contract
+    established for TRENDS in slice 1 — each step dict in `results` is tagged with `compare_label`."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="steps",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_default_previous_period_tags_steps(self, _feature_enabled):
+        # Current window 2021-06-07 .. 2021-06-13; default previous is the prior 7-day window
+        # (2021-05-31 .. 2021-06-06). One full conversion lands in each window.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "previous_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # No breakdown: results is a flat list of step dicts. With compare on, both periods'
+        # steps are present and tagged. Current steps come first, then previous.
+        current_steps = [row for row in results if row["compare_label"] == "current"]
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+
+        self.assertEqual([s["order"] for s in current_steps], [0, 1])
+        self.assertEqual([s["order"] for s in previous_steps], [0, 1])
+
+        # One person completed both steps in each period.
+        self.assertEqual([s["count"] for s in current_steps], [1, 1])
+        self.assertEqual([s["count"] for s in previous_steps], [1, 1])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+        # Custom offset `-30d` puts the previous window 30 days before the current window's start
+        # (2021-05-08 .. 2021-05-14), regardless of window length. Two conversions land there; a
+        # third lands in the *default* previous window (2021-05-31 .. 2021-06-06), which `-30d`
+        # must exclude. So the previous count is 2, not 1 — proving the offset shifted the window.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "offset_user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 8, 11)},
+                ],
+                "offset_user_b": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 10, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 10, 11)},
+                ],
+                "noise_user": [
+                    # In the default previous window but NOT the -30d window: must be ignored.
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(compare_to="-30d"), team=self.team).calculate().results
+
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+        self.assertEqual([s["count"] for s in previous_steps], [2, 2])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_with_empty_previous_period(self, _feature_enabled):
+        # Only the current period has events. The previous side must still return a tagged step
+        # skeleton (zeroed) so the chart can render two bars per step — a missing previous side
+        # would leave steps with a single bar and break the grouped-bar layout.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        current_steps = [row for row in results if row["compare_label"] == "current"]
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+
+        self.assertEqual([s["count"] for s in current_steps], [1, 1])
+        # Skeleton intact: same steps, zeroed counts.
+        self.assertEqual([s["order"] for s in previous_steps], [0, 1])
+        self.assertEqual([s["count"] for s in previous_steps], [0, 0])
+        self.assertEqual([s["name"] for s in previous_steps], ["step one", "step two"])
