@@ -258,6 +258,7 @@ jobs:
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
+                        - 'frontend/src/lib/agentScopes.generated.ts'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
@@ -1831,7 +1832,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
+                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -3020,15 +3021,14 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Master pushes always; PRs only when labelled `capture-test-timings`. Skip forks (no secrets access).
+        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             always() &&
             github.repository == 'PostHog/posthog' &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.

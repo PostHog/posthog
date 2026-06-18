@@ -284,8 +284,9 @@ class Command(BaseCommand):
                     overlap=overlap_policy,
                 )
                 await handle.backfill(backfill)
-                if not no_delay:
-                    await asyncio.sleep(2)
+
+                delay = 0 if no_delay else 2
+                await asyncio.sleep(delay)
 
         return True
 
