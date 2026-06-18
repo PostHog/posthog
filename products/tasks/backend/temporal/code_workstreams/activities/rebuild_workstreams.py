@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from temporalio import activity
@@ -48,6 +48,14 @@ def _pr_url_from_run(run: Optional[TaskRun]) -> Optional[str]:
     return (run.output or {}).get("pr_url") if run and run.output else None
 
 
+def _base_branch_from_run(run: Optional[TaskRun]) -> Optional[str]:
+    return (run.state or {}).get("pr_base_branch") if run and run.state else None
+
+
+def _quick_action_from_run(run: Optional[TaskRun]) -> Optional[str]:
+    return (run.state or {}).get("home_quick_action") if run and run.state else None
+
+
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
     run: Optional[TaskRun] = task.latest_run
     last_activity = run.updated_at if run else task.updated_at
@@ -61,8 +69,10 @@ def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
             repo_name=_repo_name(task.repository),
             repo_full_path=task.repository,
             branch=run.branch if run else None,
+            base_branch=_base_branch_from_run(run),
             cloud_pr_url=cloud_pr_url,
             folder_path=None,
+            quick_action=_quick_action_from_run(run),
         ),
         cloud_pr_url,
     )
@@ -101,7 +111,22 @@ def _build_pr_input(snapshot: CodePrSnapshot, user_github_logins: set[str]) -> P
         is_current_user_author=bool(author and author in user_github_logins),
         author=author,
         last_updated_at=_epoch_ms(snapshot.pr_updated_at) if snapshot.pr_updated_at else 0,
+        head_branch=snapshot.head_branch,
     )
+
+
+def _repo_from_pr_url(pr_url: str) -> Optional[str]:
+    # https://<host>/<owner>/<repo>/pull/<n> -> "<owner>/<repo>" (host-agnostic, covers enterprise).
+    idx = pr_url.find("/pull/")
+    if idx == -1:
+        return None
+    segments = [s for s in pr_url[:idx].split("/") if s]
+    if len(segments) < 2:
+        return None
+    owner, repo = segments[-2], segments[-1]
+    if not owner or not repo:
+        return None
+    return f"{owner}/{repo}"
 
 
 def _github_logins_by_user(user_ids: list[int]) -> dict[int, set[str]]:
@@ -139,13 +164,19 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
 
     by_user: dict[int, list[Task]] = defaultdict(list)
     needed_pr_urls: set[str] = set()
+    needed_branches: set[str] = set()
     for task in tasks:
         if task.created_by_id is None:
             continue
         by_user[task.created_by_id].append(task)
-        pr_url = _pr_url_from_run(task.latest_run)
+        run = task.latest_run
+        pr_url = _pr_url_from_run(run)
         if pr_url:
             needed_pr_urls.add(pr_url)
+        # The branch a run actually worked on lets us link follow-up runs (no pr_url of
+        # their own) to the open PR for that branch.
+        if run and run.branch:
+            needed_branches.add(run.branch)
 
     github_logins_by_user = _github_logins_by_user(list(by_user.keys()))
 
@@ -154,15 +185,21 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
 
     with team_scope(input.team_id):
         # Only load snapshots we will actually look up, so memory stays bounded by recent tasks
-        # rather than the team's all-time snapshot count.
-        snapshots_by_url = {
-            s.pr_url: s for s in CodePrSnapshot.objects.filter(team_id=input.team_id, pr_url__in=needed_pr_urls)
-        }
+        # rather than the team's all-time snapshot count. We also pull snapshots whose head
+        # branch matches a run's branch so branch-resolved grouping can find them.
+        snapshots = list(
+            CodePrSnapshot.objects.filter(team_id=input.team_id).filter(
+                Q(pr_url__in=needed_pr_urls) | Q(head_branch__in=needed_branches)
+            )
+        )
+        snapshots_by_url = {s.pr_url: s for s in snapshots}
+        snapshots_by_branch = [s for s in snapshots if s.head_branch]
 
         for user_id, user_tasks in by_user.items():
             user_github_logins = github_logins_by_user.get(user_id, set())
             task_inputs: list[TaskInput] = []
             pr_by_task: dict[str, PrInput] = {}
+            pr_by_branch: dict[tuple[str, str], PrInput] = {}
             snapshot_id_by_url: dict[str, str] = {}
             for task in user_tasks:
                 task_input, pr_url = _task_to_input(task)
@@ -172,7 +209,16 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
                     pr_by_task[task_input.id] = _build_pr_input(snapshot, user_github_logins)
                     snapshot_id_by_url[pr_url] = str(snapshot.id)
 
-            result = build_workstreams(task_inputs, pr_by_task, now_ms)
+            # is_current_user_author depends on the user, so the branch map is built per user.
+            for snapshot in snapshots_by_branch:
+                repo = _repo_from_pr_url(snapshot.pr_url)
+                if repo is None or not snapshot.head_branch:
+                    continue
+                pr_input = _build_pr_input(snapshot, user_github_logins)
+                pr_by_branch[(repo.lower(), snapshot.head_branch)] = pr_input
+                snapshot_id_by_url[snapshot.pr_url] = str(snapshot.id)
+
+            result = build_workstreams(task_inputs, pr_by_task, now_ms, pr_by_branch)
             live_keys: set[str] = set()
             for state, workstreams in (
                 (CodeWorkstream.WorkstreamState.ATTENTION, result.needs_attention),
@@ -219,7 +265,9 @@ def _persist_workstream(
             "situations": list(ws.situations),
             "primary_situation": pick_primary_situation(ws.situations),
             "state": state,
-            "tasks": [{"id": t.id, "title": t.title, "status": t.status} for t in ws.tasks],
+            "tasks": [
+                {"id": t.id, "title": t.title, "status": t.status, "quick_action": t.quick_action} for t in ws.tasks
+            ],
             "last_activity_at": _from_epoch_ms(ws.last_activity_at),
             "generated_at": generated_at,
         },

@@ -63,6 +63,12 @@ def _pr(**overrides) -> PrInput:
         (_task(branch="b", repo_name="r", repo_full_path=None, folder_path="/p"), None, "branch:r#b"),
         (_task(branch=None, repo_name=None, repo_full_path=None, folder_path="/p"), None, "path:/p"),
         (_task(branch=None, repo_name=None, repo_full_path=None, folder_path=None), None, None),
+        # Branch equal to the base branch is not a real feature branch: don't group on it.
+        (_task(branch="master", base_branch="master", folder_path=None), None, None),
+        (_task(branch="master", base_branch="master", folder_path="/p"), None, "path:/p"),
+        (_task(branch="master", base_branch="master"), "https://x/pull/9", "pr:https://x/pull/9"),
+        # A branch distinct from the base branch still groups.
+        (_task(branch="feat/x", base_branch="master", repo_full_path="org/r"), None, "branch:org/r#feat/x"),
     ],
 )
 def test_workstream_key_precedence(task, pr_url, expected):
@@ -128,3 +134,85 @@ def test_task_without_grouping_key_is_skipped():
     result = build_workstreams([task], {}, NOW)
     assert not result.needs_attention
     assert not result.in_progress
+
+
+def test_base_branch_no_pr_tasks_do_not_collapse_and_are_dropped():
+    # Tasks that ran on the base branch and never pushed a feature branch or PR left no real
+    # work to track, so they must neither collapse into one blob nor surface as workstreams.
+    t1 = _task(id="a", branch="master", base_branch="master", cloud_pr_url=None)
+    t2 = _task(id="b", branch="master", base_branch="master", cloud_pr_url=None)
+    result = build_workstreams([t1, t2], {}, NOW)
+    assert not result.needs_attention
+    assert not result.in_progress
+
+
+def test_tasks_group_by_shared_feature_branch():
+    t1 = _task(id="a", branch="feat/x", base_branch="master", last_activity_at=NOW)
+    t2 = _task(id="b", branch="feat/x", base_branch="master", last_activity_at=NOW - 1000)
+    result = build_workstreams([t1, t2], {}, NOW)
+    workstreams = result.needs_attention + result.in_progress
+    assert len(workstreams) == 1
+    assert {t.id for t in workstreams[0].tasks} == {"a", "b"}
+    assert workstreams[0].branch == "feat/x"
+
+
+def test_feature_branch_and_base_branch_tasks_do_not_merge():
+    feature = _task(id="a", branch="feat/x", base_branch="master", cloud_pr_url=None)
+    base = _task(id="b", branch="master", base_branch="master", cloud_pr_url=None)
+    result = build_workstreams([feature, base], {}, NOW)
+    workstreams = result.needs_attention + result.in_progress
+    assert len(workstreams) == 1
+    assert {t.id for t in workstreams[0].tasks} == {"a"}
+
+
+def test_follow_up_task_resolves_to_pr_by_branch():
+    # A follow-up run pushed to the PR's branch (branch == base, no own pr_url); it should still
+    # group under the PR workstream via the branch→PR map and inherit its situation.
+    url = "https://github.com/posthog/posthog/pull/7"
+    follow_up = _task(
+        id="b",
+        repo_full_path="posthog/posthog",
+        branch="feat/x",
+        base_branch="feat/x",
+        cloud_pr_url=None,
+    )
+    pr_by_branch = {("posthog/posthog", "feat/x"): _pr(url=url, ci_status="failing", head_branch="feat/x")}
+    result = build_workstreams([follow_up], {}, NOW, pr_by_branch)
+    assert len(result.needs_attention) == 1
+    ws = result.needs_attention[0]
+    assert ws.id == f"pr:{url}"
+    assert "ci_failing" in ws.situations
+
+
+def test_follow_up_task_groups_with_original_pr_task():
+    url = "https://github.com/posthog/posthog/pull/7"
+    original = _task(id="a", repo_full_path="posthog/posthog", branch="feat/x", cloud_pr_url=url)
+    follow_up = _task(
+        id="b",
+        repo_full_path="posthog/posthog",
+        branch="feat/x",
+        base_branch="feat/x",
+        cloud_pr_url=None,
+    )
+    pr_by_branch = {("posthog/posthog", "feat/x"): _pr(url=url, head_branch="feat/x")}
+    result = build_workstreams([original, follow_up], {original.id: _pr(url=url)}, NOW, pr_by_branch)
+    workstreams = result.needs_attention + result.in_progress
+    assert len(workstreams) == 1
+    assert {t.id for t in workstreams[0].tasks} == {"a", "b"}
+
+
+def test_branch_resolution_is_repo_scoped():
+    # A branch named "main" in one repo must not pull in a PR for "main" in another repo.
+    url = "https://github.com/posthog/other/pull/1"
+    task = _task(id="a", repo_full_path="posthog/posthog", branch="main", base_branch="main", cloud_pr_url=None)
+    pr_by_branch = {("posthog/other", "main"): _pr(url=url, head_branch="main")}
+    result = build_workstreams([task], {}, NOW, pr_by_branch)
+    workstreams = result.needs_attention + result.in_progress
+    assert not workstreams
+
+
+def test_quick_action_is_carried_onto_workstream_task():
+    task = _task(id="a", quick_action="Fix CI")
+    result = build_workstreams([task], {task.id: _pr(ci_status="failing")}, NOW)
+    ws = result.needs_attention[0]
+    assert ws.tasks[0].quick_action == "Fix CI"

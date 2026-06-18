@@ -1,7 +1,12 @@
 import pytest
 
-from products.tasks.backend.models import CodePrSnapshot
-from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import _build_pr_input
+from products.tasks.backend.models import CodePrSnapshot, TaskRun
+from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
+    _base_branch_from_run,
+    _build_pr_input,
+    _quick_action_from_run,
+    _repo_from_pr_url,
+)
 
 
 def _snapshot(**overrides) -> CodePrSnapshot:
@@ -20,6 +25,55 @@ def _snapshot(**overrides) -> CodePrSnapshot:
     }
     defaults.update(overrides)
     return CodePrSnapshot(**defaults)
+
+
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        ({"pr_base_branch": "master"}, "master"),
+        ({"pr_base_branch": "main", "mode": "background"}, "main"),
+        ({"mode": "background"}, None),
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_base_branch_from_run_reads_pr_base_branch(state, expected):
+    assert _base_branch_from_run(TaskRun(state=state)) == expected
+
+
+def test_base_branch_from_run_handles_missing_run():
+    assert _base_branch_from_run(None) is None
+
+
+@pytest.mark.parametrize(
+    "pr_url,expected",
+    [
+        ("https://github.com/posthog/posthog/pull/123", "posthog/posthog"),
+        ("https://github.com/owner/repo/pull/1", "owner/repo"),
+        ("https://github.enterprise.com/posthog/posthog/pull/9", "posthog/posthog"),
+        ("not-a-url", None),
+        ("https://github.com/onlyowner", None),
+    ],
+)
+def test_repo_from_pr_url(pr_url, expected):
+    assert _repo_from_pr_url(pr_url) == expected
+
+
+def test_build_pr_input_carries_head_branch():
+    pr = _build_pr_input(_snapshot(head_branch="feat/x"), set())
+    assert pr.head_branch == "feat/x"
+
+
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        ({"home_quick_action": "Fix CI"}, "Fix CI"),
+        ({"mode": "background"}, None),
+        (None, None),
+    ],
+)
+def test_quick_action_from_run(state, expected):
+    assert _quick_action_from_run(TaskRun(state=state)) == expected
 
 
 @pytest.mark.parametrize(
