@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "message": {
+            "description": "User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.",
+            "type": "string"
+        },
+        "rest": {
+            "description": "Ingress sub-path under the agent slug. One of: `run`, `send`, `cancel`, `listen`.",
+            "type": "string"
+        },
+        "revision_id": {
+            "description": "Target draft revision. Must belong to this application and not be live.",
+            "type": "string"
+        },
+        "session_id": {
+            "description": "Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).",
+            "type": "string"
+        }
+    },
+    "required": ["id", "rest", "revision_id"],
+    "type": "object"
+}

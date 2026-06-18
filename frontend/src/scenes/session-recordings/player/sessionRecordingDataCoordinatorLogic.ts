@@ -447,6 +447,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        // past the ingestion grace period, a missing full snapshot means the data never arrived,
+        // e.g. the browser closed or went offline before the recording finished uploading
+        isOldAndInvalid: [
+            (s) => [s.snapshotsInvalid, s.isRecentAndInvalid],
+            (snapshotsInvalid, isRecentAndInvalid) => snapshotsInvalid && !isRecentAndInvalid,
+        ],
+
         windowIds: [
             (s) => [s.snapshotsByWindowId],
             (snapshotsByWindowId: Record<number, eventWithTime[]>): number[] => {

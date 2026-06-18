@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -44,6 +45,9 @@ class HogQLContext:
 
     # User making the queries - used for access control on system tables
     user: Optional["User"] = None
+    # Preloaded access-control snapshot for `user`, shared so schema filtering and the query
+    # cache fingerprint resolve access from the same rows (one bulk preload per run).
+    user_access_control: Optional["UserAccessControl"] = None
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
@@ -53,6 +57,11 @@ class HogQLContext:
     values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
+    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
+    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
+    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
+    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
+    geoip_dict_fallback_enabled: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?

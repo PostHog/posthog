@@ -95,6 +95,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
+            FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
         },
         outputs: mockOutputs,
         teamManager: {
@@ -112,7 +113,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             enabledPercentage: 0,
             stripHeavyTeams: [],
         },
-        groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,
     }

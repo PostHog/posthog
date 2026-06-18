@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 
@@ -53,7 +53,13 @@ import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/m
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/overflow-redis-repository'
-import { HealthCheckResultOk, PluginServerService, RedisPool } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '../utils/event-ingestion-restrictions'
@@ -125,6 +131,11 @@ const batchCapacityRejections = new Counter({
     help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
 })
 
+const batchesInFlight = new Gauge({
+    name: 'ingestion_api_batches_in_flight',
+    help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -154,6 +165,13 @@ export class IngestionApiServer implements NodeServer {
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
+
+    // Latched on the first unexpected pipeline error. The joinedPipeline is a
+    // single long-lived instance shared across all requests; a throw can leave
+    // it permanently poisoned (e.g. a group exhausted retries), so we mirror the
+    // Kafka consumer's contract of crashing and rebuilding rather than serving a
+    // wedged pipeline forever.
+    private fatalError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -325,15 +343,12 @@ export class IngestionApiServer implements NodeServer {
         this.topHog.start()
 
         // 7. Create the ingestion pipeline
-        const groupId = this.config.INGESTION_CONSUMER_GROUP_ID
-
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
-            groupId,
             outputs: ingestionOutputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
@@ -350,6 +365,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -404,6 +420,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
+        // Tracks whether this batch was accepted, so the `finally` only
+        // decrements the in-flight gauge for batches that incremented it.
+        let inFlight = false
+
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
@@ -436,6 +456,11 @@ export class IngestionApiServer implements NodeServer {
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
+            // Batch accepted into the pipeline — it now occupies a concurrent
+            // slot until processing completes below.
+            batchesInFlight.inc()
+            inFlight = true
+
             let result = await this.joinedPipeline.next()
             while (result !== null) {
                 for (const sideEffect of result.sideEffects ?? []) {
@@ -455,14 +480,32 @@ export class IngestionApiServer implements NodeServer {
             res.status(200).json({ batch_id, status: 'ok', accepted: messages.length })
         } catch (err) {
             batchErrors.inc()
-            const message = err instanceof Error ? err.message : String(err)
-            logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: message })
-            res.status(500).json({ batch_id, status: 'error', accepted: 0, error: message })
+            const error = err instanceof Error ? err : new Error(String(err))
+            logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: error.message })
+            // A throw here can leave the shared pipeline permanently poisoned, so
+            // mirror the Kafka consumer's crash-and-rebuild contract. Respond 500
+            // (the Rust transport treats it as retriable and redelivers), mark the
+            // server unhealthy, and shut down so the supervisor rebuilds a fresh
+            // pipeline instead of serving a wedged one. Trigger the shutdown once:
+            // concurrent in-flight requests can all fail on the same poisoned
+            // pipeline, but only the first should start teardown.
+            if (!this.fatalError) {
+                this.fatalError = error
+                void this.stop(error)
+            }
+            res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
+        } finally {
+            if (inFlight) {
+                batchesInFlight.dec()
+            }
         }
     }
 
-    private isHealthy() {
+    private isHealthy(): HealthCheckResult {
         // TODO: add output producer health checks
+        if (this.fatalError) {
+            return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
+        }
         return new HealthCheckResultOk()
     }
 

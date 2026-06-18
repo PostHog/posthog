@@ -5,10 +5,9 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -29,6 +28,7 @@ import {
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
@@ -176,22 +176,7 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <ButtonPrimitive
-                            iconOnly
-                            data-attr="nav-search"
-                            tooltip={
-                                <>
-                                    <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
-                                </>
-                            }
-                            tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
-                            onClick={() => {
-                                posthog.capture('nav search clicked')
-                                toggleCommand()
-                            }}
-                        >
-                            <IconSearch className="size-4 text-secondary" />
-                        </ButtonPrimitive>
+                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive

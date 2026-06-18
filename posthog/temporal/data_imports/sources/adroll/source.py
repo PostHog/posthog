@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,8 @@ class AdRollSource(SimpleSource[AdRollSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AD_ROLL,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["nextroll"],
             label="AdRoll",
             caption="""Enter your AdRoll (NextRoll) API credentials to pull your advertising entity data into the PostHog Data warehouse.
 

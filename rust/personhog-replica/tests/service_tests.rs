@@ -4,14 +4,15 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId, UpsertHashKeyOverridesRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, SplitPersonRequest,
+    TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1121,6 +1122,7 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
         .service
         .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
             team_ids: vec![ctx.team_id],
+            batch_size: 1000,
         }))
         .await
         .expect("RPC failed");
@@ -1154,11 +1156,35 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
         .service
         .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
             team_ids: vec![],
+            batch_size: 1000,
         }))
         .await
         .expect("RPC failed");
 
     assert_eq!(response.into_inner().deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(50001)]
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batch_size: i64) {
+    let ctx = ServiceTestContext::new().await;
+
+    let result = ctx
+        .service
+        .delete_hash_key_overrides_by_teams(Request::new(DeleteHashKeyOverridesByTeamsRequest {
+            team_ids: vec![ctx.team_id],
+            batch_size,
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
 
     ctx.cleanup().await.ok();
 }
@@ -1231,6 +1257,112 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
     assert!(status.message().contains("batch_size"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team() {
+    let ctx = ServiceTestContext::new().await;
+    ctx.insert_personless_distinct_id("svc_personless_1")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("svc_personless_2")
+        .await
+        .unwrap();
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 1,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 1);
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 100,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 1);
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 100,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(50001)]
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_invalid_batch_size(
+    #[case] batch_size: i64,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    let result = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size,
+            },
+        ))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::exceeds_max((0..251).map(|i| format!("did_{i}")).collect(), "Maximum")]
+#[case::duplicates(vec!["dup@example.com".to_string(), "dup@example.com".to_string()], "Duplicate")]
+#[tokio::test]
+async fn test_split_person_invalid_request(
+    #[case] distinct_ids_to_split: Vec<String>,
+    #[case] expected_message: &str,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    let result = ctx
+        .service
+        .split_person(Request::new(SplitPersonRequest {
+            team_id: ctx.team_id,
+            person_id: 1,
+            distinct_ids_to_split,
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(
+        status.message().contains(expected_message),
+        "Expected message containing {expected_message:?}, got: {}",
+        status.message()
+    );
 
     ctx.cleanup().await.ok();
 }

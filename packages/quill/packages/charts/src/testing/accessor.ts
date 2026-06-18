@@ -9,7 +9,8 @@
 import { fireEvent } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
-import { dimensions } from './jsdom'
+import { dragSelection } from './interactions'
+import { clientForIndex } from './jsdom'
 import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
 
 /** A single entry of `TooltipContext.seriesData`. */
@@ -45,6 +46,20 @@ interface AnomalyPointSummary {
     color: string
 }
 
+interface SlopeValueLabelSummary {
+    text: string
+    /** Inline style color (matches the series color). */
+    color: string
+    /** Which end of the slope this label sits on. */
+    side: 'start' | 'end'
+}
+
+interface SlopeLegendItemSummary {
+    label: string
+    /** The per-series change text, or null when absent. */
+    secondaryLabel: string | null
+}
+
 export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
@@ -68,6 +83,12 @@ export interface HogChart<Meta = unknown> {
     valueLabels(): ValueLabelSummary[]
     /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
     anomalyPoints(): AnomalyPointSummary[]
+    /** All slope-chart value labels currently rendered (start + end columns). */
+    slopeValueLabels(): SlopeValueLabelSummary[]
+    /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
+    slopeSeriesLabels(): string[]
+    /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
+    slopeLegendItems(): SlopeLegendItemSummary[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -77,6 +98,7 @@ export interface HogChart<Meta = unknown> {
     /** Hover at the index, wait for the tooltip to settle, then click. Mirrors the
      *  hover-then-click sequence the chart's onClick handler relies on. */
     clickAtIndex(index: number): Promise<void>
+    dragSelection(fromIndex: number, toIndex: number): void
     /** Wait for the tooltip to mount, then return a snapshot — every `TooltipContext` field
      *  plus the rendered portal element and an `isPinned` getter. Only available when the
      *  chart was rendered via `renderHogChart`; throws otherwise. */
@@ -128,14 +150,6 @@ function readReferenceLine(el: HTMLElement): ReferenceLineSummary {
     const label = isLabel ? (labelEl as HTMLElement).textContent : null
 
     return { color, orientation, position, label }
-}
-
-function clientForIndex(totalLabels: number, index: number): { clientX: number; clientY: number } {
-    const step = dimensions.plotWidth / Math.max(1, totalLabels - 1)
-    return {
-        clientX: dimensions.plotLeft + step * index,
-        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-    }
 }
 
 export function getHogChart<Meta = unknown>(
@@ -197,22 +211,56 @@ export function getHogChart<Meta = unknown>(
                 element: el,
                 color: el.style.backgroundColor,
             })),
+        slopeValueLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
+                (el) => ({
+                    text: el.textContent ?? '',
+                    color: el.style.color,
+                    side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
+                })
+            ),
+        slopeSeriesLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
+        slopeLegendItems: () => {
+            // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it
+            // lives in the broader render scope rather than under `wrapper`.
+            const legend = scope.querySelector<HTMLElement>('[data-attr="hog-chart-slope-legend"]')
+            if (!legend) {
+                return []
+            }
+            return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
+                const secondary = labelEl.nextElementSibling
+                const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
+                return {
+                    label: labelEl.textContent ?? '',
+                    secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
+                }
+            })
+        },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
                 throw new Error('chart.hoverAtIndex requires renderHogChart (which captures labels.length)')
             }
-            fireEvent.mouseMove(wrapper, clientForIndex(totalLabels, index))
+            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
         },
         async clickAtIndex(index: number): Promise<void> {
             if (totalLabels === undefined) {
                 throw new Error('chart.clickAtIndex requires renderHogChart (which captures labels.length)')
             }
-            fireEvent.mouseMove(wrapper, clientForIndex(totalLabels, index))
+            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
             // Wait for the hover state to flush — the click handler reads live tooltipCtx
             // synchronously to choose between pinning and onPointClick.
             await waitForHogChartTooltip()
             fireEvent.click(wrapper)
+        },
+        dragSelection(fromIndex: number, toIndex: number): void {
+            if (totalLabels === undefined) {
+                throw new Error('chart.dragSelection requires renderHogChart (which captures labels.length)')
+            }
+            dragSelection(wrapper, fromIndex, toIndex, totalLabels)
         },
         async waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>> {
             const element = await waitForHogChartTooltip(timeout)

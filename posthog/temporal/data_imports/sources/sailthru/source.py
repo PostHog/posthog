@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SailthruSource(SimpleSource[SailthruSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAILTHRU,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Sailthru",
             iconPath="/static/services/sailthru.png",
             fields=cast(list[FieldType], []),

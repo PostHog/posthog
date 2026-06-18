@@ -2,7 +2,7 @@
 # name: TestSessionsQueryRunner.test_anonymous_session_identified_later
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
          __person_lookup.properties___email AS email
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
@@ -51,7 +51,7 @@
 # name: TestSessionsQueryRunner.test_anonymous_session_not_identified
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -543,7 +543,7 @@
 # name: TestSessionsQueryRunner.test_orderby_person_display_name
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -572,7 +572,7 @@
                                                     GROUP BY person.id
                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id)) DESC
+  ORDER BY tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id)) DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -591,7 +591,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_combined_with_other_columns
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
          sessions.`$session_duration` AS `$session_duration`
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
@@ -641,7 +641,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_fallback_to_distinct_id
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___nonexistent_property), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___nonexistent_property), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -687,7 +687,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_field
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -735,7 +735,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_multiple_persons
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -764,7 +764,7 @@
                                                     GROUP BY person.id
                                                     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __person_lookup ON equals(__pdi.person_id, __person_lookup.id)
   WHERE and(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id)) ASC
+  ORDER BY tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id)) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -783,7 +783,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_with_custom_properties
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___name), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___name), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -829,7 +829,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_with_spaces_in_property_name
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.`properties___Property With Spaces`), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.`properties___Property With Spaces`), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -875,7 +875,7 @@
 # name: TestSessionsQueryRunner.test_person_display_name_with_star_select
   '''
   SELECT tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) AS `tuple(sessions.session_id, sessions.distinct_id, sessions.$start_timestamp, sessions.$end_timestamp, sessions.$session_duration, sessions.$entry_current_url, sessions.$end_current_url, sessions.$pageview_count, sessions.$autocapture_count, sessions.$screen_count, sessions.$is_bounce)`,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id)
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -961,7 +961,7 @@
 # name: TestSessionsQueryRunner.test_person_property_combined_with_display_name
   '''
   SELECT sessions.session_id AS session_id,
-         tuple(coalesce(toString(__person_lookup.properties___email), toString(__person_lookup.properties___name), toString(__person_lookup.properties___username), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
+         tuple(coalesce(nullIf(toString(__person_lookup.properties___email), ''), nullIf(toString(__person_lookup.properties___name), ''), nullIf(toString(__person_lookup.properties___username), ''), sessions.distinct_id), toString(__person_lookup.id), sessions.distinct_id),
          __person_lookup.properties___name AS name
   FROM
     (SELECT nullIf(argMaxMerge(raw_sessions.distinct_id), 'null') AS distinct_id,

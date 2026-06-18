@@ -1353,6 +1353,54 @@ class TestAlertListFilters(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing alert", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name: str, alert_name: str, search: str
+    ) -> None:
+        self._create_alert(alert_name)
+        self._create_alert("Totally unrelated")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": search})
+        results = response.json()["results"]
+
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name.get(alert_name) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(a["name"] != "Totally unrelated" for a in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self) -> None:
+        for name in ("revenue spike", "spike in revenue", "reveneu drop", "Unrelated alert"):
+            self._create_alert(name)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "revenue"})
+        results = response.json()["results"]
+
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name == {
+            "revenue spike": "exact",
+            "spike in revenue": "exact",
+            "reveneu drop": "similar",
+        }
+
+        match_types = [a["search_match_type"] for a in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self) -> None:
+        self._create_alert("Revenue spike")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in a for a in results)
+
+    @parameterized.expand(
+        [
             ("search_length_cap", {"search": "a" * 201}, "search"),
             ("invalid_created_by_uuid", {"created_by": "not-a-uuid"}, "created_by"),
         ]

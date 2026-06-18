@@ -13,6 +13,7 @@ type NormalizeProcessPersonFlagInput = {
 
 type NormalizeProcessPersonFlagOutput = {
     processPerson: boolean
+    processPersonExplicitlyTrue: boolean
     forceDisablePersonProcessing: boolean
 }
 
@@ -28,6 +29,9 @@ export function createNormalizeProcessPersonFlagStep<TInput extends NormalizePro
         const forceDisablePersonProcessing = input.headers.force_disable_person_processing === true
         let processPerson = true // The default.
         let normalizedEvent = event
+        // Captured here because normalizeProcessPerson later deletes the property for
+        // personful events, and downstream steps need to know it was explicitly set.
+        const processPersonExplicitlyTrue = event.properties?.$process_person_profile === true
 
         // Check if force_disable_person_processing header is set to true
         if (forceDisablePersonProcessing) {
@@ -83,6 +87,7 @@ export function createNormalizeProcessPersonFlagStep<TInput extends NormalizePro
                     ...input,
                     event: normalizedEvent,
                     processPerson,
+                    processPersonExplicitlyTrue,
                     forceDisablePersonProcessing,
                 },
                 [],

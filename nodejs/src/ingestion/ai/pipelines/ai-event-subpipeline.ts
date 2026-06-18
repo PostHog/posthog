@@ -12,8 +12,9 @@ import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
+import { createRecordIngestionLagStep } from '../../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
-import { createEmitEventStep } from '../../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
@@ -51,16 +52,14 @@ export interface AiEventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     splitAiEventsConfig: SplitAiEventsStepConfig
-    groupId: string
     topHog: TopHogWrapper
 }
 
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, groupId, topHog } =
-        config
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -96,7 +95,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createNormalizeEventStep())
         .pipe(createProcessAiEventStep())
-        .pipe(createProcessPersonlessStep())
+        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
@@ -113,7 +112,6 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(
@@ -141,4 +139,5 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }

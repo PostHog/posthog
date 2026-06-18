@@ -9,8 +9,9 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { IngestionWarningsOutput } from '../common/outputs'
+import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
@@ -49,15 +50,14 @@ export interface EventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    groupId: string
     topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -92,7 +92,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep())
+        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
@@ -108,7 +108,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             topHog(
                 createEmitEventStep({
                     outputs,
-                    groupId,
                 }),
                 [
                     sum(
@@ -136,4 +135,5 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }

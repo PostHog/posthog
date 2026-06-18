@@ -6,7 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from temporalio.client import ScheduleCalendarSpec
+from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.dag import DAG
@@ -16,6 +16,7 @@ from products.data_modeling.backend.schedule import (
     _deterministic_int,
     build_schedule_spec,
     get_v2_saved_query_ids,
+    get_v2_scheduled_dag_ids,
     partition_saved_queries_by_v2_schedule,
 )
 
@@ -307,3 +308,40 @@ class TestV2ScheduleGuard(BaseTest):
         eligible, on_v2 = partition_saved_queries_by_v2_schedule([])
         assert eligible == []
         assert on_v2 == []
+
+
+class TestGetV2ScheduledDagIds:
+    def _listing(self, schedule_id: str, workflow: str):
+        action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow=workflow)
+        return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
+
+    def test_lists_client_side_without_workflowtype_query(self):
+        captured: dict = {}
+        listings = [
+            self._listing("dag-on-v2", "data-modeling-execute-dag"),
+            self._listing("sq-on-v1", "data-modeling-run"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids()
+
+        # The schedule visibility store rejects filtering on WorkflowType, so we must not pass a
+        # server-side query and must filter the listings client-side instead.
+        assert captured["args"] == ()
+        assert "query" not in captured["kwargs"]
+        assert result == {"dag-on-v2"}

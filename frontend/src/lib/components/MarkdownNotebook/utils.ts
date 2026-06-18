@@ -151,6 +151,7 @@ function getListItemFingerprint(item: NotebookListItem): Omit<NotebookListItem, 
         depth: item.depth,
         ordered: item.ordered,
         start: item.start,
+        checked: item.checked,
     }
 }
 

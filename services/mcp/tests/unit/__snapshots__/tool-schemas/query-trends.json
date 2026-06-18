@@ -3616,13 +3616,15 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },

@@ -260,13 +260,25 @@ export function NotebookComponentShell({
             ) : null}
             {showEditPanel && EditComponent ? (
                 <div className="MarkdownNotebook__component-panel">
-                    <EditComponent node={node} mode="edit" updateProps={updateProps} deleteNode={deleteNode} />
+                    <EditComponent
+                        node={node}
+                        mode="edit"
+                        notebookMode={mode}
+                        updateProps={updateProps}
+                        deleteNode={deleteNode}
+                    />
                 </div>
             ) : null}
             {showViewPanel ? (
                 <div className="MarkdownNotebook__component-panel">
                     {ViewComponent ? (
-                        <ViewComponent node={node} mode="view" updateProps={updateProps} deleteNode={deleteNode} />
+                        <ViewComponent
+                            node={node}
+                            mode="view"
+                            notebookMode={mode}
+                            updateProps={updateProps}
+                            deleteNode={deleteNode}
+                        />
                     ) : (
                         <UnknownComponentView node={node} />
                     )}

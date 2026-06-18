@@ -212,6 +212,55 @@
         },
         {
             "files": [
+                "products/agent_platform/services/agent-shared/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-ingress/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-janitor/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tools/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tests/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-sandbox-host/**/*.test.{ts,js}"
+            ],
+            "rules": {
+                "jest/no-export": "off",
+                "jest/require-to-throw-message": "off",
+                "jest/expect-expect": "off",
+                "jest/valid-expect": "off",
+                "jest/no-conditional-expect": "off"
+            }
+        },
+        {
+            "files": [
+                "products/agent_platform/services/agent-shared/src/**/*.ts",
+                "products/agent_platform/services/agent-runner/src/**/*.ts",
+                "products/agent_platform/services/agent-tools/src/**/*.ts",
+                "products/agent_platform/services/agent-ingress/src/**/*.ts",
+                "products/agent_platform/services/agent-janitor/src/**/*.ts"
+            ],
+            "rules": {
+                "no-restricted-globals": [
+                    "error",
+                    {
+                        "name": "fetch",
+                        "message": "Use the injected HttpClient (e.g. ctx.http.fetch in tools, this.http.fetch in services). Bare global fetch bypasses the smokescreen proxy in prod."
+                    }
+                ]
+            }
+        },
+        {
+            "files": [
+                "products/agent_platform/services/agent-shared/src/runtime/http-client.ts",
+                "products/agent_platform/services/agent-shared/**/*.test.ts",
+                "products/agent_platform/services/agent-runner/**/*.test.ts",
+                "products/agent_platform/services/agent-tools/**/*.test.ts",
+                "products/agent_platform/services/agent-ingress/**/*.test.ts",
+                "products/agent_platform/services/agent-janitor/**/*.test.ts"
+            ],
+            "rules": {
+                "no-restricted-globals": "off"
+            }
+        },
+        {
+            "files": [
                 "frontend/src/lib/monaco/**",
                 "frontend/src/lib/components/MonacoDiffEditor.tsx",
                 "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",

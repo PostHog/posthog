@@ -54,6 +54,7 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
+        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
     }
 
     beforeEach(async () => {

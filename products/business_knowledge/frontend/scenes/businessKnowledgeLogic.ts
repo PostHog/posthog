@@ -193,6 +193,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             } as UrlSourceFormValues,
             errors: validateUrl,
             submit: async (values: UrlSourceFormValues) => {
+                const includeGlobs = splitGlobs(values.include_globs)
                 const payload: CreateUrlSourcePayload = {
                     name: values.name,
                     url: values.url,
@@ -200,7 +201,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     crawl_mode: values.crawl_mode,
                     refresh_interval: values.refresh_interval,
                     ...(values.crawl_mode !== 'single' && {
-                        include_globs: splitGlobs(values.include_globs),
+                        // Only send include_globs when the user explicitly set them;
+                        // otherwise the backend auto-derives scope from the entry URL path.
+                        ...(includeGlobs.length > 0 && { include_globs: includeGlobs }),
                         exclude_globs: splitGlobs(values.exclude_globs),
                         max_pages: values.max_pages,
                         max_depth: values.max_depth,
@@ -319,13 +322,14 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 if (!current) {
                     return
                 }
+                const editIncludeGlobs = splitGlobs(vals.include_globs)
                 const payload: UpdateSourcePayload = {
                     name: vals.name,
                     url: vals.url,
                     crawl_mode: vals.crawl_mode,
                     refresh_interval: vals.refresh_interval,
                     ...(vals.crawl_mode !== 'single' && {
-                        include_globs: splitGlobs(vals.include_globs),
+                        ...(editIncludeGlobs.length > 0 && { include_globs: editIncludeGlobs }),
                         exclude_globs: splitGlobs(vals.exclude_globs),
                         max_pages: vals.max_pages,
                         max_depth: vals.max_depth,

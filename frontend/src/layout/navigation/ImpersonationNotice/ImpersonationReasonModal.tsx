@@ -1,11 +1,12 @@
 import { ReactNode, useId, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, SideAction } from '@posthog/lemon-ui'
 
 export interface ImpersonationReasonModalCancelButton {
     label: string
     status?: 'default' | 'danger'
     onClick: () => void
+    sideAction?: SideAction
 }
 
 export interface ImpersonationReasonModalProps {
@@ -65,7 +66,12 @@ export function ImpersonationReasonModal({
             footer={
                 <>
                     {cancel && (
-                        <LemonButton type="secondary" status={cancel.status} onClick={cancel.onClick}>
+                        <LemonButton
+                            type="secondary"
+                            status={cancel.status}
+                            onClick={cancel.onClick}
+                            sideAction={cancel.sideAction}
+                        >
                             {cancel.label}
                         </LemonButton>
                     )}

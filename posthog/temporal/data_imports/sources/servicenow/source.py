@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SERVICE_NOW,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="ServiceNow",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync your ServiceNow ITSM data (incidents, problems, change requests, users, configuration items, and more) into the PostHog Data warehouse.

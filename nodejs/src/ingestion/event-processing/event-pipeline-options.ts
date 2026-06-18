@@ -7,4 +7,6 @@ export interface EventPipelineRunnerOptions {
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     PERSON_PROPERTIES_UPDATE_ALL: boolean
+    /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
 }

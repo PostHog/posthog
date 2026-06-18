@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AmazonEventBridgeSource(SimpleSource[AmazonEventBridgeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_EVENT_BRIDGE,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Amazon EventBridge",
             iconPath="/static/services/amazon_eventbridge.png",
             fields=cast(list[FieldType], []),
