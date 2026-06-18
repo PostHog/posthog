@@ -252,8 +252,11 @@ export function ProductSelection(): JSX.Element {
     const { currentStep } = useValues(productSelectionLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
-            <div className="flex flex-col items-center justify-center flex-grow w-full">
+        // On mobile, top-align so the scroll container grows with the content (centering inside min-h-full hides the
+        // Continue button behind the browser chrome and prevents scrolling to it). The bottom padding clears the chrome
+        // / device notch, mirroring the --scene-padding-bottom formula in Navigation.scss. Desktop (sm+) is unchanged.
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-4 items-center justify-start sm:justify-center bg-primary overflow-x-hidden">
+            <div className="flex flex-col items-center justify-start sm:justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
                 {currentStep === 'choose_path' && <OnboardingExitAction />}
