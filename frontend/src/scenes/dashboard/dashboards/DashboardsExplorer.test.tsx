@@ -10,6 +10,7 @@ jest.mock('lib/lemon-ui/Link', () => ({
     Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }))
 jest.mock('./DashboardCardMenu', () => ({ DashboardCardMenu: () => <span>menu</span> }))
+jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => <div>filters-bar</div> }))
 // Pass-through the dnd wrappers so the card renders without @dnd-kit pointer wiring.
 jest.mock('./dashboardsDnd', () => ({
     DashboardsDndContext: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -47,6 +48,9 @@ describe('DashboardsExplorer', () => {
             renamingDashboardId: null,
             dashboardsLoading: false,
             compactedSubfolders: [],
+            currentFolderContents: { subfolders: [], dashboards: [] },
+            dashboards: [],
+            filters: { search: '' },
             ...overrides,
         })
     }
@@ -115,5 +119,18 @@ describe('DashboardsExplorer', () => {
         fireEvent.keyDown(input, { key: 'Escape' })
         expect(stopRenaming).toHaveBeenCalled()
         expect(renameDashboard).not.toHaveBeenCalled()
+    })
+
+    it('shows a flat list of matches and hides folders when a search query is active', () => {
+        mockValues({
+            filters: { search: 'rev' },
+            dashboards: [{ id: 7, name: 'Revenue' }],
+            compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
+            currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [] },
+            breadcrumb: [{ label: 'All dashboards', path: '' }],
+        })
+        render(<DashboardsExplorer />)
+        expect(screen.getByText('Revenue')).toBeInTheDocument()
+        expect(screen.queryByText('Q1')).not.toBeInTheDocument()
     })
 })
