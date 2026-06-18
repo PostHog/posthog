@@ -278,8 +278,9 @@ procs:
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
             # ai-gateway routing — every model call goes through the
             # external Go gateway (github.com/PostHog/ai-gateway), brought
-            # up by the `ai-gateway` mprocs entry below via docker compose
-            # in the sibling repo at ~/Development/ai-gateway, port 8080.
+            # up by the `ai-gateway` mprocs entry below via bin/start-ai-gateway
+            # from the sibling clone (default: alongside this posthog checkout,
+            # override with AI_GATEWAY_REPO), port 8080.
             # The runner resolves the owning team's `phc_` per session so
             # POSTHOG_AI_GATEWAY_KEY isn't needed as a default bearer. Flip
             # to 'false' to fall back to the direct-provider path

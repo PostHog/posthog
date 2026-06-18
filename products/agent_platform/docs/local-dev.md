@@ -103,12 +103,12 @@ the runner uses direct providers when `AGENT_USE_AI_GATEWAY=false`.
 
 To turn it on:
 
-1. **Clone the sibling repo** at `~/Development/ai-gateway`
-   (override with `AI_GATEWAY_REPO`).
-2. **Create `~/Development/ai-gateway/.env`** with provider keys:
+1. **Clone the sibling repo** next to your posthog checkout (e.g.
+   `~/Code/posthog/ai-gateway` alongside `~/Code/posthog/posthog`).
+   Override the path with `AI_GATEWAY_REPO`.
+2. **Create the clone's `.env`** (copy its `.env.example`) with provider keys:
 
    ```bash
-   AI_GATEWAY_AUTH_MODE=open
    AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
    AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
    ```
@@ -118,10 +118,14 @@ To turn it on:
 
 3. **Enable the `ai_gateway` capability** in `hogli dev:setup` so the
    `ai-gateway` mprocs entry runs. It executes
-   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway) which
-   brings up `docker compose --profile full` (gateway + billing +
-   deps) and seeds the anonymous-team ledger with $100 so requests
-   pass admission. Idempotent — runs cleanly on every restart.
+   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway), which brings up
+   the gateway's deps (postgres + valkey), runs the gateway binary in **open**
+   mode (anonymous principal), and seeds the anonymous-team ledger with $100
+   so requests pass admission. Idempotent — runs cleanly on every restart.
+
+   For the resolver flow (real `phs_` token, auth + billing testing) see the
+   gateway clone's `docs/local-resolver-dev.md` instead.
+
 4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
    in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
 
