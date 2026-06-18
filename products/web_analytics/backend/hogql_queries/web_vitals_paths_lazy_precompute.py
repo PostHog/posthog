@@ -11,6 +11,7 @@ from prometheus_client import Counter
 
 from posthog.schema import (
     HogQLQueryModifiers,
+    SessionPropertyFilter,
     WebAnalyticsPreComputeStrategy,
     WebVitalsMetric,
     WebVitalsMetricBand,
@@ -63,6 +64,10 @@ class NonDayAlignedRange(LazyPrecomputeIneligible):
     pass
 
 
+class SessionFilterUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
 # `date_to` from the query date range arrives as either midnight (exclusive next
 # day) or end-of-day (inclusive last day) — both are day-aligned and the bucket
 # math still works. Anything else (10:00, 12:00, …) is a sub-day filter we can't
@@ -83,6 +88,14 @@ def _check_vitals_eligible(runner: LazyPrecomputeRunner) -> None:
     miss the surrounding day bucket and silently return empty results, while
     the raw query computes the same range correctly from event timestamps.
     """
+    # The vitals precompute INSERT scans `$web_vitals` events with no session join, so a
+    # session-scoped filter can't be evaluated against it (the expanded-filter gate admits
+    # session filters for the session-joined runners). Reject them so the request falls back
+    # to the raw query, which does have the session context.
+    for prop in runner.query.properties or []:
+        if isinstance(prop, SessionPropertyFilter):
+            raise SessionFilterUnsupported()
+
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
     if date_from is None or date_to is None:

@@ -668,6 +668,31 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
 
     @freeze_time("2024-01-15T12:00:00Z")
+    def test_expanded_filter_result_matches_raw(self) -> None:
+        """Expanded filters must produce the same result as the raw path, not merely a job.
+
+        `$host icontains` is admitted only on the expanded path (the MVP gate requires
+        `exact`) and discriminates the seed (example.com vs other.com), so this exercises the
+        expanded WHERE construction end-to-end and compares lazy against raw.
+        """
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS={self.team.pk}):
+            self._seed_two_sessions()
+            props = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.ICONTAINS)]
+
+            raw_values = [r.value for r in self._run(self._build_query(properties=props)).results[:3]]
+
+            with self._enable_lazy():
+                lazy_response = self._run(self._build_query(properties=props))
+
+            ready_jobs = PreaggregationJob.objects.filter(
+                team_id=self.team.pk, status=PreaggregationJob.Status.READY
+            ).count()
+            assert ready_jobs > 0, "expected a READY precompute job for the expanded filter"
+
+            lazy_values = [r.value for r in lazy_response.results[:3]]
+            assert lazy_values == raw_values, f"expanded-filter mismatch: lazy={lazy_values}, raw={raw_values}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
     def test_expanded_person_filter_eligible_under_event_time_poe(self) -> None:
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value}
         self.team.save()

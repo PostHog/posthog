@@ -254,7 +254,7 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    validate_user_filters(runner.team, query.properties or [])
+    validate_user_filters(runner.team, query.properties or [], query.modifiers)
 
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]

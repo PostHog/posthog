@@ -225,11 +225,16 @@ def expanded_filters_enabled_for_team(team: Team) -> bool:
     return team.id in settings.WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS
 
 
-def validate_user_filters(team: Team, properties: list) -> None:
+def validate_user_filters(team: Team, properties: list, modifiers: Any = None) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the user filters can't be precomputed.
 
     Single source of truth shared by both gates (`check_common_eligibility` and
     `check_common_eligible`) so the MVP and expanded paths can't drift between them.
+
+    `modifiers` is the request's `HogQLQueryModifiers`: a request can override the team's
+    persons-on-events mode, and person-property precomputability depends on the *effective*
+    mode (the precompute bakes person props at event time), so we resolve the request
+    override over the team default rather than reading the team setting alone.
     """
     if not properties:
         return
@@ -258,7 +263,9 @@ def validate_user_filters(team: Team, properties: list) -> None:
     # See the precomputability rule above for the full reasoning.
     if len(properties) > EXPANDED_MAX_FILTERS:
         raise TooManyFilters()
-    person_props_precomputable = team.person_on_events_mode in _EVENT_TIME_POE_MODES
+    requested_poe = getattr(modifiers, "personsOnEventsMode", None) if modifiers else None
+    effective_poe = requested_poe or team.person_on_events_mode
+    person_props_precomputable = effective_poe in _EVENT_TIME_POE_MODES
     for prop in properties:
         if isinstance(prop, EventPropertyFilter | SessionPropertyFilter):
             continue
@@ -342,7 +349,7 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    validate_user_filters(team, properties)
+    validate_user_filters(team, properties, modifiers)
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
