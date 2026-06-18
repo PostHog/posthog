@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+// Relative (not `@/`) import: this module is loaded by the tsx schema-generation
+// script, and `playbookIds` is pure constants — no `.md` imports to choke on.
+import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()
@@ -12,6 +16,14 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .optional()
         .default('manual')
         .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+})
+
+export const AgentResolveResourceSchema = z.object({
+    resource: z
+        .string()
+        .describe(
+            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
+        ),
 })
 
 export const ExternalDataJobsAfterSchema = z
@@ -313,7 +325,7 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 

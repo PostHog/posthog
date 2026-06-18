@@ -268,7 +268,17 @@ class Team(UUIDTClassicModel):
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
                 condition=models.Q(project_id__isnull=False),
-            )
+            ),
+            models.CheckConstraint(
+                name="llm_gateway_overspend_allowance_usd_in_range",
+                # Mirrors OVERSPEND_ALLOWANCE_MIN/MAX_USD; null = unset stays valid. The Python
+                # write surfaces validate too, but update/bulk_update/shell/raw bypass them.
+                condition=models.Q(llm_gateway_overspend_allowance_usd__isnull=True)
+                | models.Q(
+                    llm_gateway_overspend_allowance_usd__gte=0,
+                    llm_gateway_overspend_allowance_usd__lte=10000,
+                ),
+            ),
         ]
 
     objects: TeamManager = TeamManager()
@@ -445,6 +455,10 @@ class Team(UUIDTClassicModel):
     # null revoked_at = not revoked. Set by internal tooling/admin only.
     llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
     llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
+    # Per-team USD floor the gateway lets a team dispatch past $0 down to. Projected into
+    # gateway_credential.json as the `overspend_allowance_usd` wire key. Null = use the
+    # gateway default; 0 = no allowance. Range [0, 10000] validated at the write surfaces.
+    llm_gateway_overspend_allowance_usd = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")

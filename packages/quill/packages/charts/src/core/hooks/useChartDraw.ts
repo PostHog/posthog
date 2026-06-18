@@ -56,7 +56,7 @@ export function useChartDraw({
             cancelAnimationFrame(staticRafRef.current)
             staticRafRef.current = null
         }
-        if (!ctx || !dimensions || !scales) {
+        if (!ctx || !dimensions || !scales || theme.skipDraw) {
             return
         }
         staticRafRef.current = requestAnimationFrame(() => {

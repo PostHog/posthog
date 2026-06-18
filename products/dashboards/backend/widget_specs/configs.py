@@ -15,6 +15,8 @@ from products.dashboards.backend.widget_specs.common import (
 ACTIVITY_EVENTS_LIST_WIDGET_TYPE = "activity_events_list"
 ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
+EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
+EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 
 ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
@@ -22,6 +24,8 @@ SessionReplayOrderBy = Literal[
     "start_time", "activity_score", "recording_duration", "duration", "click_count", "console_error_count"
 ]
 WidgetAssigneeType = Literal["user", "role"]
+ExperimentsWidgetStatus = Literal["draft", "running", "paused", "stopped", "all"]
+ExperimentsWidgetOrderBy = Literal["created_at", "name", "start_date"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -67,4 +71,25 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
 class ActivityEventsListWidgetConfig(WidgetListConfigBase):
     limit: ActivityWidgetLimit = Field(
         default=ACTIVITY_EVENTS_DEFAULT_LIMIT, description="Maximum number of events to return."
+    )
+
+
+class ExperimentsListWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: WidgetLimit = Field(
+        default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of experiments to return."
+    )
+    orderBy: ExperimentsWidgetOrderBy = Field(default="created_at", description="Experiment list sort column.")
+    orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
+    status: ExperimentsWidgetStatus = Field(default="all", description="Experiment status filter.")
+    createdBy: int | None = Field(default=None, description="Filter by creator (user id). Omit for any creator.")
+
+
+class ExperimentResultsWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    experimentId: int | None = Field(
+        default=None,
+        description="Experiment to show results for. Null until the user picks one in the widget settings.",
     )

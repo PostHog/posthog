@@ -935,7 +935,7 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
     // Delete by team
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id])
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -965,7 +965,7 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[])
+        .delete_hash_key_overrides_by_teams(&[], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -980,11 +980,79 @@ async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[999999999])
+        .delete_hash_key_overrides_by_teams(&[999999999], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
     assert_eq!(deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_bounded_by_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("bounded_del_user", None)
+        .await
+        .expect("Failed to insert person");
+    for i in 0..5 {
+        ctx.insert_hash_key_override(person.id, &format!("flag-{i}"), "hash")
+            .await
+            .unwrap();
+    }
+
+    // batch_size=2 deletes 2 of the 5, then the loop drains the rest.
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 1);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_zero_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("zero_batch_user", None)
+        .await
+        .expect("Failed to insert person");
+    ctx.insert_hash_key_override(person.id, "flag-1", "hash")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 0)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
 
     ctx.cleanup().await.ok();
 }

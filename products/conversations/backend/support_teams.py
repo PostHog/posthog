@@ -511,6 +511,7 @@ def clear_teams_token(
         settings_blob.pop("teams_team_name", None)
         settings_blob.pop("teams_channel_id", None)
         settings_blob.pop("teams_channel_name", None)
+        settings_blob.pop("teams_channels", None)
         locked_team.conversations_settings = settings_blob
 
         config.teams_tenant_id = None
