@@ -15,14 +15,10 @@ const handleChartError = makeChartErrorHandler('sql-line-chart')
  * lines; everything else falls back to the legacy chart.js path. Tooltip content is quill's
  * DefaultTooltip — the rich InsightTooltip isn't bridged over yet.
  */
-export const SqlLineGraph = (props: LineGraphProps): JSX.Element | null => {
+export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
     const model = useSqlLineGraph(props)
-    if (!model) {
-        return null
-    }
 
-    const { series, labels, theme, config, legendItems, hiddenKeys, toggleSeries } = model
-
+    // Keep the styled container even with no data, matching the legacy path's background shell.
     return (
         <div
             className={clsx(
@@ -31,21 +27,23 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element | null => {
                 { 'h-[60vh]': props.presetChartHeight, 'h-full': !props.presetChartHeight }
             )}
         >
-            <ChartLegend
-                show={legendItems.length > 0}
-                items={legendItems}
-                hiddenKeys={hiddenKeys}
-                onItemClick={toggleSeries}
-                position="top"
-            >
-                <TimeSeriesLineChart
-                    series={series}
-                    labels={labels}
-                    theme={theme}
-                    config={config}
-                    onError={handleChartError}
-                />
-            </ChartLegend>
+            {model && (
+                <ChartLegend
+                    show={model.legendItems.length > 0}
+                    items={model.legendItems}
+                    hiddenKeys={model.hiddenKeys}
+                    onItemClick={model.toggleSeries}
+                    position="top"
+                >
+                    <TimeSeriesLineChart
+                        series={model.series}
+                        labels={model.labels}
+                        theme={model.theme}
+                        config={model.config}
+                        onError={handleChartError}
+                    />
+                </ChartLegend>
+            )}
         </div>
     )
 }
