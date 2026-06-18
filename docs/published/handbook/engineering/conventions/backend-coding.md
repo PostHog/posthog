@@ -70,9 +70,9 @@ Don’t log sensitive information. Make sure you never log:
 
 ### Testing
 
-A test suite is a shared, permanent liability: every test runs on every PR forever, costs CI time, can flake and block unrelated work, and is maintained through every future refactor.
+A test suite is a shared, permanent liability: every test runs on every PR forever, costs CI time, can flake and block unrelated work, and is code someone has to maintain as the system changes.
 So judge a new test on two independent axes — **value** (does it catch a realistic regression we actually make?) and **cost** (how far down the test pyramid does it sit?).
-Maximize value and minimize cost; this never means "write fewer tests", it means kill the ones that catch nothing and push the rest as far down the pyramid as they go.
+Maximize value and minimize cost; this never means "write fewer tests", it means drop the ones that catch nothing and push the rest as far down the pyramid as they go.
 
 - All new packages and most new significant functionality should come with unit tests
 - Significant features should come with integration and/or end-to-end tests
