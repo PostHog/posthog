@@ -104,7 +104,14 @@ class TeamsChannelsView(APIView):
 
             data = resp.json()
             channels = [
-                {"id": c.get("id"), "name": c.get("displayName")}
+                {
+                    "id": c.get("id"),
+                    "name": c.get("displayName"),
+                    # "standard" | "shared" | "private" — drives shared-channel
+                    # polling and the picker badge. Absent fields are treated as
+                    # standard downstream.
+                    "membership_type": c.get("membershipType"),
+                }
                 for c in data.get("value", [])
                 if c.get("id") and c.get("displayName")
             ]
@@ -384,6 +391,10 @@ class TeamsSelectChannelView(APIView):
                 "team_name": teams_team_name,
                 "channel_id": teams_channel_id,
                 "channel_name": teams_channel_name,
+                # "standard" | "shared" | "private". Shared/private channels never
+                # push ambient messages over the bot webhook, so the per-minute
+                # poller pulls them from Graph; standard channels stay webhook-only.
+                "membership_type": channel_match.get("membershipType"),
             }
             # Remove existing entry with same channel_id (if any)
             teams_channels = [c for c in teams_channels if c.get("channel_id") != teams_channel_id]
