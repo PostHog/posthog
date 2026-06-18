@@ -104,7 +104,7 @@ class ProvisioningTestBase(APIBaseTest):
             **kwargs,
         )
 
-    def _get_bearer_token(self) -> str:
+    def _request_bearer_token(self):
         code = f"test_code_{id(self)}"
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
@@ -121,10 +121,12 @@ class ProvisioningTestBase(APIBaseTest):
         body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
         ts = int(time.time())
         sig = compute_signature(HMAC_SECRET, ts, body)
-        res = self.client.post(
+        return self.client.post(
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
             headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
-        return res.json()["access_token"]
+
+    def _get_bearer_token(self) -> str:
+        return self._request_bearer_token().json()["access_token"]

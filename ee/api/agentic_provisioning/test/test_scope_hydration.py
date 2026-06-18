@@ -145,9 +145,10 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in access_token.scoped_teams
 
-    def test_base_team_excluded_when_user_loses_access(self):
-        # base_team_id must not be unconditionally included. If the user has
-        # since lost access to it, the new token should not carry it.
+    def test_issuance_rejected_when_no_accessible_teams(self):
+        # When the base team is gone or the user lost access, _compute_partner_scoped_teams
+        # returns []. An empty scoped_teams is unrestricted under the standard permission
+        # check, so issuance must fail closed rather than mint a project-unrestricted token.
         from posthog.constants import AvailableFeature
         from posthog.models.oauth import OAuthAccessToken
         from posthog.models.organization import OrganizationMembership
@@ -168,9 +169,10 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
             resource_id=str(self.team.id),
         )
 
-        token = self._get_bearer_token()
-        access_token = OAuthAccessToken.objects.get(token=token)
-        assert self.team.id not in access_token.scoped_teams
+        res = self._request_bearer_token()
+        assert res.status_code == 400, res.content
+        assert res.json()["error"] == "invalid_grant"
+        assert not OAuthAccessToken.objects.filter(user=self.user).exists()
 
     def test_refresh_rehydrates_with_new_teams(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -202,6 +204,44 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         new_access_token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert self.team.id in new_access_token.scoped_teams
         assert newly_provisioned.id in new_access_token.scoped_teams
+
+    def test_refresh_rejected_when_access_lost_and_token_preserved(self):
+        # A refresh whose base team access was revoked recomputes to an empty scope.
+        # It must fail closed (not rotate into an unrestricted token) and, because the
+        # check runs before any token mutation, must leave the caller's refresh token intact.
+        from posthog.constants import AvailableFeature
+        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        token = self._get_bearer_token()
+        refresh_token = OAuthRefreshToken.objects.get(access_token__token=token)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
+
+        res = self._post_signed(
+            "/api/agentic/oauth/token",
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token.token},
+            content_type="application/x-www-form-urlencoded",
+        )
+        assert res.status_code == 400, res.content
+        assert res.json()["error"] == "invalid_grant"
+
+        refresh_token.refresh_from_db()
+        assert refresh_token.revoked is None
+        assert OAuthAccessToken.objects.filter(token=token).exists()
 
     def test_application_none_yields_empty_scope(self):
         # application is never None in practice (oauthrefreshtoken.application_id is

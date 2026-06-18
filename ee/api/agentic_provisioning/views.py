@@ -1143,6 +1143,20 @@ def _exchange_authorization_code(request: Request) -> Response:
         )
 
         scoped_teams = _compute_partner_scoped_teams(oauth_app, user, team_id)
+        # A partner token carries its restriction in scoped_teams alone, and the standard
+        # OAuth permission check treats an empty scoped_teams as unrestricted (permissions.py).
+        # _compute_partner_scoped_teams returns [] exactly when the base team is gone or the
+        # user lost access, so minting here would hand out a project-unrestricted bearer.
+        # Fail closed and force re-authorization.
+        if not scoped_teams:
+            _capture_provisioning_event("token_exchange", "no_accessible_teams", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "No accessible teams for this authorization; re-authorize.",
+                },
+                status=400,
+            )
 
         access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
@@ -1236,6 +1250,17 @@ def _exchange_refresh_token(request: Request) -> Response:
         # scoped, fall back to zero so the helper short-circuits without claiming a team.
         base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
         scoped_teams = _compute_partner_scoped_teams(oauth_app, user, base_team_id)
+        # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the
+        # standard permission check, so a refresh whose base team vanished or whose access was
+        # revoked must re-authorize rather than rotate into a project-unrestricted token.
+        # Checked before any token row is mutated so a rejected refresh never revokes the
+        # caller's only token.
+        if not scoped_teams:
+            _capture_provisioning_event("token_exchange", "no_accessible_teams", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "No accessible teams for this token; re-authorize."},
+                status=400,
+            )
         old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
