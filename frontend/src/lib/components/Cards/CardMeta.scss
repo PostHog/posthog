@@ -198,15 +198,15 @@
     align-items: center;
 }
 
-// Refresh control is hidden at rest and revealed on tile hover (or keyboard focus)
-// so it doesn't crowd the tile.
+// Refresh control is hidden at rest and revealed when hovering the tile header (or on
+// keyboard focus) so it doesn't crowd the tile or trigger from hovering the chart.
 .CardMeta__refresh {
     opacity: 0;
     pointer-events: none;
     transition: opacity 150ms ease;
 }
 
-.DashboardTileCard:hover .CardMeta__refresh,
+.CardMeta:hover .CardMeta__refresh,
 .CardMeta__refresh:focus-visible,
 .CardMeta__refresh:focus-within {
     opacity: 1;
