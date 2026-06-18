@@ -107,8 +107,8 @@ test.describe('Retention', () => {
         await test.step('click cohort row and verify persons modal', async () => {
             await insight.retention.clickCohortRow(1)
             const personLinks = insight.retention.personsModal.locator('[data-attr="retention-person-link"]')
+            await expect(personLinks).toHaveCount(10, { timeout: 30000 })
             await expect(personLinks.first()).toBeVisible()
-            expect(await personLinks.count()).toBe(10)
         })
 
         await test.step('close modal and verify table is intact', async () => {
