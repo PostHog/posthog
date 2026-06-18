@@ -48,7 +48,9 @@ export function ScoutRowCard({
                         <Link
                             to={urls.skill(config.skill_name)}
                             target="_blank"
-                            className="truncate font-medium text-sm text-default"
+                            targetBlankIcon={false}
+                            subtle
+                            className="truncate font-medium text-sm"
                         >
                             {prettifyScoutSkillName(config.skill_name)}
                         </Link>
