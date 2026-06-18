@@ -30,6 +30,19 @@ from ..models.evaluations import Evaluation
 
 logger = structlog.get_logger(__name__)
 
+EVALUATION_WORKFLOW_PREFIXES = {
+    "hog": "llma-hog-eval",
+    "llm_judge": "llma-llm-eval",
+    "sentiment": "llma-sentiment-eval",
+}
+
+
+def _evaluation_workflow_prefix(evaluation_type: str) -> str:
+    try:
+        return EVALUATION_WORKFLOW_PREFIXES[evaluation_type]
+    except KeyError:
+        raise ValueError(f"Unsupported evaluation type for workflow prefix: {evaluation_type}") from None
+
 
 class EvaluationRunRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.UUIDField(required=True, help_text="UUID of the evaluation to run.")
@@ -158,7 +171,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
+        prefix = _evaluation_workflow_prefix(evaluation.evaluation_type)
         workflow_id = f"{prefix}-{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
