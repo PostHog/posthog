@@ -1,1 +1,1 @@
-0024_alter_externaldataschema_sync_type
+0025_backfill_externaldatasource_direct_query_enabled
