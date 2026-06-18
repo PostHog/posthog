@@ -22185,6 +22185,18 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name
+     */
+    export type FacetFieldEnum = typeof FacetFieldEnum[keyof typeof FacetFieldEnum];
+
+
+    export const FacetFieldEnum = {
+      SeverityText: 'severity_text',
+      ServiceName: 'service_name',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -50184,6 +50196,13 @@ export namespace Schemas {
       event_name?: string;
     }
 
+    export interface _LogFacetValue {
+      /** The facet value (e.g. a severity level or service name). */
+      value: string;
+      /** Number of matching log records, with all active filters applied except this facet's own selection. */
+      count: number;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -50329,6 +50348,34 @@ export namespace Schemas {
     export interface _LogsCountResponse {
       /** Number of log entries matching the filters. */
       count: number;
+    }
+
+    export interface _LogsFacetValuesBody {
+      /** Column to facet on. Its own filter is excluded so counts reflect the other active filters.
+       *
+       * * `severity_text` - severity_text
+       * * `service_name` - service_name */
+      facetField: FacetFieldEnum;
+      /** Date range. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels (ignored when faceting on severity_text). */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names (ignored when faceting on service_name). */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFacetValuesRequest {
+      /** The facet values query to execute. */
+      query: _LogsFacetValuesBody;
+    }
+
+    export interface _LogsFacetValuesResponse {
+      /** Facet values with cross-filtered counts, ordered by count descending. */
+      results: _LogFacetValue[];
     }
 
     export interface _LogsQueryBody {
