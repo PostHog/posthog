@@ -108,9 +108,13 @@ The gap between them is **just data ingestion** (the path from warehouse snapsho
 
 ## What pays for the destination: token cost per outcome
 
-The destination (lifecycle events + git history) is easy to defer while the payoff reads as "nicer CI metrics." Attaching **dollars** changes the calculus, and it's the strongest near-term reason to build it.
+The destination (lifecycle events + git history) is easy to defer while the payoff reads as "nicer CI metrics."
+Attaching **dollars** changes the calculus, and it's the strongest near-term reason to build it.
 
-LLM analytics already knows what agent work _costs_ — `$ai_*_cost_usd` per generation. What it structurally cannot know is whether that spend was _worth it_: it has no concept of merge, revert, or rework. That denominator — a PR's outcome and lifecycle — lives only here. Token cost alone is trivia; **token cost per outcome** is the metric, and the join only lands in this product.
+LLM analytics already knows what agent work _costs_ — the `$ai_*_cost_usd` properties on generation events.
+What it structurally cannot know is whether that spend was _worth it_: it has no concept of merge, revert, or rework.
+That denominator — a PR's outcome and lifecycle — lives only here.
+Token cost alone is trivia; **token cost per outcome** is the metric, and the join only lands in this product.
 
 Roughly in order of "impossible elsewhere":
 
@@ -119,9 +123,12 @@ Roughly in order of "impossible elsewhere":
 - **Cost per code area.** Which products/paths burn the most agent tokens, via the PR's changed files.
 - **The full three-ledger picture.** Human-hours + CI-minutes + tokens on the same unit (the PR) — the only place an agent-authored change and a human one are economically comparable.
 
-Division of labor matters: LLM analytics does the cost grouping itself (it groups by any key on the event). This product's job is the **join** — resolving the key the agent can actually stamp at capture time (a commit **SHA**, since the PR often doesn't exist yet) to a PR via `github_pull_requests.head_sha`, then enriching it with outcome and lifecycle. Review and CI-bot spend self-attributes (the PR exists by then); the coding slice is the part that needs us.
+Division of labor matters: LLM analytics does the cost grouping itself (it groups by any key on the event).
+This product's job is the **join** — resolving the key the agent can actually stamp at capture time (a commit **SHA**, since the PR often doesn't exist yet) to a PR via `github_pull_requests.head_sha`, then enriching it with outcome and lifecycle.
+Review and CI-bot spend self-attributes (the PR exists by then); the coding slice is the part that needs us.
 
-So cost is a _payload_, not a new surface: it rides the same lifecycle model, and it's the forcing function that makes ingesting that model — and the git history behind it — worth funding. Both motivations are served: it's a DevEx number (A) and it closes the economics of the AI-to-prod loop (B).
+So cost is a _payload_, not a new surface: it rides the same lifecycle model, and it's the forcing function that makes ingesting that model — and the git history behind it — worth funding.
+It serves both motivations — a DevEx dogfood metric, and the economics of the AI-to-prod loop.
 
 ## Locked decisions
 
