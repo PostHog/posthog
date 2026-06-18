@@ -2967,14 +2967,15 @@ class TestPrinter(BaseTest):
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
         assert "format_csv_allow_double_quotes=1" in printed
 
-    def test_warehouse_parquet_table_disables_prewhere_scoped(self):
+    @parameterized.expand(["Parquet", "Delta", "DeltaS3Wrapper"])
+    def test_warehouse_parquet_table_disables_prewhere_scoped(self, fmt: str):
         from posthog.hogql.database.models import TableNode
         from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
         parquet_table = HogQLDataWarehouseTable(
             name="parquet_table",
             url="https://example.com/test.parquet",
-            format="Parquet",
+            format=fmt,
             fields={"col1": StringDatabaseField(name="col1")},
             structure="`col1` String",
         )
@@ -2985,9 +2986,10 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query = parse_select("SELECT col1 FROM parquet_table")
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
-        # PREWHERE is disabled only inside the subquery wrapping the parquet read,
-        # so the surrounding query keeps PREWHERE.
-        assert "(SELECT * FROM s3(" in printed
+        # PREWHERE is disabled only inside the subquery wrapping the read, so the
+        # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
+        # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
+        assert "(SELECT * FROM " in printed
         assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
         assert printed.count("optimize_move_to_prewhere") == 1
 
