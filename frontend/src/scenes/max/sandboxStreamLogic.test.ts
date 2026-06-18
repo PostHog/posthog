@@ -17,7 +17,6 @@ import {
     mergeResourceProducts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
-    resolveToolKey,
     sandboxStreamLogic,
     SSE_HEALTHY_CONNECTION_MS,
     SSE_RECONNECT_BASE_DELAY_MS,
@@ -110,50 +109,6 @@ describe('sandboxStreamLogic', () => {
         jest.restoreAllMocks()
     })
 
-    describe('resolveToolKey', () => {
-        it('parses the inner tool name out of a single-exec call command', () => {
-            const resolved = resolveToolKey('posthog', 'exec', { command: 'call insight-create {"name":"Signups"}' })
-            expect(resolved.resolvedKey).toEqual('insight-create')
-            expect(resolved.innerToolName).toEqual('insight-create')
-            expect(resolved.innerInput).toEqual({ name: 'Signups' })
-        })
-
-        it('maps discovery verbs to sentinels', () => {
-            expect(resolveToolKey('posthog', 'exec', { command: 'tools' }).resolvedKey).toEqual(
-                '__posthog_exec_tools__'
-            )
-            expect(resolveToolKey('posthog', 'exec', { command: 'search recordings' }).resolvedKey).toEqual(
-                '__posthog_exec_search__'
-            )
-        })
-
-        it('falls back to unknown sentinel for malformed commands', () => {
-            expect(resolveToolKey('posthog', 'exec', { command: '!!!' }).resolvedKey).toEqual(
-                '__posthog_exec_unknown__'
-            )
-        })
-
-        it('returns the wire name for non-exec MCP tools that carry one', () => {
-            expect(resolveToolKey('user-mcp', 'do_thing', {}).resolvedKey).toEqual('do_thing')
-        })
-
-        it.each(['Edit', 'TodoWrite', 'Grep', 'Task'])(
-            'falls back to the SDK %s name when the wire toolName is empty (every Claude built-in)',
-            (sdkName) => {
-                // Built-ins carry no top-level toolName on the wire — only `_meta.claudeCode.toolName`.
-                expect(resolveToolKey('claude', '', {}, sdkName).resolvedKey).toEqual(sdkName)
-            }
-        )
-
-        it('prefers the explicit wire toolName over the SDK name when both are present', () => {
-            expect(resolveToolKey('user-mcp', 'do_thing', {}, 'Edit').resolvedKey).toEqual('do_thing')
-        })
-
-        it('resolves to empty string when neither a wire toolName nor an SDK name is present', () => {
-            expect(resolveToolKey('claude', '', {}).resolvedKey).toEqual('')
-        })
-    })
-
     describe('ingestAcpFrame replay', () => {
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
             const frames: StoredLogEntry[] = [
@@ -194,7 +149,9 @@ describe('sandboxStreamLogic', () => {
             expect(toolItem?.toolCallId).toEqual('t1')
 
             const invocation = logic.values.toolInvocations.get('t1')
-            expect(invocation?.resolvedKey).toEqual('execute-sql')
+            expect(invocation?.rawServerName).toEqual('posthog')
+            expect(invocation?.rawToolName).toEqual('exec')
+            expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
             expect(invocation?.status).toEqual('completed')
             expect(invocation?.output).toEqual({ rows: 1 })
             expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
@@ -379,7 +336,7 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('streamed tool input', () => {
-        it('folds rawInput arriving on a later update into a built-in tool call keyed off _meta', async () => {
+        it('folds rawInput arriving on a later update into a built-in tool call and keeps _meta raw', async () => {
             // Built-ins carry no top-level toolName — the SDK name arrives only on `_meta.claudeCode`.
             const frames: StoredLogEntry[] = [
                 sessionUpdate({
@@ -404,11 +361,11 @@ describe('sandboxStreamLogic', () => {
 
             const invocation = logic.values.toolInvocations.get('t1')
             expect(invocation?.input).toEqual({ query: 'find recordings', max_results: 10 })
-            expect(invocation?.resolvedKey).toEqual('ToolSearch')
-            expect(invocation?.claudeToolName).toEqual('ToolSearch')
+            expect(invocation?.rawToolName).toEqual('')
+            expect(invocation?.meta).toEqual({ claudeCode: { toolName: 'ToolSearch' } })
         })
 
-        it('re-resolves the registry key when an exec command streams in after an empty tool_call', async () => {
+        it('folds an exec command that streams in after an empty tool_call without resolving it', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({
                     sessionUpdate: 'tool_call',
@@ -431,13 +388,13 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             const invocation = logic.values.toolInvocations.get('t2')
-            expect(invocation?.resolvedKey).toEqual('insight-create')
-            expect(invocation?.innerToolName).toEqual('insight-create')
-            expect(invocation?.innerInput).toEqual({ name: 'Signups' })
+            expect(invocation?.rawServerName).toEqual('posthog')
+            expect(invocation?.rawToolName).toEqual('exec')
+            expect(invocation?.input).toEqual({ command: 'call insight-create {"name":"Signups"}' })
         })
 
         it.each(['Edit', 'TodoWrite', 'Grep', 'Task'])(
-            'keys a built-in %s tool_call off _meta.claudeCode.toolName despite an empty wire toolName',
+            'keeps a built-in %s tool_call raw despite an empty wire toolName',
             async (sdkName) => {
                 const frames: StoredLogEntry[] = [
                     sessionUpdate({
@@ -455,12 +412,12 @@ describe('sandboxStreamLogic', () => {
                 }).toFinishAllListeners()
 
                 const invocation = logic.values.toolInvocations.get('tb')
-                expect(invocation?.resolvedKey).toEqual(sdkName)
-                expect(invocation?.claudeToolName).toEqual(sdkName)
+                expect(invocation?.rawToolName).toEqual('')
+                expect(invocation?.meta).toEqual({ claudeCode: { toolName: sdkName } })
             }
         )
 
-        it('keeps the resolved input when a later update carries none', async () => {
+        it('keeps the raw input when a later update carries none', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({
                     sessionUpdate: 'tool_call',
@@ -483,8 +440,8 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             const invocation = logic.values.toolInvocations.get('t3')
-            expect(invocation?.resolvedKey).toEqual('execute-sql')
-            expect(invocation?.innerInput).toEqual({ query: 'select 1' })
+            expect(invocation?.rawToolName).toEqual('exec')
+            expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
         })
     })
 
@@ -2003,7 +1960,10 @@ describe('sandboxStreamLogic', () => {
             expect(record?.toolCallId).toEqual('t1')
             expect(record?.toolName).toEqual('mcp__posthog__exec')
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'reject'])
-            expect(record?.rawToolCall.resolvedKey).toEqual('insight-update')
+            expect(record?.rawToolCall.rawServerName).toEqual('posthog')
+            expect(record?.rawToolCall.rawToolName).toEqual('exec')
+            expect(record?.rawToolCall.input).toEqual({ command: 'call insight-update {"id":"abc"}' })
+            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__posthog__exec' } })
         })
 
         it('returns null for a frame with no usable options', () => {
@@ -2034,7 +1994,7 @@ describe('sandboxStreamLogic', () => {
             expect(record?.options.find((o) => o.kind === 'reject_once')?.customInput).toEqual(true)
         })
 
-        it('names the inner tool when the toolCall carries _meta.claudeCode.toolName', () => {
+        it('keeps Claude tool metadata on the raw tool call', () => {
             const record = parsePermissionRequestFrame({
                 type: 'permission_request',
                 requestId: 'req-2',
@@ -2047,8 +2007,9 @@ describe('sandboxStreamLogic', () => {
                 options: [{ optionId: 'allow_once', name: 'Approve', kind: 'allow_once' }],
             })
             expect(record).not.toBeNull()
-            expect(record?.rawToolCall.resolvedKey).toEqual('Edit')
-            expect(record?.rawToolCall.claudeToolName).toEqual('Edit')
+            expect(record?.toolName).toEqual('Edit')
+            expect(record?.rawToolCall.rawToolName).toEqual('')
+            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'Edit' } })
         })
 
         it('populates pendingPermissionRequest off a permission_request SSE frame', async () => {

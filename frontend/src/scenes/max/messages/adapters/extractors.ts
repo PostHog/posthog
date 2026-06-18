@@ -28,6 +28,37 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
 }
 
+const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
+    'query-trends': NodeKind.TrendsQuery,
+    'query-funnel': NodeKind.FunnelsQuery,
+    'query-retention': NodeKind.RetentionQuery,
+    'query-stickiness': NodeKind.StickinessQuery,
+    'query-paths': NodeKind.PathsQuery,
+    'query-lifecycle': NodeKind.LifecycleQuery,
+    'query-llm-traces-list': NodeKind.TracesQuery,
+    'query-trends-actors': NodeKind.InsightActorsQuery,
+    'query-lifecycle-actors': NodeKind.InsightActorsQuery,
+    'query-paths-actors': NodeKind.InsightActorsQuery,
+    'query-retention-actors': NodeKind.InsightActorsQuery,
+}
+
+function queryFromToolInput(message: McpToolCallMessage): Record<string, unknown> | null {
+    const input = asRecord(message.innerInput)
+    if (!input) {
+        return null
+    }
+
+    const query = { ...input }
+    delete query.output_format
+
+    if (typeof query.kind === 'string') {
+        return query
+    }
+
+    const inferredKind = QUERY_WRAPPER_KIND_BY_TOOL_KEY[message.resolvedKey]
+    return inferredKind ? { ...query, kind: inferredKind } : null
+}
+
 /** The artifact envelope + content the visualization widget proxies consume. */
 export interface VisualizationArtifactExtraction {
     envelope: ArtifactMessage
@@ -88,8 +119,8 @@ export interface QueryResultExtraction {
  */
 export function extractQueryResult(message: McpToolCallMessage): QueryResultExtraction | null {
     const output = asRecord(message.rawOutput)
-    const query = output ? asRecord(output.query) : null
-    if (!output || !query || typeof query.kind !== 'string') {
+    const query = (output ? asRecord(output.query) : null) ?? queryFromToolInput(message)
+    if (!query || typeof query.kind !== 'string') {
         return null
     }
 
@@ -118,7 +149,7 @@ export function extractQueryResult(message: McpToolCallMessage): QueryResultExtr
             name: null,
             description: null,
         },
-        url: asString(output._posthogUrl) ?? null,
+        url: asString(output?._posthogUrl) ?? null,
     }
 }
 

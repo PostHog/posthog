@@ -2,8 +2,8 @@
  * Thread shapes for the sandbox agent runtime (`agent_runtime === 'sandbox'`).
  *
  * The sandbox path consumes the products/tasks SSE endpoint directly (the same endpoint
- * PostHog Code uses). `sandboxStreamLogic` parses the raw wire frames (typed in
- * `./sandboxWireTypes`) into the `ToolInvocation` / `ThreadItem` state the renderer consumes.
+ * PostHog Code uses). `sandboxStreamLogic` folds the raw wire frames (typed in
+ * `./sandboxWireTypes`) into `ToolInvocation` / `ThreadItem` stream state.
  */
 
 import type { SandboxQuestion } from '../sandboxQuestionUtils'
@@ -21,8 +21,8 @@ export interface SandboxProgressStep {
 
 /**
  * One merged tool call: a `tool_call` creation plus N × `tool_call_update`s folded into a
- * single record keyed on `toolCallId`. The single-exec `posthog` MCP server runs one outer
- * `exec` tool; the inner tool name is what the renderer keys on (`resolvedKey`).
+ * single raw stream record keyed on `toolCallId`. Renderer-specific parsing, such as resolving
+ * the inner tool name for PostHog's single-exec MCP server, happens outside this stream state.
  */
 export interface ToolInvocation {
     toolCallId: string
@@ -30,19 +30,8 @@ export interface ToolInvocation {
     rawServerName: string
     /** ACP-reported tool, e.g. 'exec', 'TodoWrite', '<user-tool>'. */
     rawToolName: string
-    /** Parsed inner tool name when `rawToolName === 'exec'` — e.g. 'insight-create'. */
-    innerToolName?: string
-    /**
-     * Registry lookup key — the inner tool name for single-exec `call` commands, a
-     * `__posthog_exec_*__` sentinel for discovery verbs, or the wire tool name otherwise.
-     */
-    resolvedKey: string
-    /** Stable SDK tool name from `_meta.claudeCode.toolName` — set for Claude built-ins, which carry no wire `toolName`. */
-    claudeToolName?: string
     /** rawInput at `tool_call` time (for `exec`, includes the wrapper `{ command }`). */
     input: Record<string, unknown>
-    /** JSON-parsed inner args when `innerToolName` is set. */
-    innerInput?: Record<string, unknown>
     /** rawOutput on the final `tool_call_update`. */
     output?: unknown
     /** Error carried by a failed `tool_call_update` (from the update or its notification envelope). */
@@ -56,6 +45,8 @@ export interface ToolInvocation {
     locations?: { path: string; line?: number }[]
     /** Accumulated ACP `content[]` from updates. */
     contentBlocks: unknown[]
+    /** Raw ACP `_meta` from the latest tool frame. */
+    meta?: unknown
 }
 
 export type ThreadItemType =
