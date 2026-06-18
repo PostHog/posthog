@@ -1020,7 +1020,10 @@ impl GlobalRateLimiterImpl {
         let entry_count = cache.entry_count();
         let counter_sum: i64 = tier_counts.iter().map(|c| c.load(Ordering::Relaxed)).sum();
         let drift_total = (counter_sum - entry_count as i64).unsigned_abs();
-        let tripwire = entry_count > 0
+        // `counter_sum > 0` catches the empty-cache-but-stale-counters case
+        // (async eviction not yet applied): the fraction threshold is 0 when
+        // entry_count == 0, so any positive drift trips a reconcile.
+        let tripwire = (counter_sum > 0 || entry_count > 0)
             && drift_total as f64 > TIER_RECONCILE_TRIPWIRE_FRACTION * entry_count as f64;
 
         if tick_n.is_multiple_of(TIER_RECONCILE_INTERVAL_TICKS) || tripwire {
@@ -1977,6 +1980,22 @@ mod tests {
         GlobalRateLimiterImpl::emit_and_reconcile_tiers(&cache, &tier_counts, "test", 1);
 
         assert_eq!(tier_count(&tier_counts, PressureTier::Idle), 10);
+    }
+
+    #[test]
+    fn test_reconcile_tripwire_zeros_stale_counts_on_empty_cache() {
+        // Cache is empty (e.g. async evictions applied) but the counters still
+        // hold stale positives. The fraction threshold is 0 here, so the
+        // tripwire must fire off-cadence and zero the counters out.
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        cache.run_pending_tasks();
+
+        let tier_counts = empty_tier_counts();
+        tier_counts[PressureTier::Idle.index()].store(7, Ordering::Relaxed);
+
+        GlobalRateLimiterImpl::emit_and_reconcile_tiers(&cache, &tier_counts, "test", 1);
+
+        assert_eq!(tier_count(&tier_counts, PressureTier::Idle), 0);
     }
 
     #[test]
