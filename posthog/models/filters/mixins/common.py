@@ -442,25 +442,32 @@ class DateMixin(BaseParamMixin):
         return {}
 
 
+def _parse_entity_param(value: Any, param: str) -> Any:
+    # Filter params arrive as raw, untrusted query strings — a malformed value must
+    # surface as a 400, not an uncaught JSONDecodeError that becomes a 500.
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            raise ValidationError(f"Invalid JSON in '{param}' filter parameter")
+    return value
+
+
 class EntitiesMixin(BaseParamMixin):
     @cached_property
     def entities(self) -> list[Entity]:
         processed_entities: list[Entity] = []
         if self._data.get(ACTIONS):
-            actions = self._data.get(ACTIONS, [])
-            if isinstance(actions, str):
-                actions = json.loads(actions)
+            actions = _parse_entity_param(self._data.get(ACTIONS, []), ACTIONS)
 
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
         if self._data.get(EVENTS):
-            events = self._data.get(EVENTS, [])
-            if isinstance(events, str):
-                events = json.loads(events)
+            events = _parse_entity_param(self._data.get(EVENTS, []), EVENTS)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
         if self._data.get(DATA_WAREHOUSE_ENTITIES):
-            data_warehouse_entities = self._data.get(DATA_WAREHOUSE_ENTITIES, [])
-            if isinstance(data_warehouse_entities, str):
-                data_warehouse_entities = json.loads(data_warehouse_entities)
+            data_warehouse_entities = _parse_entity_param(
+                self._data.get(DATA_WAREHOUSE_ENTITIES, []), DATA_WAREHOUSE_ENTITIES
+            )
             processed_entities.extend(
                 [Entity({**entity, "type": TREND_FILTER_TYPE_DATA_WAREHOUSE}) for entity in data_warehouse_entities]
             )
@@ -491,9 +498,7 @@ class EntitiesMixin(BaseParamMixin):
     def exclusions(self) -> list[ExclusionEntity]:
         _exclusions: list[ExclusionEntity] = []
         if self._data.get(EXCLUSIONS):
-            exclusion_list = self._data.get(EXCLUSIONS, [])
-            if isinstance(exclusion_list, str):
-                exclusion_list = json.loads(exclusion_list)
+            exclusion_list = _parse_entity_param(self._data.get(EXCLUSIONS, []), EXCLUSIONS)
 
             _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list if entity])
 
