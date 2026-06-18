@@ -21,6 +21,10 @@ inputs:
         description: 'File specifying the Node version.'
         required: false
         default: .nvmrc
+    working-directory:
+        description: 'Directory to run the install command in.'
+        required: false
+        default: '.'
 
 runs:
     using: composite
@@ -49,6 +53,13 @@ runs:
 
         - name: Install dependencies
           shell: bash
+          working-directory: ${{ inputs.working-directory }}
+          # pnpm reads npm_config_* — keep cache-miss fetches resilient to
+          # transient registry blips (pnpm's own default retry count is lower).
+          env:
+              npm_config_fetch_retries: 3
+              npm_config_fetch_retry_mintimeout: 10000
+              npm_config_fetch_retry_maxtimeout: 60000
           run: ${{ inputs.install-command }}
 
         # Save only on the default branch. Caches written on a PR/branch ref are
