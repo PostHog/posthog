@@ -1708,7 +1708,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // deliberate footgun-catcher — cpp's visitor rejects
                     // it. (`from AS x` is fine; the `AS` form folds into
                     // the expr above and never reaches here.)
-                    if is_bare_from_field(&self.emit, &expr) {
+                    if is_bare_from_field(&self.emit, &expr)
+                        && !self.suppress_unvisited_clause_checks
+                    {
                         return Err(self.err("Cannot use \"from\" before an implicit alias"));
                     }
                     // cpp's `ColumnExprAlias` ctx for the implicit-alias

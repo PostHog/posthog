@@ -826,7 +826,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 } else {
                     let cp = self.checkpoint();
                     match self.parse_interval_expr() {
-                        Ok(inner) if self.peek_is_interval_unit() => Ok(inner),
+                        // Keep the nested reading only when a unit is still left
+                        // for the OUTER interval — directly, or after a run of
+                        // postfix operators on the inner (`interval interval 0
+                        // hour () hour` → `INTERVAL ((INTERVAL 0 HOUR)()) HOUR`).
+                        Ok(inner) if self.interval_unit_follows_postfix_run() => Ok(inner),
                         Err(e) if e.fatal => Err(e),
                         _ => {
                             self.restore(cp)?;
@@ -1248,6 +1252,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if matches!(self.peek(), TokenKind::String) && !self.peek_next_is_interval_unit() {
             let str_tok = self.peek0;
             let raw = unquote_single_string(self.text(str_tok));
+            // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+            // grammar-parses the string-form INTERVAL but never visits it, so
+            // none of its count / unit "not supported" rejections (`interval
+            // 'bm '`) fire here. Consume the string into a throwaway and return;
+            // the value is moot. (The no-space `interval 'p'` case is covered
+            // too, so its own suppress branch below is unreachable now.)
+            if self.suppress_unvisited_clause_checks {
+                self.bump()?;
+                return Ok(self.emit.call(
+                    "toIntervalSecond",
+                    vec![self.emit.constant(self.emit.string(&raw))],
+                ));
+            }
             if let Some((count_str, unit)) = raw.split_once(' ') {
                 // cpp's `visitColumnExprIntervalString` requires the
                 // count to be a non-negative decimal integer (`isdigit`
@@ -1301,19 +1318,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // Reaching here means the string has no internal space (the split
             // failed) and — per the branch guard — no trailing unit keyword:
             // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
-            // rejects (it isn't `<count> <unit>`). In a clause cpp grammar-parses
-            // but never visits (`suppress_unvisited_clause_checks`), tolerate it
-            // with a throwaway so the discarded parse completes — matching cpp's
-            // accept (`{x} order by interval 'p'`). The node value is moot.
-            if self.suppress_unvisited_clause_checks {
-                let s = unquote_single_string(self.text(str_tok));
-                self.bump()?;
-                return Ok(self.emit.call(
-                    "toIntervalSecond",
-                    vec![self.emit.constant(self.emit.string(&s))],
-                ));
-            }
-            // Fall through to the expr+unit form: parse the string as
+            // rejects (it isn't `<count> <unit>`). The unvisited-clause case
+            // (`{x} order by interval 'p'`) was already handled by the
+            // suppress short-circuit above, so a strict reject is all that's
+            // left — fall through to the expr+unit form: parse the string as
             // the value expression and let the trailing unit keyword
             // close the INTERVAL.
         }
@@ -1443,25 +1451,60 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    /// Is `peek0` one of the eight singular INTERVAL unit *keywords* the
-    /// `interval` grammar rule admits (`SECOND … YEAR`)? Matches exactly what
-    /// `parse_interval_expr`'s unit slot accepts (plurals / quoted idents are
-    /// NOT units), so the nested-interval probe can tell whether a unit still
-    /// remains for an enclosing INTERVAL.
-    fn peek_is_interval_unit(&self) -> bool {
-        matches!(
-            self.peek(),
-            TokenKind::Keyword(
-                Kw::Second
-                    | Kw::Minute
-                    | Kw::Hour
-                    | Kw::Day
-                    | Kw::Week
-                    | Kw::Month
-                    | Kw::Quarter
-                    | Kw::Year
+    /// After a nested-interval value at `peek0`, would one of the eight singular
+    /// INTERVAL unit keywords (`SECOND … YEAR`, what `parse_interval_expr`'s unit
+    /// slot accepts) follow once a run of postfix operators on that value — a
+    /// `(…)` call, `[…]` subscript, or `.id` / `?.id` member — is skipped? The
+    /// enclosing INTERVAL takes that unit, so the inner `interval` is a nested
+    /// value-plus-postfixes (`interval interval 0 hour () hour`) rather than a
+    /// bare identifier. Postfix runs only — an arithmetic / infix continuation
+    /// is left to the bare-identifier reading.
+    fn interval_unit_follows_postfix_run(&self) -> bool {
+        let is_unit = |k: TokenKind| {
+            matches!(
+                k,
+                TokenKind::Keyword(
+                    Kw::Second
+                        | Kw::Minute
+                        | Kw::Hour
+                        | Kw::Day
+                        | Kw::Week
+                        | Kw::Month
+                        | Kw::Quarter
+                        | Kw::Year
+                )
             )
-        )
+        };
+        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
+        loop {
+            let Ok(t) = probe.next_token() else { return false };
+            match t.kind {
+                k if is_unit(k) => return true,
+                TokenKind::LParen | TokenKind::LBracket => {
+                    let mut depth: i32 = 1;
+                    while depth > 0 {
+                        let Ok(inner) = probe.next_token() else { return false };
+                        match inner.kind {
+                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                                depth += 1
+                            }
+                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                                depth -= 1
+                            }
+                            TokenKind::Eof => return false,
+                            _ => {}
+                        }
+                    }
+                }
+                // `.id` / `?.id` member — skip the member token too.
+                TokenKind::Dot | TokenKind::NullProperty => {
+                    if probe.next_token().is_err() {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
     }
 
     /// Is the current token a `WITH` that begins a `WITH (LOCAL)? TIME
