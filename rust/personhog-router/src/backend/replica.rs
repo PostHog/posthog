@@ -26,9 +26,10 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
 use tonic::codec::CompressionEncoding;
@@ -292,6 +293,20 @@ impl PersonHogBackend for ReplicaBackend {
         request: SplitPersonRequest,
     ) -> Result<SplitPersonResponse, Status> {
         retry_call!(self, split_person, request)
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        retry_call!(self, set_person_distinct_id_version_floor, request)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        retry_call!(self, set_person_version_floor, request)
     }
 
     async fn check_cohort_membership(
