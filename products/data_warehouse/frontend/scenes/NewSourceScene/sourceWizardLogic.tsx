@@ -43,6 +43,7 @@ import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
     splitQualifiedTableName,
+    supportsDirectQuery,
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
@@ -770,7 +771,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isDirectQueryMode: [
             (s) => [s.source, s.selectedConnector],
             (source, selectedConnector): boolean =>
-                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
+                source.access_method === 'direct' && supportsDirectQuery(selectedConnector?.name),
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1602,7 +1603,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
+                        supportsDirectQuery(values.selectedConnector.name) && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',

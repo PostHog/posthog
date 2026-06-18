@@ -20,6 +20,7 @@ from products.data_warehouse.backend.test.utils import create_data_warehouse_tab
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSource,
     GitHubSourceNotConnectedError,
     MetricQuality,
     PRLifecycleEventKind,
@@ -31,6 +32,7 @@ from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
+    list_github_sources,
     resolve_github_tables,
 )
 from products.engineering_analytics.backend.tests.test_views import (
@@ -408,6 +410,63 @@ class TestResolveGitHubTables(BaseTest):
         other_source = self._connect(prefix="other", schemas=self._BOTH_SYNCED, team=other_team)
         with self.assertRaises(GitHubSourceNotConnectedError):
             resolve_github_tables(team=self.team, source_id=str(other_source.id))
+
+
+class TestListGitHubSources(BaseTest):
+    """list_github_sources lists every connected GitHub source for a picker (ORM only).
+    Unlike resolve_github_tables it does not require synced tables — a half-synced source the
+    user connected should still be selectable; the empty state handles an unusable pick."""
+
+    def _source(
+        self,
+        *,
+        prefix: str,
+        repository: str | None = None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
+    ) -> ExternalDataSource:
+        team = team or self.team
+        return ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+            job_inputs={"repository": repository} if repository else {},
+        )
+
+    def test_lists_sources_oldest_first_with_repo_and_prefix(self) -> None:
+        older = self._source(prefix="older", repository="PostHog/posthog")
+        newer = self._source(prefix="newer", repository="PostHog/posthog.com")
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(older.id), repo="PostHog/posthog", prefix="older"),
+            GitHubSource(id=str(newer.id), repo="PostHog/posthog.com", prefix="newer"),
+        ]
+
+    def test_includes_sources_without_synced_tables(self) -> None:
+        # No schemas/tables linked: resolve_github_tables would reject this, the picker keeps it.
+        source = self._source(prefix="pronly", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(source.id)]
+
+    def test_repo_is_blank_without_a_repository_input(self) -> None:
+        source = self._source(prefix="noinputs")
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
+
+    def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
+        self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
+        deleted = self._source(prefix="gone", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=deleted.pk).update(deleted=True)
+        kept = self._source(prefix="kept", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(kept.id)]
+
+    def test_empty_without_a_github_source(self) -> None:
+        assert list_github_sources(team=self.team) == []
+
+    def test_scoped_to_the_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
+        assert list_github_sources(team=self.team) == []
 
 
 class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):

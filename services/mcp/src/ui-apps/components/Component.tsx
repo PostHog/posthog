@@ -63,7 +63,12 @@ export function Component({ data }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
+                    <TrendsVisualizer
+                        // The host updates `data` in place, so key on the query to re-seed state per result.
+                        key={JSON.stringify(payload.query)}
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
+                    />
                 )
 
             case 'funnel':
