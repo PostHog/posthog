@@ -129,7 +129,7 @@ export function InsightDisplayConfig(): JSX.Element {
             !isSlopeGraph) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource) ||
-        (funnelsCompareEnabled && (isTrendsFunnel || isTimeToConvertFunnel))
+        (funnelsCompareEnabled && isFunnels)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
