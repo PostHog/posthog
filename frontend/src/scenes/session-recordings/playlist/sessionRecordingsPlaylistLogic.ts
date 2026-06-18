@@ -1443,20 +1443,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
 
-    actionToUrl(({ props, values }) => {
+    actionToUrl(({ props, values, cache }) => {
         if (!props.updateSearchParams) {
             return {}
         }
         const buildURL = (
             replace: boolean
-        ): [
-            string,
-            ReplayURLSearchParamTypes,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
+        ):
+            | [string, ReplayURLSearchParamTypes, Record<string, any>, { replace: boolean }]
+            | undefined => {
+            // Skip URL writes while we are applying state from an incoming URL change.
+            // Otherwise the dispatched setFilters call below this listener turns right back
+            // into router.replace, re-entering this logic plus every sibling scene's
+            // urlToAction (e.g. webAnalyticsLogic), recursing until the JS stack overflows.
+            if (cache.applyingUrl) {
+                return undefined
+            }
             const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
@@ -1487,12 +1489,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
-    urlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values, props, cache }) => {
         const urlToAction = (_: any, params: ReplayURLSearchParamTypes): void => {
             if (!props.updateSearchParams) {
                 return
             }
+            // Pair flag with the actionToUrl listener — see the recursion comment there.
+            cache.applyingUrl = true
+            try {
+                applyUrlParams(params)
+            } finally {
+                cache.applyingUrl = false
+            }
+        }
 
+        const applyUrlParams = (params: ReplayURLSearchParamTypes): void => {
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
