@@ -305,6 +305,8 @@ async function main(): Promise<void> {
                   posthogAiGatewayModel({
                       specModel,
                       baseUrl: config.aiGatewayUrl,
+                      // Non-null: boot guard above throws when useAiGateway && !posthogAiGatewayKey.
+                      apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
         // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
