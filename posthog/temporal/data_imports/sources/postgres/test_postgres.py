@@ -513,9 +513,15 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permission-denied-for-function error should be non-retryable: {error_msg}"
 
-    def test_permission_denied_for_function_returns_execute_message(self, source):
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "permission denied for function crypto_aead_det_decrypt",
+            "InsufficientPrivilege: permission denied for function crypto_aead_det_decrypt",
+        ],
+    )
+    def test_permission_denied_for_function_returns_execute_message(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        error_msg = "permission denied for function crypto_aead_det_decrypt"
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Permission-denied-for-function error should surface an actionable message"
         # The function-permission message must win over the generic table-SELECT message and advise
