@@ -9,6 +9,7 @@ import { AccessControlLevel } from '~/types'
 import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
+import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
 
 jest.mock('./migrations/migrate', () => {
     const actual = jest.requireActual('./migrations/migrate')
@@ -137,5 +138,73 @@ describe('notebookLogic markdown editor state', () => {
         expect(appliedMarkdown).toContain(`<Chat id="${chatId}" />`)
         expect(logic.values.markdownEditorDraft).toBeNull()
         expect(logic.values.autosavePaused).toBe(false)
+    })
+
+    it('applies full notebook artifacts without preserving inline AI placeholders', () => {
+        logic.actions.handleMarkdownEditorChange(`${BASE_MARKDOWN}
+
+Thinking...`)
+
+        logic.actions.applyNotebookArtifactMarkdown(
+            {
+                content_type: 'notebook' as any,
+                title: 'Cleaned notebook',
+                blocks: [{ type: 'markdown', content: '# Cleaned notebook\n\nUseful content.' } as any],
+            } as any,
+            'inline-chat-id',
+            'replace'
+        )
+
+        const appliedMarkdown = (logic.values.localContent as any).content[0].attrs.markdown as string
+        expect(appliedMarkdown).toEqual('# Cleaned notebook\n\nUseful content.')
+        expect(appliedMarkdown).not.toContain('Thinking...')
+        expect(logic.values.markdownEditorDraft).toBeNull()
+        expect(logic.values.autosavePaused).toBe(false)
+    })
+
+    it('combines local and remote human presence participants', () => {
+        logic.actions.handleRemotePresence({
+            clientId: 'remote-client',
+            userId: 42,
+            userName: 'Remote User',
+            version: 1,
+            cursor: { node_index: 0 },
+        })
+
+        expect(logic.values.notebookPresenceParticipants).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    clientId: 'current-user',
+                    userName: 'You',
+                    isCurrentUser: true,
+                }),
+                expect.objectContaining({
+                    clientId: 'remote-client',
+                    userName: 'Remote User',
+                }),
+            ])
+        )
+        expect(logic.values.notebookPresenceParticipants).toHaveLength(2)
+    })
+
+    it('includes AI in notebook presence while the markdown AI cursor is active', () => {
+        logic.actions.setMarkdownAIPresenceActive(true)
+
+        expect(logic.values.notebookPresenceParticipants).toEqual([
+            expect.objectContaining({
+                clientId: 'current-user',
+                userName: 'You',
+                isCurrentUser: true,
+            }),
+            expect.objectContaining({
+                clientId: NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+                userName: NOTEBOOK_AI_PRESENCE_NAME,
+                isAI: true,
+            }),
+        ])
+
+        logic.actions.setMarkdownAIPresenceActive(false)
+
+        expect(logic.values.notebookPresenceParticipants).toHaveLength(1)
     })
 })

@@ -160,25 +160,20 @@ required and controls how users with multiple start events are anchored:
 recent).
 
 The window is measured **from the start event** and bucketed by
-`retention_window_unit`, which is `"day"` or `"hour"` (start of day / start of
-hour; the examples below use days). `From 0` includes the start period itself (a
-same-period completion counts); `From N` (N ≥ 1) only counts a completion in a
-later period. So the relationship between the two events is the choice that
-matters:
+`retention_window_unit`, which is `"day"` or `"hour"`. The start occurrence never
+counts as its own completion — only a *distinct* later event does — so the start
+and completion events may be the same:
 
-- **Different events** (e.g. `$pageview` → `uploaded_file`) — conversion-style
-  retention: "did the user reach the target action within the window?" `From 0`
-  is correct (same-day conversions should count).
+- **Different events** (e.g. `$pageview` → `uploaded_file`) — conversion retention:
+  "did the user reach the target action within the window?"
 - **Same event** (e.g. `promoted_product_clicked` → `promoted_product_clicked`) —
-  repeat retention: "did the user do it _again_ later?" This **requires
-  `retention_window_start` ≥ 1**. With `From 0` the qualifying start occurrence is
-  itself a completion on day 0, so every user is trivially retained and the metric
-  always reads 100%. Use `start_handling: "first_seen"` so the anchor is the user's
-  first occurrence and later repeats fall inside the window — `last_seen` anchors on
-  the most recent occurrence, which by construction has no same-event activity after
-  it inside the experiment window.
+  repeat retention: "did the user fire it _again_ within the window?" `From 0`
+  counts a repeat from the same period onward (same-day/same-hour repeats count);
+  `From N` (N ≥ 1) requires the repeat in a later period. Use `start_handling: "first_seen"`
+  so in-experiment repeats fall after the anchor — `last_seen` anchors on the user's
+  final occurrence, which has no in-experiment activity after it.
 
-### Right — conversion retention (different events, `From 0`)
+### Right — conversion retention (different events)
 
 ```json
 {
@@ -200,7 +195,7 @@ matters:
 }
 ```
 
-### Right — repeat retention (same event, `From 1`)
+### Right — repeat retention (same event)
 
 ```json
 {
@@ -215,22 +210,6 @@ matters:
     "kind": "EventsNode",
     "event": "promoted_product_clicked"
   },
-  "retention_window_start": 1,
-  "retention_window_end": 7,
-  "retention_window_unit": "day",
-  "start_handling": "first_seen"
-}
-```
-
-### Wrong — same start/completion event with `retention_window_start: 0` (always 100%)
-
-```json
-{
-  "kind": "ExperimentMetric",
-  "metric_type": "retention",
-  "name": "7-day repeat-click retention",
-  "start_event": { "kind": "EventsNode", "event": "promoted_product_clicked" },
-  "completion_event": { "kind": "EventsNode", "event": "promoted_product_clicked" },
   "retention_window_start": 0,
   "retention_window_end": 7,
   "retention_window_unit": "day",
@@ -238,10 +217,10 @@ matters:
 }
 ```
 
-The start occurrence is its own completion on day 0, so every user is retained and
-the metric always reads 100%. Fix it by setting `retention_window_start` ≥ 1
-(repeat retention) or choosing a different `completion_event` (conversion
-retention).
+Measures "of users who clicked the promoted product, how many clicked it again
+within 7 days". The first click anchors the window and never counts as its own
+completion — only a later distinct click does, so a one-time clicker is correctly
+counted as not retained.
 
 ### Wrong — missing `retention_window_start` and `start_handling`
 

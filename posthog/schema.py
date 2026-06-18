@@ -91,7 +91,7 @@ from posthog.schema_enums import (
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
-    EvaluationType as EvaluationType,
+    EvaluationRuntime as EvaluationRuntime,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -279,6 +279,7 @@ from posthog.schema_enums import (
     WebAnalyticsItemKind as WebAnalyticsItemKind,
     WebAnalyticsOrderByDirection as WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields as WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy as WebAnalyticsPreComputeStrategy,
     WebsiteBrowsingHistoryProdInterest as WebsiteBrowsingHistoryProdInterest,
     WebStatsBreakdown as WebStatsBreakdown,
     WebVitalsMetric as WebVitalsMetric,
@@ -1979,7 +1980,7 @@ class MaxEvaluationContext(BaseModel):
         extra="forbid",
     )
     description: str | None = None
-    evaluation_type: EvaluationType
+    evaluation_type: EvaluationRuntime
     hog_source: str | None = None
     id: str
     name: str | None = None
@@ -3002,7 +3003,6 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebAnalyticsItemKind
     previous: float | None = None
-    usedPreAggregatedTables: bool | None = None
     value: float | None = None
 
 
@@ -4884,6 +4884,14 @@ class ExperimentApiMetric(BaseModel):
         default=None, description="For retention metrics: start event."
     )
     start_handling: StartHandling | None = None
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: when set, reports the percentage of users whose per-user"
+            " summed/counted value reaches or exceeds this threshold. Only meaningful"
+            " for sum/count math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
@@ -7066,6 +7074,15 @@ class SymbolStatsRow(BaseModel):
         description="`endLine` of the matched symbol's range. Symbol mode only.",
     )
     error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    error_rate_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in error rate (`error_count / count` per window) vs the"
+            " previous period. Null when the previous error rate is 0 — i.e. the"
+            " previous window had no errors or no traffic. This includes a 0→N"
+            " new-error spike, which surfaces as null rather than a delta."
+        ),
+    )
     line: int = Field(
         ...,
         description=(
@@ -7081,6 +7098,14 @@ class SymbolStatsRow(BaseModel):
         description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
     )
     p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p50_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p50 duration vs the previous period (180 = +180%)."
+            " Null when the previous p50 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
     p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
     p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
     p95_duration_pct_change: float | None = Field(
@@ -7093,6 +7118,14 @@ class SymbolStatsRow(BaseModel):
     )
     p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
     p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    p99_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p99 duration vs the previous period (180 = +180%)."
+            " Null when the previous p99 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
     previous: SymbolStatsPeriod = Field(
         ...,
         description=("The same metrics over the immediately-preceding equal-length period."),
@@ -7642,6 +7675,30 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    metricChangeDecreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: change pill color when the metric decreased. Defaults to red."),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: change pill color when the metric increased. Defaults to green."),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=("Metric display: color the sparkline by whether the metric increased or decreased."),
+    )
+    metricLineDecreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: line color when the metric decreased. Defaults to red."),
+    )
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: line color when the metric increased. Defaults to green."),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description="Show the period-over-period change pill on the Metric display.",
+    )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
@@ -7892,6 +7949,7 @@ class WebGoalsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7910,14 +7968,6 @@ class WebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -7943,6 +7993,7 @@ class WebNotableChangesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7960,7 +8011,6 @@ class WebNotableChangesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -7988,6 +8038,7 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8005,8 +8056,6 @@ class WebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -8034,6 +8083,7 @@ class WebPageURLSearchQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8079,6 +8129,7 @@ class WebStatsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8097,8 +8148,6 @@ class WebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -12327,6 +12376,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12347,14 +12397,6 @@ class CachedWebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -12389,6 +12431,7 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12408,7 +12451,6 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -12445,6 +12487,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12464,8 +12507,6 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -12502,6 +12543,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12558,6 +12600,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12578,8 +12621,6 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -12614,6 +12655,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12632,7 +12674,6 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13185,6 +13226,7 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13202,8 +13244,6 @@ class Response4(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13233,6 +13273,7 @@ class Response5(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13251,8 +13292,6 @@ class Response5(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13329,6 +13368,7 @@ class Response7(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13347,14 +13387,6 @@ class Response7(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13380,6 +13412,7 @@ class Response8(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13396,7 +13429,6 @@ class Response8(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -16941,6 +16973,7 @@ class QueryResponseAlternative23(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16958,8 +16991,6 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -16989,6 +17020,7 @@ class QueryResponseAlternative24(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17007,8 +17039,6 @@ class QueryResponseAlternative24(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17085,6 +17115,7 @@ class QueryResponseAlternative26(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17103,14 +17134,6 @@ class QueryResponseAlternative26(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17136,6 +17159,7 @@ class QueryResponseAlternative27(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17152,7 +17176,6 @@ class QueryResponseAlternative27(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17180,6 +17203,7 @@ class QueryResponseAlternative28(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17221,6 +17245,7 @@ class QueryResponseAlternative30(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17238,7 +17263,6 @@ class QueryResponseAlternative30(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17799,6 +17823,7 @@ class QueryResponseAlternative43(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17816,8 +17841,6 @@ class QueryResponseAlternative43(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17847,6 +17870,7 @@ class QueryResponseAlternative44(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17865,8 +17889,6 @@ class QueryResponseAlternative44(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17943,6 +17965,7 @@ class QueryResponseAlternative46(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17961,14 +17984,6 @@ class QueryResponseAlternative46(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -17994,6 +18009,7 @@ class QueryResponseAlternative47(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18010,7 +18026,6 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -20815,6 +20830,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20831,7 +20847,6 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -23953,6 +23968,14 @@ class ExperimentMeanMetric(BaseModel):
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "When set, reports the percentage of users whose per-user summed/counted"
+            " value reaches or exceeds this threshold. Only meaningful for sum/count"
+            " math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
@@ -23976,6 +23999,14 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
     metric_type: Literal["mean"] = "mean"
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "When set, reports the percentage of users whose per-user summed/counted"
+            " value reaches or exceeds this threshold. Only meaningful for sum/count"
+            " math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(

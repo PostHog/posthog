@@ -935,7 +935,7 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
     // Delete by team
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id])
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -965,7 +965,7 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[])
+        .delete_hash_key_overrides_by_teams(&[], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -980,11 +980,79 @@ async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[999999999])
+        .delete_hash_key_overrides_by_teams(&[999999999], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
     assert_eq!(deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_bounded_by_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("bounded_del_user", None)
+        .await
+        .expect("Failed to insert person");
+    for i in 0..5 {
+        ctx.insert_hash_key_override(person.id, &format!("flag-{i}"), "hash")
+            .await
+            .unwrap();
+    }
+
+    // batch_size=2 deletes 2 of the 5, then the loop drains the rest.
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 1);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_zero_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("zero_batch_user", None)
+        .await
+        .expect("Failed to insert person");
+    ctx.insert_hash_key_override(person.id, "flag-1", "hash")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 0)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
 
     ctx.cleanup().await.ok();
 }
@@ -1132,6 +1200,130 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
         .execute(&ctx.pool)
         .await
         .ok();
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete personless distinct IDs batch for team tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("personless_1")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("personless_2")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("personless_3")
+        .await
+        .unwrap();
+
+    // batch_size=2 deletes 2 of the 3 rows.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 2);
+
+    // The remaining row is deleted next.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 1);
+
+    // Nothing left.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_empty() {
+    let ctx = TestContext::new().await;
+
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("team_a_personless")
+        .await
+        .unwrap();
+
+    // Insert a personless distinct ID for a different team directly.
+    let other_team_id = ctx.team_id + 1;
+    sqlx::query(
+        r#"INSERT INTO posthog_personlessdistinctid
+        (distinct_id, team_id, is_merged, created_at)
+        VALUES ($1, $2, false, NOW())
+        ON CONFLICT DO NOTHING"#,
+    )
+    .bind("team_b_personless")
+    .bind(other_team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 1);
+
+    // The other team's row should remain.
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM posthog_personlessdistinctid WHERE team_id = $1")
+            .bind(other_team_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 1);
+
+    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
+        .bind(other_team_id)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_zero_batch_size() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("personless_zero")
+        .await
+        .unwrap();
+
+    // A non-positive batch size deletes nothing.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 0)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
     ctx.cleanup().await.ok();
 }
 

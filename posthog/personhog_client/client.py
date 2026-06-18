@@ -35,6 +35,10 @@ from posthog.personhog_client.proto import (
     DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -209,6 +213,11 @@ class PersonHogClient:
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
 
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeletePersonlessDistinctIdsBatchForTeamResponse:
+        return self._stub.DeletePersonlessDistinctIdsBatchForTeam(request, timeout=timeout or self._timeout)
+
     # -- Person split --
 
     def split_person(self, request: SplitPersonRequest, timeout: float | None = None) -> SplitPersonResponse:
@@ -339,6 +348,13 @@ class PersonHogClient:
         self, request: DeleteGroupTypeMappingsBatchForTeamRequest, timeout: float | None = None
     ) -> DeleteGroupTypeMappingsBatchForTeamResponse:
         return self._stub.DeleteGroupTypeMappingsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    # -- Feature flag hash key overrides --
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> DeleteHashKeyOverridesByTeamsResponse:
+        return self._stub.DeleteHashKeyOverridesByTeams(request, timeout=timeout or self._timeout)
 
 
 _client: Optional[PersonHogClient] = None

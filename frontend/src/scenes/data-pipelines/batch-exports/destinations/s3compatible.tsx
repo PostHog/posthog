@@ -23,12 +23,11 @@ export const s3CompatibleDefinition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function S3CompatibleFields({ isNew, formValues, configurationChanged }) {
+    Fields: function S3CompatibleFields({ isNew, formValues }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
-                configurationChanged={configurationChanged}
                 regionOptions={S3_REGION_OPTIONS}
                 awsBranded={false}
                 allowCustomRegion

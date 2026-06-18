@@ -25,6 +25,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
             "created_at": "2026-05-28T10:00:00Z",
             "started_at": "2026-05-28T10:00:01Z",
             "completed_at": None,
+            "query_to": "2026-05-28T10:00:01Z",
         }
         data = ExperimentMetricsRecalculationSerializer(payload).data
         assert data["status"] == "in_progress"
@@ -32,6 +33,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         assert data["experiment_id"] == 7
         assert data["trigger"] == "manual"
         assert data["completed_at"] is None
+        assert data["query_to"] == "2026-05-28T10:00:01Z"
         # Field is metric_errors (not errors) to avoid shadowing DRF's Serializer.errors property.
         assert data["metric_errors"] == {"m1": {"step": "calculation", "message": "boom"}}
         assert "errors" not in data

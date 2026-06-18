@@ -17,7 +17,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -112,6 +113,10 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: DeletePersonsBatchForTeamRequest,
     ) -> Result<DeletePersonsBatchForTeamResponse, Status>;
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status>;
 
     // Person split
     async fn split_person(

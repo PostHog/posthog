@@ -430,6 +430,7 @@ class Display(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
@@ -561,6 +562,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
@@ -1034,6 +1036,12 @@ class SourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+
+
+class EvaluationRuntime(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+    SENTIMENT = "sentiment"
 
 
 class CorrelationType(StrEnum):
@@ -1773,6 +1781,7 @@ class ExternalDataSourceType(StrEnum):
     STREAM_ELEMENTS = "StreamElements"
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
+    AHREFS = "Ahrefs"
     CUSTOM = "Custom"
 
 
@@ -2313,11 +2322,6 @@ class MaxBillingContextSubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
     CUSTOM = "custom"
-
-
-class EvaluationType(StrEnum):
-    HOG = "hog"
-    LLM_JUDGE = "llm_judge"
 
 
 class Goal(Enum):
@@ -3309,6 +3313,12 @@ class WebAnalyticsOrderByFields(StrEnum):
     RAGE_CLICKS = "RageClicks"
     DEAD_CLICKS = "DeadClicks"
     ERRORS = "Errors"
+
+
+class WebAnalyticsPreComputeStrategy(StrEnum):
+    PRE_AGGREGATED = "pre_aggregated"
+    LAZY_PRECOMPUTE = "lazy_precompute"
+    LIVE = "live"
 
 
 class WebStatsBreakdown(StrEnum):

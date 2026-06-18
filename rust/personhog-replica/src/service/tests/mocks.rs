@@ -103,6 +103,14 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -161,6 +169,7 @@ impl storage::FeatureFlagStorage for FailingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
@@ -457,6 +466,14 @@ impl storage::PersonLookup for SuccessStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -515,6 +532,7 @@ impl storage::FeatureFlagStorage for SuccessStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -870,6 +888,14 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -928,6 +954,7 @@ impl storage::FeatureFlagStorage for PopulatedStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -1259,6 +1286,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -1320,6 +1355,7 @@ impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }

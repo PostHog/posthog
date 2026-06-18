@@ -23,6 +23,7 @@ from posthog.sync import database_sync_to_async
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.customer_analytics.backend.account_urls import build_account_deeplink
 from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
@@ -557,6 +558,7 @@ class EntitySearchContext:
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case "account":
-                return f"{base_url}/customer_analytics/accounts"
+                # Deep-link to the specific account (filtered + expanded) rather than the bare list.
+                return f"{base_url}{build_account_deeplink(account_id=result_id)}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

@@ -7,6 +7,12 @@ from parameterized import parameterized
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
 from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
+from posthog.migration_helpers import (
+    AddConstraintNotValid,
+    SafeAddIndexConcurrently,
+    SafeRemoveIndexConcurrently,
+    ValidateConstraint,
+)
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -483,6 +489,27 @@ class TestRunSQLOperations:
         assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "validate" in risk.reason.lower()
+
+    def test_add_constraint_not_valid_helper_scores_safe(self):
+        """The helper scores like the hand-written ADD CONSTRAINT ... NOT VALID (safe)."""
+        op = AddConstraintNotValid(
+            model_name="dashboard",
+            constraint=models.CheckConstraint(condition=models.Q(amount__gte=0), name="dash_amount_chk"),
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 1
+        assert risk.level == RiskLevel.SAFE
+
+    def test_validate_constraint_helper_scores_needs_review(self):
+        """The helper scores like the hand-written VALIDATE CONSTRAINT (slow, non-blocking)."""
+        op = ValidateConstraint(model_name="dashboard", name="dash_amount_chk")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_run_sql_drop_constraint(self):
         """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
@@ -1832,7 +1859,14 @@ class TestAtomicFalsePolicy:
         # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
-    @parameterized.expand(["CreateIndexConcurrently", "DropIndexConcurrently"])
+    @parameterized.expand(
+        [
+            "CreateIndexConcurrently",
+            "DropIndexConcurrently",
+            "SafeAddIndexConcurrently",
+            "SafeRemoveIndexConcurrently",
+        ]
+    )
     def test_posthog_helpers_recognized_as_concurrent(self, op_name):
         """The PostHog helpers must register as concurrent ops in
         CONCURRENT_OP_TYPES, otherwise atomic=False migrations using them
@@ -2065,6 +2099,22 @@ class TestConcurrentIndexIdempotencyPolicy:
         assert not any("non-idempotent" in v for v in risk.policy_violations)
         assert risk.level != RiskLevel.BLOCKED
 
+    @parameterized.expand(
+        [
+            (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
+            (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
+        ]
+    )
+    def test_safe_state_aware_helpers_score_safe(self, op):
+        """The state-aware helpers track state themselves and are idempotent by
+        construction, so they score SAFE and are never flagged — no
+        SeparateDatabaseAndState or raw display SQL required.
+        """
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.SAFE
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert not any("atomic=False" in v for v in risk.policy_violations)
+
 
 class TestHotTableAlterPolicy:
     """HotTableAlterPolicy blocks unacknowledged DDL on tables read on every request.
@@ -2182,6 +2232,13 @@ class TestHotTableAlterPolicy:
         op.model_name = "team"
         op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "posthog_team" (c)'
         op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_validate_constraint_on_hot_model_not_flagged(self):
+        """VALIDATE CONSTRAINT takes only SHARE UPDATE EXCLUSIVE, so the helper is
+        not gated even on a hot table (unlike its AddConstraintNotValid sibling)."""
+        op = create_mock_operation(ValidateConstraint, model_name="team", name="team_some_check")
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
