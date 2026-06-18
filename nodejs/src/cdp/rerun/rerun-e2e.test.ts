@@ -13,7 +13,7 @@ import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -151,7 +151,7 @@ describe('CDP hog invocation rerun e2e', () => {
         // Ensure all topics exist (idempotently, without deleting) so the ClickHouse
         // Kafka engine consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS,
         // which this test's MV needs but the shared set does not cover.
-        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS])
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
         await resetTestDatabase()
