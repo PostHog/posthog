@@ -81,6 +81,41 @@ module.exports = {
                 '@typescript-eslint/no-floating-promises': 'off',
             },
         },
+        {
+            // Ingestion is standardized on the ~/ alias (see INGESTION_SEPARATION.md). Ban parent-relative
+            // (../) imports so the structure stays codemod-friendly through future moves; keep ./ siblings.
+            // Overrides replace rule options, so the global fetch/node-fetch/undici bans are repeated here.
+            files: ['src/ingestion/**/*.ts'],
+            rules: {
+                'no-restricted-imports': [
+                    'error',
+                    {
+                        paths: [
+                            {
+                                name: 'node-fetch',
+                                message: 'Use the request util from ~/utils/request instead of node-fetch',
+                            },
+                            {
+                                name: 'undici',
+                                message: 'Use the request util from ~/utils/request instead of undici',
+                            },
+                        ],
+                        patterns: [
+                            {
+                                group: ['fetch'],
+                                message:
+                                    'Use the request util from ~/utils/request instead of importing fetch directly',
+                            },
+                            {
+                                group: ['../*', '../**'],
+                                message:
+                                    'Within src/ingestion, import via the ~/ alias instead of parent-relative (../) paths.',
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
     ],
     root: true,
     reportUnusedDisableDirectives: true,
