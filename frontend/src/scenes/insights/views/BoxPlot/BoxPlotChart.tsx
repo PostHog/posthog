@@ -182,7 +182,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
     }
 
     return (
-        <div className="w-full grow relative overflow-hidden flex flex-col" data-attr="box-plot-graph">
+        <div className="w-full grow relative overflow-hidden flex flex-col">
             <BoxPlot
                 series={series}
                 labels={dateLabels}
@@ -190,6 +190,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                 config={config}
                 tooltip={renderTooltip}
                 onBoxClick={handleBoxClick}
+                dataAttr="box-plot-graph"
             />
         </div>
     )
