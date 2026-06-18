@@ -318,8 +318,9 @@ impl RawNativeFrame {
         match filename.and_then(|f| f.rsplit('.').next()) {
             Some("rs") => "rust".to_string(),
             Some("c") => "c".to_string(),
-            Some("cpp" | "cc" | "cxx") => "cpp".to_string(),
-            Some("h" | "hpp") => "c".to_string(),
+            Some("cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx") => "cpp".to_string(),
+            // `.h` is ambiguous across C/C++/Objective-C, so default to C.
+            Some("h") => "c".to_string(),
             Some("swift") => "swift".to_string(),
             Some("m") => "objectivec".to_string(),
             _ => self.lang.clone().unwrap_or_else(|| "native".to_string()),
@@ -659,6 +660,25 @@ mod test {
             colno: None,
             meta: CommonFrameMetadata::default(),
         }
+    }
+
+    #[test]
+    fn lang_for_maps_source_extensions() {
+        // native_frame_at carries lang hint "rust"
+        let frame = native_frame_at(0x1000, 0x1000);
+
+        assert_eq!(frame.lang_for(Some("src/main.rs")), "rust");
+        assert_eq!(frame.lang_for(Some("foo.c")), "c");
+        assert_eq!(frame.lang_for(Some("foo.cpp")), "cpp");
+        // C++ headers must not be mislabeled as C
+        assert_eq!(frame.lang_for(Some("foo.hpp")), "cpp");
+        assert_eq!(frame.lang_for(Some("foo.hh")), "cpp");
+        assert_eq!(frame.lang_for(Some("foo.hxx")), "cpp");
+        // Plain `.h` is ambiguous, so it stays C
+        assert_eq!(frame.lang_for(Some("foo.h")), "c");
+        // Unknown / extension-less falls back to the SDK-provided lang hint
+        assert_eq!(frame.lang_for(Some("README")), "rust");
+        assert_eq!(frame.lang_for(None), "rust");
     }
 
     fn debug_image_at(debug_id: &str, image_addr: u64) -> DebugImage {
