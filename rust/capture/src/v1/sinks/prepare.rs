@@ -27,10 +27,8 @@ use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::types::{PreparedEvent, SerializationFailure, SinkResult};
 
-/// Batches at or above this size serialize in parallel; smaller batches stay
-/// sequential to avoid the `JoinSet` task scheduling overhead that would
-/// dominate the tiny serialization cost.
-const SCATTER_GATHER_MIN_BATCH: usize = 8;
+/// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
+pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
 
 /// Outcome of the serialize step: events ready to publish (input order) plus
 /// per-event failures, each already a `SinkResult` so the caller can merge them
@@ -88,14 +86,21 @@ fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
 /// via `Arc`, then hands ownership back (alongside the results) so the caller
 /// can keep correlating results to events and build its response. `ctx` is
 /// cloned once and shared across tasks.
-pub async fn serialize_batch<E>(events: Vec<E>, ctx: &RequestContext) -> (Vec<E>, SerializedBatch)
+pub async fn serialize_batch<E>(
+    events: Vec<E>,
+    ctx: &RequestContext,
+    scatter_gather_threshold: usize,
+) -> (Vec<E>, SerializedBatch)
 where
     E: Event + 'static,
 {
     let start = Instant::now();
     let n = events.len();
 
-    let (events, slots): (Vec<E>, Vec<Slot>) = if n < SCATTER_GATHER_MIN_BATCH {
+    // 0 disables fanout entirely (e.g. replay's single large consolidated event).
+    let (events, slots): (Vec<E>, Vec<Slot>) = if scatter_gather_threshold == 0
+        || n < scatter_gather_threshold
+    {
         let slots = events.iter().map(|ev| run_one(ev, ctx)).collect();
         (events, slots)
     } else {
@@ -298,7 +303,8 @@ mod tests {
     #[tokio::test]
     async fn preserves_order_and_payloads(#[case] n: usize) {
         let ctx = test_context();
-        let (events, out) = serialize_batch(ordered_events(n), &ctx).await;
+        let (events, out) =
+            serialize_batch(ordered_events(n), &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(events.len(), n, "events must be handed back intact");
         assert_eq!(out.prepared.len(), n);
@@ -319,7 +325,7 @@ mod tests {
         let mut events = ordered_events(n);
         events[1] = FakeEvent::ok("ignored", "key-1").not_publishable();
 
-        let (returned, out) = serialize_batch(events, &ctx).await;
+        let (returned, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(returned.len(), n, "all events handed back intact");
         assert_eq!(out.prepared.len(), n - 1);
@@ -351,7 +357,7 @@ mod tests {
         events[1] = FakeEvent::ok("ignored", "key-1").with_behavior(Behavior::Err);
         events[1].uuid = bad_uuid;
 
-        let (events, out) = serialize_batch(events, &ctx).await;
+        let (events, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(events.len(), n);
         assert_eq!(out.prepared.len(), n - 1);
@@ -374,7 +380,7 @@ mod tests {
         let mut events = ordered_events(n);
         events[2] = FakeEvent::ok("ignored", "key-2").with_behavior(Behavior::Panic);
 
-        let (events, out) = serialize_batch(events, &ctx).await;
+        let (events, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(events.len(), n);
         assert_eq!(out.prepared.len(), n - 1);
@@ -395,7 +401,7 @@ mod tests {
         events[1] = FakeEvent::ok("ignored", "key-1").with_behavior(Behavior::Panic);
         events[1].uuid = panic_uuid;
 
-        let (_events, out) = serialize_batch(events, &ctx).await;
+        let (_events, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(out.failures.len(), 1);
         assert_eq!(out.failures[0].key(), panic_uuid);
@@ -405,10 +411,33 @@ mod tests {
     #[tokio::test]
     async fn empty_batch_is_empty() {
         let ctx = test_context();
-        let (events, out) = serialize_batch(Vec::<FakeEvent>::new(), &ctx).await;
+        let (events, out) = serialize_batch(
+            Vec::<FakeEvent>::new(),
+            &ctx,
+            DEFAULT_SCATTER_GATHER_MIN_BATCH,
+        )
+        .await;
         assert!(events.is_empty());
         assert!(out.prepared.is_empty());
         assert!(out.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn threshold_zero_forces_sequential_for_large_batch() {
+        let ctx = test_context();
+        let (events, out) = serialize_batch(ordered_events(64), &ctx, 0).await;
+        assert_eq!(events.len(), 64);
+        assert_eq!(out.prepared.len(), 64);
+        assert!(out.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn custom_threshold_boundary() {
+        let ctx = test_context();
+        let (_, below) = serialize_batch(ordered_events(63), &ctx, 64).await;
+        let (_, at) = serialize_batch(ordered_events(64), &ctx, 64).await;
+        assert_eq!(below.prepared.len(), 63);
+        assert_eq!(at.prepared.len(), 64);
     }
 
     #[test]

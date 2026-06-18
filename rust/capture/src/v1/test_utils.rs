@@ -809,6 +809,7 @@ impl TestStateBuilder {
             overflow_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
+            capture_v1_scatter_gather_min_batch: 8,
         };
 
         TestState {
