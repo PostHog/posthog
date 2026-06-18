@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
@@ -12,7 +12,6 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -279,12 +278,35 @@ export function InsightMeta({
         )
     }
 
-    const refreshDisabledReason =
+    const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
-            ? 'You are viewing the most recent calculated results.'
-            : loading || loadingQueued || !refreshEnabled
-              ? 'Refreshing...'
-              : undefined
+            ? dayjs(nextAllowedClientRefresh).fromNow()
+            : null
+    const refreshDisabledReason = nextRefreshFromNow
+        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+        : loading || loadingQueued
+          ? 'Refreshing…'
+          : !refreshEnabled
+            ? 'Another tile is refreshing — please wait…'
+            : undefined
+
+    const refreshControl = refresh ? (
+        <LemonButton
+            className="CardMeta__refresh"
+            icon={<IconRefresh />}
+            size="small"
+            onClick={() => refresh()}
+            disabledReason={refreshDisabledReason}
+            tooltip={
+                refreshDisabledReason
+                    ? undefined
+                    : insight.last_refresh
+                      ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
+                      : 'Refresh data'
+            }
+            data-attr="insight-card-refresh"
+        />
+    ) : null
 
     const topHeadingEl = showCompactHeading ? (
         <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} />
@@ -563,34 +585,6 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
-                        <>
-                            {refresh && (
-                                <LemonButton
-                                    onClick={() => {
-                                        refresh()
-                                    }}
-                                    disabledReason={refreshDisabledReason}
-                                    fullWidth
-                                >
-                                    {insight.last_refresh ? (
-                                        <div className="block my-1">
-                                            Refresh data
-                                            <p className="text-xs text-muted mt-0.5">
-                                                Last computed{' '}
-                                                <TZLabel
-                                                    time={insight.last_refresh}
-                                                    noStyles
-                                                    className="whitespace-nowrap border-dotted border-b"
-                                                />
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <>Refresh data</>
-                                    )}
-                                </LemonButton>
-                            )}
-                        </>
-
                         {/* More */}
                         {moreButtons && (
                             <>
@@ -602,10 +596,11 @@ export function InsightMeta({
                 }
                 moreTooltip={
                     canEditInsight
-                        ? 'Rename, duplicate, export, refresh and more…'
-                        : 'Duplicate, export, refresh and more…'
+                        ? 'Rename, duplicate, export and more…'
+                        : 'Duplicate, export and more…'
                 }
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
+                refreshControl={refreshControl}
             />
             {showDashboardAlertsMenuItem && insight.id ? (
                 <ManageAlertsModal

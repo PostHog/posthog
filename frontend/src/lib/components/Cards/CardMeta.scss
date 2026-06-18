@@ -197,3 +197,23 @@
     gap: 0.25rem;
     align-items: center;
 }
+
+// Refresh control is revealed on tile hover so it doesn't crowd the tile at rest.
+// On touch devices (no hover) it stays visible so it remains reachable.
+.CardMeta__refresh {
+    transition: opacity 150ms ease;
+}
+
+@media (hover: hover) {
+    .CardMeta__refresh {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .DashboardTileCard:hover .CardMeta__refresh,
+    .CardMeta__refresh:focus-visible,
+    .CardMeta__refresh:focus-within {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
