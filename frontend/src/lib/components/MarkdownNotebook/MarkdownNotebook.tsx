@@ -397,7 +397,9 @@ export function MarkdownNotebook({
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
     // Node the saved-insight picker will replace once an insight is chosen; null when the picker is closed.
+    // The ref mirrors the state so the pick/close callbacks can read the target without depending on it.
     const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
+    const savedInsightPickerTargetNodeIdRef = useRef<string | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
@@ -2204,16 +2206,22 @@ export function MarkdownNotebook({
         [mergedRegistry, replaceNode]
     )
 
-    const closeSavedInsightPicker = useCallback((): void => {
-        setSavedInsightPickerTargetNodeId(null)
+    const setSavedInsightPickerTarget = useCallback((nodeId: string | null): void => {
+        savedInsightPickerTargetNodeIdRef.current = nodeId
+        setSavedInsightPickerTargetNodeId(nodeId)
     }, [])
+
+    const closeSavedInsightPicker = useCallback((): void => {
+        setSavedInsightPickerTarget(null)
+    }, [setSavedInsightPickerTarget])
 
     const handleSavedInsightPicked = useCallback(
         (shortId: string, title: string): void => {
-            if (!savedInsightPickerTargetNodeId) {
+            const targetNodeId = savedInsightPickerTargetNodeIdRef.current
+            if (!targetNodeId) {
                 return
             }
-            replaceNodeWithInsertedComponent(savedInsightPickerTargetNodeId, {
+            replaceNodeWithInsertedComponent(targetNodeId, {
                 id: makeEmptyParagraph('component-Query').id,
                 type: 'component',
                 tagName: 'Query',
@@ -2226,9 +2234,9 @@ export function MarkdownNotebook({
                     ...(title ? { title } : {}),
                 },
             })
-            setSavedInsightPickerTargetNodeId(null)
+            setSavedInsightPickerTarget(null)
         },
-        [savedInsightPickerTargetNodeId, replaceNodeWithInsertedComponent]
+        [replaceNodeWithInsertedComponent, setSavedInsightPickerTarget]
     )
 
     const replaceNodeWithNodes = useCallback(
@@ -2407,9 +2415,17 @@ export function MarkdownNotebook({
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
                 onAskAI ? openAIPrompt : undefined,
-                renderSavedInsightPicker ? setSavedInsightPickerTargetNodeId : undefined
+                renderSavedInsightPicker ? setSavedInsightPickerTarget : undefined
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, renderSavedInsightPicker]
+        [
+            mergedRegistry,
+            replaceNodeWithInsertedComponent,
+            replaceNode,
+            onAskAI,
+            openAIPrompt,
+            renderSavedInsightPicker,
+            setSavedInsightPickerTarget,
+        ]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {

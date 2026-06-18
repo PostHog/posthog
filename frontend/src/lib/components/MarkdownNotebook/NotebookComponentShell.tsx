@@ -365,8 +365,6 @@ export function getComponentToolbarTitle(
     definition: NotebookComponentDefinition | null,
     label: string
 ): string | null {
-    // The saved insight's title is kept on the node, but not surfaced in the toolbar (pending a
-    // wider chart-title revamp) — the imported insight already shows its own name in its results.
     if (
         node.tagName === 'Query' &&
         getNotebookStringProp(getNotebookObjectProp(node.props.query)?.kind) === 'SavedInsightNode'

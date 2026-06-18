@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { MarkdownNotebook } from 'lib/components/MarkdownNotebook'
-import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
+import type {
+    MarkdownNotebookAskAIRequest,
+    MarkdownNotebookSavedInsightPickerProps,
+} from 'lib/components/MarkdownNotebook'
 import { uuid } from 'lib/utils/dom'
 
 import { InlineNotebookAIRunner } from './MarkdownNotebookAIChat'
@@ -70,6 +73,13 @@ export function MarkdownNotebookV2(): JSX.Element {
         [notebook?.short_id, notebook?.title]
     )
 
+    const renderSavedInsightPicker = useCallback(
+        (pickerProps: MarkdownNotebookSavedInsightPickerProps) => (
+            <MarkdownNotebookSavedInsightPicker {...pickerProps} />
+        ),
+        []
+    )
+
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
         () => ({
             notebookShortId: notebook?.short_id ?? null,
@@ -102,9 +112,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                renderSavedInsightPicker={
-                    isEditable ? (pickerProps) => <MarkdownNotebookSavedInsightPicker {...pickerProps} /> : undefined
-                }
+                renderSavedInsightPicker={isEditable ? renderSavedInsightPicker : undefined}
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={markdownRemoteCarets}
