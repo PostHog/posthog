@@ -20894,8 +20894,9 @@ export namespace Schemas {
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /**
-         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
          * @minimum 0
+         * @maximum 5184000
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
@@ -35218,8 +35219,9 @@ export namespace Schemas {
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /**
-         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
          * @minimum 0
+         * @maximum 5184000
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;

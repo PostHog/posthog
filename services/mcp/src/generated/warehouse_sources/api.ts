@@ -41,6 +41,7 @@ export const ExternalDataSchemasPartialUpdateParams = /* @__PURE__ */ zod.object
 })
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
+export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -74,9 +75,10 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     incremental_field_lookback_seconds: zod
         .number()
         .min(externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin)
+        .max(externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax)
         .nullish()
         .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.'
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
         ),
     sync_frequency: zod
         .union([
@@ -150,6 +152,7 @@ export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object(
 })
 
 export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin = 0
+export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -183,9 +186,10 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     incremental_field_lookback_seconds: zod
         .number()
         .min(externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin)
+        .max(externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMax)
         .nullish()
         .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.'
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
         ),
     sync_frequency: zod
         .union([
@@ -268,6 +272,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateParams = /* @__PURE__ */ 
 })
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
+export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -301,9 +306,10 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     incremental_field_lookback_seconds: zod
         .number()
         .min(externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin)
+        .max(externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax)
         .nullish()
         .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.'
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
         ),
     sync_frequency: zod
         .union([
@@ -377,6 +383,7 @@ export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object(
 })
 
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
+export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -410,9 +417,10 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     incremental_field_lookback_seconds: zod
         .number()
         .min(externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin)
+        .max(externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax)
         .nullish()
         .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.'
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
         ),
     sync_frequency: zod
         .union([
@@ -486,6 +494,7 @@ export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object(
 })
 
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
+export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -519,9 +528,10 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     incremental_field_lookback_seconds: zod
         .number()
         .min(externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin)
+        .max(externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax)
         .nullish()
         .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged.'
+            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
         ),
     sync_frequency: zod
         .union([
