@@ -21,7 +21,7 @@ import { createHogTransformerService } from '../cdp/hog-transformations/hog-tran
 import { InternalPerson } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
-import { createAiEventSubpipeline } from './ai'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true

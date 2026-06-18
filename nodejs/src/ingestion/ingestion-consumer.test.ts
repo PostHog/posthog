@@ -23,7 +23,7 @@ import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
-import { createAiEventSubpipeline } from './ai'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 

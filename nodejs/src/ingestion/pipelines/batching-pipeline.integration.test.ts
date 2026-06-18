@@ -4,7 +4,7 @@ import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestio
 import { DlqOutput, IngestionWarningsOutput } from '../../common/outputs'
 import { parseJSON } from '../../utils/json-parse'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { PERSONS_OUTPUT } from '../analytics/outputs'
+import { PERSONS_OUTPUT } from '~/ingestion/lanes/analytics/outputs'
 import { BatchWritingGroupStore } from '../common/groups/batch-writing-group-store'
 import { PersonOutputs } from '../common/persons/person-context'
 import { FlushResult, PersonsStore } from '../common/persons/persons-store'

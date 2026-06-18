@@ -433,3 +433,12 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   violations, static import-resolution clean (the 2 flagged `~/...js` dynamic imports are the build-required
   jest-mapped ones, not breakage), eslint clean. Pushing so CI validates the full gate before batching the
   remaining 7 lanes. 1/8 lanes moved.
+- Note: the feb7df56 push did not trigger the main Actions CI (a GitHub delivery miss — Node.js CI is
+  `on: pull_request` with no workflow-level path gate, so it should have run; only apps/`pull_request_target`
+  reacted). The next push re-triggers CI for the cumulative PR diff.
+- Moved the remaining 7 lanes (analytics, heatmaps, ai, error-tracking, session-replay, logs, metrics) into
+  `lanes/` via codemod + `git mv`. All 8 lanes now under `src/ingestion/lanes/`. Local gates green: guard 0,
+  static import-resolution 0 broken (checker now models the `~/...js` jest mapper), eslint 0 errors, and a
+  moved-lane unit run passes (heatmaps: 42 unit tests; its e2e fails only on local infra absence). Pushed;
+  awaiting CI on the full gate, after which I'll check off the lane-move item and group shared code
+  (`framework/`, `steps/`, `common/`). 8/8 lanes moved.

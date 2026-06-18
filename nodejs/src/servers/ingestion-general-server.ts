@@ -22,8 +22,8 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { createAiEventSubpipeline } from '../ingestion/ai'
-import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -43,7 +43,7 @@ import {
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
-import { createHeatmapsConsumer } from '../ingestion/heatmaps'
+import { createHeatmapsConsumer } from '~/ingestion/lanes/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'

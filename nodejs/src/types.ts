@@ -7,9 +7,9 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/logs/config'
-import type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/session-replay/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/lanes/logs/config'
+import type { MetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/lanes/session-replay/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -25,7 +25,7 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
-import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
+import type { ErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -46,10 +46,10 @@ export type {
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
-export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-export type { LogsIngestionConsumerConfig } from '~/ingestion/logs/config'
-export type { MetricsIngestionConsumerConfig } from '~/ingestion/metrics/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/session-replay/config'
+export type { ErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
+export type { LogsIngestionConsumerConfig } from '~/ingestion/lanes/logs/config'
+export type { MetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/lanes/session-replay/config'
 
 interface HealthCheckResultResponse {
     service: string

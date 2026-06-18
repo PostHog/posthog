@@ -35,9 +35,9 @@ import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
     getDefaultErrorTrackingOutputsConfig,
-} from '../ingestion/error-tracking/config'
-import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
+} from '~/ingestion/lanes/error-tracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/lanes/error-tracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/lanes/error-tracking/outputs/registry'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'

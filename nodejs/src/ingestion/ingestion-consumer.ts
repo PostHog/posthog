@@ -45,7 +45,7 @@ import {
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
-} from './analytics'
+} from '~/ingestion/lanes/analytics'
 import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'

@@ -4,18 +4,18 @@ import {
     LogsIngestionConsumerConfig,
     LogsIngestionOutputsConfig,
     getDefaultLogsIngestionOutputsConfig,
-} from '~/ingestion/logs/config'
-import { LogsIngestionConsumer } from '~/ingestion/logs/logs-ingestion-consumer'
-import { createProducerRegistry } from '~/ingestion/logs/outputs/producer-registry'
+} from '~/ingestion/lanes/logs/config'
+import { LogsIngestionConsumer } from '~/ingestion/lanes/logs/logs-ingestion-consumer'
+import { createProducerRegistry } from '~/ingestion/lanes/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
-} from '~/ingestion/logs/outputs/producers'
-import { createLogsOutputsRegistry } from '~/ingestion/logs/outputs/registry'
-import { SamplingRulesCache } from '~/ingestion/logs/sampling/sampling-rules-cache'
+} from '~/ingestion/lanes/logs/outputs/producers'
+import { createLogsOutputsRegistry } from '~/ingestion/lanes/logs/outputs/registry'
+import { SamplingRulesCache } from '~/ingestion/lanes/logs/sampling/sampling-rules-cache'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'

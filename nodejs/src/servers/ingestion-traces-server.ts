@@ -5,17 +5,17 @@ import {
     LogsIngestionOutputsConfig,
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
-} from '~/ingestion/logs/config'
-import { createProducerRegistry } from '~/ingestion/logs/outputs/producer-registry'
+} from '~/ingestion/lanes/logs/config'
+import { createProducerRegistry } from '~/ingestion/lanes/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
-} from '~/ingestion/logs/outputs/producers'
-import { createTracesOutputsRegistry } from '~/ingestion/logs/outputs/registry'
-import { TracesIngestionConsumer } from '~/ingestion/logs/traces-ingestion-consumer'
+} from '~/ingestion/lanes/logs/outputs/producers'
+import { createTracesOutputsRegistry } from '~/ingestion/lanes/logs/outputs/registry'
+import { TracesIngestionConsumer } from '~/ingestion/lanes/logs/traces-ingestion-consumer'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'

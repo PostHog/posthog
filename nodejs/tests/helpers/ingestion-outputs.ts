@@ -32,7 +32,7 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '../../src/config/kafka-topics'
-import { HEATMAPS_OUTPUT } from '../../src/ingestion/heatmaps/outputs'
+import { HEATMAPS_OUTPUT } from '~/ingestion/lanes/heatmaps/outputs'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 
 function testOutput(name: string, topic: string, producer: KafkaProducerWrapper): SingleIngestionOutput {

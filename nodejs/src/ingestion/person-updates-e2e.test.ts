@@ -27,7 +27,7 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
-import { createAiEventSubpipeline } from './ai'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {

@@ -3,14 +3,14 @@ import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
     getDefaultSessionReplayOutputsConfig,
-} from '~/ingestion/session-replay/config'
-import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/session-replay/consumer'
-import { createProducerRegistry } from '~/ingestion/session-replay/outputs/producer-registry'
-import { createOutputsRegistry } from '~/ingestion/session-replay/outputs/registry'
+} from '~/ingestion/lanes/session-replay/config'
+import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/lanes/session-replay/consumer'
+import { createProducerRegistry } from '~/ingestion/lanes/session-replay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/lanes/session-replay/outputs/registry'
 import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '~/ingestion/session-replay/shared/outputs/producer-config'
+} from '~/ingestion/lanes/session-replay/shared/outputs/producer-config'
 
 import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'

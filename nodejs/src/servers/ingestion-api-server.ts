@@ -25,15 +25,15 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { createAiEventSubpipeline } from '../ingestion/ai'
+import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
-} from '../ingestion/analytics/joined-ingestion-pipeline'
-import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+} from '~/ingestion/lanes/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
