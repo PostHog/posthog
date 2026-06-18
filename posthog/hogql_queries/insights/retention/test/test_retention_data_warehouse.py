@@ -385,6 +385,89 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_data_warehouse_return_event_with_minimum_occurrences(self):
+        # Same cohorts as test_retention_data_warehouse_different_tables, but the data warehouse return entity now
+        # only counts an interval when the user renewed at least twice that day. user-1 (two renewals on 01-02) and
+        # user-3 (two renewals on 01-03) qualify; user-2's single renewal on 01-03 falls below the threshold and is
+        # dropped — the one cell that differs from the minimumOccurrences = 1 result.
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_min_occ_signups.csv",
+            table_name="warehouse_min_occ_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+                [3, person_ids["user-3"], "2025-01-02 09:00:00"],
+                [4, person_ids["user-4"], "2025-01-02 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        renewals_table_name = self._create_data_warehouse_table(
+            filename="warehouse_min_occ_renewals.csv",
+            table_name="warehouse_min_occ_renewals",
+            header=["id", "person_id", "renewed_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-02 09:00:00"],
+                [2, person_ids["user-1"], "2025-01-02 15:00:00"],  # second renewal same day → qualifies interval 1
+                [3, person_ids["user-2"], "2025-01-03 12:00:00"],  # only one renewal → below threshold, dropped
+                [4, person_ids["user-3"], "2025-01-03 08:00:00"],
+                [5, person_ids["user-3"], "2025-01-03 20:00:00"],  # second renewal same day → qualifies interval 1
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "renewed_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "minimumOccurrences": 2,
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {
+                        "id": renewals_table_name,
+                        "name": renewals_table_name,
+                        "type": "data_warehouse",
+                        "table_name": renewals_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "renewed_at",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 0, 0],
+                    [2, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
     def test_retention_data_warehouse_property_aggregation_different_tables(self) -> None:
         person_ids = self._create_people()
         signups_table_name = self._create_data_warehouse_table(

@@ -263,7 +263,12 @@ export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax 
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -910,7 +915,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAg
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().optional(),
+    bundle_uri: zod
+        .string()
+        .optional()
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -2082,7 +2092,8 @@ export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
  * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -2098,6 +2109,25 @@ export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.obje
     format: zod.enum(['json', 'sse']).optional(),
     revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
+
+export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .optional()
+            .describe(
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+            ),
+        session_id: zod
+            .string()
+            .optional()
+            .describe(
+                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
+            ),
+    })
+    .describe(
+        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
+    )
 
 /**
  * List sessions for this application, newest first. Strips the

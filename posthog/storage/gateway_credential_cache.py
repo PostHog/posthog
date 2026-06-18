@@ -5,7 +5,7 @@ One blob per phs_ project secret key / pha_ OAuth token, keyed by the credential
 so the secret never sits in a Redis key. Public phc_ project tokens can't dispatch.
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
-    Body: {team_id, project_token, scopes, billing_mode, revoked_at}
+    Body: {team_id, project_token, scopes, billing_mode, revoked_at, overspend_allowance_usd?}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
 gateway derives identically. A credential holding llm_gateway:read attributes to its team
@@ -19,6 +19,7 @@ cold Redis.
 
 import os
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -64,6 +65,36 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "billing_mode",
     "revoked_at",
 ]
+
+# Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
+# fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
+# so we validate at the write surfaces instead of relying on the clamp.
+OVERSPEND_ALLOWANCE_KEY = "overspend_allowance_usd"
+OVERSPEND_ALLOWANCE_QUANTUM = Decimal("0.000001")
+OVERSPEND_ALLOWANCE_MIN_USD = Decimal(0)
+OVERSPEND_ALLOWANCE_MAX_USD = Decimal(10000)
+
+
+def format_overspend_allowance_usd(value: Decimal) -> str:
+    """Fixed-point 6dp string for the wire. `:f` avoids scientific notation, which the
+    gateway's decimal parser can't read."""
+    return f"{value.quantize(OVERSPEND_ALLOWANCE_QUANTUM):f}"
+
+
+def validate_overspend_allowance_usd(value: Decimal) -> Decimal:
+    """Quantize to 6dp; raise ValueError outside [0, 10000] or beyond 6dp. Callers map to
+    their own error type."""
+    if not value.is_finite():
+        raise ValueError("overspend allowance must be a finite number")
+    if value < OVERSPEND_ALLOWANCE_MIN_USD or value > OVERSPEND_ALLOWANCE_MAX_USD:
+        raise ValueError(
+            f"overspend allowance must be between {OVERSPEND_ALLOWANCE_MIN_USD} and {OVERSPEND_ALLOWANCE_MAX_USD} USD"
+        )
+    exponent = value.as_tuple().exponent  # int for any finite Decimal
+    if isinstance(exponent, int) and -exponent > 6:
+        raise ValueError("overspend allowance supports at most 6 decimal places")
+    return value.quantize(OVERSPEND_ALLOWANCE_QUANTUM)
+
 
 Credential = ProjectSecretAPIKey | OAuthAccessToken
 
@@ -243,13 +274,20 @@ def _policy_for_credential(
     if isinstance(credential, OAuthAccessToken) and not _oauth_authorization_ok(credential, team, team.id, memo):
         return HyperCacheStoreMissing()
 
-    return {
+    policy: dict[str, Any] = {
         "team_id": team.id,
         "project_token": project_token,
         "scopes": [GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
         "billing_mode": GATEWAY_CREDENTIAL_BILLING_MODE,
         "revoked_at": None,
     }
+
+    # Omit when null so the gateway uses its default; an explicit 0 disables the allowance.
+    allowance = team.llm_gateway_overspend_allowance_usd
+    if allowance is not None:
+        policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
+
+    return policy
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:

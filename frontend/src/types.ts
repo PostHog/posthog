@@ -737,6 +737,14 @@ export interface ConversationsSettings {
     teams_team_name?: string | null
     teams_channel_id?: string | null
     teams_channel_name?: string | null
+    teams_channels?:
+        | {
+              team_id: string
+              team_name?: string | null
+              channel_id: string
+              channel_name?: string | null
+          }[]
+        | null
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
@@ -2529,6 +2537,8 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
+    /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
+    folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -5970,7 +5980,7 @@ export interface ExternalDataSourceCreatePayload {
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     function_source?: string | null
     available_functions?: string[]
 }
@@ -5978,7 +5988,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
 }
 
 export interface ExternalDataSource {
@@ -5991,7 +6001,7 @@ export interface ExternalDataSource {
     description: string | null
     access_method?: 'warehouse' | 'direct'
     created_via: 'web' | 'api' | 'mcp' | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]

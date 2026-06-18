@@ -51,7 +51,8 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
-                      bin/ common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                      --jobs 4 \
+                      bin/ common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest

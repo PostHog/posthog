@@ -169,6 +169,7 @@ impl storage::FeatureFlagStorage for FailingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
@@ -531,6 +532,7 @@ impl storage::FeatureFlagStorage for SuccessStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -952,6 +954,7 @@ impl storage::FeatureFlagStorage for PopulatedStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -1352,6 +1355,7 @@ impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }

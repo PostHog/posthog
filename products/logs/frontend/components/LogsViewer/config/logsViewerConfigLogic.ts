@@ -40,6 +40,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
         setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         toggleSparklineCollapsed: true,
+        setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
     }),
 
     reducers({
@@ -65,6 +66,13 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             { persist: true },
             {
                 toggleSparklineCollapsed: (state) => !state,
+            },
+        ],
+        facetRailCollapsed: [
+            false,
+            { persist: true },
+            {
+                setFacetRailCollapsed: (_, { facetRailCollapsed }) => facetRailCollapsed,
             },
         ],
         orderBy: [
