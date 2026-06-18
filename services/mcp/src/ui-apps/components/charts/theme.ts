@@ -49,7 +49,7 @@ export const lifecycleColor = (status: string | undefined): string =>
 export const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,
     backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
+    axisColor: '#6b7280',
     gridColor: 'rgba(128, 128, 128, 0.2)',
     crosshairColor: 'rgba(128, 128, 128, 0.5)',
     tooltipBackground: '#ffffff',

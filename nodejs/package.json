@@ -164,7 +164,6 @@
         "@types/redlock": "^4.0.1",
         "@types/snowflake-sdk": "^1.5.1",
         "@types/supertest": "^6.0.2",
-        "@types/uuid": "^11.0.0",
         "@typescript-eslint/eslint-plugin": "^8.58.2",
         "@typescript-eslint/parser": "^8.58.2",
         "chance": "^1.1.13",

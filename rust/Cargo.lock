@@ -3497,6 +3497,7 @@ dependencies = [
  "common-database",
  "common-geoip",
  "common-hypercache",
+ "common-kafka",
  "common-metrics",
  "common-redis",
  "common-s3",
@@ -3523,6 +3524,7 @@ dependencies = [
  "petgraph 0.8.3",
  "rand 0.8.5",
  "rayon",
+ "rdkafka",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -4349,7 +4351,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.90"
+version = "1.3.92"
 dependencies = [
  "pyo3",
  "serde_json",

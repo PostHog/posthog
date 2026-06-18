@@ -138,6 +138,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleHealthChecks: true,
+        toggleConversations: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -191,6 +192,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+            toggleConversations: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.CONVERSATIONS, SignalSourceType.TICKET),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -263,10 +266,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_product === SignalSourceProduct.PGANALYZE && c.source_type === SignalSourceType.ISSUE
                 ) ?? null,
         ],
+        conversationsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.CONVERSATIONS &&
+                        c.source_type === SignalSourceType.TICKET
+                ) ?? null,
+        ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`),
+        ],
+        isConversationsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.CONVERSATIONS}_${SignalSourceType.TICKET}`),
         ],
         isGithubIssuesToggling: [
             (s) => [s.togglingSourceKeys],
@@ -471,6 +487,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.HEALTH_CHECKS,
                     sourceType: SignalSourceType.HEALTH_ISSUE,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleConversations: () => {
+                const config = values.conversationsConfig
+                // Send the flipped target state. A missing config row means "off", so first toggle enables.
+                const desiredEnabled = !(config?.enabled ?? false)
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.CONVERSATIONS,
+                    sourceType: SignalSourceType.TICKET,
                     enabled: desiredEnabled,
                 })
             },

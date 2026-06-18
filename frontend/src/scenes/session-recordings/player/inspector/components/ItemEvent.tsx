@@ -264,7 +264,7 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             <>
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>

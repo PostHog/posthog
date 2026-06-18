@@ -106,6 +106,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboards(),
+        // Suppress async chart canvas painting so these dashboard snapshots are deterministic.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta
