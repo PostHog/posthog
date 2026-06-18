@@ -5,10 +5,18 @@ Maps the raw GitHub workflow-runs warehouse snapshot into honest CI columns:
 stale until the ``workflow_run`` webhook settles it — see SPEC §9), and
 ``duration_seconds`` is only computed for completed runs. ``head_sha`` is the
 canonical join key back to the pull-requests builder for a PR's CI status, while
-``pr_number`` (the first entry of the run's ``pull_requests`` association) keys the
-per-PR push / re-run rollup and ``run_attempt`` distinguishes re-runs. The source
-table name is resolved per-team and passed in (see ``logic.sources``); it is never
-hardcoded, because a warehouse table's name carries the user-chosen source prefix.
+``pr_number`` keys the per-PR push / re-run rollup and ``run_attempt`` distinguishes
+re-runs. The source table name is resolved per-team and passed in (see
+``logic.sources``); it is never hardcoded, because a warehouse table's name carries
+the user-chosen source prefix.
+
+``pr_number`` is the FIRST entry of the run's ``pull_requests`` association. Two cases:
+a run with no association (fork PRs, and pushes to a branch with no open PR) extracts
+``0`` (filtered out of the rollup, which only counts ``pr_number > 0``); a run shared
+across more than one PR (uncommon — one head tied to multiple open PRs) is credited to
+its first PR only, not fanned out across all of them. That's a deliberate v1
+simplification — the rollup is an approximate friction signal (pushes / re-runs), not
+billing — kept until the job-level source (SPEC §6) replaces this attribution.
 
 The real GitHub source lands timestamps as **strings** and ``repository`` /
 ``pull_requests`` as **Nullable** JSON, so this builder runs in two layers: an inner

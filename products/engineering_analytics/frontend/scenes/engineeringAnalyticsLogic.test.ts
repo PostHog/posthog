@@ -251,7 +251,8 @@ describe('engineeringAnalyticsLogic', () => {
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
         expect(logic.values.notConnected).toBe(false)
-        expect(logic.values.loadError).toBe(false)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
     it('reloads workflow health when the date range changes', async () => {
@@ -424,31 +425,50 @@ describe('engineeringAnalyticsLogic', () => {
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
-    it('flags notConnected when no GitHub source is connected (cards endpoint 400s)', async () => {
+    it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
         mockCiCards.mockRejectedValue(
             new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
         )
-        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
-        mockWorkflowHealth.mockResolvedValue([])
-
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
         expect(logic.values.notConnected).toBe(true)
-        expect(logic.values.loadError).toBe(false)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
-    it('flags loadError (not notConnected) when a data endpoint 500s', async () => {
-        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
-        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
-        mockWorkflowHealth.mockResolvedValue([])
+    it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
+        // could miss the connect prompt.
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
 
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
-        expect(logic.values.loadError).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
+    it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.workflowHealthLoadError).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
         expect(logic.values.notConnected).toBe(false)
     })
 })

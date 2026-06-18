@@ -21,8 +21,13 @@ class TestCostModel:
             ("depot_pinned_os_4cpu", ["depot-ubuntu-22.04-4"], RunnerProvider.DEPOT, RunnerOS.LINUX, 4),
             ("depot_8cpu", ["depot-ubuntu-latest-8"], RunnerProvider.DEPOT, RunnerOS.LINUX, 8),
             ("depot_macos", ["depot-macos-latest"], RunnerProvider.DEPOT, RunnerOS.MACOS, 2),
+            # Non-Linux Depot labels can carry a bare-integer OS version: it sits in the version
+            # slot, not the size slot, so vcpu stays the 2-core default (never read as 14 / 2022).
+            ("depot_macos_versioned", ["depot-macos-14"], RunnerProvider.DEPOT, RunnerOS.MACOS, 2),
+            ("depot_windows", ["depot-windows-2022"], RunnerProvider.DEPOT, RunnerOS.WINDOWS, 2),
             ("github_hosted", ["ubuntu-latest"], RunnerProvider.GITHUB_HOSTED, RunnerOS.LINUX, 2),
             ("github_hosted_pinned", ["ubuntu-24.04"], RunnerProvider.GITHUB_HOSTED, RunnerOS.LINUX, 2),
+            ("github_hosted_macos", ["macos-14"], RunnerProvider.GITHUB_HOSTED, RunnerOS.MACOS, 2),
             (
                 "depot_preferred_over_hosted",
                 ["ubuntu-latest", "depot-ubuntu-latest-4"],
@@ -39,6 +44,11 @@ class TestCostModel:
         [
             ("empty", []),
             ("unrecognized", ["self-hosted", "linux", "x64"]),
+            # Contains/prefixed with "depot" but names no runner OS: organizational and cache
+            # labels must not be costed as a Depot runner.
+            ("depot_cache_label", ["depot-docker-cache"]),
+            ("depot_only_flag", ["depot-only"]),
+            ("depot_prefixed_non_runner", ["depot-cache-linux"]),
         ]
     )
     def test_classify_runner_returns_none_for_unknown(self, _name, labels):
@@ -72,18 +82,26 @@ class TestCostModel:
         [
             ("github_hosted_not_billed", ["ubuntu-latest"], 600),
             ("depot_macos_not_modeled", ["depot-macos-latest"], 600),
+            ("depot_windows_not_modeled", ["depot-windows-2022"], 600),
+            ("depot_cache_label_not_a_runner", ["depot-docker-cache"], 600),
             ("unclassified", ["self-hosted"], 600),
         ]
     )
     def test_estimate_job_cost_is_none_when_not_depot_billed(self, _name, labels, elapsed):
         assert estimate_job_cost_usd(labels, elapsed) is None
 
+    def test_estimate_job_cost_is_none_for_unknown_elapsed(self):
+        # A queued / not-yet-started Depot job has no elapsed time: report None ("cost unknown"),
+        # never 0.0 — so a consumer never shows a pending job as $0.00.
+        assert estimate_job_cost_usd(["depot-ubuntu-latest"], None) is None
+
     @parameterized.expand(
         [
-            ("none_elapsed", None),
             ("zero_elapsed", 0),
             ("negative_elapsed", -5),
         ]
     )
-    def test_estimate_job_cost_is_zero_for_no_elapsed(self, _name, elapsed):
+    def test_estimate_job_cost_is_zero_for_non_positive_elapsed(self, _name, elapsed):
+        # A Depot job that ran for no measurable time (started == completed, or clock skew) is a
+        # real, measured 0.0 — distinct from the unknown-elapsed case above.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], elapsed) == 0.0

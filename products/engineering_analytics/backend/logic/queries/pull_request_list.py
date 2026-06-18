@@ -37,7 +37,8 @@ _SELECT = f"""
         coalesce(rp.rerun_cycles, 0) AS rerun_cycles
     FROM __PR_SOURCE__ AS pr
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
-    LEFT JOIN runs_by_pr AS rp ON rp.pr_number = pr.number
+    LEFT JOIN runs_by_pr AS rp
+        ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     WHERE pr.state = 'open'
         OR pr.merged_at >= {{date_from}}
         OR pr.closed_at >= {{date_from}}

@@ -150,7 +150,9 @@ def _run_row(
         "run_started_at": run_started_at,
         "updated_at": updated_at,
         "run_attempt": run_attempt,
-        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else "[]",
+        # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
+        # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
+        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
         "repository": f'{{"full_name": "{full_name}"}}',
     }
 
@@ -251,3 +253,21 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[0] == ("CI", "completed", "success", 1800, "PostHog", "posthog")
         assert rows[1][3] == 2700
         assert rows[2] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
+
+    def test_workflow_runs_view_handles_null_pull_requests(self) -> None:
+        # The real source lands pull_requests as Nullable(String), so it can be NULL (a run with no
+        # PR association). The builder's ifNull(pull_requests, '[]') guard must carry that NULL to
+        # pr_number = 0 (unattributed), never letting JSONExtractArrayRaw see a Nullable. Driven
+        # through an inline constant source (nullIf('', '') is a typed NULL) so it exercises the
+        # guard whether or not object storage is available — unlike the table-backed tests, which
+        # skip without it.
+        repo_json = '{"full_name": "PostHog/posthog"}'
+        raw = (
+            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'completed' AS status, "
+            "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
+            f"'{repo_json}' AS repository, "
+            "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "
+            "'2026-01-20 10:00:00' AS created_at)"
+        )
+        rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
+        assert rows[0] == (0, "PostHog", "posthog")

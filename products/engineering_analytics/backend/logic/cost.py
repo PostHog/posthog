@@ -17,7 +17,6 @@ source-agnostic so they are unit-tested today and wired to the ``github_workflow
 warehouse source once it lands (see SPEC section 6/9).
 """
 
-import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -35,8 +34,8 @@ _MULTIPLIER_BY_VCPU: dict[int, int] = {2: 1, 4: 2, 8: 4, 16: 8, 32: 16, 64: 32}
 # (e.g. ``depot-ubuntu-latest``).
 _DEFAULT_DEPOT_VCPU = 2
 
-# Trailing vCPU size on a Depot label, e.g. the ``-4`` in ``depot-ubuntu-22.04-4``.
-_DEPOT_SIZE_RE = re.compile(r"-(\d+)$")
+# Depot runner labels are ``depot-<os>-...`` — the prefix is what makes a runner Depot-billed.
+_DEPOT_PREFIX = "depot-"
 
 
 class RunnerProvider(StrEnum):
@@ -47,6 +46,16 @@ class RunnerProvider(StrEnum):
 class RunnerOS(StrEnum):
     LINUX = "linux"
     MACOS = "macos"
+    WINDOWS = "windows"
+
+
+# The OS a runner label names, keyed by the token that appears in both Depot and github-hosted
+# labels (``depot-ubuntu-22.04-4`` / ``ubuntu-latest`` / ``macos-14`` / ``windows-latest``).
+_OS_BY_TOKEN: dict[str, RunnerOS] = {
+    "ubuntu": RunnerOS.LINUX,
+    "macos": RunnerOS.MACOS,
+    "windows": RunnerOS.WINDOWS,
+}
 
 
 @dataclass(frozen=True)
@@ -61,31 +70,44 @@ class RunnerTier:
 def classify_runner(labels: list[str]) -> RunnerTier | None:
     """Classify the runner a job ran on from its ``labels``.
 
-    Prefers a ``depot-*`` label (only Depot runners are Depot-billed); falls back to
-    a github-hosted label. Returns ``None`` when no label identifies a runner. A
-    Depot label with no ``-<n>`` size suffix is the 2-vCPU default.
+    Prefers a real Depot runner (only Depot runners are Depot-billed), else a github-hosted
+    runner; returns ``None`` when no label names a recognized OS. A Depot runner label is
+    ``depot-<os>-...`` — anchored to the prefix AND a known OS token so organizational/cache
+    labels that merely contain "depot" (``depot-only``, ``depot-docker-cache``) or a
+    ``depot-`` prefixed non-runner label (``depot-cache-linux``) are not costed as a runner.
     """
-    depot = next((label for label in labels if "depot" in label.lower()), None)
-    if depot is not None:
-        match = _DEPOT_SIZE_RE.search(depot)
-        return RunnerTier(
-            provider=RunnerProvider.DEPOT,
-            os=_os_from_label(depot),
-            vcpu=int(match.group(1)) if match else _DEFAULT_DEPOT_VCPU,
-        )
-    hosted = next((label for label in labels if _is_hosted_label(label)), None)
-    if hosted is not None:
-        return RunnerTier(provider=RunnerProvider.GITHUB_HOSTED, os=_os_from_label(hosted), vcpu=_DEFAULT_DEPOT_VCPU)
+    hosted_os: RunnerOS | None = None
+    for label in labels:
+        os_ = _os_from_label(label)
+        if os_ is None:
+            continue
+        if label.lower().startswith(_DEPOT_PREFIX):
+            return RunnerTier(provider=RunnerProvider.DEPOT, os=os_, vcpu=_depot_vcpu(label))
+        hosted_os = hosted_os or os_  # first recognized hosted label; Depot still wins if one follows
+    if hosted_os is not None:
+        return RunnerTier(provider=RunnerProvider.GITHUB_HOSTED, os=hosted_os, vcpu=_DEFAULT_DEPOT_VCPU)
     return None
 
 
-def _os_from_label(label: str) -> RunnerOS:
-    return RunnerOS.MACOS if "macos" in label.lower() else RunnerOS.LINUX
-
-
-def _is_hosted_label(label: str) -> bool:
+def _os_from_label(label: str) -> RunnerOS | None:
+    """The OS a runner label names, or ``None`` when it names no recognized OS."""
     lowered = label.lower()
-    return any(token in lowered for token in ("ubuntu", "macos", "windows"))
+    return next((os_ for token, os_ in _OS_BY_TOKEN.items() if token in lowered), None)
+
+
+def _depot_vcpu(label: str) -> int:
+    """vCPU count from a Depot label's optional trailing size segment.
+
+    Depot labels are ``depot-<os>-<version>[-<vcpu>]`` (e.g. ``depot-ubuntu-22.04-4``), so the
+    size is the segment after the version and is only ever the 4th-or-later segment. A
+    bare-integer OS version (``depot-macos-14``, ``depot-windows-2022``) sits in the version
+    slot and must not be read as a core count — hence the explicit segment position rather
+    than a trailing-digits regex, which would mis-read those non-Linux versions as vCPUs.
+    """
+    segments = label.split("-")
+    if len(segments) >= 4 and segments[-1].isdigit():
+        return int(segments[-1])
+    return _DEFAULT_DEPOT_VCPU
 
 
 def billing_multiplier(tier: RunnerTier) -> int:
@@ -94,16 +116,21 @@ def billing_multiplier(tier: RunnerTier) -> int:
 
 
 def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
-    """Estimated Depot dollar cost for one job.
+    """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
 
-    ``None`` when the job is not Depot-billed (github-hosted), the runner can't be
-    classified, or it ran on Depot macOS (a separate price tier not modeled yet -- so
-    it is excluded rather than silently mis-costed). A non-positive / ``None`` elapsed
-    (a queued or in-progress job) costs ``0.0``.
+    ``None`` means "no Depot cost to report": the job is github-hosted, its runner can't be
+    classified, it ran on a non-Linux Depot tier (macOS / Windows — separate price tiers not
+    modeled yet, so excluded rather than mis-costed at the Linux rate), OR its elapsed time is
+    unknown (a queued / not-yet-started job). That last case is deliberately distinct from a
+    job that ran for no measurable time (``started_at == completed_at`` or clock skew), which
+    is a real, measured ``0.0``: a consumer summing per-PR cost skips ``None`` jobs, so a queued
+    job is never silently shown as ``$0.00``.
     """
     tier = classify_runner(labels)
-    if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is RunnerOS.MACOS:
+    if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
         return None
-    if elapsed_seconds is None or elapsed_seconds <= 0:
+    if elapsed_seconds is None:
+        return None
+    if elapsed_seconds <= 0:
         return 0.0
     return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)

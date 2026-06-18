@@ -52,7 +52,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         activeCard,
         sourceId,
         notConnected,
-        loadError,
+        pullRequestsLoadError,
         costLensEnabled,
     } = useValues(engineeringAnalyticsLogic)
     const {
@@ -67,12 +67,13 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         refresh,
     } = useActions(engineeringAnalyticsLogic)
 
-    // A 400 means no GitHub source is connected — prompt to connect. Any other failure (e.g. a 500
-    // from a query error) is shown as a generic, retryable error, never the misleading "connect" state.
+    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
+    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
+    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
     if (notConnected) {
         return <ConnectGitHubSource />
     }
-    if (loadError) {
+    if (pullRequestsLoadError) {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 

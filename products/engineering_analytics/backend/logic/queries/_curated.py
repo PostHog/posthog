@@ -109,18 +109,26 @@ class CuratedGitHubSource:
         A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
         the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
         (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
-        association (``pr_number = 0``) and are excluded. Keyed on ``pr_number`` so the PR-list
-        join is a plain equality join — no fragile branch + time-window match.
+        association (``pr_number = 0``) and are excluded.
+
+        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
+        restart per repository, so the PR-list join is qualified by repo to stay correct — as
+        repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
+        today (the warehouse GitHub source syncs one ``owner/repo``), so the qualifier is a no-op
+        now; it keeps the rollup correct if a source ever spans repos, instead of silently
+        cross-attributing runs to a same-numbered PR in another repo.
         """
         return f"""
             runs_by_pr AS (
                 SELECT
+                    repo_owner,
+                    repo_name,
                     pr_number,
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM {self.run_source()} AS r
                 WHERE pr_number > 0
-                GROUP BY pr_number
+                GROUP BY repo_owner, repo_name, pr_number
             )
         """
 

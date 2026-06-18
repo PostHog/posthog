@@ -162,6 +162,29 @@ class TestPRLifecycleMapping(BaseTest):
         ]
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
+    def test_skips_events_with_null_timestamps(self) -> None:
+        # parseDateTimeBestEffort yields NULL on a malformed/missing timestamp, so an event's `at`
+        # can come back None. A single bad run timestamp must drop just that event, not raise and
+        # take down the whole PR's lifecycle (the contract's `at` is non-nullable, and the event
+        # sort can't order a None key).
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        runs = [
+            # null start -> CI_STARTED dropped, but the completed finish still lands
+            (2001, "CI", "completed", "success", None, _dt("2026-01-11T12:00:00")),
+            # both timestamps null -> both events dropped
+            (2002, "Deploy", "completed", "success", None, None),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [e.kind for e in lifecycle.events] == [
+            PRLifecycleEventKind.OPENED,
+            PRLifecycleEventKind.CI_FINISHED,
+            PRLifecycleEventKind.MERGED,
+        ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, None]
+
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
             assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
@@ -592,3 +615,52 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+
+    def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
+        # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
+        # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
+        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", full_name="PostHog/posthog"),
+                _pr_row(10, "bob", "open", 0, _ago(1), head_sha="shaB10", full_name="PostHog/posthog.com"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(3001, "CI", "sha10", "completed", "success", _ago(1), _ago(1), pr_number=10),
+                _run_row(
+                    3002,
+                    "CI",
+                    "shaB10",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    full_name="PostHog/posthog.com",
+                ),
+                # A second push + re-run on the other repo's PR #10 — must not leak onto posthog's #10.
+                _run_row(
+                    3003,
+                    "CI",
+                    "shaB10b",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    run_attempt=2,
+                    full_name="PostHog/posthog.com",
+                ),
+            ],
+        )
+        result = api.list_pull_requests(team=self.team)
+        by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
+        assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
+        assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)

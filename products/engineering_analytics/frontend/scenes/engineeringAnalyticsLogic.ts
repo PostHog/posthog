@@ -180,6 +180,19 @@ export function filterPullRequests(
     })
 }
 
+/**
+ * Per-loader outcome. The endpoints all resolve the same GitHub source, so a 400
+ * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other
+ * failure is a genuine error scoped to the loader that hit it. Tracked per loader so a
+ * 500 on one endpoint drives only the scenes that read it — not, say, an error banner on
+ * the PR list because workflow health failed.
+ */
+export type LoaderStatus = 'ok' | 'notConnected' | 'error'
+
+export function loaderStatusFromError(errorObject: unknown): LoaderStatus {
+    return errorObject instanceof ApiError && errorObject.status === 400 ? 'notConnected' : 'error'
+}
+
 export interface EngineeringAnalyticsLogicProps {
     tabId?: string
 }
@@ -333,25 +346,32 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Which connected GitHub source to read; null = the backend default (oldest connected).
             // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
             sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
-            // The endpoints 400 (GitHubSourceNotConnectedError) when no GitHub source is connected.
-            // Distinguish that "connect a source" case from a real 500 so we don't tell a connected,
-            // synced team to connect a source when the query simply failed.
-            notConnected: [
-                false,
+            // Per-loader status. Each endpoint resolves the same GitHub source, so any one 400 means
+            // "not connected" for every scene; a non-400 failure is a per-loader error. Tracked
+            // separately (rather than off cards alone) so notConnected and the scene error states can
+            // each react to the loaders that actually feed them — see the selectors below.
+            cardsStatus: [
+                'ok' as LoaderStatus,
                 {
-                    loadCards: () => false,
-                    loadCardsSuccess: () => false,
-                    loadCardsFailure: (_, { errorObject }) =>
-                        errorObject instanceof ApiError && errorObject.status === 400,
+                    loadCards: () => 'ok',
+                    loadCardsSuccess: () => 'ok',
+                    loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            loadError: [
-                false,
+            pullRequestsStatus: [
+                'ok' as LoaderStatus,
                 {
-                    loadCards: () => false,
-                    loadCardsSuccess: () => false,
-                    loadCardsFailure: (_, { errorObject }) =>
-                        !(errorObject instanceof ApiError && errorObject.status === 400),
+                    loadPullRequests: () => 'ok',
+                    loadPullRequestsSuccess: () => 'ok',
+                    loadPullRequestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            workflowHealthStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadWorkflowHealth: () => 'ok',
+                    loadWorkflowHealthSuccess: () => 'ok',
+                    loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
@@ -408,6 +428,27 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading],
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading): boolean =>
                     cardsLoading || pullRequestsLoading || workflowHealthLoading,
+            ],
+            // No GitHub source connected: a 400 from any endpoint (they share source resolution).
+            // Drives the "connect a source" state on every scene, regardless of which loaders it renders.
+            notConnected: [
+                (s) => [s.cardsStatus, s.pullRequestsStatus, s.workflowHealthStatus],
+                (cardsStatus, pullRequestsStatus, workflowHealthStatus): boolean =>
+                    [cardsStatus, pullRequestsStatus, workflowHealthStatus].includes('notConnected'),
+            ],
+            // Genuine (non-400) failure of a loader the PR scene renders (cards + the PR list). A 500
+            // here shows the retryable error; a failure of only workflow health does not, so the PR
+            // list isn't hidden behind an error it doesn't depend on.
+            pullRequestsLoadError: [
+                (s) => [s.cardsStatus, s.pullRequestsStatus],
+                (cardsStatus, pullRequestsStatus): boolean => cardsStatus === 'error' || pullRequestsStatus === 'error',
+            ],
+            // Genuine (non-400) failure of the only loader the Workflows scene renders. Decoupled from
+            // cards so workflow health failing surfaces an error there (not a misleading empty table),
+            // and a cards-only failure doesn't error a scene whose own data loaded fine.
+            workflowHealthLoadError: [
+                (s) => [s.workflowHealthStatus],
+                (workflowHealthStatus): boolean => workflowHealthStatus === 'error',
             ],
             tableTruncated: [(s) => [s.pullRequests], (pullRequests): boolean => pullRequests.length >= PR_TABLE_LIMIT],
             // Only worth a picker when the team has more than one GitHub source connected.

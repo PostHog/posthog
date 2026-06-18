@@ -52,14 +52,20 @@ function successRateClass(rate: number | null): string {
 }
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
-    const { workflowHealth, workflowHealthLoading, notConnected, loadError, workflowDateFrom, workflowDateTo } =
-        useValues(engineeringAnalyticsLogic)
+    const {
+        workflowHealth,
+        workflowHealthLoading,
+        notConnected,
+        workflowHealthLoadError,
+        workflowDateFrom,
+        workflowDateTo,
+    } = useValues(engineeringAnalyticsLogic)
     const { setWorkflowDateRange, refresh } = useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
     }
-    if (loadError) {
+    if (workflowHealthLoadError) {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
