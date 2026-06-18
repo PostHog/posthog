@@ -3,7 +3,8 @@ import { Client, Connection } from '@temporalio/client'
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
-import { TemporalService, TemporalServiceConfig } from './temporal.service'
+import { TemporalService } from './temporal.service'
+import type { EvaluationWorkflowRuntime, TemporalServiceConfig } from './temporal.service'
 
 jest.mock('@temporalio/client')
 
@@ -160,9 +161,13 @@ describe('TemporalService', () => {
         })
 
         it('throws when evaluation runtime has no workflow prefix', async () => {
-            await expect(service.startEvaluationRunWorkflow('eval-123', createMockEvent(), 'unknown')).rejects.toThrow(
-                'Unsupported evaluation runtime: unknown'
-            )
+            await expect(
+                service.startEvaluationRunWorkflow(
+                    'eval-123',
+                    createMockEvent(),
+                    'unknown' as EvaluationWorkflowRuntime
+                )
+            ).rejects.toThrow('Unsupported evaluation runtime: unknown')
 
             expect(mockClient.workflow.start).not.toHaveBeenCalled()
         })
@@ -200,7 +205,6 @@ describe('TemporalService', () => {
         it('returns workflow handle on success', async () => {
             const handle = await service.startEvaluationRunWorkflow('eval-123', createMockEvent(), 'llm_judge')
 
-            expect(handle).toBeDefined()
             expect(handle).toBe(mockWorkflowHandle)
         })
 

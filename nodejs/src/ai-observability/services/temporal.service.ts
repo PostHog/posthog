@@ -29,13 +29,16 @@ const EVALUATION_WORKFLOW_PREFIXES = {
     sentiment: 'llma-sentiment-eval',
 } as const
 
-type EvaluationWorkflowRuntime = keyof typeof EVALUATION_WORKFLOW_PREFIXES
+export type EvaluationWorkflowRuntime = keyof typeof EVALUATION_WORKFLOW_PREFIXES
 
-function getEvaluationWorkflowPrefix(evaluationRuntime: string): string {
-    if (evaluationRuntime in EVALUATION_WORKFLOW_PREFIXES) {
-        return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime as EvaluationWorkflowRuntime]
-    }
-    throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+export function isEvaluationWorkflowRuntime(
+    evaluationRuntime: unknown
+): evaluationRuntime is EvaluationWorkflowRuntime {
+    return typeof evaluationRuntime === 'string' && Object.hasOwn(EVALUATION_WORKFLOW_PREFIXES, evaluationRuntime)
+}
+
+function getEvaluationWorkflowPrefix(evaluationRuntime: EvaluationWorkflowRuntime): string {
+    return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime]
 }
 
 const temporalWorkflowsStarted = new Counter({
@@ -146,10 +149,13 @@ export class TemporalService {
     async startEvaluationRunWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
-        evaluationRuntime: string
+        evaluationRuntime: EvaluationWorkflowRuntime
     ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
+        if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
+            throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+        }
         const prefix = getEvaluationWorkflowPrefix(evaluationRuntime)
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 

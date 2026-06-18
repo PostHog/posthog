@@ -85,7 +85,9 @@ class TestRunEvaluationWorkflow:
             event_data=create_mock_event_data(team.id),
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Evaluation.objects.get") as mock_get:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Evaluation.objects.get"
+        ) as mock_get:
             mock_evaluation = MagicMock()
             mock_evaluation.id = evaluation.id
             mock_evaluation.name = "Test Evaluation"
@@ -130,7 +132,7 @@ class TestRunEvaluationWorkflow:
         )
 
         # Mock unified Client response
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -172,8 +174,12 @@ class TestRunEvaluationWorkflow:
             "output_tokens": 18,
         }
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+            ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -231,8 +237,12 @@ class TestRunEvaluationWorkflow:
             "skip_reason": "trace_errored",
         }
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+            ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -287,8 +297,12 @@ class TestRunEvaluationWorkflow:
             "sentiment_message_count": 1,
         }
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+            ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -347,7 +361,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -389,7 +403,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -443,7 +457,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_client_class.assert_not_called()
@@ -485,7 +499,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_client_class.assert_not_called()
@@ -529,7 +543,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -567,8 +581,12 @@ class TestRunEvaluationWorkflow:
             "allows_na": True,
         }
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+            ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -610,8 +628,12 @@ class TestRunEvaluationWorkflow:
             "allows_na": True,
         }
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
+        ) as mock_team_get:
+            with patch(
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+            ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -683,7 +705,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -720,7 +742,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = StructuredOutputParseError(
@@ -760,8 +782,8 @@ class TestRunEvaluationWorkflow:
         event_data = create_mock_event_data(team.id)
 
         with (
-            patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class,
-            patch("posthog.temporal.ai_observability.run_evaluation.increment_errors") as mock_increment_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
         ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
@@ -1442,21 +1464,18 @@ class TestJudgePromptAssembly:
     regressions in section ordering, tool catalog inclusion, and tool_call_id
     correlation that the unit tests for the helpers can't catch alone."""
 
-    @pytest.mark.django_db(transaction=True)
-    def test_prompt_contains_input_tools_and_output_sections_in_order(self, setup_data):
-        evaluation_obj = setup_data["evaluation"]
-        team = setup_data["team"]
+    def test_prompt_contains_input_tools_and_output_sections_in_order(self):
         evaluation = {
-            "id": str(evaluation_obj.id),
+            "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Did the agent call the right tool?"},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
         }
         event_data = create_mock_event_data(
-            team.id,
+            1,
             properties={
                 "$ai_input": [
                     {"role": "user", "content": "Send the welcome email."},
@@ -1481,7 +1500,16 @@ class TestJudgePromptAssembly:
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with (
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_get_or_create.return_value = (
+                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
+                False,
+            )
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()
@@ -1508,28 +1536,34 @@ class TestJudgePromptAssembly:
         assert "- send_email: Send an email." in user_prompt
         assert "- lookup_user: Look up a user." in user_prompt
 
-    @pytest.mark.django_db(transaction=True)
-    def test_prompt_omits_tools_section_when_catalog_absent(self, setup_data):
-        evaluation_obj = setup_data["evaluation"]
-        team = setup_data["team"]
+    def test_prompt_omits_tools_section_when_catalog_absent(self):
         evaluation = {
-            "id": str(evaluation_obj.id),
+            "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
         }
         event_data = create_mock_event_data(
-            team.id,
+            1,
             properties={
                 "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
                 "$ai_output_choices": [{"role": "assistant", "content": "4"}],
             },
         )
 
-        with patch("posthog.temporal.ai_observability.run_evaluation.Client") as mock_client_class:
+        with (
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_get_or_create.return_value = (
+                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
+                False,
+            )
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()

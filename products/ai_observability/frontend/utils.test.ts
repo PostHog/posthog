@@ -104,9 +104,12 @@ describe('mapEvaluationRunRow', () => {
         expect(run.result).toBeNull()
     })
 
-    it('maps explicit string boolean results', () => {
-        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result: 'true' })).result).toBe(true)
-        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result: 'false' })).result).toBe(false)
+    it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result })).result).toBe(true)
+    })
+
+    it.each([false, 'false', 'False', '0'])('maps explicit fail result %p', (result) => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result })).result).toBe(false)
     })
 
     it('maps explicitly non-applicable rows to null', () => {

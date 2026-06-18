@@ -1029,45 +1029,97 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
 ]
 
-function normalizeEvaluationType(value: string | null): EvaluationType | undefined {
+export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
     if (value === 'llm_judge' || value === 'hog' || value === 'sentiment') {
         return value
     }
     return undefined
 }
 
-function normalizeEvaluationOutputType(value: string | null): EvaluationOutputType | undefined {
+export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
     if (value === 'boolean' || value === 'sentiment') {
         return value
     }
     return undefined
 }
 
-function normalizeOptionalNumber(value: number | string | null): number | null {
-    if (value === null) {
+export function normalizeOptionalNumber(value: unknown): number | null {
+    if (value === null || value === undefined) {
         return null
     }
     const parsed = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(parsed) ? parsed : null
 }
 
-export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
-    const rawResult = row[6]
-    const applicable = row[8]
-    const evaluationType = normalizeEvaluationType(row[9])
-    const sentimentLabel = row[11] || null
+export function isExplicitEvaluationPass(value: unknown): boolean {
+    return value === true || value === 'true' || value === 'True' || value === '1'
+}
+
+function isExplicitEvaluationNotApplicable(value: unknown): boolean {
+    return value === false || value === 'false'
+}
+
+function normalizeEvaluationApplicable(value: unknown): boolean | undefined {
+    if (value === null || value === undefined) {
+        return undefined
+    }
+    return isExplicitEvaluationPass(value)
+}
+
+export interface NormalizedEvaluationResultProperties {
+    rawResult: unknown
+    rawApplicable?: unknown
+    rawEvaluationType?: unknown
+    rawResultType?: unknown
+    rawSentimentLabel?: unknown
+    rawSentimentScore?: unknown
+}
+
+export function normalizeEvaluationResultProperties({
+    rawResult,
+    rawApplicable,
+    rawEvaluationType,
+    rawResultType,
+    rawSentimentLabel,
+    rawSentimentScore,
+}: NormalizedEvaluationResultProperties): Pick<
+    EvaluationRun,
+    'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
+> {
+    const evaluationType = normalizeEvaluationType(rawEvaluationType)
+    const sentimentLabel =
+        typeof rawSentimentLabel === 'string' && rawSentimentLabel.length > 0 ? rawSentimentLabel : null
     const resultType =
-        normalizeEvaluationOutputType(row[10]) ??
+        normalizeEvaluationOutputType(rawResultType) ??
         (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
 
-    // N/A only when backend explicitly sets applicable=false
-    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
-    let result: boolean | null
-    if (resultType === 'sentiment' || applicable === false || applicable === 'false' || rawResult === null) {
-        result = null
-    } else {
-        result = rawResult === true || rawResult === 'true' || rawResult === 'True' || rawResult === '1'
+    const result =
+        resultType === 'sentiment' ||
+        isExplicitEvaluationNotApplicable(rawApplicable) ||
+        rawResult === null ||
+        rawResult === undefined
+            ? null
+            : isExplicitEvaluationPass(rawResult)
+
+    return {
+        evaluation_type: evaluationType,
+        result_type: resultType,
+        result,
+        sentiment_label: sentimentLabel,
+        sentiment_score: normalizeOptionalNumber(rawSentimentScore),
+        applicable: normalizeEvaluationApplicable(rawApplicable),
     }
+}
+
+export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const normalizedResult = normalizeEvaluationResultProperties({
+        rawResult: row[6],
+        rawApplicable: row[8],
+        rawEvaluationType: row[9],
+        rawResultType: row[10],
+        rawSentimentLabel: row[11],
+        rawSentimentScore: row[12],
+    })
 
     return {
         id: row[0],
@@ -1076,14 +1128,9 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        evaluation_type: evaluationType,
-        result_type: resultType,
-        result,
-        sentiment_label: sentimentLabel,
-        sentiment_score: normalizeOptionalNumber(row[12]),
+        ...normalizedResult,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
-        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
