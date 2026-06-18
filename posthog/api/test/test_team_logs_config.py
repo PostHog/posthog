@@ -4,9 +4,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership, Team
-from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.facade import api as logs_facade
 
 # Both routes resolve to the same handler — /api/projects/ is canonical, /api/environments/
 # remains as the back-compat alias. See `handle_logs_config` in posthog/api/team.py.
@@ -40,7 +39,7 @@ class TestTeamLogsConfig(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"logs_distinct_id_attribute_key": "user.id"})
 
-        config = get_or_create_team_extension(self.team, TeamLogsConfig)
+        config = logs_facade.get_team_logs_config(self.team)
         self.assertEqual(config.logs_distinct_id_attribute_key, "user.id")
 
     @parameterized.expand(URL_PREFIXES)

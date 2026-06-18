@@ -94,14 +94,14 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
-from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.facade import api as logs_facade
 from products.signals.backend.models import SignalSourceConfig
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
 
-class TeamLogsConfigSerializer(serializers.ModelSerializer):
+class TeamLogsConfigSerializer(serializers.Serializer):
     logs_distinct_id_attribute_key = serializers.CharField(
         max_length=200,
         help_text=(
@@ -114,24 +114,24 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         ),
     )
 
-    class Meta:
-        model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
-
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the logs_config action — exposed under both the team/environment
     and project routers so the canonical /api/projects/ URL resolves alongside the legacy
-    /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
+    /api/environments/ alias. Both endpoints operate on the env-scoped logs config
     keyed by team_id."""
-    config = get_or_create_team_extension(team, TeamLogsConfig)
-
     if request.method == "PATCH":
-        serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+        serializer = TeamLogsConfigSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
+        if "logs_distinct_id_attribute_key" in serializer.validated_data:
+            config = logs_facade.update_team_logs_config(
+                team, serializer.validated_data["logs_distinct_id_attribute_key"]
+            )
+        else:
+            config = logs_facade.get_team_logs_config(team)
+        return response.Response(TeamLogsConfigSerializer(config).data)
 
+    config = logs_facade.get_team_logs_config(team)
     return response.Response(TeamLogsConfigSerializer(config).data)
 
 
