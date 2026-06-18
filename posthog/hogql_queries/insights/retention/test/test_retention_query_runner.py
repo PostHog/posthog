@@ -3698,17 +3698,20 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             assert isinstance(sample, ast.SampleExpr)
             self.assertEqual(sample.sample_value.left.value, 0.5)
 
-    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
-    def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
-        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
-        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
-        # union sample the same rows, so parity must hold at every factor.
+    def _create_sampling_parity_fixtures(self):
         for i in range(20):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
         _create_events(
             self.team,
             [(f"person{i}", _date(day)) for i in range(20) for day in range(7)],
         )
+
+    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
+    def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
+        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
+        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
+        # union sample the same rows, so parity must hold at every factor.
+        self._create_sampling_parity_fixtures()
 
         result = self.run_query(
             query={
@@ -3724,12 +3727,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # First-time retention anchors on minIf over the sampled stream; the variant computes it in a
         # separate union arm from the legacy single scan, so this exercises a different aggregation than
         # the recurring case. run_query asserts the two paths stay identical under sampling.
-        for i in range(20):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
-        _create_events(
-            self.team,
-            [(f"person{i}", _date(day)) for i in range(20) for day in range(7)],
-        )
+        self._create_sampling_parity_fixtures()
 
         result = self.run_query(
             query={
