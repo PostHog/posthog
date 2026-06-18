@@ -11,20 +11,19 @@ from __future__ import annotations
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 from slack_sdk.errors import SlackApiError
 
-from posthog.models import Team
 from posthog.models.integration import Integration, SlackIntegration
 
 logger = structlog.get_logger(__name__)
 
-INBOX_CHANNEL_FEATURE_FLAG = "slack-app-inbox-channel"
 INBOX_CHANNEL_NAME = "posthog-inbox"
-# Creating a public channel and inviting members both require this scope. Kept separate from
-# POSTHOG_CODE_REQUIRED_SLACK_SCOPES so the mention/DM flows aren't gated on it — installs that
-# predate the scope keep working and fall back to manual instructions.
+# Creating a public channel and inviting members both require this scope.
 INBOX_CHANNEL_REQUIRED_SCOPES: frozenset[str] = frozenset({"channels:manage"})
+# The full onboarding gate: besides managing the channel, it DMs the installer and posts reports into
+# the channel, both of which need chat:write. The onboarding runs for every install with these scopes
+# and no-ops for the rest (gated on scopes rather than a feature flag).
+INBOX_ONBOARDING_REQUIRED_SCOPES: frozenset[str] = INBOX_CHANNEL_REQUIRED_SCOPES | frozenset({"chat:write"})
 
 # Just long enough to absorb a concurrent install/join racing to create the same channel.
 _CHANNEL_CLAIM_TTL_SECONDS = 60
@@ -34,19 +33,11 @@ _CHANNEL_CLAIM_TTL_SECONDS = 60
 _MAX_CHANNEL_LIST_PAGES = 50
 
 
-def inbox_channel_enabled(team: Team) -> bool:
-    """Evaluated on the workspace's team (a stable key) so the feature stays fully dark when off."""
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                INBOX_CHANNEL_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-            )
-        )
-    except Exception:
-        logger.warning("slack_inbox_flag_eval_failed", exc_info=True)
-        return False
+def has_inbox_scopes(integration: Integration) -> bool:
+    """Whether the install granted the scopes the inbox onboarding needs — ``channels:manage`` (create
+    the channel and invite) and ``chat:write`` (DM the installer, post reports). Gated on this rather
+    than a feature flag, so onboarding is on for every install that has the scopes."""
+    return not SlackIntegration(integration).missing_scopes(INBOX_ONBOARDING_REQUIRED_SCOPES)
 
 
 def _get_team_channel(team_id: int) -> str | None:
@@ -106,7 +97,8 @@ def _find_inbox_channel(slack: SlackIntegration) -> tuple[str, str] | None:
         except SlackApiError as e:
             logger.warning("slack_inbox_channel_list_failed", error=e.response.get("error"))
             return None
-        for channel in response.get("channels", []):
+        channels: list[dict] = response.get("channels", [])
+        for channel in channels:
             if channel.get("name") == INBOX_CHANNEL_NAME:
                 return channel["id"], f"#{INBOX_CHANNEL_NAME}"
         cursor = (response.get("response_metadata") or {}).get("next_cursor") or ""
@@ -156,17 +148,17 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
         return None
 
     try:
-        channel = slack.client.conversations_create(name=INBOX_CHANNEL_NAME, is_private=False)["channel"]
-        result = (channel["id"], f"#{INBOX_CHANNEL_NAME}")
+        channel: dict = slack.client.conversations_create(name=INBOX_CHANNEL_NAME, is_private=False)["channel"]
+        result: tuple[str, str] = (channel["id"], f"#{INBOX_CHANNEL_NAME}")
     except SlackApiError as e:
-        if e.response.get("error") == "name_taken":
-            result = _find_inbox_channel(slack)
-            if result is None:
-                logger.warning("slack_inbox_name_taken_but_not_found", integration_id=integration.id)
-                return None
-        else:
+        if e.response.get("error") != "name_taken":
             logger.warning("slack_inbox_create_failed", integration_id=integration.id, error=str(e))
             return None
+        found = _find_inbox_channel(slack)
+        if found is None:
+            logger.warning("slack_inbox_name_taken_but_not_found", integration_id=integration.id)
+            return None
+        result = found
 
     _set_team_channel(team_id, _channel_target(*result))
     return result

@@ -120,9 +120,8 @@ class TestOnboarding:
         assert onboarding.send_onboarding_dm(self.integration, "") is False
         client.chat_postMessage.assert_not_called()
 
-    @patch("products.slack_app.backend.onboarding.inbox_channel_enabled", return_value=True)
     @patch("posthog.models.integration.WebClient")
-    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class, _flag):
+    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
         self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
         self.integration.save()
@@ -137,11 +136,11 @@ class TestOnboarding:
         assert client.chat_postMessage.called
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
-    @patch("products.slack_app.backend.onboarding.inbox_channel_enabled", return_value=False)
     @patch("posthog.models.integration.WebClient")
-    def test_run_install_onboarding_noop_when_flag_disabled(self, mock_webclient_class, _flag):
+    def test_run_install_onboarding_noop_when_missing_scope(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        self.integration.config = {"scope": "channels:manage", "authed_user": {"id": "U_INSTALL"}}
+        # No channels:manage scope -> onboarding is gated off for this install.
+        self.integration.config = {"scope": "chat:write", "authed_user": {"id": "U_INSTALL"}}
         self.integration.save()
 
         onboarding.run_install_onboarding(self.integration)

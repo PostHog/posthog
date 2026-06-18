@@ -24,9 +24,18 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
 
 @receiver(post_save, sender=Integration)
 def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
-    """Fresh Slack install -> start the #posthog-inbox onboarding Temporal workflow (flag-gated, off
-    the request thread). Re-auth uses update_or_create (created=False), so only first installs onboard."""
+    """Fresh Slack install -> start the #posthog-inbox onboarding Temporal workflow, off the request
+    thread. Gated on the install having ``channels:manage`` (the scope the onboarding needs), so it's
+    on for every scoped install. Re-auth uses update_or_create (created=False), so only first installs
+    onboard."""
     if not created or instance.kind != "slack":
+        return
+
+    # Deferred: inbox_channel is light, but keep the import lazy since this receiver is wired from
+    # AppConfig.ready(). The scope check is a cheap in-memory read of the granted scopes (no I/O).
+    from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
+
+    if not has_inbox_scopes(instance):
         return
 
     integration_id = instance.id

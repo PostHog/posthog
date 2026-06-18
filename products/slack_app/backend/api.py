@@ -2104,9 +2104,7 @@ def _route_member_joined_channel(
 
     # The inbox channel is created by the onboarding flow with its own messaging — skip the
     # generic "thanks for adding me" welcome so we don't double-message that channel.
-    if inbox_channel.inbox_channel_enabled(integration.team) and inbox_channel.is_inbox_channel(
-        integration, channel_id
-    ):
+    if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
     if not _claim_channel_onboarding(slack_team_id, channel_id):

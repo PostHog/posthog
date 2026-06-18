@@ -48,4 +48,6 @@ def capture_slack_event(
                 groups=groups(team.organization, team),
             )
     except Exception:
-        logger.warning("slack_analytics_capture_failed", event=event, exc_info=True)
+        # NB: structlog's first positional arg is named ``event``, so pass the Slack event under a
+        # different key — otherwise this best-effort handler itself raises and defeats the swallow.
+        logger.warning("slack_analytics_capture_failed", slack_event=event, exc_info=True)

@@ -34,7 +34,7 @@ from products.slack_app.backend.inbox_channel import (
     channel_id_from_target,
     channel_name_from_target,
     ensure_inbox_channel,
-    inbox_channel_enabled,
+    has_inbox_scopes,
     invite_user_to_inbox,
 )
 
@@ -170,7 +170,7 @@ def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: 
         blocks.append(_done("Posting to #posthog-inbox"))
         return blocks
     configured = _get_team_channel(integration.team_id)
-    channel_exists = bool(configured) and _channel_exists(slack, channel_id_from_target(configured))
+    channel_exists = configured is not None and _channel_exists(slack, channel_id_from_target(configured))
     has_scope = not slack.missing_scopes(INBOX_CHANNEL_REQUIRED_SCOPES)
     value = json.dumps({"integration_id": integration.id})
     name = channel_name_from_target(configured or "") if channel_exists else "#posthog-inbox"
@@ -362,7 +362,7 @@ def _onboarding_status(
         user_id = _resolve_onboarding_user(slack, integration, slack_user_id)
     team_id = integration.team_id
     configured = _get_team_channel(team_id)
-    in_channel = bool(configured) and _is_channel_member(slack, channel_id_from_target(configured), slack_user_id)
+    in_channel = configured is not None and _is_channel_member(slack, channel_id_from_target(configured), slack_user_id)
     return user_id, {
         OnboardingStep.AI_APPROVAL: _has_ai_approval(team_id),
         OnboardingStep.CHANNEL: in_channel,
@@ -496,8 +496,9 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
 
 def run_install_onboarding(integration: Integration) -> None:
     """On a fresh install: auto-create the inbox channel, set the team default, invite the
-    installer, and DM them the onboarding. Flag-gated and best-effort."""
-    if not inbox_channel_enabled(integration.team):
+    installer, and DM them the onboarding. Gated on the install having ``channels:manage`` and
+    best-effort."""
+    if not has_inbox_scopes(integration):
         return
     channel = ensure_inbox_channel(integration)
     installer = ((integration.config or {}).get("authed_user") or {}).get("id")

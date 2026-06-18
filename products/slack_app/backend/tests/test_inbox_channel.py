@@ -105,6 +105,18 @@ class TestInboxChannel:
         assert get_default_slack_notification_channel(self.team.id) is None
 
     @patch("posthog.models.integration.WebClient")
+    def test_has_inbox_scopes(self, mock_webclient_class):
+        self._client(mock_webclient_class)
+
+        self.integration.config = {"scope": "channels:manage,chat:write"}
+        self.integration.save()
+        assert inbox_channel.has_inbox_scopes(self.integration) is True
+
+        self.integration.config = {"scope": "chat:write"}
+        self.integration.save()
+        assert inbox_channel.has_inbox_scopes(self.integration) is False
+
+    @patch("posthog.models.integration.WebClient")
     def test_is_inbox_channel_by_configured_id(self, mock_webclient_class):
         self._client(mock_webclient_class)
         set_default_slack_notification_channel(self.team.id, "C222|#posthog-inbox")
