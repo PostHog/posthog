@@ -1,3 +1,4 @@
+import { resolveToolCall } from './mcpToolMessageResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
 
 /**
@@ -41,7 +42,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
     }
 
     const { toolName } = record
-    const { resolvedKey, innerToolName } = record.rawToolCall
+    const { resolvedKey, innerToolName } = resolveToolCall(record.rawToolCall)
 
     const isExec = isPostHogExecTool(toolName) || innerToolName != null || resolvedKey.startsWith('__posthog_exec_')
     if (isExec) {

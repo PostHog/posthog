@@ -19,12 +19,12 @@ jest.mock('../sandboxStreamLogic', () => ({
 
 const rawToolCall: ToolInvocation = {
     toolCallId: 'tc-1',
-    rawServerName: '',
-    rawToolName: 'AskUserQuestion',
-    resolvedKey: 'AskUserQuestion',
+    rawServerName: 'claude',
+    rawToolName: '',
     input: {},
     status: 'pending',
     contentBlocks: [],
+    meta: { claudeCode: { toolName: 'AskUserQuestion' } },
 }
 
 function makeRequest(questions: SandboxQuestion[]): PermissionRequestRecord {

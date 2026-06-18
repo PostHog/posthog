@@ -84,6 +84,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import type { McpToolCallMessage } from './maxTypes'
+import { resolveToolCall } from './mcpToolMessageResolver'
 import { lookupMcpToolRenderer } from './mcpToolRegistry'
 import { AssistantFailureMessage } from './messages/AssistantFailureMessage'
 import { MessageTemplate } from './messages/MessageTemplate'
@@ -124,22 +125,23 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
-/** Maps a merged `ToolInvocation` into the flat `McpToolCallMessage` the registry renderers read. */
+/** Maps a raw merged `ToolInvocation` into the flat `McpToolCallMessage` the registry renderers read. */
 function toolInvocationToMessage(
     invocation: ReturnType<typeof sandboxStreamLogic.values.toolInvocations.get>
 ): McpToolCallMessage | null {
     if (!invocation) {
         return null
     }
+    const resolved = resolveToolCall(invocation)
     return {
         id: invocation.toolCallId,
-        resolvedKey: invocation.resolvedKey,
+        resolvedKey: resolved.resolvedKey,
         rawServerName: invocation.rawServerName,
         rawToolName: invocation.rawToolName,
-        innerToolName: invocation.innerToolName,
-        claudeToolName: invocation.claudeToolName,
+        innerToolName: resolved.innerToolName,
+        claudeToolName: resolved.claudeToolName,
         rawInput: invocation.input,
-        innerInput: invocation.innerInput,
+        innerInput: resolved.innerInput,
         rawOutput: invocation.output,
         content: invocation.contentBlocks,
         status: invocation.status,
