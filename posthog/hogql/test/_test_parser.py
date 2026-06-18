@@ -7931,6 +7931,49 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
+        def test_window_filter_body_suppresses_visitor_rejections(self):
+            # A window function's FILTER body is grammar-parsed but never visited
+            # (the AST discards it), so visitor-level rejections inside it must be
+            # tolerated to match cpp: a no-column `select … from …` subquery (cpp's
+            # `ColumnExprInvalidFromImplicitAlias`) and a unit-less `interval
+            # '<str>'` (cpp's `ColumnExprIntervalString`). rust used to fatally
+            # reject both before the body could be discarded.
+            for query in (
+                "a() filter(where (select from x)) over a",
+                "\"\"() filter(where interval 'bm ') over ()",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Guards: the same forms reject when VISITED (at expr level), and a
+            # genuine grammar error in the body still rejects even when discarded.
+            strict = (
+                "(select from x)",
+                "interval 'bm '",
+                "a() filter(where (select where 1)) over a",
+            )
+            for query in strict:
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=query):
+                    parse_expr(query, backend=backend)
+
+        def test_nested_interval_value_skips_postfix_run_for_unit(self):
+            # `INTERVAL <value> <unit>` whose value is itself a nested INTERVAL
+            # carrying a postfix run (a `()` call, `[…]` index, `.id` access):
+            # cpp resolves the trailing unit keyword by looking PAST the postfix
+            # operators. rust used to stop at the postfix and miss the unit, so it
+            # mis-parsed the nesting (`interval interval 0 hour () hour`).
+            for query in (
+                "interval interval 0 week week",
+                "interval interval 0 hour () hour",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
         def test_stacked_table_alias_span_ends_at_first_alias(self):
             # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
             # the JoinExpr span at the INNERMOST (first) alias, while each outer
