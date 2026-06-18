@@ -44,3 +44,38 @@ export function groupDashboardsByFolder(
         .map(([folder, groupedDashboards]) => ({ folder, dashboards: groupedDashboards }))
         .sort((a, b) => a.folder.localeCompare(b.folder))
 }
+
+// dnd-kit ids for the grid: dashboards are draggable, folder headers are droppable. We namespace and
+// round-trip the dashboard id / folder path through the id so the drag-end handler can resolve them.
+const DRAG_PREFIX = 'dashboards-grid'
+const DASH_PREFIX = `${DRAG_PREFIX}:dash:`
+const FOLDER_PREFIX = `${DRAG_PREFIX}:folder:`
+
+export function dashboardDraggableId(dashboardId: number): string {
+    return `${DASH_PREFIX}${dashboardId}`
+}
+
+export function folderDroppableId(folder: string): string {
+    return `${FOLDER_PREFIX}${folder}`
+}
+
+// Resolve a drag-end (dragged card → dropped-on folder header) to a move, or null if it isn't a
+// valid card-onto-folder drop.
+export function parseDashboardDragEnd(
+    activeId: string | number | undefined | null,
+    overId: string | number | undefined | null
+): { dashboardId: number; folder: string } | null {
+    if (!activeId || !overId) {
+        return null
+    }
+    const active = String(activeId)
+    const over = String(overId)
+    if (!active.startsWith(DASH_PREFIX) || !over.startsWith(FOLDER_PREFIX)) {
+        return null
+    }
+    const dashboardId = Number(active.slice(DASH_PREFIX.length))
+    if (!Number.isInteger(dashboardId)) {
+        return null
+    }
+    return { dashboardId, folder: over.slice(FOLDER_PREFIX.length) }
+}

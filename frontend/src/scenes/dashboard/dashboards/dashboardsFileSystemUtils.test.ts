@@ -1,7 +1,14 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-import { buildEntryByRef, groupDashboardsByFolder, UNFILED_DASHBOARDS_FOLDER } from './dashboardsFileSystemUtils'
+import {
+    buildEntryByRef,
+    dashboardDraggableId,
+    folderDroppableId,
+    groupDashboardsByFolder,
+    parseDashboardDragEnd,
+    UNFILED_DASHBOARDS_FOLDER,
+} from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
 const entry = (ref: string, path: string): FileSystemEntry =>
@@ -27,5 +34,19 @@ describe('dashboardsFileSystemUtils', () => {
 
     it('returns an empty array when there are no dashboards', () => {
         expect(groupDashboardsByFolder([], {})).toEqual([])
+    })
+
+    it('round-trips a card drag onto a folder header', () => {
+        const result = parseDashboardDragEnd(dashboardDraggableId(42), folderDroppableId('Marketing/Q1'))
+        expect(result).toEqual({ dashboardId: 42, folder: 'Marketing/Q1' })
+    })
+
+    it.each([
+        [undefined, folderDroppableId('Marketing'), 'no active id'],
+        [dashboardDraggableId(1), undefined, 'no over id'],
+        [dashboardDraggableId(1), 'something-else', 'over is not a folder'],
+        ['something-else', folderDroppableId('Marketing'), 'active is not a dashboard'],
+    ])('returns null for an invalid drop (%s)', (active, over) => {
+        expect(parseDashboardDragEnd(active, over)).toBeNull()
     })
 })
