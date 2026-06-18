@@ -5,7 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -279,8 +281,17 @@ export function InsightVizDisplay({
         return null
     })()
 
-    // The slope graph draws its own legend inside the chart, so it opts out of the side-legend column.
-    const showSideLegend = supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph
+    // Charts that draw their own legend inside the chart opt out of the side-legend column: the
+    // slope graph always, and trends line/area/cumulative when the quill in-chart legend is enabled.
+    const { featureFlags } = useValues(featureFlagLogic)
+    const trendsInChartLegend =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
+        activeView === InsightType.TRENDS &&
+        (display === ChartDisplayType.ActionsLineGraph ||
+            display === ChartDisplayType.ActionsLineGraphCumulative ||
+            display === ChartDisplayType.ActionsAreaGraph)
+    const showSideLegend =
+        supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph && !trendsInChartLegend
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {

@@ -69,6 +69,21 @@ export const ManyItemsWraps: Story = {
     ),
 }
 
+// `renderItem` wraps each row so consumers can augment it (here a native-title tooltip on
+// right-click) while keeping the default swatch/label rendering.
+export const RenderItemWrapper: Story = {
+    render: () => (
+        <div className="w-[480px]">
+            <Legend
+                items={LIFECYCLE}
+                renderItem={(node, item) => (
+                    <span title={`Right-click ${item.label} for options`}>{node}</span>
+                )}
+            />
+        </div>
+    ),
+}
+
 function ChartLegendStory({
     show = true,
     position,

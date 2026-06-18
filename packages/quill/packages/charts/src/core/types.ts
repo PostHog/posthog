@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+
+import type { LegendItem } from '../components/Legend/Legend'
+
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
     colors: string[]
@@ -256,6 +260,10 @@ export interface ChartLegendConfig {
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
+    /** Wrap each rendered legend row — receives the default row node and its item, returns the
+     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
+     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
 }
 
 export interface TooltipConfig {
