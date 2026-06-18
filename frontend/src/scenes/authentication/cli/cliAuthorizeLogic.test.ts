@@ -55,4 +55,38 @@ describe('cliAuthorizeLogic', () => {
         )
         expect(logic.values.authorize.scopes).not.toContain('file_system:write')
     })
+
+    it('reflects the matching preset for the current scope selection', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+
+        // Default agent scopes map onto the agent preset
+        await expectLogic(logic).toMatchValues({ scopePreset: 'agent' })
+
+        // Selecting a preset replaces the scope set and updates the dropdown
+        logic.actions.setScopePreset('error_tracking')
+        await expectLogic(logic).toMatchValues({ scopePreset: 'error_tracking' })
+        expect(logic.values.authorize.scopes).toEqual(['error_tracking:write'])
+
+        // All access is represented by the wildcard scope
+        logic.actions.setScopePreset('all_access')
+        await expectLogic(logic).toMatchValues({ scopePreset: 'all_access', allAccessSelected: true })
+        expect(logic.values.authorize.scopes).toEqual(['*'])
+    })
+
+    it('drops to a custom selection once a scope is fine-tuned', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+        await expectLogic(logic).toMatchValues({ scopePreset: 'agent' })
+
+        logic.actions.setScopeRadioValue('survey', 'none')
+        await expectLogic(logic).toMatchValues({ scopePreset: null })
+    })
+
+    it('filters scopes by search term', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+
+        logic.actions.setSearchTerm('feature flag')
+        await expectLogic(logic).toMatchValues({ searchTerm: 'feature flag' })
+        expect(logic.values.filteredScopes.map((scope) => scope.key)).toContain('feature_flag')
+        expect(logic.values.filteredScopes.every((scope) => scope.key === 'feature_flag')).toBe(true)
+    })
 })
