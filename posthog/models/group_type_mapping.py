@@ -20,7 +20,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.models.utils import RootTeamMixin
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
@@ -529,7 +529,7 @@ def _fetch_group_types_for_project_direct(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else "default"
+    db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else PERSONS_DB_FOR_READ
 
     return _personhog_routed(
         "get_group_types_for_project_direct",

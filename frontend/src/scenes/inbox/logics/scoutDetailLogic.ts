@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -37,7 +37,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
     key((props) => props.skillName),
 
     connect(() => ({
-        values: [scoutFleetLogic, ['rollups', 'runsWindowLoadedOnce']],
+        values: [scoutFleetLogic, ['rollups', 'runsWindowLoadedOnce', 'runsWindowComplete']],
     })),
 
     loaders(({ values }) => ({
@@ -54,16 +54,35 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     const settled = await Promise.allSettled(
                         runs.map((run) => api.signalScout.runs.emissions(run.run_id))
                     )
-                    return settled
-                        .filter(
-                            (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
-                                result.status === 'fulfilled'
-                        )
-                        .flatMap((result) => result.value)
+                    const fulfilled = settled.filter(
+                        (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
+                            result.status === 'fulfilled'
+                    )
+                    // Every fetch failed (outage / auth / scope) while the rollup says these runs
+                    // emitted — throw so the section shows an error, not a false "no signals". A
+                    // partial failure still returns the findings that did load.
+                    if (fulfilled.length === 0) {
+                        throw new Error('Failed to load scout emissions')
+                    }
+                    return fulfilled.flatMap((result) => result.value)
                 },
             },
         ],
     })),
+
+    reducers({
+        // True only when the most recent emissions load failed outright (all per-run fetches
+        // rejected). Reset when a fresh load starts or succeeds. Lets the Signals section show a
+        // retrying/error state instead of a false empty when findings exist but couldn't be loaded.
+        emissionsLoadFailed: [
+            false,
+            {
+                loadEmissions: () => false,
+                loadEmissionsSuccess: () => false,
+                loadEmissionsFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         // This scout's runs that emitted at least one finding, newest first, capped to the most
