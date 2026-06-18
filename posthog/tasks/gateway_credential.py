@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+    drain_gateway_credential_last_used,
     project_gateway_credential,
     refresh_all_gateway_credentials,
 )
@@ -91,6 +92,22 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
         application_id__isnull=False,
     ):
         project_gateway_credential(token)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def drain_gateway_credential_last_used_task() -> None:
+    """Drain gateway-observed credential use into ProjectSecretAPIKey.last_used_at.
+
+    Runs every few minutes so the UI's "last used" tracks gateway traffic, which
+    never hits the Django auth path that would otherwise stamp it. The gateway
+    coalesces marks in Valkey, so this writes at most one row per active key per
+    run regardless of request volume."""
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    updated = drain_gateway_credential_last_used()
+    if updated:
+        logger.info("Drained gateway credential last_used", updated=updated)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

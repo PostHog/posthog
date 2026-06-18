@@ -20,13 +20,16 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
+from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
+    GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
     OVERSPEND_ALLOWANCE_KEY,
     clear_gateway_credential,
     credential_hash,
+    drain_gateway_credential_last_used,
     format_overspend_allowance_usd,
     gateway_credential_hypercache as hypercache,
     project_gateway_credential,
@@ -34,11 +37,14 @@ from posthog.storage.gateway_credential_cache import (
     validate_overspend_allowance_usd,
 )
 from posthog.tasks.gateway_credential import (
+    drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
 )
+
+_TEST_GATEWAY_REDIS_URL = "redis://localhost:6379/15"
 
 GATEWAY_SCOPE = "llm_gateway:read"
 SECRET_KEY_KIND = "project_secret_api_key"
@@ -767,3 +773,104 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         team.save()
 
         mock_delay.assert_not_called()
+
+
+@override_settings(AI_GATEWAY_REDIS_URL=_TEST_GATEWAY_REDIS_URL)
+class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
+    """The gateway can't write Django's DB, so it coalesces credential use into a
+    Valkey hash; the drain stamps ProjectSecretAPIKey.last_used_at from it."""
+
+    def setUp(self):
+        super().setUp()
+        # fakeredis is a per-URL singleton that survives the DB rollback; clear it.
+        self.redis = get_client(_TEST_GATEWAY_REDIS_URL)
+        self.redis.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+
+    def _seed(self, marks: dict[str, int]) -> None:
+        self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, mapping=marks)
+
+    def test_drain_stamps_secret_key_last_used(self):
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        self.assertIsNone(secret_key.last_used_at)
+        used_ts = int(timezone.now().timestamp())
+        self._seed({secret_key.secure_value: used_ts})
+
+        updated = drain_gateway_credential_last_used()
+
+        self.assertEqual(updated, 1)
+        secret_key.refresh_from_db()
+        self.assertIsNotNone(secret_key.last_used_at)
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
+        # The hash is consumed so a stalled drain can't double-process it.
+        self.assertFalse(self.redis.exists(GATEWAY_CREDENTIAL_LAST_USED_KEY))
+
+    def test_drain_respects_hour_throttle(self):
+        recent = timezone.now() - timedelta(minutes=10)
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=recent)
+        self._seed({secret_key.secure_value: int(timezone.now().timestamp())})
+
+        updated = drain_gateway_credential_last_used()
+
+        self.assertEqual(updated, 0)
+        secret_key.refresh_from_db()
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), int(recent.timestamp()))
+
+    def test_drain_never_regresses_last_used(self):
+        now = timezone.now()
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=now)
+        self._seed({secret_key.secure_value: int((now - timedelta(hours=2)).timestamp())})
+
+        updated = drain_gateway_credential_last_used()
+
+        self.assertEqual(updated, 0)
+        secret_key.refresh_from_db()
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), int(now.timestamp()))
+
+    def test_drain_stamps_when_older_than_throttle(self):
+        stale = timezone.now() - timedelta(hours=3)
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=stale)
+        used_ts = int(timezone.now().timestamp())
+        self._seed({secret_key.secure_value: used_ts})
+
+        updated = drain_gateway_credential_last_used()
+
+        self.assertEqual(updated, 1)
+        secret_key.refresh_from_db()
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
+
+    def test_drain_ignores_unknown_hash(self):
+        self._seed({f"{SHA256_HASH_PREFIX}deadbeef": int(timezone.now().timestamp())})
+
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    def test_drain_empty_hash_is_noop(self):
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    def test_drain_coalesces_keeping_latest_per_key(self):
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        latest = int(timezone.now().timestamp())
+        # A single field per key reaches the drain (the gateway coalesces), but
+        # assert the decode keeps the max even if an older value were present.
+        self._seed({secret_key.secure_value: latest})
+        self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, secret_key.secure_value, latest)
+
+        self.assertEqual(drain_gateway_credential_last_used(), 1)
+        secret_key.refresh_from_db()
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), latest)
+
+    @override_settings(AI_GATEWAY_REDIS_URL=None)
+    def test_drain_noop_without_redis_url(self):
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    def test_task_runs_drain(self):
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        used_ts = int(timezone.now().timestamp())
+        self._seed({secret_key.secure_value: used_ts})
+
+        drain_gateway_credential_last_used_task()
+
+        secret_key.refresh_from_db()
+        self.assertEqual(int(secret_key.last_used_at.timestamp()), used_ts)
