@@ -28,17 +28,17 @@
 
 - `posthog/ducklake/backfill_telemetry.py` (new) — canonical event name + property keys + `emit_backfill_partition_event(...)` writer (importable by the Dagster asset).
 - `posthog/dags/events_backfill_to_ducklake.py` — asset captures `success`/`failed` events; export captures written-row counts.
-- `products/data_warehouse/backend/sync_status/contracts.py` (new) — DTO dataclasses + `WarehouseSyncStatusSerializer`.
-- `products/data_warehouse/backend/sync_status/base.py` (new) — `WarehouseSyncStatusProvider` Protocol.
-- `products/data_warehouse/backend/sync_status/dagster_provider.py` (new) — `DagsterBackfillStatusProvider` (ClickHouse read).
-- `products/data_warehouse/backend/sync_status/viaduck_provider.py` (new) — `ViaduckSyncStatusProvider` + pure mapping.
-- `products/data_warehouse/backend/sync_status/factory.py` (new) — `get_warehouse_sync_status_provider(...)`.
+- `products/data_warehouse/backend/warehouse_sync/contracts.py` (new) — DTO dataclasses + `WarehouseSyncStatusSerializer`.
+- `products/data_warehouse/backend/warehouse_sync/base.py` (new) — `WarehouseSyncStatusProvider` Protocol.
+- `products/data_warehouse/backend/warehouse_sync/dagster_provider.py` (new) — `DagsterBackfillStatusProvider` (ClickHouse read).
+- `products/data_warehouse/backend/warehouse_sync/viaduck_provider.py` (new) — `ViaduckSyncStatusProvider` + pure mapping.
+- `products/data_warehouse/backend/warehouse_sync/factory.py` (new) — `get_warehouse_sync_status_provider(...)`.
 - `posthog/settings/data_stores.py` — `WAREHOUSE_SYNC_BACKEND` + `WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID` settings.
 - `products/data_warehouse/backend/api/data_warehouse.py` — add `warehouse_sync_status` action.
 - `frontend/src/scenes/data-warehouse/scene/warehouseSyncStatusLogic.ts` (new) — kea loader.
 - `frontend/src/scenes/data-warehouse/scene/OverviewTab.tsx` — consume generated type; delete mock.
 - `frontend/src/scenes/data-warehouse/scene/mockWarehouseSyncStatus.ts` — deleted in Task 7.
-- Tests under `products/data_warehouse/backend/sync_status/test/` and `posthog/ducklake/test/`.
+- Tests under `products/data_warehouse/backend/warehouse_sync/test/` and `posthog/ducklake/test/`.
 
 **Execution order:** `1, 2, 4, 5, 3, 6, 7` (the factory in Task 3 imports the concrete providers from Tasks 4 & 5).
 
@@ -246,8 +246,8 @@ git commit -m "feat(data-warehouse): capture event backfill partition telemetry"
 
 **Files:**
 
-- Create: `products/data_warehouse/backend/sync_status/contracts.py`
-- Test: `products/data_warehouse/backend/sync_status/test/test_contracts.py`
+- Create: `products/data_warehouse/backend/warehouse_sync/contracts.py`
+- Test: `products/data_warehouse/backend/warehouse_sync/test/test_contracts.py`
 
 **Interfaces:**
 
@@ -258,11 +258,11 @@ Invoke `/improving-drf-endpoints` first.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# products/data_warehouse/backend/sync_status/test/test_contracts.py
+# products/data_warehouse/backend/warehouse_sync/test/test_contracts.py
 from datetime import datetime, timezone
 
 from posthog.test.base import BaseTest
-from products.data_warehouse.backend.sync_status.contracts import (
+from products.data_warehouse.backend.warehouse_sync.contracts import (
     InitialBackfill,
     WarehouseSyncStatusDTO,
     WarehouseSyncStatusSerializer,
@@ -292,13 +292,13 @@ class TestWarehouseSyncStatusSerializer(BaseTest):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_contracts.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_contracts.py -v`
 Expected: FAIL with `ModuleNotFoundError`.
 
 - [ ] **Step 3: Implement the contract**
 
 ```python
-# products/data_warehouse/backend/sync_status/contracts.py
+# products/data_warehouse/backend/warehouse_sync/contracts.py
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -355,11 +355,11 @@ class WarehouseSyncStatusSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(help_text="When this status was computed.")
 ```
 
-If `ModuleNotFoundError: products.data_warehouse.backend.sync_status` persists at import, add `products/data_warehouse/backend/sync_status/__init__.py` re-exporting `InitialBackfill, SyncError, WarehouseSyncStatusDTO, WarehouseSyncStatusSerializer` (with `# noqa: F401`).
+If `ModuleNotFoundError: products.data_warehouse.backend.warehouse_sync` persists at import, add `products/data_warehouse/backend/warehouse_sync/__init__.py` re-exporting `InitialBackfill, SyncError, WarehouseSyncStatusDTO, WarehouseSyncStatusSerializer` (with `# noqa: F401`).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_contracts.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_contracts.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -377,9 +377,9 @@ git commit -m "feat(data-warehouse): add warehouse sync status contract"
 
 **Files:**
 
-- Create: `products/data_warehouse/backend/sync_status/dagster_provider.py`
+- Create: `products/data_warehouse/backend/warehouse_sync/dagster_provider.py`
 - Modify: `posthog/settings/data_stores.py` (add `WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID`)
-- Test: `products/data_warehouse/backend/sync_status/test/test_dagster_provider.py`
+- Test: `products/data_warehouse/backend/warehouse_sync/test/test_dagster_provider.py`
 
 **Interfaces:**
 
@@ -403,7 +403,7 @@ WAREHOUSE_BACKFILL_TELEMETRY_TEAM_ID = get_from_env("WAREHOUSE_BACKFILL_TELEMETR
 - [ ] **Step 2: Write the failing tests**
 
 ```python
-# products/data_warehouse/backend/sync_status/test/test_dagster_provider.py
+# products/data_warehouse/backend/warehouse_sync/test/test_dagster_provider.py
 from datetime import timedelta
 
 from django.test import override_settings
@@ -412,7 +412,7 @@ from django.utils import timezone
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from posthog.test.base import APIBaseTest
 from posthog.ducklake.backfill_telemetry import BACKFILL_DISTINCT_ID, BACKFILL_PARTITION_EVENT
-from products.data_warehouse.backend.sync_status.dagster_provider import DagsterBackfillStatusProvider
+from products.data_warehouse.backend.warehouse_sync.dagster_provider import DagsterBackfillStatusProvider
 
 
 class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
@@ -456,13 +456,13 @@ class TestDagsterProvider(ClickhouseTestMixin, APIBaseTest):
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_dagster_provider.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_dagster_provider.py -v`
 Expected: FAIL (module does not exist).
 
 - [ ] **Step 4: Implement the provider**
 
 ```python
-# products/data_warehouse/backend/sync_status/dagster_provider.py
+# products/data_warehouse/backend/warehouse_sync/dagster_provider.py
 from datetime import date, datetime, time, timezone as dt_timezone
 
 from django.conf import settings
@@ -470,7 +470,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.ducklake.backfill_telemetry import BACKFILL_PARTITION_EVENT
-from products.data_warehouse.backend.sync_status.contracts import (
+from products.data_warehouse.backend.warehouse_sync.contracts import (
     InitialBackfill,
     SyncError,
     WarehouseSyncStatusDTO,
@@ -579,13 +579,13 @@ class DagsterBackfillStatusProvider:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_dagster_provider.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_dagster_provider.py -v`
 Expected: PASS (all three).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add products/data_warehouse/backend/sync_status/dagster_provider.py products/data_warehouse/backend/sync_status/test/test_dagster_provider.py posthog/settings/data_stores.py
+git add products/data_warehouse/backend/warehouse_sync/dagster_provider.py products/data_warehouse/backend/warehouse_sync/test/test_dagster_provider.py posthog/settings/data_stores.py
 git commit -m "feat(data-warehouse): add dagster backfill status provider (telemetry read)"
 ```
 
@@ -595,8 +595,8 @@ git commit -m "feat(data-warehouse): add dagster backfill status provider (telem
 
 **Files:**
 
-- Create: `products/data_warehouse/backend/sync_status/viaduck_provider.py`
-- Test: `products/data_warehouse/backend/sync_status/test/test_viaduck_provider.py`
+- Create: `products/data_warehouse/backend/warehouse_sync/viaduck_provider.py`
+- Test: `products/data_warehouse/backend/warehouse_sync/test/test_viaduck_provider.py`
 
 **Interfaces:**
 
@@ -608,9 +608,9 @@ Ships the mapping logic (tested) and a `get_status` that returns `not_started` u
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# products/data_warehouse/backend/sync_status/test/test_viaduck_provider.py
+# products/data_warehouse/backend/warehouse_sync/test/test_viaduck_provider.py
 from posthog.test.base import BaseTest
-from products.data_warehouse.backend.sync_status.viaduck_provider import (
+from products.data_warehouse.backend.warehouse_sync.viaduck_provider import (
     ViaduckSyncStatusProvider,
     viaduck_state_to_sync_state,
 )
@@ -635,19 +635,19 @@ class TestViaduckMapping(BaseTest):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_viaduck_provider.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_viaduck_provider.py -v`
 Expected: FAIL (module does not exist).
 
 - [ ] **Step 3: Implement the provider**
 
 ```python
-# products/data_warehouse/backend/sync_status/viaduck_provider.py
+# products/data_warehouse/backend/warehouse_sync/viaduck_provider.py
 from dataclasses import dataclass
 from datetime import datetime
 
 from django.utils import timezone
 
-from products.data_warehouse.backend.sync_status.contracts import (
+from products.data_warehouse.backend.warehouse_sync.contracts import (
     InitialBackfill,
     SyncError,
     WarehouseSyncStatusDTO,
@@ -721,13 +721,13 @@ class ViaduckSyncStatusProvider:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_viaduck_provider.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_viaduck_provider.py -v`
 Expected: PASS (all three).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add products/data_warehouse/backend/sync_status/viaduck_provider.py products/data_warehouse/backend/sync_status/test/test_viaduck_provider.py
+git add products/data_warehouse/backend/warehouse_sync/viaduck_provider.py products/data_warehouse/backend/warehouse_sync/test/test_viaduck_provider.py
 git commit -m "feat(data-warehouse): stage viaduck sync status provider"
 ```
 
@@ -739,10 +739,10 @@ git commit -m "feat(data-warehouse): stage viaduck sync status provider"
 
 **Files:**
 
-- Create: `products/data_warehouse/backend/sync_status/base.py`
-- Create: `products/data_warehouse/backend/sync_status/factory.py`
+- Create: `products/data_warehouse/backend/warehouse_sync/base.py`
+- Create: `products/data_warehouse/backend/warehouse_sync/factory.py`
 - Modify: `posthog/settings/data_stores.py`
-- Test: `products/data_warehouse/backend/sync_status/test/test_factory.py`
+- Test: `products/data_warehouse/backend/warehouse_sync/test/test_factory.py`
 
 **Interfaces:**
 
@@ -760,10 +760,10 @@ WAREHOUSE_SYNC_BACKEND = get_from_env("WAREHOUSE_SYNC_BACKEND", "dagster")
 - [ ] **Step 2: Write the Protocol**
 
 ```python
-# products/data_warehouse/backend/sync_status/base.py
+# products/data_warehouse/backend/warehouse_sync/base.py
 from typing import Protocol
 
-from products.data_warehouse.backend.sync_status.contracts import WarehouseSyncStatusDTO
+from products.data_warehouse.backend.warehouse_sync.contracts import WarehouseSyncStatusDTO
 
 
 class WarehouseSyncStatusProvider(Protocol):
@@ -775,13 +775,13 @@ class WarehouseSyncStatusProvider(Protocol):
 - [ ] **Step 3: Write the failing factory test**
 
 ```python
-# products/data_warehouse/backend/sync_status/test/test_factory.py
+# products/data_warehouse/backend/warehouse_sync/test/test_factory.py
 from django.test import override_settings
 
 from posthog.test.base import BaseTest
-from products.data_warehouse.backend.sync_status.dagster_provider import DagsterBackfillStatusProvider
-from products.data_warehouse.backend.sync_status.factory import get_warehouse_sync_status_provider
-from products.data_warehouse.backend.sync_status.viaduck_provider import ViaduckSyncStatusProvider
+from products.data_warehouse.backend.warehouse_sync.dagster_provider import DagsterBackfillStatusProvider
+from products.data_warehouse.backend.warehouse_sync.factory import get_warehouse_sync_status_provider
+from products.data_warehouse.backend.warehouse_sync.viaduck_provider import ViaduckSyncStatusProvider
 
 
 class TestFactory(BaseTest):
@@ -796,18 +796,18 @@ class TestFactory(BaseTest):
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_factory.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_factory.py -v`
 Expected: FAIL (factory does not exist).
 
 - [ ] **Step 5: Implement the factory**
 
 ```python
-# products/data_warehouse/backend/sync_status/factory.py
+# products/data_warehouse/backend/warehouse_sync/factory.py
 from django.conf import settings
 
-from products.data_warehouse.backend.sync_status.base import WarehouseSyncStatusProvider
-from products.data_warehouse.backend.sync_status.dagster_provider import DagsterBackfillStatusProvider
-from products.data_warehouse.backend.sync_status.viaduck_provider import ViaduckSyncStatusProvider
+from products.data_warehouse.backend.warehouse_sync.base import WarehouseSyncStatusProvider
+from products.data_warehouse.backend.warehouse_sync.dagster_provider import DagsterBackfillStatusProvider
+from products.data_warehouse.backend.warehouse_sync.viaduck_provider import ViaduckSyncStatusProvider
 
 
 def get_warehouse_sync_status_provider(organization_id: str) -> WarehouseSyncStatusProvider:
@@ -819,13 +819,13 @@ def get_warehouse_sync_status_provider(organization_id: str) -> WarehouseSyncSta
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `hogli test products/data_warehouse/backend/sync_status/test/test_factory.py -v`
+Run: `hogli test products/data_warehouse/backend/warehouse_sync/test/test_factory.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add products/data_warehouse/backend/sync_status/base.py products/data_warehouse/backend/sync_status/factory.py products/data_warehouse/backend/sync_status/test/test_factory.py posthog/settings/data_stores.py
+git add products/data_warehouse/backend/warehouse_sync/base.py products/data_warehouse/backend/warehouse_sync/factory.py products/data_warehouse/backend/warehouse_sync/test/test_factory.py posthog/settings/data_stores.py
 git commit -m "feat(data-warehouse): add warehouse sync provider seam"
 ```
 
@@ -893,8 +893,8 @@ Expected: FAIL with 404 (action not registered).
 Add imports near the top of `products/data_warehouse/backend/api/data_warehouse.py`:
 
 ```python
-from products.data_warehouse.backend.sync_status.contracts import WarehouseSyncStatusSerializer
-from products.data_warehouse.backend.sync_status.factory import get_warehouse_sync_status_provider
+from products.data_warehouse.backend.warehouse_sync.contracts import WarehouseSyncStatusSerializer
+from products.data_warehouse.backend.warehouse_sync.factory import get_warehouse_sync_status_provider
 ```
 
 Add inside `DataWarehouseViewSet` (mirror the `warehouse_status` action's style):
