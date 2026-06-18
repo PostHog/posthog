@@ -565,10 +565,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
-    def test_alert_deleted_when_insight_changes_alertable_kind(self) -> None:
-        # An alert's config type is bound to the insight's query kind, so switching the insight to a
-        # different alertable kind leaves the config mismatched — the alert is deleted rather than left
-        # to error on its next check (and to render the wrong controls in the editor).
+    def test_alert_survives_switch_between_alertable_kinds(self) -> None:
+        # Switching the insight to a different alertable kind (trends -> SQL) leaves the alert's config
+        # mismatched, but the alert is NOT deleted: the check cycle re-validates against the current
+        # query and auto-disables + notifies on mismatch (covered by the validation/auto-disable tests),
+        # so the alert and its history survive the edit and the user can reconfigure it.
         trends_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
         ).json()
@@ -595,9 +596,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     }
                 },
             )
-        assert (
-            self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_404_NOT_FOUND
-        )
+        assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
