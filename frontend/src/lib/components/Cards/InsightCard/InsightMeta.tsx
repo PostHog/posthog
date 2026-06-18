@@ -289,15 +289,19 @@ export function InsightMeta({
             : null
     const refreshDisabledReason = nextRefreshFromNow
         ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : !refreshEnabled
-          ? 'Another tile is refreshing — please wait…'
+        : // `refreshEnabled` is false both while another tile refreshes and during the initial
+          // dashboard load, so keep the message accurate for both rather than naming a tile.
+          !refreshEnabled
+          ? 'The dashboard is busy — please wait…'
           : undefined
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
 
+    // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
+    // dashboards, matching the "⋯" menu (which is already gated there).
     const refreshControl =
-        refresh && !tileRefreshing ? (
+        refresh && showEditingControls && !tileRefreshing ? (
             <LemonButton
                 className="CardMeta__refresh"
                 icon={<IconRefresh />}
