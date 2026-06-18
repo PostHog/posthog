@@ -95,7 +95,7 @@ function LoginAsContent({
 
 function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInfo: ExpiredSessionInfo }): JSX.Element {
     const { isReImpersonating } = useValues(impersonationNoticeLogic)
-    const { reImpersonate } = useActions(impersonationNoticeLogic)
+    const { reImpersonate, returnToPostHog } = useActions(impersonationNoticeLogic)
 
     const [readOnly, setReadOnly] = useState(true)
 
@@ -114,6 +114,16 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
                 onClick: () => {
                     window.location.href = '/admin/'
                 },
+                sideAction: {
+                    dropdown: {
+                        placement: 'top-end',
+                        overlay: (
+                            <LemonButton fullWidth onClick={() => returnToPostHog()}>
+                                Return to PostHog
+                            </LemonButton>
+                        ),
+                    },
+                },
             }}
         >
             <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
@@ -125,7 +135,8 @@ function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
     const { isReadOnly, isUpgradeModalOpen, isImpersonationUpgradeInProgress } = useValues(impersonationNoticeLogic)
-    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired } = useActions(impersonationNoticeLogic)
+    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired, returnToPostHog } =
+        useActions(impersonationNoticeLogic)
 
     const handleSessionExpired = (): void => {
         if (user) {
@@ -160,8 +171,23 @@ function ImpersonationNoticeContent(): JSX.Element {
                 <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
                     Refresh
                 </LemonButton>
-                <LemonButton type="secondary" status="danger" size="small" onClick={() => logout()}>
-                    Log out
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    size="small"
+                    onClick={() => logout()}
+                    sideAction={{
+                        dropdown: {
+                            placement: 'top-end',
+                            overlay: (
+                                <LemonButton fullWidth size="small" onClick={() => returnToPostHog()}>
+                                    Log out to PostHog
+                                </LemonButton>
+                            ),
+                        },
+                    }}
+                >
+                    Log out to admin
                 </LemonButton>
             </div>
             {isReadOnly && (

@@ -254,6 +254,31 @@ describe('impersonationNoticeLogic', () => {
         })
     })
 
+    describe('returnToPostHog listener', () => {
+        it('navigates to the loginas logout endpoint with next pointing back to the app', async () => {
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, href: originalLocation.href },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.returnToPostHog()
+                }).toFinishAllListeners()
+
+                expect(window.location.href).toBe('/admin/logout/?next=%2F')
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    writable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+    })
+
     describe('loadUserSuccess listener', () => {
         it('clears expired session when user is impersonated', async () => {
             logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
