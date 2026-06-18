@@ -1,1 +1,1 @@
-1065_add_cohort_kind
+1227_alter_datadeletionrequest_delete_all_events

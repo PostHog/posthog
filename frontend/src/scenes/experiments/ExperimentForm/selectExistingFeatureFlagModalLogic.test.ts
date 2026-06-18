@@ -38,6 +38,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             deleted: false,
             active: true,
             experiment_set: null,
+            experiment_set_metadata: null,
             features: null,
             surveys: null,
             can_edit: true,
@@ -49,7 +50,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             version: 0,
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-            evaluation_tags: [],
             evaluation_contexts: [],
             bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
@@ -75,6 +75,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             deleted: false,
             active: true,
             experiment_set: null,
+            experiment_set_metadata: null,
             features: null,
             surveys: null,
             can_edit: true,
@@ -86,7 +87,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             version: 0,
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-            evaluation_tags: [],
             evaluation_contexts: [],
             bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
@@ -95,8 +95,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: (req) => {
-                    const url = new URL(req.url, 'http://localhost')
+                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: ({ request }) => {
+                    const url = new URL(request.url, 'http://localhost')
                     const search = url.searchParams.get('search')
 
                     const filteredFlags = search

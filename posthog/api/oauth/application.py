@@ -5,28 +5,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.oauth import OAuthApplication
 
 
-class OAuthApplicationPublicMetadataSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OAuthApplication
-        fields = ["name", "client_id", "is_verified"]
-        read_only_fields = ["name", "client_id", "is_verified"]
-
-
-class OAuthApplicationPublicMetadataViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """
-    Exposes the public metadata (name, client_id) of an OAuth application,
-    identified by its client_id.
-    Accessible without authentication.
-    """
-
-    queryset = OAuthApplication.objects.all()
-    serializer_class = OAuthApplicationPublicMetadataSerializer
-    permission_classes = []
-    authentication_classes = []
-    lookup_field = "client_id"
-    lookup_url_kwarg = "client_id"
-
-
 class OrganizationOAuthApplicationSerializer(serializers.ModelSerializer):
     """Serializer for organization-scoped OAuth applications (read-only)."""
 
@@ -49,7 +27,7 @@ class OrganizationOAuthApplicationSerializer(serializers.ModelSerializer):
         return instance.redirect_uris.split() if instance.redirect_uris else []
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class OrganizationOAuthApplicationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

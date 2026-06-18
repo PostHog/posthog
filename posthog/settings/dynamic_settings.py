@@ -160,6 +160,40 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "SUPPORT_TEAMS_APP_ID": (
+        get_from_env("SUPPORT_TEAMS_APP_ID", default=""),
+        "Azure AD Application (client) ID for the SupportHog Teams bot. Shared across all tenants.",
+        str,
+    ),
+    "SUPPORT_TEAMS_APP_SECRET": (
+        get_from_env("SUPPORT_TEAMS_APP_SECRET", default=""),
+        "Azure AD client secret for the SupportHog Teams bot.",
+        str,
+    ),
+    "SUPPORT_TEAMS_APP_TENANT_ID": (
+        get_from_env("SUPPORT_TEAMS_APP_TENANT_ID", default=""),
+        (
+            "Azure AD tenant ID where the SupportHog Teams bot app is registered. "
+            "Set this only if the Azure Bot resource was created as SingleTenant. "
+            "Leave empty for MultiTenant bots (default)."
+        ),
+        str,
+    ),
+    "SUPPORT_TEAMS_CATALOG_APP_ID": (
+        get_from_env("SUPPORT_TEAMS_CATALOG_APP_ID", default=""),
+        (
+            "Teams catalog app id (GUID) for the published SupportHog manifest. This is the id "
+            "Microsoft assigns when the manifest is listed in the Teams Store (AppSource) or uploaded "
+            "to an org catalog — different from SUPPORT_TEAMS_APP_ID, which is the bot's Azure AD "
+            "client id. Required for programmatic install via Graph /teams/{id}/installedApps."
+        ),
+        str,
+    ),
+    "CONVERSATIONS_HMAC_SIGNING_SECRET": (
+        get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
+        "HMAC signing secret for conversations widget identity verification in the support sidebar.",
+        str,
+    ),
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
         get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
         "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
@@ -200,6 +234,16 @@ CONSTANCE_CONFIG = {
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
         str,
     ),
+    "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated team IDs always subject to the 'light' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster. The global level wins if higher.",
+        list[int],
+    ),
+    "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": (
+        get_from_env("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated team IDs always subject to the 'full' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster.",
+        list[int],
+    ),
     "CLICKHOUSE_HEDGED_APP_QUERIES": (
         get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
         "Enable hedged requests for online APP queries to ClickHouse.",
@@ -208,6 +252,11 @@ CONSTANCE_CONFIG = {
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
+        str,
+    ),
+    "FLAGS_LOG_BODIES_TEAMS": (
+        get_from_env("FLAGS_LOG_BODIES_TEAMS", "{}"),
+        'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
         str,
     ),
     "REDIRECT_APP_TO_US": (
@@ -230,9 +279,9 @@ CONSTANCE_CONFIG = {
         "Teams that will have web analytics cache warming enabled",
         list[int],
     ),
-    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
-        get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
-        "Comma-separated list of team IDs for which ClickHouse enable_analyzer is enabled",
+    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS", default=[2, 140988], type_cast=list[int]),
+        "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
         list[int],
     ),
 }
@@ -266,6 +315,11 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "SUPPORT_TEAMS_APP_ID",
+    "SUPPORT_TEAMS_APP_SECRET",
+    "SUPPORT_TEAMS_APP_TENANT_ID",
+    "SUPPORT_TEAMS_CATALOG_APP_ID",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
@@ -274,9 +328,12 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "FLAGS_LOG_BODIES_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",
+    "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
+    "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
-    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
@@ -290,6 +347,8 @@ SECRET_SETTINGS = [
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "SUPPORT_TEAMS_APP_SECRET",
+    "CONVERSATIONS_HMAC_SIGNING_SECRET",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",

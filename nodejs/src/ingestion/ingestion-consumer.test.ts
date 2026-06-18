@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 
@@ -10,17 +10,19 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTestIngestionOutputs } from '../../tests/helpers/ingestion-outputs'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -102,14 +104,17 @@ describe('IngestionConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
-        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
+        const outputs = createTestIngestionOutputs(mockProducer)
         const ingester = new IngestionConsumer(
             hub,
             {
                 ...hub,
-                kafkaMetricsProducer: hub.kafkaProducer,
                 outputs,
-                hogTransformer: createHogTransformerService(hub, hub),
+                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(hub, {
+                    ...hub,
+                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+                }),
             },
             overrides
         )
@@ -169,7 +174,7 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        // hub.kafkaProducer = mockProducer
+        // mockProducer = mockProducer
         team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
         team2 = (await getTeam(hub.postgres, team2Id))!
@@ -196,8 +201,6 @@ describe('IngestionConsumer', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
             expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
-            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
-            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
         })
 
         it('should process a standard event', async () => {
@@ -563,7 +566,7 @@ describe('IngestionConsumer', () => {
     })
 
     describe('dropping events', () => {
-        it('should drop $exception events', async () => {
+        it('should DLQ $exception events (wrong consumer)', async () => {
             const messages = createKafkaMessages([
                 createEvent({
                     event: '$exception',
@@ -576,7 +579,23 @@ describe('IngestionConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
             expect(
                 mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
-            ).toHaveLength(0)
+            ).toHaveLength(1)
+        })
+
+        it('should DLQ $$client_ingestion_warning events (wrong consumer)', async () => {
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$$client_ingestion_warning',
+                    properties: { $$client_ingestion_warning_message: 'test' },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
+            ).toHaveLength(1)
         })
 
         it('should capture ingestion warning for $groupidentify with too long $group_key', async () => {
@@ -811,7 +830,7 @@ describe('IngestionConsumer', () => {
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
 
-        it('should drop AI events with invalid token properties', async () => {
+        it('should process AI events with invalid token properties by nulling the bad values', async () => {
             const events = [
                 createEvent({
                     distinct_id: 'user-valid-ai',
@@ -840,6 +859,16 @@ describe('IngestionConsumer', () => {
                     },
                 }),
                 createEvent({
+                    distinct_id: 'user-nested-token-objects',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_input_tokens: { total: 10585, noCache: 10585, cacheRead: 0, cacheWrite: 0 },
+                        $ai_output_tokens: { total: 163, text: 163, reasoning: 0 },
+                        $ai_provider: 'amazon-bedrock',
+                        $ai_model: 'anthropic.claude-sonnet-4-6',
+                    },
+                }),
+                createEvent({
                     distinct_id: 'user-non-ai',
                     event: '$pageview',
                     properties: {
@@ -854,19 +883,30 @@ describe('IngestionConsumer', () => {
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
 
-            // Valid AI event should be processed
-            const validAiEvent = eventsTopicMessages.find((m) => m.value.event === '$ai_generation')
+            // Valid AI event should be processed with tokens intact
+            const validAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-valid-ai')
             expect(validAiEvent).toBeDefined()
-            expect(validAiEvent?.value.distinct_id).toBe('user-valid-ai')
 
-            // Invalid AI events should be dropped (not in the output)
+            // AI event with invalid string token should be processed with token nulled
             const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
-            expect(invalidAiEvent).toBeUndefined()
+            expect(invalidAiEvent).toBeDefined()
+            expect(parseJSON(invalidAiEvent?.value.properties as any).$ai_input_tokens).toBeNull()
 
+            // AI event with non-normalizable object token should be processed with token nulled
             const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
-            expect(invalidCacheEvent).toBeUndefined()
+            expect(invalidCacheEvent).toBeDefined()
+            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_cache_read_input_tokens).toBeNull()
+            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_input_tokens).toBe(100)
 
-            // Non-AI event with invalid token property should still be processed (validation only applies to AI events)
+            // AI event with nested token objects (Bedrock/Vercel V3) should be normalized
+            const nestedTokenEvent = eventsTopicMessages.find(
+                (m) => m.value.distinct_id === 'user-nested-token-objects'
+            )
+            expect(nestedTokenEvent).toBeDefined()
+            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_input_tokens).toBe(10585)
+            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_output_tokens).toBe(163)
+
+            // Non-AI event with invalid token property should still be processed unchanged
             const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
             expect(nonAiEvent).toBeDefined()
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
@@ -876,6 +916,7 @@ describe('IngestionConsumer', () => {
             await ingester.stop()
             hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
             hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
+            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS = '*'
             ingester = await createIngestionConsumer(hub)
 
             const events = [
@@ -1115,15 +1156,6 @@ describe('IngestionConsumer', () => {
                 ],
             ],
             [
-                'client ingestion warning',
-                () => [
-                    createEvent({
-                        event: '$$client_ingestion_warning',
-                        properties: { $$client_ingestion_warning_message: 'test' },
-                    }),
-                ],
-            ],
-            [
                 'groups',
                 () => [
                     createEvent({
@@ -1336,12 +1368,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,
@@ -1401,12 +1435,14 @@ describe('IngestionConsumer', () => {
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
+                        headers: undefined,
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: transformationFunction.id,
                             count: 1,
+                            instance_id: '',
                             metric_kind: 'success',
                             metric_name: 'succeeded',
                             team_id: team.id,
@@ -1454,8 +1490,6 @@ describe('IngestionConsumer', () => {
         it('should flush stores exactly once per batch regardless of number of events', async () => {
             const flushSpy = jest.spyOn(ingester['personsStore'], 'flush')
             const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush')
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch')
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset')
 
             const events: PipelineEvent[] = [
                 {
@@ -1497,32 +1531,23 @@ describe('IngestionConsumer', () => {
 
             await ingester.handleKafkaBatch(messages)
 
-            // Verify stores were flushed exactly once
             expect(flushSpy).toHaveBeenCalledTimes(1)
             expect(groupFlushSpy).toHaveBeenCalledTimes(1)
 
-            // Verify lifecycle methods called exactly once
-            expect(reportBatchSpy).toHaveBeenCalledTimes(1)
-            expect(resetSpy).toHaveBeenCalledTimes(1)
-
             flushSpy.mockRestore()
             groupFlushSpy.mockRestore()
-            reportBatchSpy.mockRestore()
-            resetSpy.mockRestore()
         })
 
-        it('should call flush before reportBatch and reset', async () => {
+        it('should flush persons and group stores for each batch', async () => {
             const callOrder: string[] = []
 
             const flushSpy = jest.spyOn(ingester['personsStore'], 'flush').mockImplementation(() => {
-                callOrder.push('flush')
+                callOrder.push('personsFlush')
                 return Promise.resolve([])
             })
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch').mockImplementation(() => {
-                callOrder.push('reportBatch')
-            })
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset').mockImplementation(() => {
-                callOrder.push('reset')
+            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush').mockImplementation(() => {
+                callOrder.push('groupFlush')
+                return Promise.resolve([])
             })
 
             const events: PipelineEvent[] = [
@@ -1541,11 +1566,68 @@ describe('IngestionConsumer', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-            expect(callOrder).toEqual(['flush', 'reportBatch', 'reset'])
+            expect(callOrder).toContain('personsFlush')
+            expect(callOrder).toContain('groupFlush')
 
             flushSpy.mockRestore()
-            reportBatchSpy.mockRestore()
-            resetSpy.mockRestore()
+            groupFlushSpy.mockRestore()
+        })
+    })
+
+    describe('multi-batch cache eviction and ordering', () => {
+        it('person properties from batch 1 are visible in batch 2', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([createEvent({ properties: { $set: { name: 'Alice' } } })])
+            )
+
+            const personsAfterBatch1 = await fetchPostgresPersons(hub.postgres, team.id)
+            expect(personsAfterBatch1).toHaveLength(1)
+            expect(personsAfterBatch1[0].properties).toMatchObject({ name: 'Alice' })
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([createEvent({ properties: { $set: { email: 'alice@example.com' } } })])
+            )
+
+            const personsAfterBatch2 = await fetchPostgresPersons(hub.postgres, team.id)
+            expect(personsAfterBatch2).toHaveLength(1)
+            expect(personsAfterBatch2[0].properties).toMatchObject({
+                name: 'Alice',
+                email: 'alice@example.com',
+            })
+        })
+
+        it('cache entries are evicted after each batch completes', async () => {
+            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+
+            await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
+
+            const batchDistinctKeys = (personsStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.size).toBe(0)
+            expect(personsStore.getCheckCache().size).toBe(0)
+        })
+
+        it('cache does not grow unboundedly across many sequential batches', async () => {
+            const personsStore = ingester['personsStore'] as BatchWritingPersonsStore
+
+            for (let i = 0; i < 5; i++) {
+                await ingester.handleKafkaBatch(createKafkaMessages([createEvent({ distinct_id: `user-${i}` })]))
+            }
+
+            const batchDistinctKeys = (personsStore as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.size).toBe(0)
+            expect(personsStore.getCheckCache().size).toBe(0)
+        })
+    })
+
+    describe('stop()', () => {
+        it('calls shutdown() on persons and group stores', async () => {
+            const personShutdownSpy = jest.spyOn(ingester['personsStore'], 'shutdown')
+            const groupShutdownSpy = jest.spyOn(ingester['groupStore'], 'shutdown')
+
+            await ingester.stop()
+
+            expect(personShutdownSpy).toHaveBeenCalledTimes(1)
+            expect(groupShutdownSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

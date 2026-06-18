@@ -8,9 +8,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
@@ -101,11 +102,8 @@ def _try_inline_cohort_filter(prop: dict, team: Team) -> tuple[list[ast.Expr], N
         return None, f"cohort '{cohort.name}' (id={cohort_id}) has no person property filters"
 
     is_negated = prop.get("negation") or prop.get("operator") == "not_in"
-    if is_negated:
-        result_expr: ast.Expr = ast.Not(expr=expr)
-        return [result_expr], None
-
-    return [expr], None
+    exprs: list[ast.Expr] = [ast.Not(expr=expr)] if is_negated else [expr]
+    return exprs, None
 
 
 def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:

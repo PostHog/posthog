@@ -5,11 +5,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarProps } from '~/types'
+import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
+    asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
     LOCALSTORAGE_KEY,
@@ -18,12 +19,23 @@ import {
     readToolbarAuthHash,
 } from './utils'
 
+export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
+
+const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set(TOOLBAR_USER_INTENTS)
+
+const asUserIntent = (v: unknown): ToolbarUserIntent | null => {
+    const s = asNonEmptyString(v)
+    return s && VALID_USER_INTENTS.has(s as ToolbarUserIntent) ? (s as ToolbarUserIntent) : null
+}
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
 
     actions({
         authenticate: true,
+        /** Proceed with the OAuth redirect after the user confirms the target domain. */
+        confirmAuthenticate: true,
         logout: true,
         tokenExpired: true,
         clearUserIntent: true,
@@ -38,110 +50,151 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => ({ status }),
         openUiHostConfigModal: true,
         closeUiHostConfigModal: true,
+        openAuthConfirmModal: true,
+        closeAuthConfirmModal: true,
     }),
 
     reducers(({ props }) => ({
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
         accessToken: [
-            props.accessToken || null,
+            asNonEmptyString(props.accessToken),
             {
-                setOAuthTokens: (_, { accessToken }) => accessToken,
+                setOAuthTokens: (_, { accessToken }) => asNonEmptyString(accessToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         refreshToken: [
-            props.refreshToken || null,
+            asNonEmptyString(props.refreshToken),
             {
-                setOAuthTokens: (_, { refreshToken }) => refreshToken,
+                setOAuthTokens: (_, { refreshToken }) => asNonEmptyString(refreshToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         clientId: [
-            props.clientId || null,
+            asNonEmptyString(props.clientId),
             {
-                setOAuthTokens: (_, { clientId }) => clientId,
+                setOAuthTokens: (_, { clientId }) => asNonEmptyString(clientId),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
-        productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
-        userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourId: [asNonEmptyString(props.productTourId), { logout: () => null, clearUserIntent: () => null }],
+        userIntent: [asUserIntent(props.userIntent), { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         authStatus: [
             'idle' as 'idle' | 'checking' | 'authenticating' | 'error',
             { setAuthStatus: (_, { status }) => status },
         ],
         uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
+        authConfirmModalVisible: [
+            false,
+            { openAuthConfirmModal: () => true, closeAuthConfirmModal: () => false, confirmAuthenticate: () => false },
+        ],
     })),
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
         // PostHog app URL used for OAuth and navigation links.
+        //
+        // Every candidate (props.uiHost, requestRouter, config.ui_host, apiURL) is
+        // sanitized via canonicalizeUiHost — it rejects non-http(s) schemes, URLs with
+        // userinfo (which can visually spoof the target in confirmation dialogs), and
+        // returns the canonical `origin` (lowercased hostname, no trailing slash, no
+        // path/query/hash). This keeps every downstream comparison and display string
+        // byte-for-byte consistent regardless of which branch resolved.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                // Explicit uiHost passed from the PostHog app (authorizedUrlListLogic) wins —
-                // it's window.location.origin of the app itself, so it's always correct even
-                // for reverse-proxy customers who haven't set ui_host in posthog.init().
+                const propsUiHost = canonicalizeUiHost(props.uiHost)
+                if (propsUiHost) {
+                    return propsUiHost
+                }
                 if (props.uiHost) {
-                    // Validate scheme to prevent javascript:/data: XSS via crafted hash params
-                    try {
-                        const parsed = new URL(props.uiHost)
-                        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                            return props.uiHost.replace(/\/+$/, '')
-                        }
-                    } catch {
-                        toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
-                    }
+                    toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
                 }
 
                 // requestRouter.uiHost honours explicit ui_host config and derives from
                 // api_host for Cloud (strips the .i. ingestion infix).
-                const uiHost = (props.posthog as any)?.requestRouter?.uiHost as string | undefined
-                if (uiHost) {
-                    return uiHost.replace(/\/+$/, '')
+                const fromRouter = canonicalizeUiHost(
+                    (props.posthog as any)?.requestRouter?.uiHost as string | undefined
+                )
+                if (fromRouter) {
+                    return fromRouter
                 }
 
                 // Fallback for old posthog-js without requestRouter.
-                if (props.posthog?.config?.ui_host) {
-                    return props.posthog.config.ui_host.replace(/\/+$/, '')
+                const fromConfig = canonicalizeUiHost(props.posthog?.config?.ui_host)
+                if (fromConfig) {
+                    return fromConfig
                 }
-                if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
+                const fromApi = canonicalizeUiHost(props.apiURL)
+                if (fromApi) {
+                    return fromApi
                 }
                 return window.location.origin
             },
         ],
-        // API host for JS and static assets (CSS)
-        // Uses posthog.config.api_host if available, otherwise falls back to props.apiURL for backwards compatibility
-        apiHost: [
+        // Host for static assets (the toolbar CSS `<link href>`) and for the
+        // `api_host` property emitted on toolbar telemetry. NEVER use for
+        // authenticated API calls — uiHost is token-bound via restoreOAuthTokens,
+        // apiHost is not, so sending bearer tokens here would let an attacker
+        // redirect them via the apiURL hash param.
+        //
+        // Candidates are run through canonicalizeApiHost which rejects
+        // non-http(s) schemes and userinfo URLs (blocks `javascript:` reaching
+        // a <link href>), while preserving the URL path so reverse-proxy
+        // deployments like `https://proxy/ingest` keep working.
+        //
+        // apiHostResolution carries the same value plus a `source` label so
+        // telemetry can distinguish "fell back to origin because nothing was
+        // supplied" (normal) from "fell back because supplied value was
+        // rejected" (misconfiguration) without re-running the sanitizer.
+        apiHostResolution: [
             (s) => [s.props],
-            (props: ToolbarProps): string => {
-                if (props.posthog?.config?.api_host) {
-                    return props.posthog.config.api_host.replace(/\/+$/, '')
+            (props: ToolbarProps): { host: string; source: ApiHostSource } => {
+                const rawConfig = props.posthog?.config?.api_host
+                const fromConfig = canonicalizeApiHost(rawConfig)
+                if (fromConfig) {
+                    return { host: fromConfig, source: 'posthog_api_host' }
                 }
-
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
-                if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
+                if (rawConfig) {
+                    toolbarLogger.warn('config', 'Invalid posthog.config.api_host, rejected', {
+                        api_host: rawConfig,
+                    })
                 }
-
-                // Final fallback: current origin
-                return window.location.origin
+                const rawApi = props.apiURL
+                const fromApi = canonicalizeApiHost(rawApi)
+                if (fromApi) {
+                    return { host: fromApi, source: 'api_url' }
+                }
+                if (rawApi) {
+                    toolbarLogger.warn('config', 'Invalid apiURL, rejected', { apiURL: rawApi })
+                }
+                return {
+                    host: window.location.origin,
+                    source: rawConfig || rawApi ? 'fallback_rejected' : 'fallback_absent',
+                }
             },
+        ],
+        apiHost: [
+            (s) => [s.apiHostResolution],
+            (resolution: { host: string; source: ApiHostSource }): string => resolution.host,
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
         toolbarFlagsKey: [(s) => [s.props], (props): string | undefined => props.toolbarFlagsKey],
+        // True when uiHost is a PostHog Cloud host (us/eu) — safe to skip the
+        // "are you sure you want to authenticate here?" confirmation.
+        isTrustedUiHost: [(s) => [s.uiHost], (uiHost: string): boolean => isPostHogCloudHost(uiHost)],
     }),
 
     listeners(({ values, actions }) => ({
-        authenticate: async () => {
+        authenticate: () => {
             toolbarLogger.info('auth', 'Authentication initiated')
 
             // If the uiHost check found a problem, open the config modal instead of proceeding.
@@ -156,7 +209,36 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return
             }
 
+            // Show the user which domain they'll be redirected to before proceeding.
+            // This prevents phishing via crafted #__posthog= hash params with a
+            // malicious uiHost — the user sees the target domain and can cancel.
+            // Skip for PostHog Cloud (us/eu) where the target is already trusted.
+            if (values.isTrustedUiHost) {
+                actions.confirmAuthenticate()
+                return
+            }
+            actions.openAuthConfirmModal()
+        },
+        confirmAuthenticate: async () => {
+            // Re-check status because the modal can sit open arbitrarily long — the
+            // reachability check may have flipped to 'error' while the user read the
+            // dialog, and we must not redirect to an unreachable host.
+            if (values.authStatus === 'error') {
+                toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
+                actions.openUiHostConfigModal()
+                return
+            }
+            if (values.authStatus === 'checking' || values.authStatus === 'authenticating') {
+                // Either the reachability HEAD is still pending or we're already redirecting.
+                // Ignoring a second click avoids double PKCE generation and a race where
+                // the second navigation cancels the first.
+                return
+            }
+
+            toolbarLogger.info('auth', 'Authentication confirmed by user')
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
+            // Transition status BEFORE the async PKCE work so re-entrant calls bail early.
+            actions.setAuthStatus('authenticating')
             actions.persistConfig()
 
             let verifier: string
@@ -168,6 +250,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             } catch (e) {
                 captureToolbarException(e, 'pkce_generation')
                 lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
+                actions.setAuthStatus('idle')
                 return
             }
             const pkcePayload = JSON.stringify({ verifier, ts: Date.now() })
@@ -177,9 +260,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // posthog-js reads these at load time but never cleans them from the URL.
             // Including them would cause a re-initialization loop after OAuth callback.
             const hash = window.location.hash
-                .replace(/[#&]__posthog=[^&]*/g, '')
-                .replace(/[#&]__posthog_toolbar=[^&]*/g, '')
-                .replace(/^&/, '#')
+                .replace(/[#?&]__posthog=[^&]*/g, '')
+                .replace(/[#?&]__posthog_toolbar=[^&]*/g, '')
+                .replace(/^[?&]/, '#')
                 .replace(/^#$/, '')
             const redirect = encodeURIComponent(
                 window.location.origin + window.location.pathname + window.location.search + hash
@@ -224,7 +307,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
 
             // Persist OAuth tokens separately so they survive posthog-js overwriting LOCALSTORAGE_KEY
-            // when re-launching from a URL hash
+            // when re-launching from a URL hash.
+            // Bind tokens to the uiHost they were issued for — prevents an attacker from
+            // injecting a malicious uiHost via crafted hash params and silently exfiltrating
+            // stored tokens to their domain.
             if (values.accessToken) {
                 localStorage.setItem(
                     OAUTH_LOCALSTORAGE_KEY,
@@ -232,6 +318,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                         accessToken: values.accessToken,
                         refreshToken: values.refreshToken,
                         clientId: values.clientId,
+                        uiHost: values.uiHost,
                     })
                 )
             } else {
@@ -255,15 +342,31 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         maybeMigrateTemporaryToken(!!authParams, props, values, actions)
         initInstrumentation(props, values)
 
-        // Verify uiHost reachability, then exchange the OAuth code if present.
-        // When uiHost was explicitly passed from the PostHog app it's always correct — skip check.
-        // Otherwise always check: token_endpoint and redirect_uri are derived from uiHost,
-        // so a wrong uiHost means the exchange will silently fail.
-        if (!props.uiHost) {
-            verifyUiHostReachability(props, values, actions, authParams)
-        } else if (authParams) {
-            startCodeExchange(values.uiHost, authParams, actions)
+        // Reachability check is a UX helper: it detects misconfigured / unreachable
+        // uiHosts BEFORE the user clicks Authenticate so we can surface the config
+        // modal. It is NOT a security boundary — an attacker-controlled host can
+        // respond 200 to a CORS HEAD trivially. The real defenses are (1) the
+        // confirmation modal for untrusted hosts, and (2) the uiHost-binding on
+        // stored tokens.
+        //
+        // Skip the HEAD when:
+        // - uiHost is a trusted PostHog Cloud host (always reachable, no value in
+        //   probing; avoids false-positive errors for Cloud users behind strict
+        //   corporate proxies that block CORS preflights)
+        // - user is already authenticated AND there's no pending OAuth code (the
+        //   existing session is valid; probing on every mount would degrade UX for
+        //   self-hosted / SSO / reverse-proxy customers whose PostHog app works
+        //   fine for real API calls but CORS-rejects the cheap HEAD)
+        if (isPostHogCloudHost(values.uiHost)) {
+            if (authParams) {
+                startCodeExchange(values.uiHost, authParams, actions)
+            }
+            return
         }
+        if (values.isAuthenticated && !authParams) {
+            return
+        }
+        verifyUiHostReachability(props, values, actions, authParams)
     }),
 
     beforeUnmount(({ cache }) => {
@@ -273,6 +376,82 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         cleanToolbarAuthHash()
     }),
 ])
+
+// Hostnames we trust enough to skip the authentication confirmation modal
+// and the reachability check, and to accept legacy (pre-uiHost-binding) tokens on.
+// Extend this set when a new Cloud region ships — stale toolbar bundles served
+// from the CDN will not learn about new regions automatically, so users on a new
+// region keep seeing the confirm modal (safe) but any legacy tokens on that region
+// would be silently rejected until the toolbar is rebuilt and deployed.
+const TRUSTED_POSTHOG_CLOUD_HOSTNAMES = new Set([
+    'us.posthog.com',
+    'eu.posthog.com',
+    'app.posthog.com', // legacy canonical — kept for customers who pinned to it
+])
+
+export function isPostHogCloudHost(uiHost: string): boolean {
+    try {
+        const { protocol, hostname } = new URL(uiHost)
+        return protocol === 'https:' && TRUSTED_POSTHOG_CLOUD_HOSTNAMES.has(hostname)
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Sanitize a uiHost candidate: returns the canonical `origin` (lowercased hostname,
+ * no trailing slash, no path/query/hash) when valid, or null when invalid.
+ *
+ * Rejects:
+ * - non-http(s) schemes (javascript:, data:, blob:, //protocol-relative, etc.)
+ * - URLs with userinfo like `https://us.posthog.com@evil.com` — these display
+ *   misleadingly in confirmation dialogs where a hurried user may skim for "us.posthog.com"
+ *
+ * Using `.origin` ensures stored-vs-current comparisons are normalization-insensitive
+ * (handles trailing slashes, case differences, default ports).
+ */
+export function canonicalizeUiHost(candidate: string | undefined | null): string | null {
+    if (!candidate) {
+        return null
+    }
+    try {
+        const parsed = new URL(candidate)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return null
+        }
+        if (parsed.username || parsed.password) {
+            return null
+        }
+        return parsed.origin
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Sanitize an apiHost candidate. Like canonicalizeUiHost, but preserves the URL
+ * path so reverse-proxy deployments (e.g. `https://proxy/ingest`) keep working
+ * — apiHost is concatenated with `/static/toolbar.css` and `/i/v1/logs`, so the
+ * path prefix must survive. Query and fragment are still dropped.
+ */
+export function canonicalizeApiHost(candidate: string | undefined | null): string | null {
+    if (!candidate) {
+        return null
+    }
+    try {
+        const parsed = new URL(candidate)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return null
+        }
+        if (parsed.username || parsed.password) {
+            return null
+        }
+        const pathname = parsed.pathname.replace(/\/+$/, '')
+        return parsed.origin + pathname
+    } catch {
+        return null
+    }
+}
 
 // ---------------------------------------------------------------------------
 // afterMount helpers — extracted to keep the mount handler readable
@@ -289,23 +468,82 @@ type CheckActions = TokenActions & {
 /** Restore OAuth tokens from a separate localStorage key that survives posthog-js overwrites. */
 function restoreOAuthTokens(
     pendingCodeExchange: boolean,
-    values: { accessToken: string | null },
+    values: { accessToken: string | null; uiHost: string },
     actions: TokenActions
 ): void {
     if (values.accessToken || pendingCodeExchange) {
         return
     }
+    let parsed: unknown
     try {
         const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
-        if (stored) {
-            const { accessToken, refreshToken, clientId } = JSON.parse(stored)
-            if (accessToken && refreshToken && clientId) {
-                actions.setOAuthTokens(accessToken, refreshToken, clientId)
-            }
+        if (!stored) {
+            return
         }
+        parsed = JSON.parse(stored)
     } catch {
         toolbarLogger.warn('auth', 'Failed to parse stored OAuth tokens from localStorage')
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
     }
+    if (!parsed || typeof parsed !== 'object') {
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
+    }
+    const { accessToken, refreshToken, clientId, uiHost: storedUiHost } = parsed as Record<string, unknown>
+    // Validate every field is a non-empty string — guards against a third-party script
+    // writing garbage (or an older version writing a different shape) that would later
+    // blow up on fetch header construction.
+    if (
+        typeof accessToken !== 'string' ||
+        !accessToken ||
+        typeof refreshToken !== 'string' ||
+        !refreshToken ||
+        typeof clientId !== 'string' ||
+        !clientId
+    ) {
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
+    }
+    // Canonicalize both sides so trailing-slash, port, or case differences don't
+    // force unnecessary re-auth. values.uiHost already flows through the selector
+    // which canonicalizes, but storedUiHost may have been written by an older
+    // toolbar version that only trimmed trailing slashes.
+    const canonicalStoredUiHost =
+        typeof storedUiHost === 'string' && storedUiHost ? canonicalizeUiHost(storedUiHost) : null
+    if (canonicalStoredUiHost && canonicalStoredUiHost !== values.uiHost) {
+        // Stored tokens were issued for a different PostHog app — an attacker may
+        // have injected a malicious uiHost via crafted hash params hoping to receive
+        // the token on the next API call. Discard and clean up.
+        toolbarLogger.warn('auth', 'Stored OAuth tokens are for a different uiHost, discarding', {
+            stored: canonicalStoredUiHost,
+            current: values.uiHost,
+        })
+        toolbarPosthogJS.capture('toolbar oauth tokens discarded', {
+            reason: 'uihost_mismatch',
+            stored_ui_host: canonicalStoredUiHost,
+            current_ui_host: values.uiHost,
+        })
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
+    }
+    // Legacy tokens (stored before uiHost binding was added) have no storedUiHost.
+    // Accept them only when the current uiHost is a trusted PostHog Cloud host —
+    // otherwise an attacker-injected uiHost would receive the token on the next API
+    // call. Self-hosted users with legacy tokens will need to re-authenticate once,
+    // which is the intended trade-off.
+    if (!canonicalStoredUiHost && !isPostHogCloudHost(values.uiHost)) {
+        toolbarLogger.warn('auth', 'Rejecting legacy OAuth tokens for untrusted uiHost', {
+            current: values.uiHost,
+        })
+        toolbarPosthogJS.capture('toolbar oauth tokens discarded', {
+            reason: 'legacy_untrusted_host',
+            current_ui_host: values.uiHost,
+        })
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
+    }
+    actions.setOAuthTokens(accessToken, refreshToken, clientId)
 }
 
 /**
@@ -326,7 +564,12 @@ function maybeMigrateTemporaryToken(
 /** Set up PostHog instrumentation and capture the "toolbar loaded" event. */
 function initInstrumentation(
     props: ToolbarProps,
-    values: { isAuthenticated: boolean; uiHost: string; apiHost: string }
+    values: {
+        isAuthenticated: boolean
+        uiHost: string
+        apiHost: string
+        apiHostResolution: { host: string; source: ApiHostSource }
+    }
 ): void {
     if (props.instrument) {
         toolbarPosthogJS.opt_in_capturing()
@@ -344,6 +587,8 @@ function initInstrumentation(
         source: props.source || 'unknown',
         ui_host: values.uiHost,
         api_host: values.apiHost,
+        api_host_source: values.apiHostResolution.source,
+        api_host_fallback: values.apiHostResolution.source.startsWith('fallback_'),
         ui_host_explicit: !!props.uiHost,
         ui_host_matches_api_host: values.uiHost === values.apiHost,
         load_duration_ms: loadDurationMs,
@@ -447,7 +692,7 @@ function startCodeExchange(
             // Code exchange failed (stale code, expired PKCE, network error).
             // Fall back to stored OAuth tokens so users don't have to
             // re-authenticate when the hash wasn't cleaned properly.
-            restoreOAuthTokens(false, { accessToken: null }, actions)
+            restoreOAuthTokens(false, { accessToken: null, uiHost }, actions)
         }
     })
 }
@@ -503,21 +748,24 @@ async function exchangeCodeForTokens(
             body: body.toString(),
         })
         const data = await res.json()
-        if (data.access_token && data.refresh_token) {
+        const access = asNonEmptyString(data?.access_token)
+        const refresh = asNonEmptyString(data?.refresh_token)
+        if (access && refresh) {
             toolbarPosthogJS.capture('toolbar oauth exchange', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
             })
-            actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+            actions.setOAuthTokens(access, refresh, clientId)
             return true
         }
+        const errorString = asNonEmptyString(data?.error) ?? 'unknown'
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'error',
-            error: data.error || 'unknown',
+            error: errorString,
             duration_ms: Math.round(performance.now() - startTime),
         })
-        toolbarLogger.error('auth', 'Token exchange failed', { error: data.error || data })
-        captureToolbarException(new Error(`Token exchange failed: ${data.error || 'unknown'}`), 'token_exchange')
+        toolbarLogger.error('auth', 'Token exchange failed', { error: errorString })
+        captureToolbarException(new Error(`Token exchange failed: ${errorString}`), 'token_exchange')
         lemonToast.error('Authentication failed. Please try again.')
         return false
     } catch (err) {
@@ -537,7 +785,7 @@ async function exchangeCodeForTokens(
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
-    payload?: Record<string, any>,
+    payload?: Record<string, any> | FormData,
     /*
      allows caller to control how the provided URL is altered before use
      if "full" then the payload and URL are taken apart and reconstructed
@@ -556,36 +804,74 @@ export async function toolbarFetch(
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
+        // Pagination URLs come from response bodies — pin to uiHost (or apiHost, which
+        // is where Django's build_absolute_uri() sources its host) so they cannot
+        // redirect the Authorization header off-origin. Stub body matches the 401
+        // shape above so paginating callers fail gracefully on `results: []`.
+        const apiHost = logic?.values.apiHost
+        const allowedOrigins = [host, apiHost].filter(Boolean).map((h) => {
+            try {
+                return new URL(h as string).origin
+            } catch {
+                return null
+            }
+        })
+        if (allowedOrigins.length === 0) {
+            return new Response(JSON.stringify({ results: [], detail: 'no_uihost' }), { status: 400 })
+        }
+        let got: string
+        try {
+            got = new URL(url).origin
+        } catch {
+            return new Response(JSON.stringify({ results: [], detail: 'invalid_url' }), { status: 400 })
+        }
+        if (!allowedOrigins.includes(got)) {
+            toolbarLogger.warn('fetch', 'use-as-provided URL origin not in allowlist', {
+                allowed: allowedOrigins,
+                got,
+            })
+            return new Response(JSON.stringify({ results: [], detail: 'origin_mismatch' }), { status: 400 })
+        }
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
         fullUrl = `${host}${pathname}${encodeParams(searchParams, '?')}`
     }
 
-    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` }
-    if (payload) {
-        headers['Content-Type'] = 'application/json'
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
+    const buildHeaders = (token: string): Record<string, string> => {
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+        // Don't set Content-Type for FormData: the browser supplies it with a
+        // multipart boundary. Setting it manually would corrupt the body.
+        if (payload && !isFormData) {
+            headers['Content-Type'] = 'application/json'
+        }
+        return headers
     }
+    // `withTokenRefresh` may replay the same request once with a new token. We intentionally
+    // reuse the same FormData instance here: FormData is re-readable (unlike one-shot streams),
+    // so both the initial send and the retry can consume it safely.
+    const body: BodyInit | undefined = payload
+        ? isFormData
+            ? (payload as FormData)
+            : JSON.stringify(payload)
+        : undefined
 
     const startTime = performance.now()
     let didRetry = false
 
     let response = await fetch(fullUrl, {
         method,
-        headers,
-        ...(payload ? { body: JSON.stringify(payload) } : {}),
+        headers: buildHeaders(accessToken),
+        ...(body !== undefined ? { body } : {}),
     })
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
-        if (payload) {
-            retryHeaders['Content-Type'] = 'application/json'
-        }
         return await fetch(fullUrl, {
             method,
-            headers: retryHeaders,
-            ...(payload ? { body: JSON.stringify(payload) } : {}),
+            headers: buildHeaders(newAccessToken),
+            ...(body !== undefined ? { body } : {}),
         })
     })
 
@@ -618,48 +904,30 @@ export interface ToolbarMediaUploadResponse {
 
 /** Upload media (images) from the toolbar. */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
-    const logic = toolbarConfigLogic.findMounted()
-    const accessToken = logic?.values.accessToken
-    const apiHost = logic?.values.apiHost
-
-    if (!accessToken || !apiHost) {
+    // Fail fast when there's no session to begin with — don't route through
+    // toolbarFetch (which would return a stub 401 and trip tokenExpired
+    // telemetry / toasts for a user who was never authenticated).
+    if (!toolbarConfigLogic.findMounted()?.values.accessToken) {
         throw new Error('Toolbar not authenticated')
     }
 
+    // Route through toolbarFetch so authenticated uploads share the single
+    // auth + token-refresh implementation. toolbarFetch sends the bearer to
+    // uiHost (validated + token-bound), closing the apiHost-redirect leak.
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiHost}/api/projects/@current/uploaded_media/`
-
-    let response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        headers: { Authorization: `Bearer ${accessToken}` },
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        const retryFormData = new FormData()
-        retryFormData.append('image', file)
-        return await fetch(url, {
-            method: 'POST',
-            body: retryFormData,
-            headers: { Authorization: `Bearer ${newAccessToken}` },
-        })
-    })
+    const response = await toolbarFetch('/api/projects/@current/uploaded_media/', 'POST', formData)
 
     if (response.status === 401) {
+        // Session was valid at start but expired and refresh failed.
         toolbarConfigLogic.findMounted()?.actions.tokenExpired()
         throw new Error('Authentication expired')
     }
 
-    if (response.status === 403) {
-        toolbarConfigLogic.findMounted()?.actions.tokenExpired()
-        const responseData = await response.json().catch(() => ({}))
-        throw new Error(responseData.detail || 'Access denied')
-    }
-
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+        // toolbarFetch already calls tokenExpired() on 403, so no need to repeat it here.
         throw new Error(errorData.detail || `Upload failed: ${response.status}`)
     }
 

@@ -60,6 +60,24 @@ export interface EnrichedSessionGroupSummaryPatternsList {
     patterns: EnrichedSessionGroupSummaryPattern[]
 }
 
+// Matches FailedSessionCategory from ee/models/session_summaries.py
+export type FailedSessionCategory = 'skipped' | 'summarization_failed' | 'patterns_failed'
+
+// Matches FailedSessionInfo from ee/models/session_summaries.py
+export interface FailedSessionInfo {
+    session_id: string
+    category: FailedSessionCategory
+    reason: string
+}
+
+// Matches SessionSummaryRunMeta from ee/models/session_summaries.py.
+// Add new fields explicitly; no index signature (kills autocomplete, lets typos pass).
+export interface SessionGroupSummaryRunMetadata {
+    model_used?: string
+    visual_confirmation?: boolean
+    failed_sessions?: FailedSessionInfo[]
+}
+
 export type SessionGroupSummaryListItemType = {
     id: string
     title: string
@@ -72,6 +90,11 @@ export type SessionGroupSummaryType = SessionGroupSummaryListItemType & {
     session_ids: string[]
     summary: string
     extra_summary_context: Record<string, any> | null
-    run_metadata: Record<string, any> | null
+    run_metadata: SessionGroupSummaryRunMetadata | null
     team: number
+}
+
+export interface SessionSummariesConfig {
+    product_context: string
+    custom_tags: Record<string, string>
 }

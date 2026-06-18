@@ -5,12 +5,13 @@ use std::{
     time::Duration,
 };
 
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
+    extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::{any, get},
+    routing::{any, get, post},
     Router,
 };
 use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
@@ -18,9 +19,9 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
-use health::{readiness_handler, HealthRegistry};
+use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -33,21 +34,35 @@ use tower_http::{
 
 use crate::{
     api::{
+        batch_flag_evaluation,
+        body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
+        concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
-        flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
+        remote_config,
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
-    flags::flag_group_type_mapping::GroupTypeCacheManager,
+    flags::{
+        flag_definitions_cache::FlagDefinitionsCache,
+        flag_group_type_mapping::GroupTypeCacheManager,
+        flag_payload_decryptor::{FlagPayloadDecryptor, FlagPayloadDecryptorError},
+        flag_service::FlagService,
+    },
+    handler::body_logger::BodyLogger,
     metrics::{
+        buckets::bucket_overrides,
         consts::{
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_REQUEST_TIMEOUT_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
+            REMOTE_CONFIG_RATE_LIMITED_COUNTER, REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+            REMOTE_CONFIG_REQUESTS_COUNTER,
         },
         utils::team_id_label_filter,
     },
     rayon_dispatcher::RayonDispatcher,
+    utils::bot_detection,
 };
 
 #[derive(Clone)]
@@ -67,13 +82,18 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
+    /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
+    pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
     pub config: Config,
-    pub flags_rate_limiter: FlagsRateLimiter,
-    pub ip_rate_limiter: IpRateLimiter,
+    pub(crate) flags_rate_limiter: FlagsRateLimiter,
+    pub(crate) ip_rate_limiter: IpRateLimiter,
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory cache for deserialized + regex-compiled flag definitions
+    pub flag_definitions_cache: Arc<FlagDefinitionsCache>,
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
@@ -94,6 +114,47 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Authoritative writer for the production billing keyspace. See
+    /// `crate::billing` for the aggregation/flush contract.
+    pub billing_aggregator: Arc<BillingAggregator>,
+    /// Per-team request/response body logging for `/flags`. Refreshed
+    /// every ~60s from `posthog_instancesetting`.
+    pub body_logger: Arc<BodyLogger>,
+    /// Decrypts encrypted remote-config flag payloads. `None` when no keys are
+    /// configured (e.g. local dev without FLAGS_SECRET_KEYS/SECRET_KEY); in that
+    /// case encrypted payloads cannot be served and the handler errors.
+    pub flag_payload_decryptor: Option<FlagPayloadDecryptor>,
+}
+
+impl State {
+    /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
+    /// same caching/fallback config instead of copying the constructor per handler.
+    pub(crate) fn flag_service(&self) -> FlagService {
+        FlagService::new(
+            self.redis_client.clone(),
+            self.database_pools.non_persons_reader.clone(),
+            self.team_hypercache_reader.clone(),
+            self.flags_hypercache_reader.clone(),
+            self.flag_definitions_cache.clone(),
+            self.team_negative_cache.clone(),
+            *self.config.skip_pg_team_fallback,
+        )
+    }
+
+    /// Records personal-API-key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
+    /// personal-key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
+    /// client choices instead of copying them per handler. Advisory: uses the shared Redis client
+    /// (not the flags cache) and the non-persons writer, and the DB write only fires when the
+    /// Redis debounce key is newly set.
+    pub(crate) async fn record_pak_last_used(&self, pak_id: String) {
+        if *self.config.skip_writes {
+            return;
+        }
+        let redis = self.redis_client.clone();
+        let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+            self.database_pools.non_persons_writer.clone();
+        drop(crate::api::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -104,11 +165,13 @@ pub fn router(
     cohort_cache: Arc<CohortCacheManager>,
     group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
-    liveness: HealthRegistry,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
@@ -116,16 +179,33 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    billing_aggregator: Arc<BillingAggregator>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
+
+    // Per-credential limiter for the remote_config endpoint (mirrors Django's
+    // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
+    // applied by the handler, not the limiter, so this is constructed with an empty allowlist
+    // and no per-key overrides.
+    let remote_config_limiter = RemoteConfigRateLimiter::new(
+        config.remote_config_default_rate_per_minute,
+        std::collections::HashMap::new(),
+        std::collections::HashSet::new(),
+        REMOTE_CONFIG_REQUESTS_COUNTER,
+        REMOTE_CONFIG_RATE_LIMITED_COUNTER,
+        REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize remote config rate limiter");
 
     // Initialize token-based rate limiter.
     // Both modes use the same thresholds (warn at ratio of enforce capacity).
@@ -174,8 +254,41 @@ pub fn router(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
         flag_definitions_limiter.clone(),
+        remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
+
+    // Force eager construction of the bot UA matcher and IP-range table so
+    // the first `/flags` request after a pod restart doesn't pay the
+    // (sub-ms) build cost on its hot path.
+    bot_detection::warm_caches();
+
+    let body_logger = Arc::new(BodyLogger::new(
+        config.flags_log_bodies_teams.clone(),
+        config.flags_log_bodies_request_max_bytes,
+    ));
+
+    // 1 query per pod per interval regardless of /flags RPS.
+    body_logger
+        .clone()
+        .spawn_refresh_task(database_pools.non_persons_reader.clone());
+
+    // Build the remote-config payload decryptor from FLAGS_SECRET_KEYS (or SECRET_KEY
+    // fallback). Malformed keys fail boot loudly (the documented prep trap); a fully
+    // empty config is tolerated (local dev) — encrypted payloads just can't be served.
+    let flag_payload_decryptor = match FlagPayloadDecryptor::from_config(
+        &config.flags_secret_keys,
+        &config.secret_key,
+    ) {
+        Ok(d) => Some(d),
+        Err(FlagPayloadDecryptorError::NoKeys) => {
+            tracing::warn!(
+                    "No FLAGS_SECRET_KEYS or SECRET_KEY configured; encrypted remote config payloads cannot be decrypted"
+                );
+            None
+        }
+        Err(e) => panic!("Invalid FLAGS_SECRET_KEYS configuration: {e}"),
+    };
 
     let state = State {
         redis_client,
@@ -189,10 +302,12 @@ pub fn router(
         session_replay_billing_limiter,
         cookieless_manager,
         flag_definitions_limiter,
+        remote_config_limiter,
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
         flags_hypercache_reader,
+        flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
@@ -200,6 +315,9 @@ pub fn router(
         team_negative_cache,
         cohort_membership_provider,
         auth_token_cache,
+        billing_aggregator,
+        body_logger,
+        flag_payload_decryptor,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -219,36 +337,86 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || ready(l.check())
+            }),
+        )
         .route(
             "/_startup",
             get(move || startup(db_pools_for_startup.clone())),
         );
 
-    // flags endpoint
-    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    // Layer ordering (outermost to innermost, last `.layer()` is outermost):
+    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
+    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
     //
-    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
-    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
-    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
-    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
-    let mut flags_router = Router::new();
-
+    // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
+    // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
+    // 405s non-GET before any body is read. `DefaultBodyLimit::max` is the
+    // marker the handler's `Bytes` extractor reads; the shim's `to_bytes`
+    // cap (see `MAX_FLAGS_BODY_BYTES`) handles the same boundary while the
+    // body is being buffered. Both are required.
+    let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
-        flags_router = flags_router
+        flags_endpoints = flags_endpoints
             .route("/flags", any(endpoint::flags))
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
-            .route("/decide/", any(endpoint::flags));
+            .route("/decide/", any(endpoint::flags))
+            .layer(axum::middleware::from_fn(record_body_read))
+            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
     }
 
+    // Internal-only batch flag evaluation for static cohort generation. Kept outside
+    // `flags_router` on purpose: it must not share the live path's concurrency limit or
+    // request timeout (a page evaluates up to BATCH_FLAG_EVAL_MAX_LIMIT persons), and it
+    // bypasses the /flags pipeline (no billing, no flag analytics). Auth is enforced in
+    // the handler before the body is read: the handler accepts a raw `Body` (not `Bytes`)
+    // so unauthenticated requests are rejected without buffering the payload.
+    let mut internal_endpoints: Router<State> = Router::new();
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        internal_endpoints = internal_endpoints
+            .route(
+                "/internal/batch_flag_evaluation",
+                post(batch_flag_evaluation::batch_flag_evaluation),
+            )
+            .layer(DefaultBodyLimit::max(
+                batch_flag_evaluation::MAX_BATCH_BODY_BYTES,
+            ))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                        let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                        tracing::warn!(error = %err, timeout = is_timeout, "Batch flag evaluation request aborted by tower layer");
+                        let body = if is_timeout {
+                            "Request timed out"
+                        } else {
+                            "Service unavailable"
+                        };
+                        (StatusCode::SERVICE_UNAVAILABLE, body)
+                    }))
+                    .layer(TimeoutLayer::new(Duration::from_millis(
+                        config.batch_flag_eval_timeout_ms,
+                    ))),
+            );
+    }
+
+    let mut definitions_endpoints: Router<State> = Router::new();
     if matches!(
         config.service_mode,
         ServiceMode::All | ServiceMode::Definitions
     ) {
-        flags_router = flags_router
+        definitions_endpoints = definitions_endpoints
             .route(
                 "/flags/definitions",
                 any(flag_definitions::flags_definitions),
@@ -256,11 +424,38 @@ pub fn router(
             .route(
                 "/flags/definitions/",
                 any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
+                any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's remote_config endpoint — Contour routes to Rust
+            // without path rewriting (same pattern as local_evaluation).
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config",
+                any(remote_config::remote_config),
+            )
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config/",
+                any(remote_config::remote_config),
             );
     }
 
-    let flags_router = flags_router
+    let flags_router = flags_endpoints
+        .merge(definitions_endpoints)
+        // After `ConcurrencyLimitLayer` releases a permit, so this measures
+        // permit wait excluding body buffering.
+        .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        // Stamps `Instant::now()` after timeout-deadline propagation but
+        // before permit acquisition.
+        .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
@@ -284,9 +479,9 @@ pub fn router(
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -294,8 +489,11 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        setup_metrics_routes_for_product_with_overrides(
+            router,
+            "feature_flags",
+            &bucket_overrides(),
+        )
     } else {
         router
     }
@@ -332,6 +530,7 @@ fn spawn_rate_limiter_cleanup_task(
     flags_rate_limiter: FlagsRateLimiter,
     ip_rate_limiter: IpRateLimiter,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) {
     tokio::spawn(async move {
@@ -344,17 +543,21 @@ fn spawn_rate_limiter_cleanup_task(
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
                 flag_definitions_limiter.cleanup();
+                remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_definitions_entries")
                     .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_remote_config_entries")
+                    .set(remote_config_limiter.len() as f64);
 
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
                     definitions_entries = flag_definitions_limiter.len(),
+                    remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );
             }));

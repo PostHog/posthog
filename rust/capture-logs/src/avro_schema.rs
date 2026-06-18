@@ -85,6 +85,11 @@ pub const AVRO_SCHEMA: &str = r#"
         "values": "string"
     }],
     "doc": "A map of custom string-valued attributes associated with the log."
+    },
+    {
+    "name": "bytes_uncompressed",
+    "type": ["null", "long"],
+    "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
     }
 ]
 }"#;

@@ -38,7 +38,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 @pytest.fixture
-def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
+def bigquery_client() -> typing.Generator[bigquery.Client]:
     """Manage a bigquery.Client for testing."""
     client = bigquery.Client()
 
@@ -48,7 +48,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 
 
 @pytest.fixture
-def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigquery.Dataset, None, None]:
+def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigquery.Dataset]:
     """Manage a bigquery dataset for testing.
 
     We clean up the dataset after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -93,6 +93,11 @@ async def integration(
         case "impersonated":
             if not await has_valid_aws_credentials():
                 pytest.skip("AWS credentials not available. Credentials are required to impersonate a service account")
+            if not all(
+                setting in os.environ
+                for setting in ("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", "BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD")
+            ):
+                pytest.skip("BigQuery settings not available. These are required to impersonate a service account.")
 
             integration = await impersonated_integration(ateam, bigquery_config)
             await set_service_account_description_for_integration(integration, service_account_description)

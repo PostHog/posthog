@@ -24,7 +24,7 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -358,7 +358,7 @@ export function DefaultRoleSelector(): JSX.Element {
                 value={currentOrganization?.default_role_id || null}
                 onChange={(value) => {
                     guardAvailableFeature(
-                        AvailableFeature.ADVANCED_PERMISSIONS,
+                        AvailableFeature.ROLE_BASED_ACCESS,
                         updateOrganization.bind(null, { default_role_id: value })
                     )
                 }}

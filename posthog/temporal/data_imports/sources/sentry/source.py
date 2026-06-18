@@ -1,20 +1,24 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
 from posthog.temporal.data_imports.sources.sentry.sentry import (
+    SentryResumeConfig,
     sentry_source,
     validate_credentials as validate_sentry_credentials,
 )
@@ -29,7 +33,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SentrySource(SimpleSource[SentrySourceConfig]):
+class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SENTRY
@@ -38,6 +42,7 @@ class SentrySource(SimpleSource[SentrySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SENTRY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sentry",
             iconPath="/static/services/sentry.png",
             caption="""Enter a Sentry auth token and your organization slug to sync Sentry organization, project, issue, and monitor datasets.
@@ -60,6 +65,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="324587...",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="organization_slug",
@@ -67,6 +73,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-org",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",
@@ -74,14 +81,16 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                         required=False,
                         defaultValue=DEFAULT_SENTRY_API_BASE_URL,
                         options=[
-                            Option(label=DEFAULT_SENTRY_API_BASE_URL, value=DEFAULT_SENTRY_API_BASE_URL),
-                            Option(label="https://us.sentry.io", value="https://us.sentry.io"),
-                            Option(label="https://de.sentry.io", value="https://de.sentry.io"),
+                            SourceFieldSelectConfigOption(
+                                label=DEFAULT_SENTRY_API_BASE_URL, value=DEFAULT_SENTRY_API_BASE_URL
+                            ),
+                            SourceFieldSelectConfigOption(label="https://us.sentry.io", value="https://us.sentry.io"),
+                            SourceFieldSelectConfigOption(label="https://de.sentry.io", value="https://de.sentry.io"),
                         ],
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -92,7 +101,12 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
         }
 
     def get_schemas(
-        self, config: SentrySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SentrySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:
@@ -127,7 +141,15 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
             api_base_url=api_base_url,
         )
 
-    def source_for_pipeline(self, config: SentrySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SentryResumeConfig]:
+        return ResumableSourceManager[SentryResumeConfig](inputs, SentryResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SentrySourceConfig,
+        resumable_source_manager: ResumableSourceManager[SentryResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return sentry_source(
             auth_token=config.auth_token,
             organization_slug=config.organization_slug,
@@ -135,6 +157,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

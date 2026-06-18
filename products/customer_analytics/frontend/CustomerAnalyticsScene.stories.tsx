@@ -1,4 +1,5 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -39,52 +40,97 @@ const meta: Meta = {
 }
 export default meta
 
-export const B2CMode: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2c')
-    })
+type Story = StoryObj<{}>
 
-    return <App />
-}
-B2CMode.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
+export const B2CMode: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2c')
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
 }
 
-export const B2BModeWithGroupsEnabled: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
-    useStorybookMocks({
-        get: {
-            'api/environments/:team_id/groups_types/': [
-                { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-            ],
-            'api/projects/:team_id/groups_types/': [
-                { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-            ],
+export const B2BModeWithGroupsEnabled: Story = {
+    render: () => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+        useStorybookMocks({
+            get: {
+                'api/environments/:team_id/groups_types/': [
+                    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                ],
+                'api/projects/:team_id/groups_types/': [
+                    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                ],
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2b')
+            for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
+                logic.actions.setSelectedGroupType(0)
+            }
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
+}
+
+export const B2BModeWithoutGroups: Story = {
+    render: () => {
+        useAvailableFeatures([])
+
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2b')
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
+}
+
+export const GatedWithoutMatchingEarlyAccessFeature: Story = {
+    render: () => <App />,
+    parameters: {
+        featureFlags: [],
+        pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '[data-attr="product-introduction-feature"]',
         },
-    })
-
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2b')
-        for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-            logic.actions.setSelectedGroupType(0)
-        }
-    })
-
-    return <App />
-}
-B2BModeWithGroupsEnabled.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
+    },
 }
 
-export const B2BModeWithoutGroups: StoryFn = () => {
-    useAvailableFeatures([])
-
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2b')
-    })
-
-    return <App />
-}
-B2BModeWithoutGroups.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
+export const GatedWithFeatureToggle: Story = {
+    render: () => {
+        // Mock synchronously during render so the gate's mount useEffect —
+        // which calls `posthog.getEarlyAccessFeatures(callback)` — uses our data.
+        ;(posthog as any).getEarlyAccessFeatures = (callback: (features: any[]) => void): void =>
+            callback([
+                {
+                    flagKey: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+                    name: 'Customer analytics',
+                    description: 'Understand how your customers interact with your product',
+                    stage: 'beta',
+                    documentationUrl: '',
+                    payload: {},
+                },
+            ])
+        return <App />
+    },
+    parameters: {
+        featureFlags: [],
+        pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '#feature-preview-gate-switch',
+        },
+    },
 }

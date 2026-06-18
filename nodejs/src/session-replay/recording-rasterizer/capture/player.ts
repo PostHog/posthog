@@ -1,45 +1,27 @@
-import { Page } from 'puppeteer'
+import type { Page } from 'puppeteer'
 
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
-import { config as defaultConfig } from '../config'
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { RasterizeRecordingInput } from '../types'
-
-export function buildPlayerConfig(
-    input: RasterizeRecordingInput,
-    playbackSpeed: number,
-    cfg: typeof defaultConfig
-): PlayerConfig {
-    return {
-        recordingApiBaseUrl: cfg.recordingApiBaseUrl,
-        recordingApiSecret: cfg.recordingApiSecret,
-        teamId: input.team_id,
-        sessionId: input.session_id,
-        playbackSpeed,
-        skipInactivity: input.skip_inactivity !== false,
-        mouseTail: input.mouse_tail !== false,
-        showMetadataFooter: input.show_metadata_footer,
-        startTimestamp: input.start_timestamp,
-        endTimestamp: input.end_timestamp,
-        viewportEvents: input.viewport_events || [],
-    }
-}
+import { BlockProxy } from './block-proxy'
+import { CapturePage } from './capture-page'
+import { RequestInterceptor } from './request-interceptor'
 
 /**
  * Controls communication with the in-browser replay player.
  *
- * The player sends messages via an exposed function callback
- * ({@link PLAYER_EMIT_FN}), and receives commands via custom DOM events.
- * This class accumulates player state from incoming messages so the rest
- * of the codebase doesn't need to poll browser globals.
- *
- * The protocol types are defined in @posthog/replay-headless/protocol,
- * shared with the player-side HostBridge.
+ * The player sends messages via {@link PLAYER_EMIT_FN} and receives
+ * commands via custom DOM events. This class accumulates player state
+ * so the capture loop can poll it without touching browser globals.
  */
 export class PlayerController {
+    private capturePage: CapturePage
+    private log: Logger
+    private interceptor: RequestInterceptor
+    private onProgress: () => void
+
     private state = {
         ended: false,
         inactivityPeriods: [] as InactivityPeriod[],
@@ -51,9 +33,20 @@ export class PlayerController {
     private resetStaleTimer: (() => void) | null = null
 
     constructor(
-        private page: Page,
-        private log: Logger = createLogger()
-    ) {}
+        capturePage: CapturePage,
+        blockProxy: BlockProxy,
+        onProgress: () => void,
+        log: Logger = createLogger()
+    ) {
+        this.capturePage = capturePage
+        this.log = log
+        this.onProgress = onProgress
+        this.interceptor = new RequestInterceptor(capturePage, blockProxy, this.log)
+    }
+
+    get page(): Page {
+        return this.capturePage.page
+    }
 
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
         return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, err.code)
@@ -74,6 +67,7 @@ export class PlayerController {
         switch (msg.type) {
             case 'loading_progress':
                 this.resetStaleTimer?.()
+                this.onProgress()
                 this.log.info({ loaded: msg.loaded, total: msg.total }, 'loading blocks')
                 break
             case 'started':
@@ -144,16 +138,37 @@ export class PlayerController {
         })
     }
 
-    async load(html: string, siteUrl: string, playerConfig: PlayerConfig): Promise<void> {
-        const playerUrl = `${siteUrl}/player`
+    /** Wrap timer/rAF callbacks in try/catch so player JS errors don't kill capture. */
+    async installCallbackErrorGuards(): Promise<void> {
+        await this.capturePage.installCallbackErrorGuards()
+    }
 
-        await this.page.exposeFunction(PLAYER_EMIT_FN, (msg: PlayerMessage) => {
+    /** Resolves when all tracked stylesheet requests have a response. */
+    waitForSettled(): Promise<void> {
+        return this.interceptor.waitForSettled()
+    }
+
+    /**
+     * Install CDP guards that override screenshot format and gate
+     * beginFrame on pending stylesheet requests. Must be called
+     * after the player is loaded and before captureVideo().
+     */
+    prepareBrowserForCapture(screenshotFormat: 'jpeg' | 'png', screenshotQuality: number | undefined): void {
+        this.capturePage.installCDPGuards(screenshotFormat, screenshotQuality, () => this.waitForSettled(), this.log)
+    }
+
+    /** Install request interception, set up the message bridge, and navigate. */
+    async load(playerConfig: PlayerConfig): Promise<void> {
+        const page = this.capturePage.page
+        await this.interceptor.install()
+
+        await page.exposeFunction(PLAYER_EMIT_FN, (msg: PlayerMessage) => {
             this.handleMessage(msg)
         })
 
         // Inject config as a window global before the page loads — the
         // browser-side HostBridge reads it synchronously on startup.
-        await this.page.evaluateOnNewDocument(
+        await page.evaluateOnNewDocument(
             (key, config) => {
                 ;(window as any)[key] = config
             },
@@ -161,32 +176,15 @@ export class PlayerController {
             playerConfig
         )
 
-        await this.page.setRequestInterception(true)
-        this.page.on('request', (request) => {
-            const url = request.url()
-            if (url === playerUrl) {
-                void request.respond({
-                    status: 200,
-                    contentType: 'text/html',
-                    body: html,
-                })
-            } else {
-                void request.continue()
-            }
-        })
-
-        await this.page.goto(playerUrl, { waitUntil: 'load', timeout: 30000 })
-        this.log.info({ origin: playerUrl }, 'player loaded')
+        await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        this.log.info({ origin: this.capturePage.playerUrl }, 'player loaded')
     }
 
     /**
-     * Wait for the player to finish loading recording data and signal started.
-     *
-     * The player reads its config synchronously from a window global
-     * (injected by {@link load} via evaluateOnNewDocument), so there's
-     * no config handshake — we just wait for the 'started' message.
+     * Wait for the player to finish loading and signal started.
+     * Times out if no loading_progress arrives within `staleMs`.
      */
-    async waitForStart(playerConfig: PlayerConfig, staleMs = 30000): Promise<void> {
+    async waitForStart(playerConfig: PlayerConfig, staleMs = 15000): Promise<void> {
         const startedPromise = new Promise<void>((resolve) => {
             this.startedResolve = resolve
         })
@@ -202,7 +200,7 @@ export class PlayerController {
 
     async startPlayback(): Promise<void> {
         const startEvent = PLAYER_START_EVENT
-        await this.page.evaluate((evt) => {
+        await this.capturePage.page.evaluate((evt) => {
             window.dispatchEvent(new Event(evt))
         }, startEvent)
     }

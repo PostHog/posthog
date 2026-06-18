@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
@@ -195,8 +196,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
-    const { enrichedConsolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
-        useValues(surveyLogic)
+    const { enrichedConsolidatedSurveyResults, isAnyResultsLoading, resultsRequeryInProgress } = useValues(surveyLogic)
 
     if (demoData) {
         return (
@@ -244,8 +244,9 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
 
     const processedData: QuestionProcessedResponses | undefined =
         enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
+    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
 
-    if (consolidatedSurveyResultsLoading || surveyBaseStatsLoading || !processedData) {
+    if (!processedData) {
         return (
             <div className="flex flex-col gap-2">
                 <QuestionTitle question={question} questionIndex={questionIndex} />
@@ -258,6 +259,18 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     if (processedData.totalResponses === 0 || processedData.data.length === 0) {
+        if (isRefreshingResults) {
+            return (
+                <div className="flex flex-col gap-2">
+                    <QuestionTitle question={question} questionIndex={questionIndex} />
+
+                    <div className="flex flex-col gap-4">
+                        <QuestionLoadingSkeleton question={question} />
+                    </div>
+                </div>
+            )
+        }
+
         const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0
         return (
             <div className="flex flex-col gap-2">

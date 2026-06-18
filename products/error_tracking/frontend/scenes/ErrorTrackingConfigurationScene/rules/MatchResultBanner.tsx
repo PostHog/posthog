@@ -5,7 +5,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 const DATE_RANGE_LABELS: Record<string, string> = {
@@ -71,6 +71,7 @@ export function MatchResultBanner({
                     after: dateRange,
                     event: '$exception',
                     properties,
+                    tags: { productKey: ProductKey.ERROR_TRACKING },
                 },
                 propertiesViaUrl: true,
                 showPersistentColumnConfigurator: true,

@@ -1,4 +1,10 @@
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES, kafka_engine
+from django.conf import settings
+
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES,
+    CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -7,6 +13,8 @@ PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE = f"writable_{PRECALCULATED_PERSO
 PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE = f"sharded_{PRECALCULATED_PERSON_PROPERTIES_TABLE}"
 PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE = f"kafka_{PRECALCULATED_PERSON_PROPERTIES_TABLE}"
 PRECALCULATED_PERSON_PROPERTIES_MV = f"{PRECALCULATED_PERSON_PROPERTIES_TABLE}_mv"
+PRECALCULATED_PERSON_PROPERTIES_WS_KAFKA_TABLE = f"kafka_{PRECALCULATED_PERSON_PROPERTIES_TABLE}_ws"
+PRECALCULATED_PERSON_PROPERTIES_WS_MV = f"{PRECALCULATED_PERSON_PROPERTIES_TABLE}_ws_mv"
 
 # Old table names (singular) for cleanup
 OLD_PRECALCULATED_PERSON_PROPERTY_TABLE = "precalculated_person_property"
@@ -146,4 +154,57 @@ FROM {kafka_table_name}
         mv_name=PRECALCULATED_PERSON_PROPERTIES_MV,
         writable_table_name=PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE,
         kafka_table_name=PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE,
+    )
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+
+def DROP_PRECALCULATED_PERSON_PROPERTIES_WS_MV_SQL():
+    return f"DROP TABLE IF EXISTS {PRECALCULATED_PERSON_PROPERTIES_WS_MV}"
+
+
+def DROP_PRECALCULATED_PERSON_PROPERTIES_WS_KAFKA_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {PRECALCULATED_PERSON_PROPERTIES_WS_KAFKA_TABLE}"
+
+
+def KAFKA_PRECALCULATED_PERSON_PROPERTIES_WS_TABLE_SQL():
+    return """
+CREATE TABLE IF NOT EXISTS {table_name}
+(
+    team_id Int64,
+    distinct_id String,
+    person_id UUID,
+    condition String,
+    matches Bool,
+    source String
+) ENGINE = {engine}
+SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+""".format(
+        table_name=PRECALCULATED_PERSON_PROPERTIES_WS_KAFKA_TABLE,
+        engine=kafka_engine(
+            topic="clickhouse_precalculated_person_properties",
+            group=CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION,
+        ),
+    )
+
+
+def PRECALCULATED_PERSON_PROPERTIES_WS_MV_SQL():
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
+AS SELECT
+    team_id,
+    distinct_id,
+    person_id,
+    condition,
+    matches,
+    source,
+    _timestamp,
+    _offset
+FROM {kafka_table_name}
+    """.format(
+        mv_name=PRECALCULATED_PERSON_PROPERTIES_WS_MV,
+        writable_table_name=PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE,
+        kafka_table_name=PRECALCULATED_PERSON_PROPERTIES_WS_KAFKA_TABLE,
     )

@@ -12,16 +12,18 @@ from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
+    ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
 )
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
 
@@ -30,7 +32,7 @@ class MemoryLLMClassifier(LLMClassifier):
     def _run_eval_sync(self, output, expected, **kwargs):
         if not output:
             return Score(name=self._name(), score=None)
-        if expected in [ENQUIRY_INITIAL_MESSAGE, SCRAPING_TERMINATION_MESSAGE]:
+        if expected in [ENQUIRY_INITIAL_MESSAGE, ENQUIRY_NO_EVENTS_INITIAL_MESSAGE, SCRAPING_TERMINATION_MESSAGE]:
             # For the special cases, we MUST see the expected messages verbatim
             return Score(
                 name=self._name(),
@@ -41,7 +43,7 @@ class MemoryLLMClassifier(LLMClassifier):
     async def _run_eval_async(self, output, expected, **kwargs):
         if not output:
             return Score(name=self._name(), score=None)
-        if expected in [ENQUIRY_INITIAL_MESSAGE, SCRAPING_TERMINATION_MESSAGE]:
+        if expected in [ENQUIRY_INITIAL_MESSAGE, ENQUIRY_NO_EVENTS_INITIAL_MESSAGE, SCRAPING_TERMINATION_MESSAGE]:
             # For the special cases, we MUST see the expected messages verbatim
             return Score(
                 name=self._name(),
@@ -392,7 +394,7 @@ Clash of Clans is a long-running, free-to-play mobile strategy game by Supercell
             # Case: No domain/bundle ID available (e.g. only localhost was present in the data)
             EvalCase(
                 input=("Zapier", None),  # No EventTaxonomyItem, but let's say the org name is well-known (Zapier)
-                expected=ENQUIRY_INITIAL_MESSAGE,  # Should fall back to enquiry flow INSTEAD OF scraping
+                expected=ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,  # Should fall back to enquiry flow INSTEAD OF scraping
             ),
             # Case: Non-existing product
             EvalCase(

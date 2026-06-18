@@ -12,8 +12,10 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -39,6 +41,8 @@ export type MenuState =
     | 'experiments'
     | 'web-vitals'
     | 'product-tours'
+    | 'surveys'
+    | 'field-notes'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -69,6 +73,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['allExperimentsLoading'],
             webVitalsToolbarLogic,
             ['remoteWebVitalsLoading'],
+            surveysToolbarLogic,
+            ['allSurveysLoading'],
             hedgehogModeLogic,
             ['hedgehogMode'],
         ],
@@ -89,6 +95,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['enableInspect', 'disableInspect', 'createAction'],
             productToursLogic,
             ['showButtonProductTours', 'hideButtonProductTours'],
+            fieldNotesLogic,
+            ['showButtonFieldNotes', 'hideButtonFieldNotes'],
+            surveysToolbarLogic,
+            ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -414,6 +424,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 s.userFlagsLoading,
                 s.allExperimentsLoading,
                 s.remoteWebVitalsLoading,
+                s.allSurveysLoading,
             ],
             (
                 elementStatsLoading,
@@ -422,7 +433,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading,
                 userFlagsLoading,
                 allExperimentsLoading,
-                remoteWebVitalsLoading
+                remoteWebVitalsLoading,
+                allSurveysLoading
             ) =>
                 elementStatsLoading ||
                 rawHeatmapLoading ||
@@ -430,7 +442,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading ||
                 userFlagsLoading ||
                 allExperimentsLoading ||
-                remoteWebVitalsLoading,
+                remoteWebVitalsLoading ||
+                allSurveysLoading,
         ],
         hedgehogModeAvailable: [
             (s) => [s.cspBlocksNewFunction],
@@ -455,6 +468,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableHeatmap()
             actions.hideButtonActions()
             actions.hideButtonProductTours()
+            actions.hideButtonFieldNotes()
+            actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -468,6 +483,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.enableInspect()
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
+            } else if (visibleMenu === 'field-notes') {
+                actions.showButtonFieldNotes()
+            } else if (visibleMenu === 'surveys') {
+                actions.showButtonSurveys()
             }
         },
 
@@ -703,7 +722,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         if (isInIframe) {
             cache.disposables.add(() => {
                 const iframeEventListener = (e: MessageEvent): void => {
-                    // TODO: Probably need to have strict checks here
+                    // Only the PostHog app at uiHost should be driving these actions.
+                    const expectedOrigin = toolbarConfigLogic.findMounted()?.values.uiHost
+                    if (!expectedOrigin || e.origin !== expectedOrigin) {
+                        if (e?.data?.type && typeof e.data.type === 'string' && e.data.type.startsWith('ph-')) {
+                            toolbarLogger.warn('iframe', 'Ignoring parent message from unexpected origin', {
+                                got: e.origin,
+                                expected: expectedOrigin,
+                            })
+                        }
+                        return
+                    }
                     const type: PostHogAppToolbarEvent = e?.data?.type
 
                     if (!type || !type.startsWith('ph-')) {

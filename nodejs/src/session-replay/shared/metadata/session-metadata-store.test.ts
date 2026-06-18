@@ -1,20 +1,27 @@
 import { DateTime } from 'luxon'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { parseJSON } from '../../../utils/json-parse'
+import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../outputs'
 import { SessionMetadataStore } from './session-metadata-store'
+
+function parseValue(value: Buffer | null): any {
+    if (value === null) {
+        throw new Error('Expected value to be a Buffer, got null')
+    }
+    return parseJSON(value.toString())
+}
 
 describe('SessionMetadataStore', () => {
     let store: SessionMetadataStore
-    let mockProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: jest.Mocked<IngestionOutputs<ReplayEventsOutput>>
 
     beforeEach(() => {
-        mockProducer = {
+        mockOutputs = {
             queueMessages: jest.fn().mockResolvedValue(undefined),
-            flush: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<KafkaProducerWrapper>
+        } as unknown as jest.Mocked<IngestionOutputs<ReplayEventsOutput>>
 
-        store = new SessionMetadataStore(mockProducer, 'clickhouse_session_replay_events')
+        store = new SessionMetadataStore(mockOutputs)
     })
 
     it('should queue events to kafka with correct data', async () => {
@@ -101,11 +108,10 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        expect(queuedMessage.topic).toBe('clickhouse_session_replay_events')
-        const queuedMessages = queuedMessage.messages
-        const parsedEvents = queuedMessages.map((msg) => parseJSON(msg.value as string))
+        expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        const [outputName, queuedMessages] = mockOutputs.queueMessages.mock.calls[0]
+        expect(outputName).toBe(REPLAY_EVENTS_OUTPUT)
+        const parsedEvents = queuedMessages.map((msg) => parseValue(msg.value))
 
         expect(parsedEvents).toMatchObject([
             {
@@ -194,22 +200,16 @@ describe('SessionMetadataStore', () => {
         expect(queuedMessages[0].key).toEqual('session123')
         expect(queuedMessages[1].key).toEqual('different456')
         expect(queuedMessages[2].key).toEqual('session123')
-
-        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should handle empty blocks array', async () => {
         await store.storeSessionBlocks([])
-        expect(mockProducer.queueMessages).toHaveBeenCalledWith({
-            topic: 'clickhouse_session_replay_events',
-            messages: [],
-        })
-        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+        expect(mockOutputs.queueMessages).toHaveBeenCalledWith(REPLAY_EVENTS_OUTPUT, [])
     })
 
     it('should handle producer errors', async () => {
         const error = new Error('Kafka producer error')
-        mockProducer.queueMessages.mockRejectedValueOnce(error)
+        mockOutputs.queueMessages.mockRejectedValueOnce(error)
 
         const blocks = [
             {
@@ -275,8 +275,8 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvent = parseJSON(queuedMessage.messages[0].value as string)
+        const [, queuedMessages] = mockOutputs.queueMessages.mock.calls[0]
+        const parsedEvent = parseValue(queuedMessages[0].value)
         expect(parsedEvent.event_count).toBe(8)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
@@ -293,7 +293,6 @@ describe('SessionMetadataStore', () => {
         expect(parsedEvent.message_count).toBe(25)
         expect(parsedEvent.snapshot_source).toBe('web')
         expect(parsedEvent.snapshot_library).toBe('rrweb@1.0.0')
-        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should preserve batch IDs when storing blocks', async () => {
@@ -354,8 +353,8 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvents = queuedMessage.messages.map((msg) => parseJSON(msg.value as string))
+        const [, queuedMessages] = mockOutputs.queueMessages.mock.calls[0]
+        const parsedEvents = queuedMessages.map((msg) => parseValue(msg.value))
 
         expect(parsedEvents[0].batch_id).toBe('batch1')
         expect(parsedEvents[1].batch_id).toBe('batch2')
@@ -393,45 +392,6 @@ describe('SessionMetadataStore', () => {
             snapshot_library: 'rrweb@1.0.0',
             retention_period_days: 30,
         })
-        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
-    })
-
-    it('should handle flush errors', async () => {
-        const error = new Error('Kafka flush error')
-        mockProducer.flush.mockRejectedValueOnce(error)
-
-        const blocks = [
-            {
-                sessionId: 'session1',
-                teamId: 1,
-                distinctId: 'user1',
-                batchId: 'batch1',
-                blockLength: 100,
-                eventCount: 15,
-                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
-                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
-                blockUrl: 's3://bucket/file1',
-                firstUrl: 'https://example.com',
-                urls: ['https://example.com'],
-                clickCount: 3,
-                keypressCount: 7,
-                mouseActivityCount: 12,
-                activeMilliseconds: 1000,
-                consoleLogCount: 1,
-                consoleWarnCount: 0,
-                consoleErrorCount: 0,
-                size: 512,
-                messageCount: 25,
-                snapshotSource: 'web',
-                snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriodDays: 30,
-                isDeleted: false,
-            },
-        ]
-
-        await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
-        expect(mockProducer.queueMessages).toHaveBeenCalled()
-        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should map isDeleted to is_deleted integer', async () => {
@@ -466,50 +426,8 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        const parsedEvent = parseJSON(queuedMessage.messages[0].value as string)
+        const [, queuedMessages] = mockOutputs.queueMessages.mock.calls[0]
+        const parsedEvent = parseValue(queuedMessages[0].value)
         expect(parsedEvent.is_deleted).toBe(1)
-    })
-
-    it('should use the provided kafka topic name', async () => {
-        const customTopic = 'custom_topic_name'
-        const customStore = new SessionMetadataStore(mockProducer, customTopic)
-
-        const blocks = [
-            {
-                sessionId: 'session1',
-                teamId: 1,
-                distinctId: 'user1',
-                batchId: 'batch1',
-                blockLength: 100,
-                eventCount: 15,
-                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
-                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
-                blockUrl: 's3://bucket/file1',
-                firstUrl: 'https://example.com',
-                urls: ['https://example.com'],
-                clickCount: 3,
-                keypressCount: 7,
-                mouseActivityCount: 12,
-                activeMilliseconds: 1000,
-                consoleLogCount: 1,
-                consoleWarnCount: 0,
-                consoleErrorCount: 0,
-                size: 512,
-                messageCount: 25,
-                snapshotSource: 'web',
-                snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriodDays: 30,
-                isDeleted: false,
-            },
-        ]
-
-        await customStore.storeSessionBlocks(blocks)
-
-        expect(mockProducer.queueMessages).toHaveBeenCalledWith(
-            expect.objectContaining({
-                topic: customTopic,
-            })
-        )
     })
 })

@@ -1,4 +1,5 @@
 import math
+import random
 import datetime as dt
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
@@ -11,6 +12,7 @@ import pytz
 from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
 
 from .taxonomy import (
+    BIAS_WARNING_FLIP_PROBABILITY,
     EVENT_DELETED_FILE,
     EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
@@ -26,13 +28,18 @@ from .taxonomy import (
     EVENT_UPLOADED_FILE,
     FILE_ENGAGEMENT_BLUE_SHARE_MULTIPLIER,
     FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER,
-    FILE_ENGAGEMENT_FLAG_KEY,
     FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER,
     FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER,
+    FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
+    FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+    FLAG_ONBOARDING_EXPERIMENT,
+    FLAG_PRICING_PAGE_EXPERIMENT,
+    FLAG_SHARING_INCENTIVE_EXPERIMENT,
+    FLAG_TEAM_COLLAB_EXPERIMENT,
+    FLAG_UPGRADE_PROMPT_EXPERIMENT,
     GROUP_TYPE_ACCOUNT,
     ONBOARDING_BLUE_RATE,
     ONBOARDING_CONTROL_RATE,
-    ONBOARDING_EXPERIMENT_FLAG_KEY,
     ONBOARDING_RED_RATE,
     SIGNUP_SUCCESS_RATE_CONTROL,
     URL_ACCOUNT_BILLING,
@@ -165,6 +172,12 @@ class HedgeboxPerson(SimPerson):
     affinity: float  # 0 roughly means they won't like Hedgebox, 1 means they will - affects need/satisfaction deltas
     onboarding_variant: str
     file_engagement_variant: str
+    pricing_variant: str
+    sharing_variant: str
+    upgrade_prompt_variant: str
+    team_collab_variant: str
+    bias_warning_initial_variant: str
+    bias_warning_flips: bool
     watches_marius_tech_tips: bool
 
     # Internal state - plain
@@ -188,23 +201,9 @@ class HedgeboxPerson(SimPerson):
             if self.active_client.browser != "Internet Explorer"
             else self.cluster.random.betavariate(1, 1.4)
         )
-        # Assign onboarding experiment variant
-        rand_val = self.cluster.random.random()
-        if rand_val < 0.34:
-            self.onboarding_variant = "control"
-        elif rand_val < 0.67:
-            self.onboarding_variant = "red"
-        else:
-            self.onboarding_variant = "blue"
-
-        # Assign file engagement experiment variant
-        rand_val = self.cluster.random.random()
-        if rand_val < 0.34:
-            self.file_engagement_variant = "control"
-        elif rand_val < 0.67:
-            self.file_engagement_variant = "red"
-        else:
-            self.file_engagement_variant = "blue"
+        # Assign original experiment variants (order matters for random seed stability)
+        self.onboarding_variant = self._pick_variant("control", "red", "blue")
+        self.file_engagement_variant = self._pick_variant("control", "red", "blue")
 
         self.watches_marius_tech_tips = self.cluster.random.random() < 0.04
         self.invite_to_use_id = None
@@ -239,6 +238,22 @@ class HedgeboxPerson(SimPerson):
                 continue
             else:
                 break
+
+        # New experiment variants — appended at end to preserve random seed stability
+        self.pricing_variant = self._pick_variant("control", "test")
+        self.sharing_variant = self._pick_variant("control", "test")
+        self.upgrade_prompt_variant = self._pick_variant("control", "aggressive", "subtle")
+        self.team_collab_variant = self._pick_variant("control", "test")
+
+        # Bias warning demo experiment: 90/10 split, with a small share of users
+        # flipping variants mid-experiment so they end up exposed to both.
+        # Uses a separate per-person RNG seeded from the (deterministic) email so we
+        # don't perturb the cluster's shared RNG sequence — drawing from cluster.random
+        # here would shift every downstream session/pageview decision and break tests
+        # that depend on the seeded data shape (e.g. the SQL playwright test).
+        person_rng = random.Random(self.email)
+        self.bias_warning_initial_variant = "control" if person_rng.random() < 0.9 else "test"
+        self.bias_warning_flips = person_rng.random() < BIAS_WARNING_FLIP_PROBABILITY
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
@@ -276,23 +291,65 @@ class HedgeboxPerson(SimPerson):
     def has_signed_up(self) -> bool:
         return self.account is not None and self in self.account.team_members
 
+    # Helpers
+
+    def _pick_variant(self, *variants: str) -> str:
+        """Pick a variant using a single random() call to keep the random sequence stable."""
+        n = len(variants)
+        return variants[int(self.cluster.random.random() * n)]
+
     # Abstract methods
 
     def decide_feature_flags(self) -> dict[str, Any]:
         flags = {}
+        t = self.cluster.simulation_time
+        m = self.cluster.matrix
 
-        # Legacy experiment (complete)
-        if (
-            self.cluster.simulation_time >= self.cluster.matrix.onboarding_experiment_start
-            and self.cluster.simulation_time < self.cluster.matrix.onboarding_experiment_end
-        ):
-            flags[ONBOARDING_EXPERIMENT_FLAG_KEY] = self.onboarding_variant
+        # Legacy experiment (complete): 30%-60% of simulation
+        if m.onboarding_experiment_start <= t < m.onboarding_experiment_end:
+            flags[FLAG_ONBOARDING_EXPERIMENT] = self.onboarding_variant
 
-        # New experiment (running)
-        if self.cluster.simulation_time >= self.cluster.matrix.file_engagement_experiment_start:
-            flags[FILE_ENGAGEMENT_FLAG_KEY] = self.file_engagement_variant
+        # File engagement (running): 70% onward
+        if t >= m.file_engagement_experiment_start:
+            flags[FLAG_FILE_ENGAGEMENT_EXPERIMENT] = self.file_engagement_variant
+
+        # Pricing page redesign (inconclusive): 15%-45%
+        if m.pricing_experiment_start <= t < m.pricing_experiment_end:
+            flags[FLAG_PRICING_PAGE_EXPERIMENT] = self.pricing_variant
+
+        # File sharing incentive (lost): 40%-65%
+        if m.sharing_experiment_start <= t < m.sharing_experiment_end:
+            flags[FLAG_SHARING_INCENTIVE_EXPERIMENT] = self.sharing_variant
+
+        # Upgrade prompt (running): 90% onward
+        if t >= m.upgrade_prompt_experiment_start:
+            flags[FLAG_UPGRADE_PROMPT_EXPERIMENT] = self.upgrade_prompt_variant
+
+        # Team collab boost (stopped early): 50%-70%
+        if m.team_collab_experiment_start <= t < m.team_collab_experiment_end:
+            flags[FLAG_TEAM_COLLAB_EXPERIMENT] = self.team_collab_variant
+
+        # Bias warning demo (running): 60% onward, with mid-experiment flip for some users
+        if t >= m.bias_warning_experiment_start:
+            if self.bias_warning_flips and t >= m.bias_warning_experiment_flip_time:
+                # Flipped to the other variant — the user is now exposed to both
+                flags[FLAG_BIAS_WARNING_DEMO_EXPERIMENT] = (
+                    "test" if self.bias_warning_initial_variant == "control" else "control"
+                )
+            else:
+                flags[FLAG_BIAS_WARNING_DEMO_EXPERIMENT] = self.bias_warning_initial_variant
 
         return flags
+
+    _EXPERIMENT_FLAG_KEYS = {
+        FLAG_ONBOARDING_EXPERIMENT,
+        FLAG_FILE_ENGAGEMENT_EXPERIMENT,
+        FLAG_PRICING_PAGE_EXPERIMENT,
+        FLAG_SHARING_INCENTIVE_EXPERIMENT,
+        FLAG_UPGRADE_PROMPT_EXPERIMENT,
+        FLAG_TEAM_COLLAB_EXPERIMENT,
+        FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
+    }
 
     def capture_feature_flag_exposures(self):
         """Capture $feature_flag_called exposure events for active experiment flags."""
@@ -300,7 +357,8 @@ class HedgeboxPerson(SimPerson):
 
         for flag_key, variant in active_flags.items():
             # Only capture exposures for experiment flags (not regular feature flags)
-            if flag_key in [ONBOARDING_EXPERIMENT_FLAG_KEY, FILE_ENGAGEMENT_FLAG_KEY]:
+            # (This check is defensive in case non-experiment flags are added to decide_feature_flags())
+            if flag_key in self._EXPERIMENT_FLAG_KEYS:
                 self.active_client.capture(
                     EVENT_FEATURE_FLAG_CALLED,
                     {
@@ -361,7 +419,7 @@ class HedgeboxPerson(SimPerson):
             file_count = len(self.account.files)
 
             # File engagement experiment: Apply multipliers to upload and share intents
-            variant = self.decide_feature_flags().get(FILE_ENGAGEMENT_FLAG_KEY)
+            variant = self.decide_feature_flags().get(FLAG_FILE_ENGAGEMENT_EXPERIMENT)
             upload_multiplier = 1.0
             share_multiplier = 1.0
             if variant == "red":
@@ -540,7 +598,7 @@ class HedgeboxPerson(SimPerson):
             return self.go_to_login()
 
         # Onboarding experiment: Different success rates per variant
-        variant = self.decide_feature_flags().get(ONBOARDING_EXPERIMENT_FLAG_KEY)
+        variant = self.decide_feature_flags().get(FLAG_ONBOARDING_EXPERIMENT)
         if variant == "red":
             success_rate = ONBOARDING_RED_RATE
             signup_duration = 120
@@ -865,8 +923,9 @@ class HedgeboxPerson(SimPerson):
         invite_id = str(self.cluster.roll_uuidt())
         self.schedule_effect(
             self.cluster.simulation_time,
-            lambda other: other.set_attribute("invite_to_use_id", invite_id)
-            and other.set_attribute("is_invitable", False),
+            lambda other: (
+                other.set_attribute("invite_to_use_id", invite_id) and other.set_attribute("is_invitable", False)
+            ),
             Effect.Target.RANDOM_NEIGHBOR,
             condition=lambda other: cast(HedgeboxPerson, other).is_invitable,
         )

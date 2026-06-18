@@ -4,13 +4,12 @@ from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
 from posthog.test.base import _create_event
 
-from posthog.hogql.hogql import HogQLContext
-
 from posthog.clickhouse.client import sync_execute
-from posthog.models.action import Action
-from posthog.models.cohort import Cohort
 from posthog.queries.breakdown_props import _parse_breakdown_cohorts
 from posthog.queries.util import get_earliest_timestamp
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 
 def test_get_earliest_timestamp(db, team):
@@ -61,6 +60,6 @@ def test_get_earliest_timestamp_with_no_events(db, team):
 def test_parse_breakdown_cohort_query(db, team):
     action = Action.objects.create(team=team, name="$pageview", steps_json=[{"event": "$pageview"}])
     cohort1 = Cohort.objects.create(team=team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1")
-    queries, params = _parse_breakdown_cohorts([cohort1], HogQLContext(team_id=team.pk))
+    queries, params = _parse_breakdown_cohorts([cohort1])
     assert len(queries) == 1
     sync_execute(queries[0], params)

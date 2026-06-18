@@ -19,13 +19,13 @@ import {
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
-import { fullName } from 'lib/utils'
 import {
     getAccessControlTooltip,
     getMaximumAccessLevel,
     getMinimumAccessLevel,
     pluralizeResource,
 } from 'lib/utils/accessControlUtils'
+import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
@@ -234,7 +234,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 flags, etc.) for individuals and roles.
             </p>
 
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
                 <div className="space-y-6">
                     {/* Default permissions table */}
                     <div className="space-y-2">

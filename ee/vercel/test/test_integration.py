@@ -10,7 +10,6 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -18,6 +17,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration
@@ -162,7 +162,7 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation(self, mock_license, mock_billing_manager):
         mock_license.return_value = Mock()
@@ -182,7 +182,7 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_calls_billing_deauthorize(self, mock_license, mock_billing_manager):
         """Deleting installation should notify billing service to cancel subscription."""
@@ -200,7 +200,7 @@ class TestVercelIntegration(TestCase):
             self.organization, billing_provider=BillingProvider.VERCEL
         )
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_aborts_on_billing_failure(self, mock_license, mock_billing_manager):
         """Deletion should not proceed if billing deauthorization fails, so Vercel retries the webhook."""
@@ -212,6 +212,23 @@ class TestVercelIntegration(TestCase):
         with self.assertRaises(Exception) as context:
             VercelIntegration.delete_installation(self.installation_id)
         assert "Billing service error" in str(context.exception)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @patch("ee.billing.billing_manager.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_blocked_by_open_invoices(self, mock_license, mock_billing_manager):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_manager_instance.deauthorize.side_effect = BillingServiceOpenInvoicesError(
+            "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first."
+        )
+        mock_billing_manager.return_value = mock_manager_instance
+
+        with self.assertRaises(BillingServiceOpenInvoicesError):
+            VercelIntegration.delete_installation(self.installation_id)
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
@@ -236,8 +253,10 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.upsert_installation(self.installation_id, self.payload, self.user_claims)
 
         self.installation.refresh_from_db()
-        assert self.installation.config == self.payload
+        expected_config = {k: v for k, v in self.payload.items() if k != "credentials"}
+        assert self.installation.config == expected_config
         assert self.installation.config != original_config
+        assert self.installation.sensitive_config["credentials"] == self.payload["credentials"]
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
@@ -258,9 +277,12 @@ class TestVercelIntegration(TestCase):
         assert "new_user_456" in new_installation.config["user_mappings"]
         assert new_installation.config["user_mappings"]["new_user_456"] is not None
 
-        # Check all other config fields match
+        # Check all other config fields match (credentials are in sensitive_config)
         for key, value in self.payload.items():
-            assert new_installation.config[key] == value
+            if key == "credentials":
+                assert new_installation.sensitive_config["credentials"] == value
+            else:
+                assert new_installation.config[key] == value
 
         new_user = User.objects.get(email=self.payload["account"]["contact"]["email"])
         assert new_user.first_name == "John"
@@ -295,9 +317,12 @@ class TestVercelIntegration(TestCase):
             "user_mappings", {}
         )
 
-        # Check all other config fields match
+        # Check all other config fields match (credentials are in sensitive_config)
         for key, value in self.payload.items():
-            assert new_installation.config[key] == value
+            if key == "credentials":
+                assert new_installation.sensitive_config["credentials"] == value
+            else:
+                assert new_installation.config[key] == value
 
         # Existing user IS added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
@@ -388,7 +413,7 @@ class TestVercelIntegration(TestCase):
             self.fail("SSO should NOT require login for trusted Vercel user")
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
         """Billing failure should NOT delete existing users (only newly created ones)."""
@@ -617,10 +642,18 @@ class TestVercelIntegration(TestCase):
         ]
     )
     def test_get_access_token(self, _, credentials, expected):
-        self.installation.config["credentials"] = credentials
+        self.installation.sensitive_config["credentials"] = credentials
         self.installation.save()
         result = VercelIntegration._get_access_token(self.installation)
         assert result == expected
+
+    def test_get_access_token_fallback_from_config(self):
+        """Pre-migration installations store credentials in config — fallback should find them."""
+        self.installation.config["credentials"] = {"access_token": "legacy_token", "token_type": "Bearer"}
+        self.installation.sensitive_config = {}
+        self.installation.save()
+        result = VercelIntegration._get_access_token(self.installation)
+        assert result == "legacy_token"
 
     @parameterized.expand(
         [
@@ -1182,6 +1215,8 @@ class TestPushSecretsToVercel(TestCase):
             integration_id="icfg_secrets_test_123456789",
             config={
                 "billing_plan_id": "posthog-usage-based",
+            },
+            sensitive_config={
                 "credentials": {"access_token": "test_token", "token_type": "Bearer"},
             },
             created_by=self.user,

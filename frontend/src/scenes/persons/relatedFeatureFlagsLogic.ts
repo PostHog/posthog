@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -118,16 +118,11 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     if (props.groupTypeIndex !== undefined && props.groups && Object.keys(props.groups).length > 0) {
                         flags = flags.filter(
                             (flag) =>
-                                flag.filters.aggregation_group_type_index !== undefined &&
-                                flag.filters.aggregation_group_type_index !== null &&
+                                flag.filters.aggregation_group_type_index != null &&
                                 flag.filters.aggregation_group_type_index === props.groupTypeIndex
                         )
                     } else {
-                        flags = flags.filter(
-                            (flag) =>
-                                flag.filters.aggregation_group_type_index === undefined ||
-                                flag.filters.aggregation_group_type_index === null
-                        )
+                        flags = flags.filter((flag) => flag.filters.aggregation_group_type_index == null)
                     }
 
                     return flags

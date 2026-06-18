@@ -8,10 +8,16 @@ from posthog.scopes import APIScopeObject
 class NotificationType(str, Enum):
     COMMENT_MENTION = "comment_mention"
     ALERT_FIRING = "alert_firing"
+    ISSUE_ASSIGNED = "issue_assigned"
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
+    EXPERIMENT_CONCLUDED = "experiment_concluded"
     PIPELINE_FAILURE = "pipeline_failure"
-    ISSUE_ASSIGNED = "issue_assigned"
+    PROJECT_CREATED = "project_created"
+    USAGE_SPIKE = "usage_spike"
+    REMINDER = "reminder"
+    WEB_ANALYTICS_DIGEST = "web_analytics_digest"
+    ACHIEVEMENT_UNLOCKED = "achievement_unlocked"
 
 
 class Priority(str, Enum):
@@ -24,6 +30,18 @@ class TargetType(str, Enum):
     TEAM = "team"
     ORGANIZATION = "organization"
     ROLE = "role"
+
+
+class SourceType(str, Enum):
+    REPLAY = "replay"
+    NOTEBOOK = "notebook"
+    INSIGHT = "insight"
+    FEATURE_FLAG = "feature_flag"
+    DASHBOARD = "dashboard"
+    SURVEY = "survey"
+    EXPERIMENT = "experiment"
+    ERROR_TRACKING = "error_tracking"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class NotificationOnlyResourceType(str, Enum):

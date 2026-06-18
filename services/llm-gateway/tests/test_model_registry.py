@@ -7,11 +7,17 @@ from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostSer
 from llm_gateway.services.model_registry import (
     ModelInfo,
     ModelRegistryService,
+    _model_matches_allowlist,
     get_available_models,
     is_model_available,
 )
 
-PROVIDER_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "FIREWORKS_API_KEY"]
+PROVIDER_ENV_VARS = [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY",
+    "FIREWORKS_API_KEY",
+]
 
 MOCK_COST_DATA: dict[str, ModelCost] = {
     "gpt-4o": {
@@ -80,21 +86,15 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "claude-haiku-4-5": {
+    "claude-sonnet-4-6": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
-    "gemini-2.0-flash": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 1048576,
-        "supports_vision": True,
-        "mode": "chat",
-    },
-    "gemini-1.5-pro": {
-        "litellm_provider": "vertex_ai",
-        "max_input_tokens": 2097152,
+    "claude-haiku-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
@@ -130,14 +130,12 @@ def mock_get_all_models(self: ModelCostService) -> dict[str, ModelCost]:
 def create_mock_settings(
     openai: bool = True,
     anthropic: bool = True,
-    gemini: bool = True,
     openrouter: bool = False,
     fireworks: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
     settings.anthropic_api_key = "sk-ant-test" if anthropic else None
-    settings.gemini_api_key = "gemini-test" if gemini else None
     settings.openrouter_api_key = "or-test" if openrouter else None
     settings.fireworks_api_key = "fw-test" if fireworks else None
     return settings
@@ -201,8 +199,7 @@ class TestGetModel:
         "model_id,expected_provider",
         [
             ("gpt-4o", "openai"),
-            ("claude-3-5-sonnet-20241022", "anthropic"),
-            ("gemini-2.0-flash", "vertex_ai"),
+            ("claude-sonnet-4-5", "anthropic"),
             ("openrouter/anthropic/claude-3.5-sonnet", "openrouter"),
             ("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "fireworks_ai"),
         ],
@@ -225,8 +222,8 @@ class TestGetAvailableModels:
         models = get_available_models("llm_gateway")
         model_ids = {m.id for m in models}
         assert "gpt-4o" in model_ids
+        assert "claude-sonnet-4-5" in model_ids
         assert "claude-3-5-sonnet-20241022" in model_ids
-        assert "gemini-2.0-flash" in model_ids
         # New providers not configured by default
         assert "openrouter/anthropic/claude-3.5-sonnet" not in model_ids
         assert "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct" not in model_ids
@@ -245,20 +242,19 @@ class TestProviderFiltering:
     def test_only_returns_models_from_configured_providers(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=True, anthropic=False, gemini=False),
+            return_value=create_mock_settings(openai=True, anthropic=False),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
             assert providers == {"openai"}
             model_ids = {m.id for m in models}
             assert "gpt-4o" in model_ids
-            assert "claude-3-5-sonnet-20241022" not in model_ids
-            assert "gemini-2.0-flash" not in model_ids
+            assert "claude-sonnet-4-5" not in model_ids
 
     def test_returns_empty_when_no_providers_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=False, anthropic=False, gemini=False),
+            return_value=create_mock_settings(openai=False, anthropic=False),
         ):
             models = get_available_models("llm_gateway")
             assert len(models) == 0
@@ -266,7 +262,7 @@ class TestProviderFiltering:
     def test_returns_multiple_providers_when_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(openai=True, anthropic=True, gemini=False),
+            return_value=create_mock_settings(openai=True, anthropic=True),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
@@ -276,12 +272,12 @@ class TestProviderFiltering:
         "provider_kwargs,expected_provider,expected_model_id",
         [
             (
-                {"openai": False, "anthropic": False, "gemini": False, "openrouter": True},
+                {"openai": False, "anthropic": False, "openrouter": True},
                 "openrouter",
                 "openrouter/anthropic/claude-3.5-sonnet",
             ),
             (
-                {"openai": False, "anthropic": False, "gemini": False, "fireworks": True},
+                {"openai": False, "anthropic": False, "fireworks": True},
                 "fireworks_ai",
                 "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
             ),
@@ -300,16 +296,32 @@ class TestProviderFiltering:
             model_ids = {m.id for m in models}
             assert expected_model_id in model_ids
 
-    def test_returns_all_five_providers_when_configured(self):
+    def test_returns_all_four_providers_when_configured(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(
-                openai=True, anthropic=True, gemini=True, openrouter=True, fireworks=True
-            ),
+            return_value=create_mock_settings(openai=True, anthropic=True, openrouter=True, fireworks=True),
         ):
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
-            assert providers == {"openai", "anthropic", "vertex_ai", "openrouter", "fireworks_ai"}
+            assert providers == {"openai", "anthropic", "openrouter", "fireworks_ai"}
+
+
+class TestModelMatchesAllowlist:
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("gpt-4o", True),
+            ("GPT-4O", True),
+            ("Gpt-4o", True),
+            ("claude-sonnet-4-5", True),
+            ("CLAUDE-SONNET-4-5", True),
+            ("unknown-model", False),
+            ("gpt-4o-extra", False),
+        ],
+    )
+    def test_case_insensitive_exact_matching(self, model_id: str, expected: bool):
+        allowlist = frozenset({"gpt-4o", "claude-sonnet-4-5"})
+        assert _model_matches_allowlist(model_id, allowlist) == expected
 
 
 class TestIsModelAvailable:
@@ -347,7 +359,7 @@ class TestIsModelAvailable:
                 os.environ.pop(var, None)
             with patch(
                 "llm_gateway.services.model_registry.get_settings",
-                return_value=create_mock_settings(openai=False, anthropic=True, gemini=True),
+                return_value=create_mock_settings(openai=False, anthropic=True),
             ):
                 assert is_model_available("gpt-4o", "llm_gateway") is False
-                assert is_model_available("claude-3-5-sonnet-20241022", "llm_gateway") is True
+                assert is_model_available("claude-sonnet-4-5", "llm_gateway") is True

@@ -1,0 +1,1782 @@
+{
+    "capturedAt": "2026-04-23T14:12:08.030Z",
+    "viewport": {
+        "width": 1280,
+        "height": 800
+    },
+    "themes": ["light", "dark"],
+    "count": 177,
+    "stories": {
+        "examples-layout--default": {
+            "id": "examples-layout--default",
+            "title": "Examples/Layout",
+            "name": "Default",
+            "importPath": "./stories/layout.stories.tsx",
+            "screenshots": {
+                "dark": "dark/examples-layout--default.png",
+                "light": "light/examples-layout--default.png"
+            }
+        },
+        "tokens-colors--all-colors": {
+            "id": "tokens-colors--all-colors",
+            "title": "Tokens/Colors",
+            "name": "All Colors",
+            "importPath": "./stories/colors.stories.tsx",
+            "screenshots": {
+                "dark": "dark/tokens-colors--all-colors.png",
+                "light": "light/tokens-colors--all-colors.png"
+            }
+        },
+        "tokens-shadows--all-shadows": {
+            "id": "tokens-shadows--all-shadows",
+            "title": "Tokens/Shadows",
+            "name": "All Shadows",
+            "importPath": "./stories/shadows.stories.tsx",
+            "screenshots": {
+                "light": "light/tokens-shadows--all-shadows.png",
+                "dark": "dark/tokens-shadows--all-shadows.png"
+            }
+        },
+        "tokens-typography--default": {
+            "id": "tokens-typography--default",
+            "title": "Tokens/Typography",
+            "name": "Default",
+            "importPath": "./stories/typography.stories.tsx",
+            "screenshots": {
+                "light": "light/tokens-typography--default.png",
+                "dark": "dark/tokens-typography--default.png"
+            }
+        },
+        "components-datetimepicker--default": {
+            "id": "components-datetimepicker--default",
+            "title": "Components/DateTimePicker",
+            "name": "Default",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--default.png",
+                "dark": "dark/components-datetimepicker--default.png"
+            }
+        },
+        "components-datetimepicker--this-component-is-experimental": {
+            "id": "components-datetimepicker--this-component-is-experimental",
+            "title": "Components/DateTimePicker",
+            "name": "THIS COMPONENT IS EXPERIMENTAL",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--this-component-is-experimental.png",
+                "dark": "dark/components-datetimepicker--this-component-is-experimental.png"
+            }
+        },
+        "components-datetimepicker--in-popover": {
+            "id": "components-datetimepicker--in-popover",
+            "title": "Components/DateTimePicker",
+            "name": "In Popover",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--in-popover.png",
+                "dark": "dark/components-datetimepicker--in-popover.png"
+            }
+        },
+        "components-datetimepicker--custom-max-date": {
+            "id": "components-datetimepicker--custom-max-date",
+            "title": "Components/DateTimePicker",
+            "name": "Custom Max Date",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--custom-max-date.png",
+                "dark": "dark/components-datetimepicker--custom-max-date.png"
+            }
+        },
+        "components-datetimepicker--custom-min-date": {
+            "id": "components-datetimepicker--custom-min-date",
+            "title": "Components/DateTimePicker",
+            "name": "Custom Min Date",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--custom-min-date.png",
+                "dark": "dark/components-datetimepicker--custom-min-date.png"
+            }
+        },
+        "components-datetimepicker--min-date-and-max-date": {
+            "id": "components-datetimepicker--min-date-and-max-date",
+            "title": "Components/DateTimePicker",
+            "name": "Min Date And Max Date",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--min-date-and-max-date.png",
+                "dark": "dark/components-datetimepicker--min-date-and-max-date.png"
+            }
+        },
+        "components-datetimepicker--european-date-format": {
+            "id": "components-datetimepicker--european-date-format",
+            "title": "Components/DateTimePicker",
+            "name": "European Date Format",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--european-date-format.png",
+                "dark": "dark/components-datetimepicker--european-date-format.png"
+            }
+        },
+        "components-datetimepicker--iso-date-format": {
+            "id": "components-datetimepicker--iso-date-format",
+            "title": "Components/DateTimePicker",
+            "name": "ISO Date Format",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--iso-date-format.png",
+                "dark": "dark/components-datetimepicker--iso-date-format.png"
+            }
+        },
+        "components-datetimepicker--with-settings-link": {
+            "id": "components-datetimepicker--with-settings-link",
+            "title": "Components/DateTimePicker",
+            "name": "With Settings Link",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--with-settings-link.png",
+                "dark": "dark/components-datetimepicker--with-settings-link.png"
+            }
+        },
+        "components-datetimepicker--week-starts-thursday": {
+            "id": "components-datetimepicker--week-starts-thursday",
+            "title": "Components/DateTimePicker",
+            "name": "Week Starts Thursday",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--week-starts-thursday.png",
+                "dark": "dark/components-datetimepicker--week-starts-thursday.png"
+            }
+        },
+        "components-datetimepicker--narrow-container": {
+            "id": "components-datetimepicker--narrow-container",
+            "title": "Components/DateTimePicker",
+            "name": "Narrow Container",
+            "importPath": "../../packages/components/src/date-time-picker.stories.tsx",
+            "screenshots": {
+                "light": "light/components-datetimepicker--narrow-container.png",
+                "dark": "dark/components-datetimepicker--narrow-container.png"
+            }
+        },
+        "primitives-accordion--default": {
+            "id": "primitives-accordion--default",
+            "title": "Primitives/Accordion",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/accordian.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-accordion--default.png",
+                "dark": "dark/primitives-accordion--default.png"
+            }
+        },
+        "primitives-accordion--multiple": {
+            "id": "primitives-accordion--multiple",
+            "title": "Primitives/Accordion",
+            "name": "Multiple",
+            "importPath": "../../packages/primitives/src/accordian.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-accordion--multiple.png",
+                "dark": "dark/primitives-accordion--multiple.png"
+            }
+        },
+        "primitives-badge--default": {
+            "id": "primitives-badge--default",
+            "title": "Primitives/Badge",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/badge.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-badge--default.png",
+                "dark": "dark/primitives-badge--default.png"
+            }
+        },
+        "primitives-badge--with-icons": {
+            "id": "primitives-badge--with-icons",
+            "title": "Primitives/Badge",
+            "name": "With Icons",
+            "importPath": "../../packages/primitives/src/badge.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-badge--with-icons.png",
+                "dark": "dark/primitives-badge--with-icons.png"
+            }
+        },
+        "primitives-button-group--default": {
+            "id": "primitives-button-group--default",
+            "title": "Primitives/Button Group",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/button-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button-group--default.png",
+                "dark": "dark/primitives-button-group--default.png"
+            }
+        },
+        "primitives-button-group--vertical": {
+            "id": "primitives-button-group--vertical",
+            "title": "Primitives/Button Group",
+            "name": "Vertical",
+            "importPath": "../../packages/primitives/src/button-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button-group--vertical.png",
+                "dark": "dark/primitives-button-group--vertical.png"
+            }
+        },
+        "primitives-button--default": {
+            "id": "primitives-button--default",
+            "title": "Primitives/Button",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--default.png",
+                "dark": "dark/primitives-button--default.png"
+            }
+        },
+        "primitives-button--variant-default": {
+            "id": "primitives-button--variant-default",
+            "title": "Primitives/Button",
+            "name": "Variant Default",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--variant-default.png",
+                "dark": "dark/primitives-button--variant-default.png"
+            }
+        },
+        "primitives-button--with-icons": {
+            "id": "primitives-button--with-icons",
+            "title": "Primitives/Button",
+            "name": "With Icons",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--with-icons.png",
+                "dark": "dark/primitives-button--with-icons.png"
+            }
+        },
+        "primitives-button--with-kbd": {
+            "id": "primitives-button--with-kbd",
+            "title": "Primitives/Button",
+            "name": "With KBD",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--with-kbd.png",
+                "dark": "dark/primitives-button--with-kbd.png"
+            }
+        },
+        "primitives-button--icon-only": {
+            "id": "primitives-button--icon-only",
+            "title": "Primitives/Button",
+            "name": "Icon Only",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--icon-only.png",
+                "dark": "dark/primitives-button--icon-only.png"
+            }
+        },
+        "primitives-button--sizes": {
+            "id": "primitives-button--sizes",
+            "title": "Primitives/Button",
+            "name": "Sizes",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--sizes.png",
+                "dark": "dark/primitives-button--sizes.png"
+            }
+        },
+        "primitives-button--disabled": {
+            "id": "primitives-button--disabled",
+            "title": "Primitives/Button",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--disabled.png",
+                "dark": "dark/primitives-button--disabled.png"
+            }
+        },
+        "primitives-button--misc": {
+            "id": "primitives-button--misc",
+            "title": "Primitives/Button",
+            "name": "Misc",
+            "importPath": "../../packages/primitives/src/button.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-button--misc.png",
+                "dark": "dark/primitives-button--misc.png"
+            }
+        },
+        "primitives-card-group--default": {
+            "id": "primitives-card-group--default",
+            "title": "Primitives/Card Group",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/card-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card-group--default.png",
+                "dark": "dark/primitives-card-group--default.png"
+            }
+        },
+        "primitives-card-group--small": {
+            "id": "primitives-card-group--small",
+            "title": "Primitives/Card Group",
+            "name": "Small",
+            "importPath": "../../packages/primitives/src/card-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card-group--small.png",
+                "dark": "dark/primitives-card-group--small.png"
+            }
+        },
+        "primitives-card-group--multiple": {
+            "id": "primitives-card-group--multiple",
+            "title": "Primitives/Card Group",
+            "name": "Multiple",
+            "importPath": "../../packages/primitives/src/card-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card-group--multiple.png",
+                "dark": "dark/primitives-card-group--multiple.png"
+            }
+        },
+        "primitives-card--default": {
+            "id": "primitives-card--default",
+            "title": "Primitives/Card",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/card.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card--default.png",
+                "dark": "dark/primitives-card--default.png"
+            }
+        },
+        "primitives-card--sizes": {
+            "id": "primitives-card--sizes",
+            "title": "Primitives/Card",
+            "name": "Sizes",
+            "importPath": "../../packages/primitives/src/card.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card--sizes.png",
+                "dark": "dark/primitives-card--sizes.png"
+            }
+        },
+        "primitives-card--no-content": {
+            "id": "primitives-card--no-content",
+            "title": "Primitives/Card",
+            "name": "No Content",
+            "importPath": "../../packages/primitives/src/card.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card--no-content.png",
+                "dark": "dark/primitives-card--no-content.png"
+            }
+        },
+        "primitives-card--with-actions": {
+            "id": "primitives-card--with-actions",
+            "title": "Primitives/Card",
+            "name": "With Actions",
+            "importPath": "../../packages/primitives/src/card.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card--with-actions.png",
+                "dark": "dark/primitives-card--with-actions.png"
+            }
+        },
+        "primitives-card--card-with-items": {
+            "id": "primitives-card--card-with-items",
+            "title": "Primitives/Card",
+            "name": "Card With Items",
+            "importPath": "../../packages/primitives/src/card.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-card--card-with-items.png",
+                "dark": "dark/primitives-card--card-with-items.png"
+            }
+        },
+        "primitives-checkbox--default": {
+            "id": "primitives-checkbox--default",
+            "title": "Primitives/Checkbox",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/checkbox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-checkbox--default.png",
+                "dark": "dark/primitives-checkbox--default.png"
+            }
+        },
+        "primitives-checkbox--with-field-group": {
+            "id": "primitives-checkbox--with-field-group",
+            "title": "Primitives/Checkbox",
+            "name": "With Field Group",
+            "importPath": "../../packages/primitives/src/checkbox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-checkbox--with-field-group.png",
+                "dark": "dark/primitives-checkbox--with-field-group.png"
+            }
+        },
+        "primitives-checkbox--with-field-description": {
+            "id": "primitives-checkbox--with-field-description",
+            "title": "Primitives/Checkbox",
+            "name": "With Field Description",
+            "importPath": "../../packages/primitives/src/checkbox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-checkbox--with-field-description.png",
+                "dark": "dark/primitives-checkbox--with-field-description.png"
+            }
+        },
+        "primitives-checkbox--with-field-label": {
+            "id": "primitives-checkbox--with-field-label",
+            "title": "Primitives/Checkbox",
+            "name": "With Field Label",
+            "importPath": "../../packages/primitives/src/checkbox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-checkbox--with-field-label.png",
+                "dark": "dark/primitives-checkbox--with-field-label.png"
+            }
+        },
+        "primitives-chip--default": {
+            "id": "primitives-chip--default",
+            "title": "Primitives/Chip",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--default.png",
+                "dark": "dark/primitives-chip--default.png"
+            }
+        },
+        "primitives-chip--with-close": {
+            "id": "primitives-chip--with-close",
+            "title": "Primitives/Chip",
+            "name": "With Close",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--with-close.png",
+                "dark": "dark/primitives-chip--with-close.png"
+            }
+        },
+        "primitives-chip--with-icon": {
+            "id": "primitives-chip--with-icon",
+            "title": "Primitives/Chip",
+            "name": "With Icon",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--with-icon.png",
+                "dark": "dark/primitives-chip--with-icon.png"
+            }
+        },
+        "primitives-chip--with-icon-and-close": {
+            "id": "primitives-chip--with-icon-and-close",
+            "title": "Primitives/Chip",
+            "name": "With Icon And Close",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--with-icon-and-close.png",
+                "dark": "dark/primitives-chip--with-icon-and-close.png"
+            }
+        },
+        "primitives-chip--variants": {
+            "id": "primitives-chip--variants",
+            "title": "Primitives/Chip",
+            "name": "Variants",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--variants.png",
+                "dark": "dark/primitives-chip--variants.png"
+            }
+        },
+        "primitives-chip--sizes": {
+            "id": "primitives-chip--sizes",
+            "title": "Primitives/Chip",
+            "name": "Sizes",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--sizes.png",
+                "dark": "dark/primitives-chip--sizes.png"
+            }
+        },
+        "primitives-chip--group": {
+            "id": "primitives-chip--group",
+            "title": "Primitives/Chip",
+            "name": "Group",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--group.png",
+                "dark": "dark/primitives-chip--group.png"
+            }
+        },
+        "primitives-chip--disabled": {
+            "id": "primitives-chip--disabled",
+            "title": "Primitives/Chip",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/chip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-chip--disabled.png",
+                "dark": "dark/primitives-chip--disabled.png"
+            }
+        },
+        "primitives-collapsible--default": {
+            "id": "primitives-collapsible--default",
+            "title": "Primitives/Collapsible",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/collapsible.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-collapsible--default.png",
+                "dark": "dark/primitives-collapsible--default.png"
+            }
+        },
+        "primitives-collapsible--folder": {
+            "id": "primitives-collapsible--folder",
+            "title": "Primitives/Collapsible",
+            "name": "Folder",
+            "importPath": "../../packages/primitives/src/collapsible.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-collapsible--folder.png",
+                "dark": "dark/primitives-collapsible--folder.png"
+            }
+        },
+        "primitives-combobox--default": {
+            "id": "primitives-combobox--default",
+            "title": "Primitives/Combobox",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--default.png",
+                "dark": "dark/primitives-combobox--default.png"
+            }
+        },
+        "primitives-combobox--multiple": {
+            "id": "primitives-combobox--multiple",
+            "title": "Primitives/Combobox",
+            "name": "Multiple",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--multiple.png",
+                "dark": "dark/primitives-combobox--multiple.png"
+            }
+        },
+        "primitives-combobox--clearable": {
+            "id": "primitives-combobox--clearable",
+            "title": "Primitives/Combobox",
+            "name": "Clearable",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--clearable.png",
+                "dark": "dark/primitives-combobox--clearable.png"
+            }
+        },
+        "primitives-combobox--groups-and-separators": {
+            "id": "primitives-combobox--groups-and-separators",
+            "title": "Primitives/Combobox",
+            "name": "Groups And Separators",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--groups-and-separators.png",
+                "dark": "dark/primitives-combobox--groups-and-separators.png"
+            }
+        },
+        "primitives-combobox--custom-items": {
+            "id": "primitives-combobox--custom-items",
+            "title": "Primitives/Combobox",
+            "name": "Custom Items",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--custom-items.png",
+                "dark": "dark/primitives-combobox--custom-items.png"
+            }
+        },
+        "primitives-combobox--input-inside-popup": {
+            "id": "primitives-combobox--input-inside-popup",
+            "title": "Primitives/Combobox",
+            "name": "Input Inside Popup",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--input-inside-popup.png",
+                "dark": "dark/primitives-combobox--input-inside-popup.png"
+            }
+        },
+        "primitives-combobox--input-inside-popup-overflow": {
+            "id": "primitives-combobox--input-inside-popup-overflow",
+            "title": "Primitives/Combobox",
+            "name": "Input Inside Popup Overflow",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--input-inside-popup-overflow.png",
+                "dark": "dark/primitives-combobox--input-inside-popup-overflow.png"
+            }
+        },
+        "primitives-combobox--input-inside-popup-with-footer": {
+            "id": "primitives-combobox--input-inside-popup-with-footer",
+            "title": "Primitives/Combobox",
+            "name": "Input Inside Popup With Footer",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--input-inside-popup-with-footer.png",
+                "dark": "dark/primitives-combobox--input-inside-popup-with-footer.png"
+            }
+        },
+        "primitives-combobox--invalid": {
+            "id": "primitives-combobox--invalid",
+            "title": "Primitives/Combobox",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--invalid.png",
+                "dark": "dark/primitives-combobox--invalid.png"
+            }
+        },
+        "primitives-combobox--empty": {
+            "id": "primitives-combobox--empty",
+            "title": "Primitives/Combobox",
+            "name": "Empty",
+            "importPath": "../../packages/primitives/src/combobox.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-combobox--empty.png",
+                "dark": "dark/primitives-combobox--empty.png"
+            }
+        },
+        "primitives-contextmenu--default": {
+            "id": "primitives-contextmenu--default",
+            "title": "Primitives/ContextMenu",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/context-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-contextmenu--default.png",
+                "dark": "dark/primitives-contextmenu--default.png"
+            }
+        },
+        "primitives-contextmenu--checkboxes": {
+            "id": "primitives-contextmenu--checkboxes",
+            "title": "Primitives/ContextMenu",
+            "name": "Checkboxes",
+            "importPath": "../../packages/primitives/src/context-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-contextmenu--checkboxes.png",
+                "dark": "dark/primitives-contextmenu--checkboxes.png"
+            }
+        },
+        "primitives-contextmenu--radios": {
+            "id": "primitives-contextmenu--radios",
+            "title": "Primitives/ContextMenu",
+            "name": "Radios",
+            "importPath": "../../packages/primitives/src/context-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-contextmenu--radios.png",
+                "dark": "dark/primitives-contextmenu--radios.png"
+            }
+        },
+        "primitives-dialog--default": {
+            "id": "primitives-dialog--default",
+            "title": "Primitives/Dialog",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/dialog.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dialog--default.png",
+                "dark": "dark/primitives-dialog--default.png"
+            }
+        },
+        "primitives-dialog--with-random": {
+            "id": "primitives-dialog--with-random",
+            "title": "Primitives/Dialog",
+            "name": "With Random",
+            "importPath": "../../packages/primitives/src/dialog.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dialog--with-random.png",
+                "dark": "dark/primitives-dialog--with-random.png"
+            }
+        },
+        "primitives-dialog--nested": {
+            "id": "primitives-dialog--nested",
+            "title": "Primitives/Dialog",
+            "name": "Nested",
+            "importPath": "../../packages/primitives/src/dialog.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dialog--nested.png",
+                "dark": "dark/primitives-dialog--nested.png"
+            }
+        },
+        "primitives-dialog--scrollable-content": {
+            "id": "primitives-dialog--scrollable-content",
+            "title": "Primitives/Dialog",
+            "name": "Scrollable Content",
+            "importPath": "../../packages/primitives/src/dialog.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dialog--scrollable-content.png",
+                "dark": "dark/primitives-dialog--scrollable-content.png"
+            }
+        },
+        "primitives-dot--default": {
+            "id": "primitives-dot--default",
+            "title": "Primitives/Dot",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/dot.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dot--default.png",
+                "dark": "dark/primitives-dot--default.png"
+            }
+        },
+        "primitives-dot--pulse": {
+            "id": "primitives-dot--pulse",
+            "title": "Primitives/Dot",
+            "name": "Pulse",
+            "importPath": "../../packages/primitives/src/dot.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dot--pulse.png",
+                "dark": "dark/primitives-dot--pulse.png"
+            }
+        },
+        "primitives-dot--in-button": {
+            "id": "primitives-dot--in-button",
+            "title": "Primitives/Dot",
+            "name": "In Button",
+            "importPath": "../../packages/primitives/src/dot.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dot--in-button.png",
+                "dark": "dark/primitives-dot--in-button.png"
+            }
+        },
+        "primitives-dropdownmenu--default": {
+            "id": "primitives-dropdownmenu--default",
+            "title": "Primitives/DropdownMenu",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/dropdown-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dropdownmenu--default.png",
+                "dark": "dark/primitives-dropdownmenu--default.png"
+            }
+        },
+        "primitives-dropdownmenu--labels": {
+            "id": "primitives-dropdownmenu--labels",
+            "title": "Primitives/DropdownMenu",
+            "name": "Labels",
+            "importPath": "../../packages/primitives/src/dropdown-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dropdownmenu--labels.png",
+                "dark": "dark/primitives-dropdownmenu--labels.png"
+            }
+        },
+        "primitives-dropdownmenu--checkboxes": {
+            "id": "primitives-dropdownmenu--checkboxes",
+            "title": "Primitives/DropdownMenu",
+            "name": "Checkboxes",
+            "importPath": "../../packages/primitives/src/dropdown-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dropdownmenu--checkboxes.png",
+                "dark": "dark/primitives-dropdownmenu--checkboxes.png"
+            }
+        },
+        "primitives-dropdownmenu--radios": {
+            "id": "primitives-dropdownmenu--radios",
+            "title": "Primitives/DropdownMenu",
+            "name": "Radios",
+            "importPath": "../../packages/primitives/src/dropdown-menu.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-dropdownmenu--radios.png",
+                "dark": "dark/primitives-dropdownmenu--radios.png"
+            }
+        },
+        "primitives-empty-empty--default": {
+            "id": "primitives-empty-empty--default",
+            "title": "Primitives/Empty/Empty",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/empty.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-empty-empty--default.png",
+                "dark": "dark/primitives-empty-empty--default.png"
+            }
+        },
+        "primitives-field--default": {
+            "id": "primitives-field--default",
+            "title": "Primitives/Field",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-field--default.png",
+                "dark": "dark/primitives-field--default.png"
+            }
+        },
+        "primitives-field--horizontal": {
+            "id": "primitives-field--horizontal",
+            "title": "Primitives/Field",
+            "name": "Horizontal",
+            "importPath": "../../packages/primitives/src/field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-field--horizontal.png",
+                "dark": "dark/primitives-field--horizontal.png"
+            }
+        },
+        "primitives-field--with-description": {
+            "id": "primitives-field--with-description",
+            "title": "Primitives/Field",
+            "name": "With Description",
+            "importPath": "../../packages/primitives/src/field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-field--with-description.png",
+                "dark": "dark/primitives-field--with-description.png"
+            }
+        },
+        "primitives-field--invalid": {
+            "id": "primitives-field--invalid",
+            "title": "Primitives/Field",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-field--invalid.png",
+                "dark": "dark/primitives-field--invalid.png"
+            }
+        },
+        "primitives-field--invalid-with-error": {
+            "id": "primitives-field--invalid-with-error",
+            "title": "Primitives/Field",
+            "name": "Invalid With Error",
+            "importPath": "../../packages/primitives/src/field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-field--invalid-with-error.png",
+                "dark": "dark/primitives-field--invalid-with-error.png"
+            }
+        },
+        "primitives-input-group--default": {
+            "id": "primitives-input-group--default",
+            "title": "Primitives/Input Group",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--default.png",
+                "dark": "dark/primitives-input-group--default.png"
+            }
+        },
+        "primitives-input-group--inline-start": {
+            "id": "primitives-input-group--inline-start",
+            "title": "Primitives/Input Group",
+            "name": "Inline Start",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--inline-start.png",
+                "dark": "dark/primitives-input-group--inline-start.png"
+            }
+        },
+        "primitives-input-group--inline-end": {
+            "id": "primitives-input-group--inline-end",
+            "title": "Primitives/Input Group",
+            "name": "Inline End",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--inline-end.png",
+                "dark": "dark/primitives-input-group--inline-end.png"
+            }
+        },
+        "primitives-input-group--block-start": {
+            "id": "primitives-input-group--block-start",
+            "title": "Primitives/Input Group",
+            "name": "Block Start",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--block-start.png",
+                "dark": "dark/primitives-input-group--block-start.png"
+            }
+        },
+        "primitives-input-group--block-end": {
+            "id": "primitives-input-group--block-end",
+            "title": "Primitives/Input Group",
+            "name": "Block End",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--block-end.png",
+                "dark": "dark/primitives-input-group--block-end.png"
+            }
+        },
+        "primitives-input-group--icons": {
+            "id": "primitives-input-group--icons",
+            "title": "Primitives/Input Group",
+            "name": "Icons",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--icons.png",
+                "dark": "dark/primitives-input-group--icons.png"
+            }
+        },
+        "primitives-input-group--text": {
+            "id": "primitives-input-group--text",
+            "title": "Primitives/Input Group",
+            "name": "Text",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--text.png",
+                "dark": "dark/primitives-input-group--text.png"
+            }
+        },
+        "primitives-input-group--buttons": {
+            "id": "primitives-input-group--buttons",
+            "title": "Primitives/Input Group",
+            "name": "Buttons",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--buttons.png",
+                "dark": "dark/primitives-input-group--buttons.png"
+            }
+        },
+        "primitives-input-group--loading": {
+            "id": "primitives-input-group--loading",
+            "title": "Primitives/Input Group",
+            "name": "Loading",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--loading.png",
+                "dark": "dark/primitives-input-group--loading.png"
+            }
+        },
+        "primitives-input-group--invalid": {
+            "id": "primitives-input-group--invalid",
+            "title": "Primitives/Input Group",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--invalid.png",
+                "dark": "dark/primitives-input-group--invalid.png"
+            }
+        },
+        "primitives-input-group--kbd": {
+            "id": "primitives-input-group--kbd",
+            "title": "Primitives/Input Group",
+            "name": "KBD",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--kbd.png",
+                "dark": "dark/primitives-input-group--kbd.png"
+            }
+        },
+        "primitives-input-group--textarea": {
+            "id": "primitives-input-group--textarea",
+            "title": "Primitives/Input Group",
+            "name": "Textarea",
+            "importPath": "../../packages/primitives/src/input-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input-group--textarea.png",
+                "dark": "dark/primitives-input-group--textarea.png"
+            }
+        },
+        "primitives-input--default": {
+            "id": "primitives-input--default",
+            "title": "Primitives/Input",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--default.png",
+                "dark": "dark/primitives-input--default.png"
+            }
+        },
+        "primitives-input--with-label": {
+            "id": "primitives-input--with-label",
+            "title": "Primitives/Input",
+            "name": "With Label",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--with-label.png",
+                "dark": "dark/primitives-input--with-label.png"
+            }
+        },
+        "primitives-input--with-description": {
+            "id": "primitives-input--with-description",
+            "title": "Primitives/Input",
+            "name": "With Description",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--with-description.png",
+                "dark": "dark/primitives-input--with-description.png"
+            }
+        },
+        "primitives-input--password": {
+            "id": "primitives-input--password",
+            "title": "Primitives/Input",
+            "name": "Password",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--password.png",
+                "dark": "dark/primitives-input--password.png"
+            }
+        },
+        "primitives-input--disabled": {
+            "id": "primitives-input--disabled",
+            "title": "Primitives/Input",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--disabled.png",
+                "dark": "dark/primitives-input--disabled.png"
+            }
+        },
+        "primitives-input--invalid": {
+            "id": "primitives-input--invalid",
+            "title": "Primitives/Input",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/input.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-input--invalid.png",
+                "dark": "dark/primitives-input--invalid.png"
+            }
+        },
+        "primitives-item--default": {
+            "id": "primitives-item--default",
+            "title": "Primitives/Item",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--default.png",
+                "dark": "dark/primitives-item--default.png"
+            }
+        },
+        "primitives-item--pressable": {
+            "id": "primitives-item--pressable",
+            "title": "Primitives/Item",
+            "name": "Pressable",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--pressable.png",
+                "dark": "dark/primitives-item--pressable.png"
+            }
+        },
+        "primitives-item--group": {
+            "id": "primitives-item--group",
+            "title": "Primitives/Item",
+            "name": "Group",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--group.png",
+                "dark": "dark/primitives-item--group.png"
+            }
+        },
+        "primitives-item--group-list": {
+            "id": "primitives-item--group-list",
+            "title": "Primitives/Item",
+            "name": "Group List",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--group-list.png",
+                "dark": "dark/primitives-item--group-list.png"
+            }
+        },
+        "primitives-item--dropdown-in-item": {
+            "id": "primitives-item--dropdown-in-item",
+            "title": "Primitives/Item",
+            "name": "Dropdown In Item",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--dropdown-in-item.png",
+                "dark": "dark/primitives-item--dropdown-in-item.png"
+            }
+        },
+        "primitives-item--dropdown-checkboxes-in-item": {
+            "id": "primitives-item--dropdown-checkboxes-in-item",
+            "title": "Primitives/Item",
+            "name": "Dropdown Checkboxes In Item",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--dropdown-checkboxes-in-item.png",
+                "dark": "dark/primitives-item--dropdown-checkboxes-in-item.png"
+            }
+        },
+        "primitives-item--dropdown-radios-in-item": {
+            "id": "primitives-item--dropdown-radios-in-item",
+            "title": "Primitives/Item",
+            "name": "Dropdown Radios In Item",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--dropdown-radios-in-item.png",
+                "dark": "dark/primitives-item--dropdown-radios-in-item.png"
+            }
+        },
+        "primitives-item--select-in-item": {
+            "id": "primitives-item--select-in-item",
+            "title": "Primitives/Item",
+            "name": "Select In Item",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--select-in-item.png",
+                "dark": "dark/primitives-item--select-in-item.png"
+            }
+        },
+        "primitives-item--combobox-in-item": {
+            "id": "primitives-item--combobox-in-item",
+            "title": "Primitives/Item",
+            "name": "Combobox In Item",
+            "importPath": "../../packages/primitives/src/item.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-item--combobox-in-item.png",
+                "dark": "dark/primitives-item--combobox-in-item.png"
+            }
+        },
+        "primitives-kbd--default": {
+            "id": "primitives-kbd--default",
+            "title": "Primitives/Kbd",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/kbd.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-kbd--default.png",
+                "dark": "dark/primitives-kbd--default.png"
+            }
+        },
+        "primitives-kbd--with-field": {
+            "id": "primitives-kbd--with-field",
+            "title": "Primitives/Kbd",
+            "name": "With Field",
+            "importPath": "../../packages/primitives/src/kbd.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-kbd--with-field.png",
+                "dark": "dark/primitives-kbd--with-field.png"
+            }
+        },
+        "primitives-label--default": {
+            "id": "primitives-label--default",
+            "title": "Primitives/Label",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/label.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-label--default.png",
+                "dark": "dark/primitives-label--default.png"
+            }
+        },
+        "primitives-label--with-field": {
+            "id": "primitives-label--with-field",
+            "title": "Primitives/Label",
+            "name": "With Field",
+            "importPath": "../../packages/primitives/src/label.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-label--with-field.png",
+                "dark": "dark/primitives-label--with-field.png"
+            }
+        },
+        "primitives-empty-menuempty--default": {
+            "id": "primitives-empty-menuempty--default",
+            "title": "Primitives/Empty/MenuEmpty",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/menu-empty.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-empty-menuempty--default.png",
+                "dark": "dark/primitives-empty-menuempty--default.png"
+            }
+        },
+        "primitives-empty-menuempty--in-combobox": {
+            "id": "primitives-empty-menuempty--in-combobox",
+            "title": "Primitives/Empty/MenuEmpty",
+            "name": "In Combobox",
+            "importPath": "../../packages/primitives/src/menu-empty.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-empty-menuempty--in-combobox.png",
+                "dark": "dark/primitives-empty-menuempty--in-combobox.png"
+            }
+        },
+        "primitives-empty-menuempty--with-filtered-results": {
+            "id": "primitives-empty-menuempty--with-filtered-results",
+            "title": "Primitives/Empty/MenuEmpty",
+            "name": "With Filtered Results",
+            "importPath": "../../packages/primitives/src/menu-empty.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-empty-menuempty--with-filtered-results.png",
+                "dark": "dark/primitives-empty-menuempty--with-filtered-results.png"
+            }
+        },
+        "primitives-numberfield--default": {
+            "id": "primitives-numberfield--default",
+            "title": "Primitives/NumberField",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/number-field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-numberfield--default.png",
+                "dark": "dark/primitives-numberfield--default.png"
+            }
+        },
+        "primitives-numberfield--with-min-max": {
+            "id": "primitives-numberfield--with-min-max",
+            "title": "Primitives/NumberField",
+            "name": "With Min Max",
+            "importPath": "../../packages/primitives/src/number-field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-numberfield--with-min-max.png",
+                "dark": "dark/primitives-numberfield--with-min-max.png"
+            }
+        },
+        "primitives-numberfield--with-scrub-area": {
+            "id": "primitives-numberfield--with-scrub-area",
+            "title": "Primitives/NumberField",
+            "name": "With Scrub Area",
+            "importPath": "../../packages/primitives/src/number-field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-numberfield--with-scrub-area.png",
+                "dark": "dark/primitives-numberfield--with-scrub-area.png"
+            }
+        },
+        "primitives-numberfield--small-compact": {
+            "id": "primitives-numberfield--small-compact",
+            "title": "Primitives/NumberField",
+            "name": "Small Compact",
+            "importPath": "../../packages/primitives/src/number-field.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-numberfield--small-compact.png",
+                "dark": "dark/primitives-numberfield--small-compact.png"
+            }
+        },
+        "primitives-popover--default": {
+            "id": "primitives-popover--default",
+            "title": "Primitives/Popover",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/popover.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-popover--default.png",
+                "dark": "dark/primitives-popover--default.png"
+            }
+        },
+        "primitives-progress--default": {
+            "id": "primitives-progress--default",
+            "title": "Primitives/Progress",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/progress.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-progress--default.png",
+                "dark": "dark/primitives-progress--default.png"
+            }
+        },
+        "primitives-radio-group--default": {
+            "id": "primitives-radio-group--default",
+            "title": "Primitives/Radio Group",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--default.png",
+                "dark": "dark/primitives-radio-group--default.png"
+            }
+        },
+        "primitives-radio-group--description": {
+            "id": "primitives-radio-group--description",
+            "title": "Primitives/Radio Group",
+            "name": "Description",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--description.png",
+                "dark": "dark/primitives-radio-group--description.png"
+            }
+        },
+        "primitives-radio-group--choice-card": {
+            "id": "primitives-radio-group--choice-card",
+            "title": "Primitives/Radio Group",
+            "name": "Choice Card",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--choice-card.png",
+                "dark": "dark/primitives-radio-group--choice-card.png"
+            }
+        },
+        "primitives-radio-group--field-set": {
+            "id": "primitives-radio-group--field-set",
+            "title": "Primitives/Radio Group",
+            "name": "Field Set",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--field-set.png",
+                "dark": "dark/primitives-radio-group--field-set.png"
+            }
+        },
+        "primitives-radio-group--disabled": {
+            "id": "primitives-radio-group--disabled",
+            "title": "Primitives/Radio Group",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--disabled.png",
+                "dark": "dark/primitives-radio-group--disabled.png"
+            }
+        },
+        "primitives-radio-group--invalid": {
+            "id": "primitives-radio-group--invalid",
+            "title": "Primitives/Radio Group",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/radio-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-radio-group--invalid.png",
+                "dark": "dark/primitives-radio-group--invalid.png"
+            }
+        },
+        "primitives-resizable--default": {
+            "id": "primitives-resizable--default",
+            "title": "Primitives/Resizable",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/resizable.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-resizable--default.png",
+                "dark": "dark/primitives-resizable--default.png"
+            }
+        },
+        "primitives-scrollarea--default": {
+            "id": "primitives-scrollarea--default",
+            "title": "Primitives/ScrollArea",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--default.png",
+                "dark": "dark/primitives-scrollarea--default.png"
+            }
+        },
+        "primitives-scrollarea--horizontal": {
+            "id": "primitives-scrollarea--horizontal",
+            "title": "Primitives/ScrollArea",
+            "name": "Horizontal",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--horizontal.png",
+                "dark": "dark/primitives-scrollarea--horizontal.png"
+            }
+        },
+        "primitives-scrollarea--all-directions": {
+            "id": "primitives-scrollarea--all-directions",
+            "title": "Primitives/ScrollArea",
+            "name": "All Directions",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--all-directions.png",
+                "dark": "dark/primitives-scrollarea--all-directions.png"
+            }
+        },
+        "primitives-scrollarea--always-show-scrollbars": {
+            "id": "primitives-scrollarea--always-show-scrollbars",
+            "title": "Primitives/ScrollArea",
+            "name": "Always Show Scrollbars",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--always-show-scrollbars.png",
+                "dark": "dark/primitives-scrollarea--always-show-scrollbars.png"
+            }
+        },
+        "primitives-scrollarea--scroll-to-button-vertical": {
+            "id": "primitives-scrollarea--scroll-to-button-vertical",
+            "title": "Primitives/ScrollArea",
+            "name": "Scroll To Button Vertical",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--scroll-to-button-vertical.png",
+                "dark": "dark/primitives-scrollarea--scroll-to-button-vertical.png"
+            }
+        },
+        "primitives-scrollarea--scroll-to-button-all-directions": {
+            "id": "primitives-scrollarea--scroll-to-button-all-directions",
+            "title": "Primitives/ScrollArea",
+            "name": "Scroll To Button All Directions",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--scroll-to-button-all-directions.png",
+                "dark": "dark/primitives-scrollarea--scroll-to-button-all-directions.png"
+            }
+        },
+        "primitives-scrollarea--hide-scrollbars-all-directions": {
+            "id": "primitives-scrollarea--hide-scrollbars-all-directions",
+            "title": "Primitives/ScrollArea",
+            "name": "Hide Scrollbars All Directions",
+            "importPath": "../../packages/primitives/src/scroll-area.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-scrollarea--hide-scrollbars-all-directions.png",
+                "dark": "dark/primitives-scrollarea--hide-scrollbars-all-directions.png"
+            }
+        },
+        "primitives-select--default": {
+            "id": "primitives-select--default",
+            "title": "Primitives/Select",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/select.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-select--default.png",
+                "dark": "dark/primitives-select--default.png"
+            }
+        },
+        "primitives-select--groups-and-separators": {
+            "id": "primitives-select--groups-and-separators",
+            "title": "Primitives/Select",
+            "name": "Groups And Separators",
+            "importPath": "../../packages/primitives/src/select.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-select--groups-and-separators.png",
+                "dark": "dark/primitives-select--groups-and-separators.png"
+            }
+        },
+        "primitives-select--multiple-selection": {
+            "id": "primitives-select--multiple-selection",
+            "title": "Primitives/Select",
+            "name": "Multiple Selection",
+            "importPath": "../../packages/primitives/src/select.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-select--multiple-selection.png",
+                "dark": "dark/primitives-select--multiple-selection.png"
+            }
+        },
+        "primitives-select--disabled": {
+            "id": "primitives-select--disabled",
+            "title": "Primitives/Select",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/select.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-select--disabled.png",
+                "dark": "dark/primitives-select--disabled.png"
+            }
+        },
+        "primitives-separator--default": {
+            "id": "primitives-separator--default",
+            "title": "Primitives/Separator",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/separator.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-separator--default.png",
+                "dark": "dark/primitives-separator--default.png"
+            }
+        },
+        "primitives-separator--vertical": {
+            "id": "primitives-separator--vertical",
+            "title": "Primitives/Separator",
+            "name": "Vertical",
+            "importPath": "../../packages/primitives/src/separator.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-separator--vertical.png",
+                "dark": "dark/primitives-separator--vertical.png"
+            }
+        },
+        "primitives-skeletontext--default": {
+            "id": "primitives-skeletontext--default",
+            "title": "Primitives/SkeletonText",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/skeleton-text.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-skeletontext--default.png",
+                "dark": "dark/primitives-skeletontext--default.png"
+            }
+        },
+        "primitives-skeleton--default": {
+            "id": "primitives-skeleton--default",
+            "title": "Primitives/Skeleton",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/skeleton.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-skeleton--default.png",
+                "dark": "dark/primitives-skeleton--default.png"
+            }
+        },
+        "primitives-slider--default": {
+            "id": "primitives-slider--default",
+            "title": "Primitives/Slider",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/slider.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-slider--default.png",
+                "dark": "dark/primitives-slider--default.png"
+            }
+        },
+        "primitives-slider--vertical": {
+            "id": "primitives-slider--vertical",
+            "title": "Primitives/Slider",
+            "name": "Vertical",
+            "importPath": "../../packages/primitives/src/slider.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-slider--vertical.png",
+                "dark": "dark/primitives-slider--vertical.png"
+            }
+        },
+        "primitives-slider--range": {
+            "id": "primitives-slider--range",
+            "title": "Primitives/Slider",
+            "name": "Range",
+            "importPath": "../../packages/primitives/src/slider.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-slider--range.png",
+                "dark": "dark/primitives-slider--range.png"
+            }
+        },
+        "primitives-slider--range-vertical": {
+            "id": "primitives-slider--range-vertical",
+            "title": "Primitives/Slider",
+            "name": "Range Vertical",
+            "importPath": "../../packages/primitives/src/slider.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-slider--range-vertical.png",
+                "dark": "dark/primitives-slider--range-vertical.png"
+            }
+        },
+        "primitives-slider--disabled": {
+            "id": "primitives-slider--disabled",
+            "title": "Primitives/Slider",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/slider.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-slider--disabled.png",
+                "dark": "dark/primitives-slider--disabled.png"
+            }
+        },
+        "primitives-switch--default": {
+            "id": "primitives-switch--default",
+            "title": "Primitives/Switch",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/switch.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-switch--default.png",
+                "dark": "dark/primitives-switch--default.png"
+            }
+        },
+        "primitives-switch--description": {
+            "id": "primitives-switch--description",
+            "title": "Primitives/Switch",
+            "name": "Description",
+            "importPath": "../../packages/primitives/src/switch.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-switch--description.png",
+                "dark": "dark/primitives-switch--description.png"
+            }
+        },
+        "primitives-switch--choice-card": {
+            "id": "primitives-switch--choice-card",
+            "title": "Primitives/Switch",
+            "name": "Choice Card",
+            "importPath": "../../packages/primitives/src/switch.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-switch--choice-card.png",
+                "dark": "dark/primitives-switch--choice-card.png"
+            }
+        },
+        "primitives-switch--disabled": {
+            "id": "primitives-switch--disabled",
+            "title": "Primitives/Switch",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/switch.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-switch--disabled.png",
+                "dark": "dark/primitives-switch--disabled.png"
+            }
+        },
+        "primitives-switch--invalid": {
+            "id": "primitives-switch--invalid",
+            "title": "Primitives/Switch",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/switch.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-switch--invalid.png",
+                "dark": "dark/primitives-switch--invalid.png"
+            }
+        },
+        "primitives-tabs--default": {
+            "id": "primitives-tabs--default",
+            "title": "Primitives/Tabs",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/tabs.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tabs--default.png",
+                "dark": "dark/primitives-tabs--default.png"
+            }
+        },
+        "primitives-tabs--vertical": {
+            "id": "primitives-tabs--vertical",
+            "title": "Primitives/Tabs",
+            "name": "Vertical",
+            "importPath": "../../packages/primitives/src/tabs.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tabs--vertical.png",
+                "dark": "dark/primitives-tabs--vertical.png"
+            }
+        },
+        "primitives-tabs--line": {
+            "id": "primitives-tabs--line",
+            "title": "Primitives/Tabs",
+            "name": "Line",
+            "importPath": "../../packages/primitives/src/tabs.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tabs--line.png",
+                "dark": "dark/primitives-tabs--line.png"
+            }
+        },
+        "primitives-textarea--default": {
+            "id": "primitives-textarea--default",
+            "title": "Primitives/Textarea",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/textarea.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-textarea--default.png",
+                "dark": "dark/primitives-textarea--default.png"
+            }
+        },
+        "primitives-textarea--with-label": {
+            "id": "primitives-textarea--with-label",
+            "title": "Primitives/Textarea",
+            "name": "With Label",
+            "importPath": "../../packages/primitives/src/textarea.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-textarea--with-label.png",
+                "dark": "dark/primitives-textarea--with-label.png"
+            }
+        },
+        "primitives-textarea--with-description": {
+            "id": "primitives-textarea--with-description",
+            "title": "Primitives/Textarea",
+            "name": "With Description",
+            "importPath": "../../packages/primitives/src/textarea.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-textarea--with-description.png",
+                "dark": "dark/primitives-textarea--with-description.png"
+            }
+        },
+        "primitives-textarea--disabled": {
+            "id": "primitives-textarea--disabled",
+            "title": "Primitives/Textarea",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/textarea.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-textarea--disabled.png",
+                "dark": "dark/primitives-textarea--disabled.png"
+            }
+        },
+        "primitives-textarea--invalid": {
+            "id": "primitives-textarea--invalid",
+            "title": "Primitives/Textarea",
+            "name": "Invalid",
+            "importPath": "../../packages/primitives/src/textarea.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-textarea--invalid.png",
+                "dark": "dark/primitives-textarea--invalid.png"
+            }
+        },
+        "primitives-toast--default": {
+            "id": "primitives-toast--default",
+            "title": "Primitives/Toast",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--default.png",
+                "dark": "dark/primitives-toast--default.png"
+            }
+        },
+        "primitives-toast--types": {
+            "id": "primitives-toast--types",
+            "title": "Primitives/Toast",
+            "name": "Types",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--types.png",
+                "dark": "dark/primitives-toast--types.png"
+            }
+        },
+        "primitives-toast--with-title": {
+            "id": "primitives-toast--with-title",
+            "title": "Primitives/Toast",
+            "name": "With Title",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--with-title.png",
+                "dark": "dark/primitives-toast--with-title.png"
+            }
+        },
+        "primitives-toast--with-action": {
+            "id": "primitives-toast--with-action",
+            "title": "Primitives/Toast",
+            "name": "With Action",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--with-action.png",
+                "dark": "dark/primitives-toast--with-action.png"
+            }
+        },
+        "primitives-toast--update-toast": {
+            "id": "primitives-toast--update-toast",
+            "title": "Primitives/Toast",
+            "name": "Update Toast",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--update-toast.png",
+                "dark": "dark/primitives-toast--update-toast.png"
+            }
+        },
+        "primitives-toast--anchored": {
+            "id": "primitives-toast--anchored",
+            "title": "Primitives/Toast",
+            "name": "Anchored",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--anchored.png",
+                "dark": "dark/primitives-toast--anchored.png"
+            }
+        },
+        "primitives-toast--dismiss": {
+            "id": "primitives-toast--dismiss",
+            "title": "Primitives/Toast",
+            "name": "Dismiss",
+            "importPath": "../../packages/primitives/src/toast.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toast--dismiss.png",
+                "dark": "dark/primitives-toast--dismiss.png"
+            }
+        },
+        "primitives-toggle-group--default": {
+            "id": "primitives-toggle-group--default",
+            "title": "Primitives/Toggle Group",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/toggle-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toggle-group--default.png",
+                "dark": "dark/primitives-toggle-group--default.png"
+            }
+        },
+        "primitives-toggle-group--vertical": {
+            "id": "primitives-toggle-group--vertical",
+            "title": "Primitives/Toggle Group",
+            "name": "Vertical",
+            "importPath": "../../packages/primitives/src/toggle-group.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toggle-group--vertical.png",
+                "dark": "dark/primitives-toggle-group--vertical.png"
+            }
+        },
+        "primitives-toggle--default": {
+            "id": "primitives-toggle--default",
+            "title": "Primitives/Toggle",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/toggle.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toggle--default.png",
+                "dark": "dark/primitives-toggle--default.png"
+            }
+        },
+        "primitives-toggle--with-text": {
+            "id": "primitives-toggle--with-text",
+            "title": "Primitives/Toggle",
+            "name": "With Text",
+            "importPath": "../../packages/primitives/src/toggle.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toggle--with-text.png",
+                "dark": "dark/primitives-toggle--with-text.png"
+            }
+        },
+        "primitives-toggle--disabled": {
+            "id": "primitives-toggle--disabled",
+            "title": "Primitives/Toggle",
+            "name": "Disabled",
+            "importPath": "../../packages/primitives/src/toggle.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-toggle--disabled.png",
+                "dark": "dark/primitives-toggle--disabled.png"
+            }
+        },
+        "primitives-tooltips--default": {
+            "id": "primitives-tooltips--default",
+            "title": "Primitives/Tooltips",
+            "name": "Default",
+            "importPath": "../../packages/primitives/src/tooltip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tooltips--default.png",
+                "dark": "dark/primitives-tooltips--default.png"
+            }
+        },
+        "primitives-tooltips--controlled": {
+            "id": "primitives-tooltips--controlled",
+            "title": "Primitives/Tooltips",
+            "name": "Controlled",
+            "importPath": "../../packages/primitives/src/tooltip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tooltips--controlled.png",
+                "dark": "dark/primitives-tooltips--controlled.png"
+            }
+        },
+        "primitives-tooltips--directions": {
+            "id": "primitives-tooltips--directions",
+            "title": "Primitives/Tooltips",
+            "name": "Directions",
+            "importPath": "../../packages/primitives/src/tooltip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tooltips--directions.png",
+                "dark": "dark/primitives-tooltips--directions.png"
+            }
+        },
+        "primitives-tooltips--icon-only-triggers": {
+            "id": "primitives-tooltips--icon-only-triggers",
+            "title": "Primitives/Tooltips",
+            "name": "Icon Only Triggers",
+            "importPath": "../../packages/primitives/src/tooltip.stories.tsx",
+            "screenshots": {
+                "light": "light/primitives-tooltips--icon-only-triggers.png",
+                "dark": "dark/primitives-tooltips--icon-only-triggers.png"
+            }
+        }
+    },
+    "failures": []
+}

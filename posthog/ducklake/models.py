@@ -1,28 +1,31 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-if TYPE_CHECKING:
-    from posthog.ducklake.storage import CrossAccountDestination
-
 
 class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Per-team DuckLake catalog configuration.
+    """Per-organization DuckLake catalog configuration.
 
-    Stores database connection details and bucket configuration for teams that need
-    isolated DuckLake catalogs (e.g., single-tenant Duckling customers).
+    Stores database connection details and bucket configuration for orgs that need
+    isolated DuckLake catalogs (e.g., managed warehouse customers).
 
-    For teams without a DuckLakeCatalog entry, the system falls back to
+    For orgs without a DuckLakeCatalog entry, the system falls back to
     environment variable configuration.
     """
 
+    # Deprecated: use organization instead. Kept nullable for backward compatibility.
     team = models.OneToOneField(
         "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="ducklake_catalog",
+        null=True,
+        blank=True,
+    )
+    organization = models.OneToOneField(
+        "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="ducklake_catalog",
     )
@@ -37,16 +40,6 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Bucket settings (no secrets - credentials come from IRSA or storage.py)
     bucket = models.CharField(max_length=255)
     bucket_region = models.CharField(max_length=50, default="us-east-1")
-
-    # Cross-account S3 access settings (required - for writing to customer-owned buckets)
-    cross_account_role_arn = models.CharField(
-        max_length=255,
-        help_text="ARN of the IAM role to assume for cross-account S3 access",
-    )
-    cross_account_external_id = EncryptedTextField(
-        max_length=500,
-        help_text="External ID for cross-account role assumption (encrypted)",
-    )
 
     class Meta:
         db_table = "posthog_ducklakecatalog"
@@ -66,28 +59,25 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
 
-    def to_cross_account_destination(self) -> CrossAccountDestination:
-        """Convert to a CrossAccountDestination for cross-account S3 access."""
-        from posthog.ducklake.storage import CrossAccountDestination
-
-        return CrossAccountDestination(
-            role_arn=self.cross_account_role_arn,
-            bucket_name=self.bucket,
-            external_id=self.cross_account_external_id,
-            region=self.bucket_region or None,
-        )
-
 
 class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """Per-team duckgres query server connection details.
+    """Per-organization duckgres query server connection details.
 
     Duckgres is a Postgres-protocol-compatible DuckDB server, separate from
-    the DuckLake catalog Postgres database. Each team that uses duckgres for
+    the DuckLake catalog Postgres database. Each org that uses duckgres for
     copy workflows needs its own connection entry.
     """
 
+    # Deprecated: use organization instead. Kept nullable for backward compatibility.
     team = models.OneToOneField(
         "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server",
+        null=True,
+        blank=True,
+    )
+    organization = models.OneToOneField(
+        "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="duckgres_server",
     )
@@ -102,3 +92,27 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         db_table = "posthog_duckgresserver"
         verbose_name = "Duckgres server"
         verbose_name_plural = "Duckgres servers"
+
+
+class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team enablement of DuckLake warehouse backfills.
+
+    Controls which teams should be backfilled by the Dagster duckling sensors.
+    Catalog credentials are resolved from the team's organization via
+    DuckLakeCatalog/DuckgresServer — this model only tracks enablement.
+    """
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="ducklake_backfill",
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Whether warehouse backfills are enabled for this team",
+    )
+
+    class Meta:
+        db_table = "posthog_ducklakebackfill"
+        verbose_name = "DuckLake backfill"
+        verbose_name_plural = "DuckLake backfills"

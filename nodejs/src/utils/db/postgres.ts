@@ -4,12 +4,22 @@ import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, typ
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
-import { CommonConfig } from '../../common/config'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
 import { postgresErrorCounter } from './metrics'
 import { timeoutGuard } from './utils'
+
+/** Config that PostgresRouter needs to create its connection pools. */
+export type PostgresRouterConfig = {
+    DATABASE_URL: string
+    POSTGRES_CONNECTION_POOL_SIZE: number
+    DATABASE_READONLY_URL?: string
+    PLUGIN_STORAGE_DATABASE_URL?: string
+    PERSONS_DATABASE_URL?: string
+    PERSONS_READONLY_DATABASE_URL?: string
+    BEHAVIORAL_COHORTS_DATABASE_URL?: string
+}
 
 // By default node-postgres returns dates as JS Date objects using the local timezone.
 // We need UTC ISO strings instead. This must be called before creating any Pool.
@@ -41,10 +51,16 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'getaddrinfo EAI_AGAIN',
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
+    'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
 ]
+
+export function isTransientPgError(err: unknown): boolean {
+    const message = (err as Error | undefined)?.message
+    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+}
 
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
@@ -68,22 +84,10 @@ export class TransactionClient {
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
-    constructor(
-        serverConfig: Pick<
-            CommonConfig,
-            | 'PLUGIN_SERVER_MODE'
-            | 'DATABASE_URL'
-            | 'POSTGRES_CONNECTION_POOL_SIZE'
-            | 'DATABASE_READONLY_URL'
-            | 'PLUGIN_STORAGE_DATABASE_URL'
-            | 'PERSONS_DATABASE_URL'
-            | 'BEHAVIORAL_COHORTS_DATABASE_URL'
-            | 'PERSONS_READONLY_DATABASE_URL'
-        >
-    ) {
+    constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
 
-        const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+        const app_name = appName ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(
             serverConfig.DATABASE_URL,
@@ -223,6 +227,27 @@ export class PostgresRouter {
         for (const pool of uniquePools) {
             await pool.end()
         }
+    }
+}
+
+/**
+ * Scope entry for a `PostgresRouter`. `start` constructs the router
+ * (which opens connection pools eagerly), `stop` ends every pool. Register
+ * this in a `Scope` so the router's lifetime is tied to the scope that
+ * owns it.
+ */
+export class PostgresRouterComponent {
+    constructor(
+        private readonly config: PostgresRouterConfig,
+        private readonly appName?: string
+    ) {}
+
+    start(): Promise<{ value: PostgresRouter; stop: () => Promise<void> }> {
+        const router = new PostgresRouter(this.config, this.appName)
+        return Promise.resolve({
+            value: router,
+            stop: () => router.end(),
+        })
     }
 }
 

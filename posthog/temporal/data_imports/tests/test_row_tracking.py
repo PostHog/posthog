@@ -24,7 +24,7 @@ from posthog.temporal.data_imports.row_tracking import (
     will_hit_billing_limit,
 )
 
-from products.data_warehouse.backend.models import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 @pytest.mark.timeout(600)

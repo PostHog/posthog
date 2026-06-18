@@ -14,6 +14,7 @@ from django.utils import timezone
 import numpy as np
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -21,22 +22,35 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
 
-from posthog.hogql import ast
-
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
-from products.signals.backend.temporal.summary import (
+from products.signals.backend.temporal.signal_queries import (
+    EMBEDDING_MODEL,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
-    SignalReportSummaryWorkflow,
+    FetchSignalTypeExamplesInput,
+    FetchSignalTypeExamplesOutput,
+    RunSignalSemanticSearchInput,
+    RunSignalSemanticSearchOutput,
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
+    fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
+    run_signal_semantic_search_activity,
+    soft_delete_report_signals,
+    wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -51,7 +65,6 @@ from products.signals.backend.temporal.types import (
     SpecificityMetadata,
     TeamSignalGroupingInput,
 )
-from products.signals.backend.utils import EMBEDDING_MODEL, soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +84,8 @@ class GenerateEmbeddingOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -85,92 +100,6 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
     except Exception as e:
         logger.exception(
             f"Failed to generate embedding for team {input.team_id}: {e}",
-            team_id=input.team_id,
-        )
-        raise
-
-
-@dataclass
-class FetchSignalTypeExamplesInput:
-    team_id: int
-
-
-@dataclass
-class FetchSignalTypeExamplesOutput:
-    examples: list[SignalTypeExample]
-
-
-@temporalio.activity.defn
-async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
-    """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT -- Grab the latest unique example of each signal type
-                source_product,
-                source_type,
-                argMax(content, timestamp) as example_content,
-                argMax(metadata, timestamp) as example_metadata,
-                toString(max(timestamp)) as latest_timestamp
-            FROM ( -- From the set of most recent versions where the signal appeared at most a month ago
-                SELECT
-                    JSONExtractString(metadata, 'source_product') as source_product,
-                    JSONExtractString(metadata, 'source_type') as source_type,
-                    content,
-                    metadata,
-                    timestamp
-                FROM ( -- From the most recent versions of all signals
-                    SELECT
-                        document_id,
-                        argMax(content, inserted_at) as content,
-                        argMax(metadata, inserted_at) as metadata,
-                        argMax(timestamp, inserted_at) as timestamp
-                    FROM document_embeddings
-                    WHERE model_name = {model_name}
-                      AND product = 'signals'
-                      AND document_type = 'signal'
-                    GROUP BY document_id
-                )
-                WHERE content != ''
-                  AND timestamp >= now() - INTERVAL 1 MONTH
-                  AND NOT JSONExtractBool(metadata, 'deleted')
-            )
-            GROUP BY source_product, source_type
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsFetchTypeExamples",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            },
-        )
-
-        examples = []
-        for row in result.results or []:
-            source_product, source_type, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str)
-            examples.append(
-                SignalTypeExample(
-                    source_product=source_product,
-                    source_type=source_type,
-                    content=content,
-                    timestamp=timestamp,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
-        logger.debug(
-            f"Fetched {len(examples)} signal type examples for team {input.team_id}",
-            team_id=input.team_id,
-            example_count=len(examples),
-        )
-        return FetchSignalTypeExamplesOutput(examples=examples)
-    except Exception as e:
-        logger.exception(
-            f"Failed to fetch signal type examples for team {input.team_id}: {e}",
             team_id=input.team_id,
         )
         raise
@@ -219,6 +148,7 @@ def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeE
 
 
 async def generate_search_queries(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -241,10 +171,12 @@ async def generate_search_queries(
         return [truncate_query_to_token_limit(q) for q in result.queries]
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.7,
+        stage="query_generation",
     )
 
 
@@ -254,6 +186,9 @@ class GenerateSearchQueriesInput:
     source_product: str
     source_type: str
     signal_type_examples: list[SignalTypeExample]
+    # Optional with a default so workflows mid-flight across a deploy (whose activity input was
+    # serialized before this field existed) still deserialize; missing => gateway key owner's team.
+    team_id: int | None = None
 
 
 @dataclass
@@ -262,10 +197,13 @@ class GenerateSearchQueriesOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
         queries = await generate_search_queries(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -283,91 +221,6 @@ async def generate_search_queries_activity(input: GenerateSearchQueriesInput) ->
             f"Failed to generate search queries: {e}",
             source_product=input.source_product,
             source_type=input.source_type,
-        )
-        raise
-
-
-@dataclass
-class RunSignalSemanticSearchInput:
-    team_id: int
-    embedding: list[float]
-    limit: int = 10
-
-
-@dataclass
-class RunSignalSemanticSearchOutput:
-    candidates: list[SignalCandidate]
-
-
-@temporalio.activity.defn
-async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
-    """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                JSONExtractString(metadata, 'report_id') as report_id,
-                JSONExtractString(metadata, 'source_product') as source_product,
-                JSONExtractString(metadata, 'source_type') as source_type,
-                cosineDistance(embedding, {embedding}) as distance
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(embedding, inserted_at) as embedding,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') != ''
-              AND timestamp >= now() - INTERVAL 1 MONTH
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY distance ASC
-            LIMIT {limit}
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsRunEmbeddingQuery",
-            query=query,
-            team=team,
-            placeholders={
-                "embedding": ast.Constant(value=input.embedding),
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "limit": ast.Constant(value=input.limit),
-            },
-        )
-
-        candidates = []
-        for row in result.results or []:
-            document_id, content, report_id, source_product, source_type, distance = row
-            candidates.append(
-                SignalCandidate(
-                    signal_id=document_id,
-                    report_id=report_id,
-                    content=content,
-                    source_product=source_product,
-                    source_type=source_type,
-                    distance=distance,
-                )
-            )
-
-        logger.debug(
-            f"Found {len(candidates)} candidate signals for team {input.team_id}",
-            team_id=input.team_id,
-            candidate_count=len(candidates),
-        )
-        return RunSignalSemanticSearchOutput(candidates=candidates)
-    except Exception as e:
-        logger.exception(
-            f"Failed to run embedding query for team {input.team_id}: {e}",
-            team_id=input.team_id,
         )
         raise
 
@@ -564,6 +417,7 @@ Write a PR title covering ALL the above signals (existing + new), then judge if 
 
 
 async def match_signal_to_report(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -615,10 +469,12 @@ async def match_signal_to_report(
         )
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.2,
+        stage="match",
     )
 
 
@@ -630,13 +486,18 @@ class MatchSignalToReportInput:
     queries: list[str]
     query_results: list[list[SignalCandidate]]
     report_contexts: dict[str, ReportContext]
+    # Optional with a default for deploy-time backward compatibility — see GenerateSearchQueriesInput.
+    team_id: int | None = None
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -672,6 +533,8 @@ class FetchReportContextsOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -719,6 +582,7 @@ class VerifyMatchSpecificityOutput:
 
 
 async def verify_match_specificity(
+    team_id: int,
     new_signal_description: str,
     new_signal_source_product: str,
     new_signal_source_type: str,
@@ -735,10 +599,12 @@ async def verify_match_specificity(
     )
 
     specificity = await call_llm(
+        team_id=team_id,
         system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
         user_prompt=specificity_prompt,
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
+        stage="specificity",
     )
 
     return VerifyMatchSpecificityOutput(
@@ -749,10 +615,13 @@ async def verify_match_specificity(
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
         result = await verify_match_specificity(
+            team_id=input.team_id,
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
@@ -793,6 +662,7 @@ class AssignAndEmitSignalInput:
     match_result: MatchResult
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
+    remediation: Optional[dict] = None
 
 
 @dataclass
@@ -800,14 +670,18 @@ class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
     timestamp: datetime
+    run_count: int
 
 
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime, bool]:
-        """Returns (report_id, promoted, timestamp, matched_deleted_report)."""
+    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int, bool, str, int]:
+        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count,
+        reresearch_capped, report_status, report_signal_count)."""
         with transaction.atomic():
             promoted = False
 
@@ -833,6 +707,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "weight": input.weight,
                         "report_id": report_id,
                         "extra": input.extra,
+                        "remediation": input.remediation,
                         "deleted": True,
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -847,7 +722,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts, True
+                    return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
                 report.total_weight += input.weight
                 report.signal_count += 1
                 update_fields = ["total_weight", "signal_count", "updated_at"]
@@ -865,16 +740,29 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     summary=match_result.summary,
                 )
 
-            # SUPPRESSED reports gather signals indefinitely but are never promoted
-            # POTENTIAL reports are only promoted once signal_count >= signals_at_run (snooze gate;
-            # signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met
+            # Promotion rules by status:
+            # - SUPPRESSED: never promoted.
+            # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
+            #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
+            # - READY / RESOLVED: re-research on every new signal (resolved = issue recurred), but only
+            #   while signal_count <= RERESEARCH_MAX_SIGNALS; past the cap, signals are collected, not researched.
+            # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
+            is_reresearch = report.status == SignalReport.Status.READY or report.status == SignalReport.Status.RESOLVED
+            reresearch_capped = is_reresearch and report.signal_count > RERESEARCH_MAX_SIGNALS
             if (
-                report.status == SignalReport.Status.POTENTIAL
-                and report.total_weight >= WEIGHT_THRESHOLD
-                and report.signal_count >= report.signals_at_run
+                (is_reresearch and not reresearch_capped)
+                or report.status == SignalReport.Status.CANDIDATE
+                or (
+                    report.status == SignalReport.Status.POTENTIAL
+                    and report.total_weight >= WEIGHT_THRESHOLD
+                    and report.signal_count >= report.signals_at_run
+                )
             ):
-                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=updated_fields)
+                # If candidate got here - it usually means CH issue down the way
+                # (e.g. CH wait raised before start_child_workflow)
+                if report.status != SignalReport.Status.CANDIDATE:
+                    updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                    report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
@@ -886,6 +774,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 "weight": input.weight,
                 "report_id": report_id,
                 "extra": input.extra,
+                "remediation": input.remediation,
             }
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -903,19 +792,35 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 timestamp=ts,
                 metadata=metadata,
             )
-
-            return report_id, promoted, ts, False
+            return (
+                report_id,
+                promoted,
+                ts,
+                False,
+                report.run_count,
+                reresearch_capped,
+                report.status,
+                report.signal_count,
+            )
 
     try:
-        report_id, promoted, ts, matched_deleted = await database_sync_to_async(
-            do_assign_and_emit, thread_sensitive=False
-        )()
+        (
+            report_id,
+            promoted,
+            ts,
+            matched_deleted,
+            run_count,
+            reresearch_capped,
+            report_status,
+            report_signal_count,
+        ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
+
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
         # keep attracting new signals into the dead group.
         if matched_deleted:
-            team = await Team.objects.aget(pk=input.team_id)
             await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
                 report_id=report_id,
                 team_id=input.team_id,
@@ -927,7 +832,77 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 team_id=input.team_id,
                 signal_id=input.signal_id,
             )
-
+            # Track signals deduped into a dismissed (deleted) reports
+            try:
+                posthoganalytics.capture(
+                    event="signal_matched_deleted_report",
+                    distinct_id=str(team.uuid),
+                    properties={
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "report_id": report_id,
+                    },
+                    groups=groups(team.organization, team),
+                )
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
+                logger.exception(
+                    "Failed to capture signal_matched_deleted_report event",
+                    report_id=report_id,
+                    team_id=input.team_id,
+                    source_id=input.source_id,
+                )
+        else:
+            try:
+                posthoganalytics.capture(
+                    event="signal_assigned_to_report",
+                    distinct_id=str(team.uuid),
+                    properties={
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "report_id": report_id,
+                        "is_new_report": isinstance(match_result, NewReportMatch),
+                        "promoted": promoted,
+                    },
+                    groups=groups(team.organization, team),
+                )
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
+                # Swallow the exception, to avoid breaking the flow over failed analytics event
+                logger.exception(
+                    "Failed to capture signal_assigned_to_report event",
+                    report_id=report_id,
+                    team_id=input.team_id,
+                    source_id=input.source_id,
+                )
+            # Over-cap signal on an already-researched report: assigned/emitted but no re-research
+            # spawned. Emitted so the saved re-research volume is trackable.
+            if reresearch_capped:
+                try:
+                    posthoganalytics.capture(
+                        event="signal_report_reresearch_skipped",
+                        distinct_id=str(team.uuid),
+                        properties={
+                            "report_id": report_id,
+                            "signal_count": report_signal_count,
+                            "status": report_status,
+                            "source_product": input.source_product,
+                            "source_type": input.source_type,
+                            "source_id": input.source_id,
+                            "threshold": RERESEARCH_MAX_SIGNALS,
+                        },
+                        groups=groups(team.organization, team),
+                    )
+                except Exception as e:
+                    posthoganalytics.capture_exception(e)
+                    logger.exception(
+                        "Failed to capture signal_report_reresearch_skipped event",
+                        report_id=report_id,
+                        team_id=input.team_id,
+                        source_id=input.source_id,
+                    )
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,
@@ -936,7 +911,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts)
+        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts, run_count=run_count)
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
@@ -944,106 +919,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             signal_id=input.signal_id,
         )
         raise
-
-
-@dataclass
-class WaitForClickHouseSignal:
-    signal_id: str
-    timestamp: datetime
-
-
-@dataclass
-class WaitForClickHouseInput:
-    team_id: int
-    signals: list[WaitForClickHouseSignal]
-    max_wait_time_seconds: int = 3600
-
-
-WAIT_POLL_INTERVAL_SECONDS = 10
-
-
-@temporalio.activity.defn
-async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
-
-    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
-    previous emission of the same document_id (e.g. deleted then reingested). The window
-    is generous because signals are emitted during the sequential phase before this
-    activity starts, so early signals may already be minutes old.
-    """
-    if not input.signals:
-        return
-
-    team = await Team.objects.aget(pk=input.team_id)
-    inserted_at_threshold = timezone.now() - timedelta(minutes=30)
-    max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
-
-    signal_ids = [s.signal_id for s in input.signals]
-    timestamps = [s.timestamp for s in input.signals]
-    # Widen the timestamp range to account for precision loss (Python microseconds vs ClickHouse DateTime64(3) milliseconds)
-    min_timestamp = min(timestamps) - timedelta(minutes=2)
-    max_timestamp = max(timestamps) + timedelta(minutes=2)
-
-    query = """
-        SELECT count(DISTINCT document_id)
-        FROM document_embeddings
-        WHERE timestamp >= {min_timestamp}
-          AND timestamp <= {max_timestamp}
-          AND product = 'signals'
-          AND document_type = 'signal'
-          AND model_name = {model_name}
-          AND rendering = 'plain'
-          AND document_id IN {signal_ids}
-          AND inserted_at >= {inserted_at_threshold}
-    """
-
-    placeholders = {
-        "min_timestamp": ast.Constant(value=min_timestamp),
-        "max_timestamp": ast.Constant(value=max_timestamp),
-        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-        "signal_ids": ast.Constant(value=signal_ids),
-        "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
-    }
-
-    expected_count = len(signal_ids)
-
-    for attempt in range(max_attempts):
-        temporalio.activity.heartbeat(attempt)
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsWaitForClickHouse",
-            query=query,
-            team=team,
-            placeholders=placeholders,
-            heartbeat_fn=temporalio.activity.heartbeat,
-        )
-
-        # Heartbeat immediately after the query completes — the query itself runs in
-        # sync_to_async and can't heartbeat during execution, so this ensures we don't
-        # hit the heartbeat timeout when queries are slow.
-        temporalio.activity.heartbeat(attempt)
-
-        if result.results and result.results[0][0] >= expected_count:
-            logger.debug(
-                f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
-                signal_ids=signal_ids,
-                team_id=input.team_id,
-            )
-            return
-
-        # Sleep in chunks so we keep heartbeating during the poll interval
-        remaining = WAIT_POLL_INTERVAL_SECONDS
-        while remaining > 0:
-            chunk = min(remaining, 5)
-            await asyncio.sleep(chunk)
-            remaining -= chunk
-            temporalio.activity.heartbeat(attempt)
-
-    logger.warning(
-        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
-        signal_ids=signal_ids,
-        team_id=input.team_id,
-    )
 
 
 CONTINUE_AS_NEW_THRESHOLD = 20
@@ -1131,117 +1006,148 @@ async def _process_signal_batch(
 
     # === PARALLEL PHASE (steps 1-4) ===
 
-    # Step 1a: Fetch type examples if not cached (needed by query gen)
-    if cached_type_examples is not None:
-        type_examples_result = cached_type_examples
-    else:
-        type_examples_result = await workflow.execute_activity(
-            fetch_signal_type_examples_activity,
-            FetchSignalTypeExamplesInput(team_id=team_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    # Step 1b: Embed all signals + generate search queries in parallel
-    # (query gen needs type examples but NOT the signal embeddings)
-    step1b_results = await asyncio.gather(
-        *[
-            workflow.execute_activity(
-                get_embedding_activity,
-                GenerateEmbeddingInput(team_id=team_id, content=s.description),
+    try:
+        # Step 1a: Fetch type examples if not cached (needed by query gen)
+        if cached_type_examples is not None:
+            type_examples_result = cached_type_examples
+        else:
+            type_examples_result = await workflow.execute_activity(
+                fetch_signal_type_examples_activity,
+                FetchSignalTypeExamplesInput(team_id=team_id),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            for s in batch
-        ],
-        *[
-            workflow.execute_activity(
-                generate_search_queries_activity,
-                GenerateSearchQueriesInput(
-                    description=s.description,
-                    source_product=s.source_product,
-                    source_type=s.source_type,
-                    signal_type_examples=type_examples_result.examples,
-                ),
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=5),
-            )
-            for s in batch
-        ],
-    )
-    signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
-    query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
 
-    # Step 3: Embed all queries across all signals (flatten → parallel embed)
-    all_queries_flat: list[tuple[int, str]] = []
-    for sig_idx, qr in enumerate(query_gen_results):
-        for q in qr.queries:
-            all_queries_flat.append((sig_idx, q))
-
-    all_query_embeddings: list[GenerateEmbeddingOutput] = list(
-        await asyncio.gather(
+        # Step 1b: Embed all signals + generate search queries in parallel
+        # (query gen needs type examples but NOT the signal embeddings)
+        step1b_results = await asyncio.gather(
             *[
                 workflow.execute_activity(
                     get_embedding_activity,
-                    GenerateEmbeddingInput(team_id=team_id, content=q_text),
+                    GenerateEmbeddingInput(team_id=team_id, content=s.description),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                for _, q_text in all_queries_flat
-            ]
-        )
-    )
-
-    # Step 4: Semantic search for all queries (all parallel)
-    all_search_results: list[RunSignalSemanticSearchOutput] = list(
-        await asyncio.gather(
+                for s in batch
+            ],
             *[
                 workflow.execute_activity(
-                    run_signal_semantic_search_activity,
-                    RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    generate_search_queries_activity,
+                    GenerateSearchQueriesInput(
+                        team_id=team_id,
+                        description=s.description,
+                        source_product=s.source_product,
+                        source_type=s.source_type,
+                        signal_type_examples=type_examples_result.examples,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
                 )
-                for emb in all_query_embeddings
-            ]
+                for s in batch
+            ],
         )
-    )
+        signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
+        query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
 
-    # Regroup flat results back to per-signal
-    # Each query becomes an embedding vector for lookup
-    type EmbeddingVector = list[float]
-    # For each new signal, we generate a number N of query strings
-    type SignalQueries = list[str]
-    # For each new signal, we generate an embedding for each query (so N embeddings)
-    type SignalQueryEmbeddings = list[EmbeddingVector]
-    # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
-    type SignalQueryResults = list[SignalCandidate]
-    # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
-    type SignalMatchCandidates = list[SignalQueryResults]
-    per_signal_queries: list[SignalQueries] = [[] for _ in batch]
-    per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
-    per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
-    for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
-        per_signal_queries[sig_idx].append(q_text)
-        per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
-        per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
+        # Step 3: Embed all queries across all signals (flatten → parallel embed)
+        all_queries_flat: list[tuple[int, str]] = []
+        for sig_idx, qr in enumerate(query_gen_results):
+            for q in qr.queries:
+                all_queries_flat.append((sig_idx, q))
 
-    # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
-    all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
-    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
-        fetch_report_contexts_activity,
-        FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-    report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+        all_query_embeddings: list[GenerateEmbeddingOutput] = list(
+            await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        get_embedding_activity,
+                        GenerateEmbeddingInput(team_id=team_id, content=q_text),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for _, q_text in all_queries_flat
+                ]
+            )
+        )
+
+        # Step 4: Semantic search for all queries (all parallel)
+        all_search_results: list[RunSignalSemanticSearchOutput] = list(
+            await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        run_signal_semantic_search_activity,
+                        RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for emb in all_query_embeddings
+                ]
+            )
+        )
+
+        # Regroup flat results back to per-signal
+        # Each query becomes an embedding vector for lookup
+        type EmbeddingVector = list[float]
+        # For each new signal, we generate a number N of query strings
+        type SignalQueries = list[str]
+        # For each new signal, we generate an embedding for each query (so N embeddings)
+        type SignalQueryEmbeddings = list[EmbeddingVector]
+        # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
+        type SignalQueryResults = list[SignalCandidate]
+        # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
+        type SignalMatchCandidates = list[SignalQueryResults]
+        per_signal_queries: list[SignalQueries] = [[] for _ in batch]
+        per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
+        per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
+        for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
+            per_signal_queries[sig_idx].append(q_text)
+            per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
+            per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
+
+        # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
+        all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
+        report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
+            fetch_report_contexts_activity,
+            FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+    except Exception as e:
+        # Nothing has been emitted yet, so the whole batch is explainable as dropped.
+        # The outer workflow handler can't emit these: it also catches post-emission
+        # failures (the CH wait in step 7), where signals were successfully assigned.
+        logger.exception(
+            "Failed to prepare signal batch",
+            team_id=team_id,
+            batch_size=len(batch),
+        )
+        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
+    _PATCH_PARALLEL_SEQUENTIAL = "parallel-sequential-phase-v1"
+    _use_parallel_sequential = workflow.patched(_PATCH_PARALLEL_SEQUENTIAL)
     processed_batch_signals: list[_ProcessedBatchSignal] = []
-    promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
+    promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]] = {}
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
-    for i, signal in enumerate(batch):
+    if _use_parallel_sequential:
+        from products.signals.backend.temporal.parallel_grouping import process_sequential_phase_parallel
+
+        _par = await process_sequential_phase_parallel(
+            batch=batch,
+            team_id=team_id,
+            per_signal_queries=per_signal_queries,
+            per_signal_query_embeddings=per_signal_query_embeddings,
+            per_signal_ch_results=per_signal_ch_results,
+            signal_embeddings=[e.embedding for e in signal_embeddings],
+            report_contexts=report_contexts,
+        )
+        dropped += _par.dropped
+        promoted_reports = _par.promoted_reports
+        emitted_signals = _par.emitted_signals
+
+    for i, signal in enumerate(batch if not _use_parallel_sequential else []):
         signal_id = str(uuid.uuid4())
         try:
             # Augment CH candidates with earlier-in-batch signals
@@ -1256,6 +1162,7 @@ async def _process_signal_batch(
             match_result = await workflow.execute_activity(
                 match_signal_to_report_activity,
                 MatchSignalToReportInput(
+                    team_id=team_id,
                     description=signal.description,
                     source_product=signal.source_product,
                     source_type=signal.source_type,
@@ -1330,6 +1237,7 @@ async def _process_signal_batch(
                     embedding=signal_embeddings[i].embedding,
                     match_result=match_result,
                     updated_title=updated_title,
+                    remediation=signal.remediation,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1364,19 +1272,21 @@ async def _process_signal_batch(
                 )
 
             if assign_result.promoted:
-                promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
-                    team_id=signal.team_id, report_id=assign_result.report_id
+                promoted_reports[assign_result.report_id] = (
+                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    assign_result.run_count,
                 )
 
-        except Exception:
+        except Exception as e:
             dropped += 1
-            workflow.logger.exception(
+            logger.exception(
                 "Failed to process signal in batch",
                 team_id=team_id,
                 source_product=signal.source_product,
                 source_type=signal.source_type,
                 source_id=signal.source_id,
             )
+            await capture_signal_dropped(signal, e, stage="grouping_sequential")
 
     # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
     if emitted_signals:
@@ -1395,20 +1305,31 @@ async def _process_signal_batch(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    # Spawn summary workflows after CH wait so they can find the signals
-    for report_input in promoted_reports.values():
+    # Spawn summary workflows after CH wait. Stable ID + ALLOW_DUPLICATE: Temporal rejects concurrent
+    # starts with the same ID (caught below); re-spawning is allowed only if the previous run has closed.
+    for report_input, _run_count in promoted_reports.values():
         try:
+            workflow_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
-                id=SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id),
+                id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
+            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
             pass
+        except Exception:
+            # Log and continue: raising here would reprocess the whole batch and double-count
+            # signals. The report stays CANDIDATE and re-promotes on the next matching signal.
+            logger.exception(
+                "Failed to start summary workflow for promoted report; will retry on next signal",
+                team_id=report_input.team_id,
+                report_id=report_input.report_id,
+            )
 
     return dropped, type_examples_result
 
@@ -1457,6 +1378,12 @@ class TeamSignalGroupingWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: TeamSignalGroupingInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
         self._buffer_size_gauge.set(len(self._signal_buffer))
 
@@ -1495,7 +1422,7 @@ class TeamSignalGroupingWorkflow:
             except Exception:
                 # Parallel phase failed — all signals in batch dropped
                 self._signals_dropped_counter.add(len(batch))
-                workflow.logger.exception(
+                logger.exception(
                     "Failed to process signal batch",
                     team_id=input.team_id,
                     batch_size=len(batch),

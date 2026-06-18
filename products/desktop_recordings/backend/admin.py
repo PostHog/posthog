@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from products.desktop_recordings.backend.models import DesktopRecording
 
 
+@admin.register(DesktopRecording)
 class DesktopRecordingAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -85,7 +86,7 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
     )
 
     @admin.display(description="Team")
-    def team_link(self, obj: DesktopRecording):
+    def team_link(self, obj: DesktopRecording) -> str:
         if obj.team:
             return format_html(
                 '<a href="{}">{}</a>',
@@ -95,7 +96,7 @@ class DesktopRecordingAdmin(admin.ModelAdmin):
         return "-"
 
     @admin.display(description="Created by")
-    def created_by_link(self, obj: DesktopRecording):
+    def created_by_link(self, obj: DesktopRecording) -> str:
         if obj.created_by:
             return format_html(
                 '<a href="{}">{}</a>',

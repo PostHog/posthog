@@ -34,9 +34,9 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
             },
         ],
 
+        // Not persisted: no toolbar control anymore; avoid stale localStorage. Default off — use row FAB / p to prettify per row.
         prettifyJson: [
-            true,
-            { persist: true },
+            false,
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
@@ -49,9 +49,6 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
         },
         setWrapBody: ({ wrapBody }) => {
             posthog.capture('logs setting changed', { setting: 'wrap_body', value: wrapBody })
-        },
-        setPrettifyJson: ({ prettifyJson }) => {
-            posthog.capture('logs setting changed', { setting: 'prettify_json', value: prettifyJson })
         },
     })),
 ])

@@ -15,6 +15,7 @@ import {
     IconExpand,
     IconEye,
     IconLeave,
+    IconLive,
     IconLogomark,
     IconRedux,
     IconTerminal,
@@ -24,7 +25,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { ceilMsToClosestSecond, objectsEqual } from 'lib/utils'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { objectsEqual } from 'lib/utils/objects'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import {
     ItemAnyComment,
@@ -101,6 +103,10 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
         Icon: undefined,
         tooltip: undefined,
     },
+    logs: {
+        Icon: IconLive,
+        tooltip: 'Log entry',
+    },
 }
 
 const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
@@ -160,10 +166,12 @@ function RowItemTitle({
     item,
     finalTimestamp,
     groupCount,
+    groupedItems,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupCount?: number
+    groupedItems?: InspectorListItem[]
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
@@ -174,7 +182,11 @@ function RowItemTitle({
             ) : item.type === 'app-state' ? (
                 <ItemAppState item={item} />
             ) : item.type === 'events' ? (
-                <ItemEvent item={item} groupCount={groupCount} />
+                <ItemEvent
+                    item={item}
+                    groupCount={groupCount}
+                    groupedItems={groupedItems as InspectorListItemEvent[] | undefined}
+                />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
@@ -243,11 +255,13 @@ const ListItemTitle = memo(function ListItemTitle({
     index,
     hoverRef,
     groupCount,
+    groupedItems,
 }: {
     item: InspectorListItem
     index: number
     hoverRef: React.RefObject<HTMLDivElement>
     groupCount?: number
+    groupedItems?: InspectorListItem[]
 }) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -318,7 +332,12 @@ const ListItemTitle = memo(function ListItemTitle({
                         item.highlightColor === 'primary' && `bg-fill-success-highlight`
                     )}
                 >
-                    <RowItemTitle item={item} finalTimestamp={end} groupCount={groupCount} />
+                    <RowItemTitle
+                        item={item}
+                        finalTimestamp={end}
+                        groupCount={groupCount}
+                        groupedItems={groupedItems}
+                    />
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
@@ -443,7 +462,13 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <ListItemTitle item={item} index={index} hoverRef={hoverRef} groupCount={groupCount} />
+            <ListItemTitle
+                item={item}
+                index={index}
+                hoverRef={hoverRef}
+                groupCount={groupCount}
+                groupedItems={groupedItems}
+            />
 
             {isExpanded ? <ListItemDetail item={item} index={index} groupedItems={groupedItems} /> : null}
         </div>

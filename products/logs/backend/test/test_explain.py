@@ -11,7 +11,7 @@ from rest_framework import exceptions, status
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.explain import (
+from products.logs.backend.presentation.views.explain import (
     LogExplanationResponse,
     explain_log_with_openai,
     fetch_log_by_uuid,
@@ -88,7 +88,7 @@ class TestExplainLogWithOpenAI:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = valid_explanation_json
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -107,7 +107,7 @@ class TestExplainLogWithOpenAI:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = None
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -117,7 +117,7 @@ class TestExplainLogWithOpenAI:
 
     @pytest.mark.asyncio
     async def test_api_error_raises_api_exception(self, sample_log_data):
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
@@ -131,7 +131,7 @@ class TestExplainLogWithOpenAI:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = valid_explanation_json
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -148,7 +148,7 @@ class TestExplainLogWithOpenAI:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = valid_explanation_json
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -161,16 +161,6 @@ class TestExplainLogWithOpenAI:
 
 class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
 
     def test_returns_none_for_nonexistent_uuid(self):
         result = fetch_log_by_uuid(self.team, "nonexistent-uuid", "2025-12-16T09:01:22")
@@ -212,16 +202,6 @@ class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
 
 class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
 
     def _get_valid_explanation_response(self):
         return json.dumps(
@@ -279,7 +259,8 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_successful_explanation(self):
+    @patch("products.logs.backend.presentation.views.explain.report_user_action")
+    def test_successful_explanation(self, mock_report):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
@@ -297,7 +278,7 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = self._get_valid_explanation_response()
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -314,7 +295,12 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         assert len(data["probable_causes"]) == 1
         assert len(data["immediate_actions"]) == 1
 
-    def test_caches_result(self):
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs explain requested"
+        assert mock_report.call_args[0][2]["cached"] is False
+
+    @patch("products.logs.backend.presentation.views.explain.report_user_action")
+    def test_caches_result(self, mock_report):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
@@ -332,7 +318,7 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = self._get_valid_explanation_response()
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -345,6 +331,9 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             assert response1.status_code == status.HTTP_200_OK
             assert mock_client.chat.completions.create.call_count == 1
 
+            assert mock_report.call_args[0][1] == "logs explain requested"
+            assert mock_report.call_args[0][2]["cached"] is False
+
             # Second request should use cache
             response2 = self.client.post(
                 f"/api/environments/{self.team.id}/logs/explainLogWithAI/",
@@ -352,6 +341,9 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             )
             assert response2.status_code == status.HTTP_200_OK
             assert mock_client.chat.completions.create.call_count == 1  # Still 1, used cache
+
+            assert mock_report.call_count == 2
+            assert mock_report.call_args[0][2]["cached"] is True
 
     def test_force_refresh_bypasses_cache(self):
         self.organization.is_ai_data_processing_approved = True
@@ -371,7 +363,7 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = self._get_valid_explanation_response()
 
-        with patch("products.logs.backend.explain.AsyncOpenAI") as mock_client_class:
+        with patch("products.logs.backend.presentation.views.explain.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)

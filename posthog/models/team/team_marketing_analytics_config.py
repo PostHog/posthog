@@ -1,13 +1,18 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.schema import AttributionMode, NodeKind, SourceMap
-
 from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import AttributionMode, NodeKind
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic models)
+# is runtime-imported in the accessors that materialize typed objects.
+if TYPE_CHECKING:
+    from posthog.schema import SourceMap
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
@@ -273,7 +278,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             max_length=20,
             default=AttributionMode.LAST_TOUCH,
             choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
-            help_text="Attribution mode: first_touch or last_touch",
+            help_text="Attribution mode: first_touch, last_touch, linear, time_decay, or position_based",
         ),
         "project",
         "admin",
@@ -347,8 +352,10 @@ class TeamMarketingAnalyticsConfig(models.Model):
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
     @property
-    def sources_map_typed(self) -> dict[str, SourceMap]:
+    def sources_map_typed(self) -> dict[str, "SourceMap"]:
         """Return sources_map as typed SourceMap objects for Python usage"""
+        from posthog.schema import SourceMap  # noqa: PLC0415
+
         response = {}
         for source_id, field_mapping in self._sources_map.items():
             if field_mapping is None:

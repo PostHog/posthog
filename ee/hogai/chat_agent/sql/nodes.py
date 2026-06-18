@@ -1,6 +1,6 @@
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantHogQLQuery
+from posthog.schema import DataVisualizationNode
 
 from posthog.hogql.context import HogQLContext
 
@@ -11,7 +11,7 @@ from .mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
 from .toolkit import SQL_SCHEMA
 
 
-class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQuery]):
+class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[DataVisualizationNode]):
     INSIGHT_NAME = "SQL"
     OUTPUT_MODEL = SQLSchemaGeneratorOutput
     OUTPUT_SCHEMA = SQL_SCHEMA

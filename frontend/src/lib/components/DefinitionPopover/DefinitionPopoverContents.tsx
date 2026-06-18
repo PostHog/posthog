@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -23,9 +23,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import {
@@ -35,6 +34,8 @@ import {
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
 } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
@@ -466,7 +467,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (isDataWarehouse && dataWarehousePopoverFields.length > 0) {
         const _definition = definition as DataWarehouseTableForInsight
-        const columnOptions = Object.values(_definition.fields).map((column) => ({
+        const columnOptions = Object.values(_definition.fields ?? {}).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
             type: column.type,
@@ -519,16 +520,31 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                             )}
                                         </label>
                                         {!hogQLOnly && (
-                                            <LemonSelect
+                                            <LemonInputSelect
+                                                mode="single"
                                                 fullWidth
-                                                allowClear={!!optional}
-                                                value={isHogQL ? '' : fieldValue}
+                                                placeholder="Select a column"
+                                                value={isHogQL ? [''] : fieldValue != null ? [fieldValue] : null}
                                                 options={[
-                                                    ...columnOptions.filter((col) => !type || col.type === type),
-                                                    ...(allowHogQL ? [hogqlOption] : []),
+                                                    ...columnOptions
+                                                        .filter((col) => !type || col.type === type)
+                                                        .map((col) => ({
+                                                            key: col.value,
+                                                            label: col.label,
+                                                            value: col.value,
+                                                        })),
+                                                    ...(allowHogQL
+                                                        ? [
+                                                              {
+                                                                  key: hogqlOption.value,
+                                                                  label: hogqlOption.label,
+                                                                  value: hogqlOption.value,
+                                                              },
+                                                          ]
+                                                        : []),
                                                 ]}
-                                                onChange={(value: string | null) =>
-                                                    setLocalDefinition({ [key]: value })
+                                                onChange={(value) =>
+                                                    setLocalDefinition({ [key]: value.length > 0 ? value[0] : null })
                                                 }
                                             />
                                         )}
@@ -708,7 +724,9 @@ export function ControlledDefinitionPopover({
     const icon = group.getIcon?.(definition || item)
 
     // Supports all types specified in selectedItemHasPopover
-    const value = group.getValue?.(item)
+    // Pinned items store minimal data ({ name }) so the source group's getValue may not
+    // work (e.g. EventMetadata uses option.id). Fall back to item.name for pinned items.
+    const value = group.getValue?.(item) ?? ('name' in item ? item.name : null)
 
     // Hydrate popover card with the newest item. Compare by value identity (not reference)
     // to avoid cascading re-renders when taxonomicGroups re-evaluates and creates new item

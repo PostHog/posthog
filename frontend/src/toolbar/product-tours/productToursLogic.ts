@@ -1,12 +1,12 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import isEqual from 'lodash.isequal'
 import { findElement } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { DEFAULT_APPEARANCE } from 'scenes/product-tours/constants'
 import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
@@ -421,7 +421,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 cache.lastDraftPayload = null
             } else {
                 const incomingPayload = buildDraftPayload(selectedTour, values.tours)
-                if (!isEqual(incomingPayload, cache.lastDraftPayload)) {
+                if (!equal(incomingPayload, cache.lastDraftPayload)) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     ;(actions.setTourFormValues as any)(selectedTour)
                     cache.lastDraftPayload = incomingPayload
@@ -433,7 +433,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
             const payload = buildDraftPayload(tourForm, values.tours)
-            if (isEqual(cache.lastDraftPayload, payload)) {
+            if (equal(cache.lastDraftPayload, payload)) {
                 return
             }
             cache.lastDraftPayload = payload

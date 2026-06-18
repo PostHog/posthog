@@ -5,7 +5,22 @@ on:
     pull_request:
         paths:
             - 'cli/**'
+            - 'services/mcp/src/cli/**'
+            - 'services/mcp/src/tools/**'
+            - 'services/mcp/src/api/**'
+            - 'services/mcp/schema/**'
+            - 'services/mcp/scripts/build-cli*.ts'
+            - 'services/mcp/scripts/hono-esbuild-config.ts'
+            - 'services/mcp/package.json'
+            - 'dist-workspace.toml'
+            - 'pnpm-lock.yaml'
+            - '.github/workflows/release.yml'
             - '.github/workflows/ci-cli.yml'
+            - '.github/workflows/release-cli.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     tests:
@@ -16,10 +31,10 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -39,10 +54,10 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: clippy
@@ -58,13 +73,38 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: rustfmt
 
             - name: Check formatting
               run: cargo fmt --all -- --check
+
+    api-cli-release-bundle:
+        name: API CLI release bundle
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: 'pnpm'
+
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+
+            - name: Verify API CLI release bundle
+              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"

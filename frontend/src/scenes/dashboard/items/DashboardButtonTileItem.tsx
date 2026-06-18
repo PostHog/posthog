@@ -5,7 +5,6 @@ import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCa
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import type { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
@@ -71,20 +70,7 @@ function DashboardButtonTileItemInternal(
                     {onRemove && (
                         <LemonButton
                             status="danger"
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: 'Remove button from dashboard',
-                                    description: 'Are you sure you want to remove this button from the dashboard?',
-                                    primaryButton: {
-                                        children: 'Remove from dashboard',
-                                        status: 'danger',
-                                        onClick: () => onRemove(),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            }
+                            onClick={() => onRemove()}
                             fullWidth
                             data-attr="remove-button-tile-from-dashboard"
                         >

@@ -9,30 +9,31 @@ interface Step {
     label: string
 }
 
-const STEPS: Step[] = [
+const ALL_STEPS: Step[] = [
     { key: WizardStep.Destination, label: 'Destination' },
     { key: WizardStep.Trigger, label: 'Trigger' },
     { key: WizardStep.Configure, label: 'Configure' },
 ]
 
-const STEP_ORDER: Record<WizardStep, number> = {
-    [WizardStep.Destination]: 0,
-    [WizardStep.Trigger]: 1,
-    [WizardStep.Configure]: 2,
-}
-
 interface AlertWizardStepperProps {
     currentStep: WizardStep
     onStepClick: (step: WizardStep) => void
+    hideTriggerStep?: boolean
 }
 
-export function AlertWizardStepper({ currentStep, onStepClick }: AlertWizardStepperProps): JSX.Element {
-    const currentOrder = STEP_ORDER[currentStep]
+export function AlertWizardStepper({
+    currentStep,
+    onStepClick,
+    hideTriggerStep,
+}: AlertWizardStepperProps): JSX.Element {
+    const steps = hideTriggerStep ? ALL_STEPS.filter((s) => s.key !== WizardStep.Trigger) : ALL_STEPS
+    const stepOrder = new Map(steps.map((s, i) => [s.key, i]))
+    const currentOrder = stepOrder.get(currentStep) ?? 0
 
     return (
         <nav className="flex items-center justify-center" aria-label="Alert wizard progress">
-            {STEPS.map((step, index) => {
-                const order = STEP_ORDER[step.key]
+            {steps.map((step, index) => {
+                const order = stepOrder.get(step.key) ?? 0
                 const isCompleted = currentOrder > order
                 const isCurrent = currentStep === step.key
                 const isFuture = order > currentOrder

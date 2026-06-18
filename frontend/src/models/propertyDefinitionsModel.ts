@@ -3,10 +3,11 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { colonDelimitedDuration, toString, isKeyOf } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
+import { isKeyOf } from 'lib/utils/guards'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { toString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -155,7 +156,7 @@ const constructValuesEndpoint = (
     eventNames: string[] | undefined,
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[],
-    forceRefresh?: boolean
+    refresh?: string
 ): string => {
     let basePath: string
 
@@ -186,7 +187,7 @@ const constructValuesEndpoint = (
     return (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-        (forceRefresh ? '&force_refresh=true' : '') +
+        (refresh ? '&refresh=' + refresh : '') +
         eventParams
     )
 }
@@ -214,7 +215,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             propertyKey: string
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
-            forceRefresh?: boolean
+            refresh?: string
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
@@ -410,22 +411,24 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async (
-            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh },
+            { endpoint, type, newInput, propertyKey, eventNames, properties, refresh },
             breakpoint
         ) => {
-            if (['cohort'].includes(type)) {
+            if (!endpoint && ['cohort', 'log', 'span', 'workflow_variable'].includes(type)) {
                 return
             }
             if (!propertyKey || values.currentTeamId === null) {
                 return
             }
 
-            if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
+            if (refresh !== 'force_blocking' && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
 
-            const start = performance.now()
+            if (!endpoint && type === 'log_entry') {
+                return
+            }
 
             await breakpoint(300)
             actions.setOptionsLoading(propertyKey)
@@ -448,7 +451,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         eventNames,
                         newInput,
                         properties,
-                        forceRefresh
+                        refresh
                     ),
                     methodOptions
                 )
@@ -467,22 +470,20 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         clearTimeout(cache.pollingTimeouts[propertyKey])
                     }
                     cache.pollingTimeouts[propertyKey] = setTimeout(() => {
-                        actions.loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames, properties })
+                        actions.loadPropertyValues({
+                            endpoint,
+                            type,
+                            newInput,
+                            propertyKey,
+                            eventNames,
+                            properties,
+                            refresh: 'force_cache',
+                        })
                     }, 2000)
                 } else if (cache.pollingTimeouts[propertyKey]) {
                     clearTimeout(cache.pollingTimeouts[propertyKey])
                     delete cache.pollingTimeouts[propertyKey]
                 }
-
-                await captureTimeToSeeData(teamLogic.values.currentTeamId, {
-                    type: 'property_values_load',
-                    context: 'filters',
-                    action: type,
-                    primary_interaction_id: '',
-                    status: 'success',
-                    time_to_see_data_ms: Math.floor(performance.now() - start),
-                    api_response_bytes: 0,
-                })
             } catch (e) {
                 // Bail if a newer listener invocation has superseded this one
                 breakpoint()

@@ -1,12 +1,96 @@
+import type { CommonConfig } from '../common/config'
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_GROUPS,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
 } from '../config/kafka-topics'
+import type { PostgresRouterConfig } from '../utils/db/postgres'
 import { isDevEnv, isProdEnv } from '../utils/env-utils'
+import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from './common/outputs'
+
+/** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
+
+// =============================================================================
+// Infrastructure sub-config types
+// These group CommonConfig keys by infrastructure concern for use in server
+// config types. Defined here (rather than common/config.ts) because they are
+// ingestion-specific groupings — other domains may slice CommonConfig differently.
+// =============================================================================
+
+/** Kafka broker connection and authentication config */
+export type KafkaBrokerConfig = Pick<
+    CommonConfig,
+    | 'KAFKA_HOSTS'
+    | 'KAFKA_CLIENT_RACK'
+    | 'KAFKA_CLIENT_CERT_B64'
+    | 'KAFKA_CLIENT_CERT_KEY_B64'
+    | 'KAFKA_TRUSTED_CERT_B64'
+    | 'KAFKA_SASL_MECHANISM'
+    | 'KAFKA_SASL_USER'
+    | 'KAFKA_SASL_PASSWORD'
+>
+
+/** PostgreSQL connection config for the ingestion server — excludes behavioral cohorts */
+export type DatabaseConnectionConfig = Omit<PostgresRouterConfig, 'BEHAVIORAL_COHORTS_DATABASE_URL'>
+
+/** Redis connection config — URLs, hosts, and pool sizing */
+export type RedisConnectionsConfig = Pick<
+    CommonConfig,
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'INGESTION_REDIS_HOST'
+    | 'INGESTION_REDIS_PORT'
+    | 'POSTHOG_REDIS_HOST'
+    | 'POSTHOG_REDIS_PORT'
+    | 'POSTHOG_REDIS_PASSWORD'
+>
+
+/** PersonHog gRPC client config */
+export type PersonHogConfig = Pick<
+    CommonConfig,
+    | 'PERSONHOG_ENABLED'
+    | 'PERSONHOG_ADDR'
+    | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
+    | 'PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS'
+    | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
+    | 'PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS'
+    | 'PERSONHOG_TLS'
+    | 'PERSONHOG_TIMEOUT_MS'
+    | 'PERSONHOG_READ_MAX_BYTES'
+    | 'PERSONHOG_WRITE_MAX_BYTES'
+    | 'PERSONHOG_PING_INTERVAL_MS'
+    | 'PERSONHOG_PING_TIMEOUT_MS'
+    | 'PERSONHOG_PING_IDLE_CONNECTION'
+    | 'PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS'
+    | 'PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS'
+    | 'PLUGIN_SERVER_MODE'
+>
+
+/** Kafka consumer loop tuning config */
+export type KafkaConsumerBaseConfig = Pick<
+    CommonConfig,
+    | 'CONSUMER_BATCH_SIZE'
+    | 'CONSUMER_MAX_HEARTBEAT_INTERVAL_MS'
+    | 'CONSUMER_LOOP_STALL_THRESHOLD_MS'
+    | 'CONSUMER_LOG_STATS_LEVEL'
+    | 'CONSUMER_LOOP_BASED_HEALTH_CHECK'
+    | 'CONSUMER_MAX_BACKGROUND_TASKS'
+    | 'CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE'
+    | 'CONSUMER_AUTO_CREATE_TOPICS'
+>
 
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
@@ -23,11 +107,16 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
 
     // Ingestion pipeline config
-    INGESTION_CONCURRENCY: number
     INGESTION_BATCH_SIZE: number
     INGESTION_OVERFLOW_ENABLED: boolean
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
+
+    // Maximum in-flight batches per worker (BatchingPipeline.concurrentBatches).
+    // Mirrors INGESTION_WORKER_CONCURRENT_BATCHES on the Rust consumer side —
+    // both values MUST agree, otherwise either the Rust consumer over-limits
+    // (idle worker capacity) or the worker rejects with HTTP 503.
+    INGESTION_WORKER_CONCURRENT_BATCHES: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -74,11 +163,24 @@ export type IngestionConsumerConfig = {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs */
+    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
     INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+    /**
+     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
+     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
+     */
+    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
+    /**
+     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
+     * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
+     * Defaults to '' (no stripping → double-write the full event for everyone).
+     */
+    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -123,11 +225,11 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 
         // Ingestion pipeline config
-        INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        INGESTION_WORKER_CONCURRENT_BATCHES: 1,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -174,10 +276,13 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
         INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
+        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
+        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
@@ -209,5 +314,78 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Ingestion pipeline
         INGESTION_PIPELINE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
+    }
+}
+
+/** Config type for all analytics ingestion output keys. */
+export type IngestionOutputsConfig = {
+    INGESTION_OUTPUT_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_EVENTS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_AI_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_AI_EVENTS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_HEATMAPS_TOPIC: string
+    INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: string
+    INGESTION_OUTPUT_INGESTION_WARNINGS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_DLQ_TOPIC: string
+    INGESTION_OUTPUT_DLQ_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_OVERFLOW_TOPIC: string
+    INGESTION_OUTPUT_OVERFLOW_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_ASYNC_TOPIC: string
+    INGESTION_OUTPUT_ASYNC_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_GROUPS_TOPIC: string
+    INGESTION_OUTPUT_GROUPS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_PERSONS_TOPIC: string
+    INGESTION_OUTPUT_PERSONS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: string
+    INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_APP_METRICS_TOPIC: string
+    INGESTION_OUTPUT_APP_METRICS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: string
+    INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_TOPHOG_TOPIC: string
+    INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
+}
+
+export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
+    return {
+        INGESTION_OUTPUT_EVENTS_TOPIC: KAFKA_EVENTS_JSON,
+        INGESTION_OUTPUT_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_AI_EVENTS_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+        INGESTION_OUTPUT_AI_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
+        INGESTION_OUTPUT_INGESTION_WARNINGS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+        INGESTION_OUTPUT_DLQ_PRODUCER: INGESTION_UPSTREAM_PRODUCER,
+        INGESTION_OUTPUT_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        INGESTION_OUTPUT_OVERFLOW_PRODUCER: INGESTION_UPSTREAM_PRODUCER,
+        INGESTION_OUTPUT_ASYNC_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
+        INGESTION_OUTPUT_ASYNC_PRODUCER: INGESTION_UPSTREAM_PRODUCER,
+        INGESTION_OUTPUT_GROUPS_TOPIC: KAFKA_GROUPS,
+        INGESTION_OUTPUT_GROUPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_PERSONS_TOPIC: KAFKA_PERSON,
+        INGESTION_OUTPUT_PERSONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: KAFKA_PERSON_DISTINCT_ID,
+        INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        INGESTION_OUTPUT_APP_METRICS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        INGESTION_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
+        INGESTION_OUTPUT_TOPHOG_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
     }
 }

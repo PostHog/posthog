@@ -1,7 +1,6 @@
 import { Locator, Page, expect } from '@playwright/test'
 
 import { TaxonomicFilter } from '../taxonomicFilter'
-
 import { ChartInsightBase } from './chartInsightBase'
 
 export class RetentionInsight extends ChartInsightBase {
@@ -60,13 +59,13 @@ export class RetentionInsight extends ChartInsightBase {
         }).toPass({ timeout: 30000 })
     }
 
-    async waitForChart(): Promise<void> {
+    override async waitForChart(): Promise<void> {
         const loading = this.page.getByTestId('insight-loading-waiting-message')
         // Wait for the loading indicator to appear (query started), then disappear.
         // Short timeout on 'attached' handles cached/instant queries where it never appears.
         await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
         await loading.waitFor({ state: 'detached', timeout: 30000 })
-        await expect(this.table).toBeVisible()
+        await expect(this.chart).toBeVisible({ timeout: 30000 })
     }
 
     async selectPeriod(period: 'days' | 'weeks' | 'months'): Promise<void> {
@@ -83,13 +82,16 @@ export class RetentionInsight extends ChartInsightBase {
     }
 
     async toggleCumulative(): Promise<void> {
+        await this.page.getByTestId('editor-filter-group-collapse-calculation-options').click()
         const toggle = this.optionsPanel.locator('.LemonSegmentedButton li', { hasText: 'on or after' })
-        await toggle.scrollIntoViewIfNeeded()
+        await toggle.waitFor({ state: 'visible' })
         await toggle.click()
         await this.waitForChart()
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.page.getByTestId('editor-filter-group-collapse-breakdown').click()
+        await this.breakdownButton.waitFor({ state: 'visible' })
         await expect(async () => {
             await this.page.keyboard.press('Escape')
             await this.breakdownButton.click()

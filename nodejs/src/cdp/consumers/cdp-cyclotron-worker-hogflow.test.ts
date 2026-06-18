@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
@@ -5,7 +7,10 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PostgresUse } from '~/utils/db/postgres'
 import { UUIDT } from '~/utils/utils'
-import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -21,10 +26,68 @@ import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consum
 
 jest.setTimeout(1000)
 
+const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+
+type TestPerson = {
+    id: string
+    uuid: string
+    teamId: number
+    distinctId: string
+    properties: Record<string, any>
+}
+
+function toInternalPerson(p: TestPerson): InternalPerson {
+    return {
+        id: p.id,
+        uuid: p.uuid,
+        team_id: p.teamId,
+        properties: p.properties,
+        properties_last_updated_at: {},
+        properties_last_operation: null,
+        created_at: TIMESTAMP,
+        version: 1,
+        is_identified: true,
+        is_user_id: null,
+        last_seen_at: null,
+    }
+}
+
+function createMockPersonReadRepository(persons: TestPerson[]): jest.Mocked<PersonReadRepository> {
+    return {
+        fetchPerson: jest.fn().mockImplementation((teamId: number, distinctId: string) => {
+            const match = persons.find((p) => p.teamId === teamId && p.distinctId === distinctId)
+            return Promise.resolve(match ? toInternalPerson(match) : undefined)
+        }),
+        fetchPersonsByDistinctIds: jest
+            .fn()
+            .mockImplementation((teamPersons: { teamId: number; distinctId: string }[]) => {
+                const results: InternalPersonWithDistinctId[] = persons
+                    .filter((p) => teamPersons.some((tp) => tp.teamId === p.teamId && tp.distinctId === p.distinctId))
+                    .map((p) => ({ ...toInternalPerson(p), distinct_id: p.distinctId }))
+                return Promise.resolve(results)
+            }),
+        fetchPersonsByPersonIds: jest.fn().mockImplementation((teamPersons: { teamId: number; personId: string }[]) => {
+            const results: InternalPerson[] = persons
+                .filter((p) => teamPersons.some((tp) => tp.teamId === p.teamId && tp.personId === p.uuid))
+                .map(toInternalPerson)
+            return Promise.resolve(results)
+        }),
+        fetchDistinctIdsForPersons: jest.fn().mockImplementation((teamId: number, personIntIds: string[]) => {
+            const result: Record<string, string[]> = {}
+            for (const intId of personIntIds) {
+                const match = persons.find((p) => p.teamId === teamId && p.id === intId)
+                if (match) {
+                    result[intId] = [match.distinctId]
+                }
+            }
+            return Promise.resolve(result)
+        }),
+    }
+}
+
 describe('CdpCyclotronWorkerHogFlow', () => {
     let processor: CdpCyclotronWorkerHogFlow
     let hub: Hub
-    let personRepository: PostgresPersonRepository
     let team: Team
     let team2: Team
     let hogFlows: HogFlow[]
@@ -33,8 +96,6 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         hogFlow: HogFlow,
         _context: Partial<HogFlowInvocationContext> = {}
     ): CyclotronJobInvocation => {
-        // Add the source of the trigger to the globals
-
         const context = createHogFlowInvocationContext(_context)
 
         return {
@@ -49,31 +110,65 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         }
     }
 
-    const createPerson = async (
-        teamId: number,
-        uuid: string,
-        distinctId: string,
-        properties: any
-    ): Promise<InternalPerson> => {
-        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const result = await personRepository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, {
-            distinctId,
-        })
-        if (!result.success) {
-            throw new Error('Failed to create person')
-        }
-        return result.person
-    }
-
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        personRepository = new PostgresPersonRepository(hub.postgres)
         team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub, createCdpConsumerDeps(hub))
+        const testPersons: TestPerson[] = [
+            {
+                id: '1',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                teamId: team.id,
+                distinctId: 'distinct_A_1',
+                properties: { name: 'Person A 1' },
+            },
+            {
+                id: '2',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e2',
+                teamId: team.id,
+                distinctId: 'distinct_A_2',
+                properties: { name: 'Person A 2' },
+            },
+            {
+                id: '3',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e3',
+                teamId: team2.id,
+                distinctId: 'distinct_A_1',
+                properties: { name: 'Person A 3' },
+            },
+            {
+                id: '4',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7f0',
+                teamId: team.id,
+                distinctId: 'distinct_batch_1',
+                properties: { name: 'Batch Person', email: 'batch@posthog.com' },
+            },
+            {
+                id: '5',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e4',
+                teamId: team.id,
+                distinctId: 'distinct_person_1',
+                properties: { name: 'Person 1' },
+            },
+            {
+                id: '6',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e5',
+                teamId: team.id,
+                distinctId: 'distinct_person_2',
+                properties: { name: 'Person 2' },
+            },
+        ]
+
+        const mockRepo = createMockPersonReadRepository(testPersons)
+        const mockJobQueue = createMockJobQueue()
+        processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
+            mockJobQueue
+        )
 
         hogFlows = []
         hogFlows.push(
@@ -109,17 +204,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     describe('loadHogFlows', () => {
         let invocations: CyclotronJobInvocation[]
 
-        beforeEach(async () => {
-            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1', 'distinct_A_1', {
-                name: 'Person A 1',
-            })
-            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e2', 'distinct_A_2', {
-                name: 'Person A 2',
-            })
-            await createPerson(team2.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e3', 'distinct_A_1', {
-                name: 'Person A 3',
-            })
-
+        beforeEach(() => {
             const invocation1 = createSerializedHogFlowInvocation(hogFlows[0], {
                 event: {
                     distinct_id: 'distinct_A_1',
@@ -252,10 +337,6 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
         it('should resolve person by personId when distinct_id is empty (batch invocations)', async () => {
             const personUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7f0'
-            await createPerson(team.id, personUuid, 'distinct_batch_1', {
-                name: 'Batch Person',
-                email: 'batch@posthog.com',
-            })
 
             // Batch invocations set distinct_id: '' and use personId instead
             const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
@@ -279,17 +360,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it('should skip invocations when workflow is disabled after being queued', async () => {
-            // Scenario: workflow is active, invocations are queued, then workflow is disabled
-            // Remaining invocations should be skipped
-
             const hogFlow = hogFlows[0]
-
-            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e4', 'distinct_person_1', {
-                name: 'Person 1',
-            })
-            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e5', 'distinct_person_2', {
-                name: 'Person 2',
-            })
 
             const invocation1 = createSerializedHogFlowInvocation(hogFlow, {
                 event: {

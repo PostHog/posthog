@@ -1,9 +1,7 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { TagSelect } from 'lib/components/TagSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { FeatureFlagEvaluationRuntime } from '~/types'
 
@@ -23,6 +21,7 @@ interface FeatureFlagFiltersProps {
     setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => void
     searchPlaceholder?: string
     filtersConfig?: FeatureFlagFiltersConfig
+    countText?: JSX.Element | null
 }
 
 export function FeatureFlagFiltersSection({
@@ -30,6 +29,7 @@ export function FeatureFlagFiltersSection({
     setFeatureFlagsFilters,
     searchPlaceholder = 'Search for feature flags',
     filtersConfig = {},
+    countText,
 }: FeatureFlagFiltersProps): JSX.Element {
     const config = {
         search: false,
@@ -44,16 +44,19 @@ export function FeatureFlagFiltersSection({
 
     return (
         <div className="flex justify-between gap-2 flex-wrap">
-            {config.search && (
-                <LemonInput
-                    className="w-[335px] !max-w-[335px]"
-                    type="search"
-                    placeholder={searchPlaceholder}
-                    onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
-                    value={filters.search || ''}
-                    data-attr="feature-flag-search"
-                />
-            )}
+            <div className="flex items-center gap-2">
+                {config.search && (
+                    <LemonInput
+                        className="w-[335px] !max-w-[335px]"
+                        type="search"
+                        placeholder={searchPlaceholder}
+                        onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
+                        value={filters.search || ''}
+                        data-attr="feature-flag-search"
+                    />
+                )}
+                {countText}
+            </div>
             {hasNonSearchFilters && (
                 <div className="flex items-center gap-2">
                     {config.type && (
@@ -132,17 +135,15 @@ export function FeatureFlagFiltersSection({
                             <span className="ml-1">
                                 <b>Created by</b>
                             </span>
-                            <MemberSelect
+                            <MemberMultiSelect
                                 defaultLabel="Any user"
-                                value={filters.created_by_id ?? null}
-                                onChange={(user) => {
-                                    if (!user) {
-                                        if (filters) {
-                                            const { created_by_id, ...restFilters } = filters
-                                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                        }
+                                value={filters.created_by_id ?? []}
+                                onChange={(userIds) => {
+                                    if (!userIds.length) {
+                                        const { created_by_id, ...restFilters } = filters
+                                        setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                     } else {
-                                        setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
+                                        setFeatureFlagsFilters({ created_by_id: userIds, page: 1 })
                                     }
                                 }}
                                 data-attr="feature-flag-select-created-by"
@@ -164,37 +165,36 @@ export function FeatureFlagFiltersSection({
                             />
                         </>
                     )}
-                    {config.runtime &&
-                        enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                            <>
-                                <span className="ml-1">
-                                    <b>Runtime</b>
-                                </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
-                                    size="small"
-                                    onChange={(runtime) => {
-                                        const { evaluation_runtime, ...restFilters } = filters || {}
-                                        if (runtime === 'any') {
-                                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                        } else {
-                                            setFeatureFlagsFilters(
-                                                { ...restFilters, evaluation_runtime: runtime, page: 1 },
-                                                true
-                                            )
-                                        }
-                                    }}
-                                    options={[
-                                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
-                                        { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
-                                        { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
-                                        { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
-                                    ]}
-                                    value={filters.evaluation_runtime ?? 'any'}
-                                    data-attr="feature-flag-select-runtime"
-                                />
-                            </>
-                        )}
+                    {config.runtime && (
+                        <>
+                            <span className="ml-1">
+                                <b>Runtime</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                onChange={(runtime) => {
+                                    const { evaluation_runtime, ...restFilters } = filters || {}
+                                    setFeatureFlagsFilters(
+                                        {
+                                            ...restFilters,
+                                            ...(runtime !== 'any' ? { evaluation_runtime: runtime } : {}),
+                                            page: 1,
+                                        },
+                                        true
+                                    )
+                                }}
+                                options={[
+                                    { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
+                                    { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                                    { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                                    { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
+                                ]}
+                                value={filters.evaluation_runtime ?? 'any'}
+                                data-attr="feature-flag-select-runtime"
+                            />
+                        </>
+                    )}
                 </div>
             )}
         </div>

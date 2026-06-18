@@ -6,26 +6,45 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { getContext } from 'kea'
 import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
 import { createRoot } from 'react-dom/client'
+
+import { PostHogProvider } from '@posthog/react'
 
 import { App } from 'scenes/App'
 
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
-import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 loadPostHogJS()
 initKea()
-preWarmDecompression()
+
+const idle =
+    typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback.bind(window)
+        : (cb: () => void) => setTimeout(cb, 200)
+
+idle(() => {
+    void import('./scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+        .then(({ preWarmDecompression }) => preWarmDecompression())
+        .catch((error) => {
+            console.warn('[index] Failed to load DecompressionWorkerManager for pre-warm:', error)
+        })
+})
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.
 //
 // NOTE: The first argument is the name of the polyfill to use. This is used to set the font family in our CSS.
 // Make sure to update the font family in the CSS if you change this.
-polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+//
+// The polyfill runs canvas-based feature detection (getImageData) which can throw on some browser
+// states (e.g. Safari/macOS). It's purely cosmetic and best-effort, so swallow any failure.
+try {
+    polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+} catch (error) {
+    console.warn('[index] Country flag emoji polyfill detection failed:', error)
+}
 
 // Expose `window.getReduxState()` to make snapshots to storybook easy
 if (typeof window !== 'undefined') {

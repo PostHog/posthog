@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
@@ -19,7 +19,10 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
-function makeTrendsQuery(display?: ChartDisplayType): TrendsQuery {
+function makeTrendsQuery(
+    display?: ChartDisplayType,
+    trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {}
+): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [
@@ -32,6 +35,7 @@ function makeTrendsQuery(display?: ChartDisplayType): TrendsQuery {
         ],
         trendsFilter: {
             display,
+            ...trendsFilter,
         },
     }
 }
@@ -85,7 +89,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend'])
+            expect(items).toEqual(['Show legend', 'Exclude outliers'])
         })
 
         it('shows unit picker and Y-axis scale but not statistical analysis', async () => {
@@ -97,7 +101,46 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('slope graph display options', () => {
+        it('shows the "group by time period" interval picker — grouping defines the slope', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
+        })
+
+        it('hides the compare picker', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
+        })
+
+        it('shows only the legend in the Display section', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            const items = getDisplaySectionItems()
+            expect(items).toEqual(['Show legend'])
+            // None of the time-series-only options should leak in.
+            expect(items).not.toContain('Show values on series')
+            expect(items).not.toContain('Show trend lines')
+            expect(items).not.toContain('Show alert threshold lines')
+            expect(items).not.toContain('Show multiple Y-axes')
+            expect(items).not.toContain('Show annotations')
+        })
+
+        it('hides the Y-axis scale and statistical analysis sections', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            expect(screen.queryByText('Y-axis scale')).not.toBeInTheDocument()
+            expect(screen.queryByText('Statistical analysis')).not.toBeInTheDocument()
+        })
+    })
+
     describe('line graph display options', () => {
+        it('shows the "group by time period" interval picker (control for the slope graph)', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
+        })
+
         it('shows multiple options in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
@@ -114,6 +157,23 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
+        })
+
+        it('removes axis label option count after clearing a committed label', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
+
+            const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]
+            expect(optionsButton).toHaveTextContent(/\(1\)/)
+
+            await openOptionsMenu()
+            const input = await screen.findByPlaceholderText('X-axis label')
+            await userEvent.clear(input)
+            expect(optionsButton).toHaveTextContent(/\(1\)/)
+
+            fireEvent.blur(input)
+            await waitFor(() => {
+                expect(optionsButton).not.toHaveTextContent(/\(1\)/)
+            })
         })
     })
 })

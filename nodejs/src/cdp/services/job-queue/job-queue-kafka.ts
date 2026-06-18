@@ -6,31 +6,41 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumer } from '../../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
+import { JobQueue } from './job-queue.interface'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export class CyclotronJobQueueKafka {
-    private kafkaConsumer?: KafkaConsumer
+export class CyclotronJobQueueKafka implements JobQueue {
+    private kafkaConsumer?: KafkaConsumerInterface
     private kafkaProducer?: KafkaProducerWrapper
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
         private kafkaClientRack: string | undefined,
-        private config: Pick<CdpConfig, 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'>
-    ) {}
+        private config: Pick<
+            CdpConfig,
+            'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+        >,
+        private consumerBatchSize: number
+    ) {
+        this.sanitizer = createInvocationSanitizer(config)
+    }
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
      */
     public async startAsProducer() {
-        // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
+        if (this.kafkaProducer) {
+            return
+        }
         this.kafkaProducer = await KafkaProducerWrapper.create(this.kafkaClientRack, 'CDP_PRODUCER')
     }
 
@@ -45,7 +55,7 @@ export class CyclotronJobQueueKafka {
         const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
@@ -56,10 +66,12 @@ export class CyclotronJobQueueKafka {
 
     public async stopConsumer() {
         await this.kafkaConsumer?.disconnect()
+        this.kafkaConsumer = undefined
     }
 
     public async stopProducer() {
         await this.kafkaProducer?.disconnect()
+        this.kafkaProducer = undefined
     }
 
     public isHealthy(): HealthCheckResult {
@@ -76,36 +88,48 @@ export class CyclotronJobQueueKafka {
 
         const producer = this.getKafkaProducer()
 
+        // Pre-serialize all messages eagerly so the produce closures below only
+        // capture lightweight strings instead of full invocation objects (globals, vmState, etc.)
+        const messages = this.sanitizer.sanitizeInvocations(invocations).map((x) => {
+            const jsonString = JSON.stringify(serializeInvocation(x))
+            cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
+
+            return {
+                jsonString,
+                queue: x.queue,
+                id: x.id,
+                functionId: x.functionId,
+                teamId: x.teamId,
+            }
+        })
+
         await Promise.all(
-            invocations.map(async (x) => {
-                const serialized = serializeInvocation(x)
-
-                const jsonString = JSON.stringify(serialized)
-                cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
-
-                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA ? await compress(jsonString) : jsonString
+            messages.map(async (msg) => {
+                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                    ? await compress(msg.jsonString)
+                    : msg.jsonString
 
                 cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
-                    hogFunctionId: x.functionId,
-                    functionId: x.functionId,
-                    teamId: x.teamId.toString(),
+                    hogFunctionId: msg.functionId,
+                    functionId: msg.functionId,
+                    teamId: msg.teamId.toString(),
                 }
 
                 await producer
                     .produce({
                         value: Buffer.from(value),
-                        key: Buffer.from(x.id),
-                        topic: `cdp_cyclotron_${x.queue}`,
+                        key: Buffer.from(msg.id),
+                        topic: `cdp_cyclotron_${msg.queue}`,
                         headers,
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {
                             error: String(e),
-                            teamId: x.teamId,
-                            functionId: x.functionId,
+                            teamId: msg.teamId,
+                            functionId: msg.functionId,
                             payloadSizeKb: value.length / 1024,
                         })
 
@@ -115,15 +139,18 @@ export class CyclotronJobQueueKafka {
         )
     }
 
+    // Kafka jobs don't need explicit dequeue/cancel — they're just dropped
+    public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+    public async cancelInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
-        const invocations = invocationResults.reduce((acc, res) => {
-            if (res.finished) {
-                return acc
+        const invocations: CyclotronJobInvocation[] = []
+        for (const res of invocationResults) {
+            if (!res.finished) {
+                invocations.push(res.invocation)
             }
-
-            return [...acc, res.invocation]
-        }, [] as CyclotronJobInvocation[])
+        }
 
         await this.queueInvocations(invocations)
     }
@@ -137,6 +164,12 @@ export class CyclotronJobQueueKafka {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
+            observeConsumedBatch({
+                queue: this.queue!,
+                source: 'kafka',
+                batchSize: 0,
+                maxBatchSize: this.consumerBatchSize,
+            })
             return await this.consumeBatch!([])
         }
 
@@ -157,6 +190,13 @@ export class CyclotronJobQueueKafka {
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
         }
+
+        observeConsumedBatch({
+            queue: this.queue!,
+            source: 'kafka',
+            batchSize: invocations.length,
+            maxBatchSize: this.consumerBatchSize,
+        })
 
         return await this.consumeBatch!(invocations)
     }

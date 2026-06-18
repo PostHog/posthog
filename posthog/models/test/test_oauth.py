@@ -3,14 +3,12 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -18,16 +16,11 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
+    revoke_application_sessions,
     revoke_oauth_session,
 )
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -47,6 +40,58 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.name, "Test App")
         self.assertEqual(app.client_id, "test_client_id")
         self.assertEqual(app.algorithm, "RS256")
+
+    def _make_app(self, name: str, client_id: str, **overrides) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=name,
+            client_id=client_id,
+            client_secret=f"{client_id}_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+            **overrides,
+        )
+
+    def test_oauth_application_scopes_defaults_to_empty_list(self):
+        app = self._make_app("Scopes Default", "scopes_default_client")
+        self.assertEqual(app.scopes, [])
+        app.refresh_from_db()
+        self.assertEqual(app.scopes, [])
+
+    def test_oauth_application_scopes_persists_explicit_list(self):
+        app = self._make_app(
+            "Scopes Explicit",
+            "scopes_explicit_client",
+            scopes=["insight:read", "llm_gateway:read"],
+        )
+        app.refresh_from_db()
+        self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
+
+    def test_oauth_access_token_label_defaults_to_empty_string(self):
+        app = self._make_app("Token Label Default", "token_label_default_client")
+        token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="default_label_token",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        self.assertEqual(token.label, "")
+        token.refresh_from_db()
+        self.assertEqual(token.label, "")
+
+    def test_oauth_access_token_label_persists_explicit_value(self):
+        app = self._make_app("Token Label Explicit", "token_label_explicit_client")
+        token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="labeled_token",
+            expires=timezone.now() + timedelta(minutes=5),
+            label="laptop-2026",
+        )
+        token.refresh_from_db()
+        self.assertEqual(token.label, "laptop-2026")
 
     @freeze_time("2024-01-01 00:00:00")
     def test_create_oauth_application_with_skip_authorization_fails(self):
@@ -587,3 +632,48 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
+        app = self._make_app("Narrowed App", "narrowed_client_id")
+        other_app = self._make_app("Other App", "other_client_id")
+        other_user = User.objects.create(email="other@example.com")
+
+        for owner, suffix in [(self.user, "a"), (other_user, "b")]:
+            access_token = OAuthAccessToken.objects.create(
+                application=app, user=owner, token=f"at_{suffix}", expires=timezone.now() + timedelta(minutes=5)
+            )
+            OAuthRefreshToken.objects.create(
+                application=app, user=owner, token=f"rt_{suffix}", access_token=access_token
+            )
+            OAuthGrant.objects.create(
+                application=app,
+                user=owner,
+                code=f"grant_{suffix}",
+                code_challenge="challenge",
+                code_challenge_method="S256",
+                expires=timezone.now() + timedelta(minutes=5),
+            )
+
+        survivor = OAuthAccessToken.objects.create(
+            application=other_app, user=self.user, token="at_survivor", expires=timezone.now() + timedelta(minutes=5)
+        )
+
+        revoke_application_sessions(app)
+
+        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthGrant.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
+        self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_revoke_application_sessions_stamps_sessions_revoked_at(self):
+        app = self._make_app("Stamped App", "stamped_client_id")
+        other_app = self._make_app("Untouched App", "untouched_client_id")
+
+        revoke_application_sessions(app)
+
+        app.refresh_from_db()
+        other_app.refresh_from_db()
+        self.assertEqual(app.sessions_revoked_at, timezone.now())
+        self.assertIsNone(other_app.sessions_revoked_at)

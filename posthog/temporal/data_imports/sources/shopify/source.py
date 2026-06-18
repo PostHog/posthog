@@ -1,21 +1,29 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
 from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     ShopifyPermissionError,
+    ShopifyResumeConfig,
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
@@ -24,15 +32,33 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ShopifySource(SimpleSource[ShopifySourceConfig]):
+class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
+            # Retrying cannot recover; the user must reconnect the integration.
+            SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+            # GraphQL "Access denied for <field> field" — the access token is missing the
+            # scope required to read this resource. The scope can't change on retry, so fail
+            # fast and tell the user to reconnect with the required permissions.
+            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: (
+                "Your Shopify access token is missing the permissions required to read some of your data. "
+                "Please reconnect your Shopify integration and grant the requested access scopes."
+            ),
+            # 402 Payment Required from the Admin API — the store is frozen for an unpaid
+            # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHOPIFY,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
             caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
@@ -44,7 +70,12 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                         label="Store id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="my-store-id",
+                        placeholder="my-store",
+                        caption=(
+                            "Your store subdomain — the `my-store` in `my-store.myshopify.com`. "
+                            "Pasting the full store URL works too."
+                        ),
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_id",
@@ -52,6 +83,7 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="client-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_secret",
@@ -59,11 +91,11 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="shpss_...",
+                        secret=True,
                     ),
                 ],
             ),
-            betaSource=True,
-            featureFlag="shopify-dwh",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(
@@ -82,7 +114,12 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
@@ -102,7 +139,15 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
-    def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShopifyResumeConfig]:
+        return ResumableSourceManager[ShopifyResumeConfig](inputs, ShopifyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ShopifySourceConfig,
+        resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return shopify_source(
             shopify_store_id=config.shopify_store_id,
             shopify_client_id=config.shopify_client_id,
@@ -112,4 +157,5 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

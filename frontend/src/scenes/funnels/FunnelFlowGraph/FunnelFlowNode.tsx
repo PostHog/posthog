@@ -47,7 +47,7 @@ export const ProfileFlowNode = React.memo(function ProfileFlowNode({
                     {isCompleted ? <IconCheck /> : <IconX />}
                 </span>
             </div>
-            <div style={{ maxWidth: PROFILE_NODE_WIDTH }}>
+            <div className="text-secondary" style={{ maxWidth: PROFILE_NODE_WIDTH }}>
                 <div className="flex items-start gap-1">
                     <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
                     <EntityFilterInfo

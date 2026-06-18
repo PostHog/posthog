@@ -4,15 +4,19 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '../../analytics/outputs'
+import { GroupStoreForBatch } from '../../../worker/ingestion/groups/group-store-for-batch'
+import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
-import { createContext } from '../../pipelines/helpers'
-import { PipelineResultType, ok } from '../../pipelines/results'
+import { createOkContext } from '../../pipelines/helpers'
+import { PipelineResultType } from '../../pipelines/results'
 import { AiEventSubpipelineConfig, AiEventSubpipelineInput, createAiEventSubpipeline } from './ai-event-subpipeline'
 
 const team = createTestTeam()
@@ -32,6 +36,17 @@ const existingPerson: InternalPerson = {
     version: 0,
     last_seen_at: null,
 }
+
+const mockPersonsStoreForBatch: jest.Mocked<PersonsStoreForBatch> = {
+    fetchForChecking: jest.fn().mockResolvedValue(null),
+    getPersonlessBatchResult: jest.fn().mockReturnValue(false),
+    fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
+    updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
+} as unknown as jest.Mocked<PersonsStoreForBatch>
+
+const mockGroupStoreForBatch: jest.Mocked<GroupStoreForBatch> = {
+    upsertGroup: jest.fn().mockResolvedValue(undefined),
+} as unknown as jest.Mocked<GroupStoreForBatch>
 
 function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
     return createTestPluginEvent({
@@ -62,28 +77,19 @@ function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
 }
 
 function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) {
-    const mockProduce = jest.fn().mockResolvedValue(undefined)
+    const mockOutputs = createMockIngestionOutputs<AiOutputs>()
 
     const config: AiEventSubpipelineConfig = {
         options: {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: true,
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
             PERSON_MERGE_ASYNC_ENABLED: false,
-            PERSON_MERGE_ASYNC_TOPIC: '',
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
+            FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
         },
-        outputs: new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: 'events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-            [AI_EVENTS_OUTPUT]: {
-                topic: 'ai_events_topic',
-                producer: { produce: mockProduce } as any,
-            },
-        }),
+        outputs: mockOutputs,
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
         } as any,
@@ -93,39 +99,48 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         hogTransformer: {
             transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
         } as any,
-        personsStore: {
-            fetchForChecking: jest.fn().mockResolvedValue(null),
-            getPersonlessBatchResult: jest.fn().mockReturnValue(false),
-            fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
-            updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
-        } as any,
-        groupStore: {} as any,
-        kafkaProducer: {
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        } as any,
-        splitAiEventsConfig: { enabled: false, enabledTeams: '*' },
-        groupId: 'test-group',
+        splitAiEventsConfig: {
+            enabled: false,
+            enabledTeams: '*',
+            enabledPercentage: 0,
+            stripHeavyTeams: [],
+        },
         topHog: (step) => step,
         ...configOverrides,
     }
 
     return {
         pipeline: createAiEventSubpipeline(newPipelineBuilder<AiEventSubpipelineInput>(), config).build(),
-        mockProduce,
+        mockOutputs,
         config,
     }
 }
 
 function createInput(event: PluginEvent): AiEventSubpipelineInput {
-    return { message, event, team, headers }
+    return {
+        message,
+        event,
+        team,
+        headers,
+        personsStoreForBatch: mockPersonsStoreForBatch,
+        groupStoreForBatch: mockGroupStoreForBatch,
+    }
 }
 
-function getProduceCall(mockProduce: jest.Mock) {
-    expect(mockProduce).toHaveBeenCalledTimes(1)
-    const call = mockProduce.mock.calls[0][0]
-    const event = parseJSON(call.value.toString())
+type AiOutputs =
+    | typeof EVENTS_OUTPUT
+    | typeof AI_EVENTS_OUTPUT
+    | typeof INGESTION_WARNINGS_OUTPUT
+    | typeof PERSONS_OUTPUT
+    | typeof PERSON_DISTINCT_IDS_OUTPUT
+
+function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>) {
+    expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    const outputName = mockOutputs.produce.mock.calls[0][0]
+    const call = mockOutputs.produce.mock.calls[0][1]
+    const event = parseJSON(call.value!.toString())
     return {
-        topic: call.topic as string,
+        outputName: outputName as string,
         key: call.key as string,
         headers: call.headers as Record<string, string>,
         event,
@@ -149,7 +164,7 @@ describe('AI event subpipeline integration', () => {
             },
         })
 
-        const { pipeline, mockProduce } = buildPipeline({
+        const { pipeline, mockOutputs } = buildPipeline({
             // Hog transform adds a property with un-normalized casing
             hogTransformer: {
                 transformEventAndProduceMessages: (e: PluginEvent) =>
@@ -160,13 +175,13 @@ describe('AI event subpipeline integration', () => {
             } as any,
         })
 
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
-        const { topic, event: produced, properties } = getProduceCall(mockProduce)
+        const { outputName, event: produced, properties } = getProduceCall(mockOutputs)
 
-        // Emit step: correct topic
-        expect(topic).toBe('events_topic')
+        // Emit step: correct output
+        expect(outputName).toBe(EVENTS_OUTPUT)
 
         // Event identity preserved
         expect(produced.event).toBe('$ai_generation')
@@ -201,11 +216,11 @@ describe('AI event subpipeline integration', () => {
             },
         })
 
-        const { pipeline, mockProduce } = buildPipeline()
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.OK)
 
-        const { event: produced, properties } = getProduceCall(mockProduce)
+        const { event: produced, properties } = getProduceCall(mockOutputs)
 
         // Personless: person_mode is propertyless, person properties are empty
         expect(produced.person_mode).toBe('propertyless')
@@ -218,14 +233,14 @@ describe('AI event subpipeline integration', () => {
     it('hog transform dropping event short-circuits the pipeline', async () => {
         const event = createAiEvent()
 
-        const { pipeline, mockProduce } = buildPipeline({
+        const { pipeline, mockOutputs } = buildPipeline({
             hogTransformer: {
                 transformEventAndProduceMessages: () => Promise.resolve({ event: null, invocationResults: [{}] }),
             } as any,
         })
 
-        const result = await pipeline.process(createContext(ok(createInput(event))))
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
         expect(result.result.type).toBe(PipelineResultType.DROP)
-        expect(mockProduce).not.toHaveBeenCalled()
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
     })
 })

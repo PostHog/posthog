@@ -12,8 +12,9 @@ import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFi
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
-import { isObject, pluralize } from 'lib/utils'
-import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
+import { isObject } from 'lib/utils/guards'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -358,6 +359,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
     session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
+    session_recording_trigger_groups: createSessionRecordingConfigHandler('session recording trigger groups'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),
@@ -432,7 +434,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         '"internal & test account filters" for all insights'
     ),
     anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
-    slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
     timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
     business_model: createSimpleValueHandler('business model'),
     data_attributes: createArrayChangeHandler('data attributes'),
@@ -751,10 +752,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     has_group_types: () => null,
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
-    experiment_recalculation_time: () => null,
-    default_experiment_confidence_level: () => null,
-    default_experiment_stats_method: () => null,
     managed_viewsets: () => null,
+    workflows_config: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

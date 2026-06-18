@@ -3,7 +3,8 @@ import './ActivityLog.scss'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { lazy, Suspense, useRef, useState } from 'react'
+import { router } from 'kea-router'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -12,12 +13,13 @@ import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/Activity
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -131,11 +133,46 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     )
 }
 
-export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
+export const ActivityLogRow = ({
+    logItem,
+    highlighted,
+}: {
+    logItem: HumanizedActivityLogItem
+    highlighted?: boolean
+}): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const rowRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (highlighted && rowRef.current) {
+            rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            setIsExpanded(true)
+        }
+    }, [highlighted])
+
+    const handleCopyLink = (): void => {
+        if (!logItem.id) {
+            return
+        }
+        const { pathname, search, hash } = router.values.currentLocation
+        const url = new URL(pathname, window.location.origin)
+        url.search = search || ''
+        url.hash = hash || ''
+        url.searchParams.delete('activity')
+        url.searchParams.set('activity', logItem.id)
+        void copyToClipboard(url.toString(), 'activity link')
+    }
+
     return (
-        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+        <div
+            ref={rowRef}
+            className={clsx(
+                'ActivityLogRow-wrapper flex flex-col px-1 py-0.5',
+                isExpanded && 'border rounded',
+                highlighted && 'ActivityLogRow--highlighted'
+            )}
+        >
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
@@ -157,6 +194,15 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                         <TZLabel time={logItem.created_at} />
                     </div>
                 </div>
+                {logItem.id && (
+                    <LemonButton
+                        noPadding={true}
+                        icon={<IconLink />}
+                        onClick={handleCopyLink}
+                        tooltip="Copy link to this activity"
+                        className="ActivityLogRow__copy-link"
+                    />
+                )}
                 <LemonButton
                     noPadding={true}
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
@@ -211,15 +257,10 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
 }
 
 export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
-    const logic = activityLogLogic({ scope, id, caption, startingPage })
-    const { humanizedActivity, activityLoading, pagination } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billingLoading } = useValues(billingLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
-
-    const paginationState = usePagination(humanizedActivity || [], pagination)
 
     if (!hasAccess) {
         return <AccessDenied object="activity logs" />
@@ -228,28 +269,43 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     return (
         <div className="ActivityLog" data-attr="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
-                <Loading />
-            ) : (
-                <PayGateMini
-                    feature={AvailableFeature.AUDIT_LOGS}
-                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-                >
-                    {humanizedActivity.length === 0 ? (
-                        <Empty scope={scope} />
-                    ) : (
-                        <>
-                            <div className="deprecated-space-y-2">
-                                {humanizedActivity.map((logItem, index) => (
-                                    <ActivityLogRow key={index} logItem={logItem} />
-                                ))}
-                            </div>
-                            <LemonDivider />
-                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                        </>
-                    )}
-                </PayGateMini>
-            )}
+            <PayGateMini
+                feature={AvailableFeature.AUDIT_LOGS}
+                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+            >
+                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
+            </PayGateMini>
         </div>
+    )
+}
+
+const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
+    const logic = activityLogLogic({ scope, id, caption, startingPage })
+    const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
+
+    const paginationState = usePagination(humanizedActivity || [], pagination)
+
+    if (activityLoading && humanizedActivity.length === 0) {
+        return <Loading />
+    }
+
+    if (humanizedActivity.length === 0) {
+        return <Empty scope={scope} />
+    }
+
+    return (
+        <>
+            <div className="deprecated-space-y-2">
+                {humanizedActivity.map((logItem, index) => (
+                    <ActivityLogRow
+                        key={logItem.id || index}
+                        logItem={logItem}
+                        highlighted={logItem.id === highlightedActivityId}
+                    />
+                ))}
+            </div>
+            <LemonDivider />
+            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+        </>
     )
 }

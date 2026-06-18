@@ -22,7 +22,6 @@ jest.mock('scenes/max/useMaxTool', () => ({
     useMaxTool: (...args: unknown[]) => mockUseMaxTool(...args),
 }))
 
-const TAB_ID = 'test-tab'
 const SAVED_INSIGHT_ID = 'abc123' as InsightShortId
 
 const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
@@ -97,7 +96,7 @@ describe('InsightPageHeader', () => {
         const { insightMode, dashboardItemId, insight } = opts
         const insightData = insight ?? makeInsight({ user_access_level: AccessControlLevel.Editor })
 
-        const sceneLogic = insightSceneLogic({ tabId: TAB_ID })
+        const sceneLogic = insightSceneLogic()
         sceneLogic.mount()
         sceneLogic.actions.setSceneState(
             (dashboardItemId === 'new' ? 'new' : dashboardItemId) as InsightShortId,
@@ -120,7 +119,7 @@ describe('InsightPageHeader', () => {
         mountedLogics.push(iLogic, sceneLogic)
 
         render(
-            <BindLogic logic={insightSceneLogic} props={{ tabId: TAB_ID }}>
+            <BindLogic logic={insightSceneLogic} props={{}}>
                 <InsightPageHeader insightLogicProps={insightLogicProps} />
             </BindLogic>
         )
@@ -233,6 +232,70 @@ describe('InsightPageHeader', () => {
         })
     })
 
+    describe('insight context for PostHog AI', () => {
+        function findReadDataCall(): Record<string, unknown> | undefined {
+            const call = mockUseMaxTool.mock.calls.find(
+                (c: Record<string, unknown>[]) => c[0]?.identifier === 'read_data'
+            )
+            return call?.[0] as Record<string, unknown> | undefined
+        }
+
+        it.each([
+            {
+                scenario: 'saved insight with explicit name',
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight: { name: 'My Test Insight', user_access_level: AccessControlLevel.Editor },
+                expectedActive: true,
+                expectedText: 'My Test Insight',
+                expectedContext: { insight_id: 1, insight_short_id: SAVED_INSIGHT_ID },
+            },
+            {
+                scenario: 'saved insight with derived name',
+                insightMode: ItemMode.View,
+                dashboardItemId: SAVED_INSIGHT_ID,
+                insight: {
+                    name: undefined,
+                    derived_name: 'Pageview count',
+                    user_access_level: AccessControlLevel.Editor,
+                },
+                expectedActive: true,
+                expectedText: 'Pageview count',
+                expectedContext: { insight_id: 1, insight_short_id: SAVED_INSIGHT_ID },
+            },
+            {
+                scenario: 'unsaved insight',
+                insightMode: ItemMode.Edit,
+                dashboardItemId: 'new' as const,
+                insight: undefined,
+                expectedActive: false,
+                expectedText: undefined,
+                expectedContext: undefined,
+            },
+        ])(
+            '$scenario: active=$expectedActive, text=$expectedText',
+            ({ insightMode, dashboardItemId, insight, expectedActive, expectedText, expectedContext }) => {
+                renderHeader({
+                    insightMode,
+                    dashboardItemId,
+                    insight: insight ? makeInsight(insight) : undefined,
+                })
+
+                const readDataCall = findReadDataCall()
+                expect(readDataCall).not.toBeUndefined()
+                expect(readDataCall!.active).toBe(expectedActive)
+
+                if (expectedActive) {
+                    expect(readDataCall!.contextDescription).toMatchObject({
+                        text: expectedText,
+                        icon: expect.anything(),
+                    })
+                    expect(readDataCall!.context).toMatchObject(expectedContext!)
+                }
+            }
+        )
+    })
+
     describe('forceEdit', () => {
         it('shows the editable name input in Edit mode', () => {
             renderHeader({
@@ -265,6 +328,7 @@ describe('InsightPageHeader', () => {
 
             const textarea = screen.getByPlaceholderText('Enter name')
             fireEvent.change(textarea, { target: { value: 'New Name' } })
+            fireEvent.blur(textarea)
 
             await waitFor(() => {
                 expect(iLogic.values.insight.name).toBe('New Name')

@@ -1,12 +1,13 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -38,6 +39,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TYPEFORM,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Typeform",
             iconPath="/static/services/typeform.png",
             caption="""Enter a Typeform personal access token to sync forms and responses.
@@ -61,6 +63,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="tfp_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",
@@ -68,14 +71,20 @@ You can generate a personal access token in your [Typeform account settings](htt
                         required=False,
                         defaultValue=DEFAULT_TYPEFORM_API_BASE_URL,
                         options=[
-                            Option(label=DEFAULT_TYPEFORM_API_BASE_URL, value=DEFAULT_TYPEFORM_API_BASE_URL),
-                            Option(label="https://api.eu.typeform.com", value="https://api.eu.typeform.com"),
-                            Option(label="https://api.typeform.eu", value="https://api.typeform.eu"),
+                            SourceFieldSelectConfigOption(
+                                label=DEFAULT_TYPEFORM_API_BASE_URL, value=DEFAULT_TYPEFORM_API_BASE_URL
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="https://api.eu.typeform.com", value="https://api.eu.typeform.com"
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="https://api.typeform.eu", value="https://api.typeform.eu"
+                            ),
                         ],
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -85,7 +94,12 @@ You can generate a personal access token in your [Typeform account settings](htt
         }
 
     def get_schemas(
-        self, config: TypeformSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: TypeformSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
         for endpoint in ENDPOINTS:

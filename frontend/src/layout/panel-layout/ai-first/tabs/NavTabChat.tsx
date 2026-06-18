@@ -80,6 +80,7 @@ export function NavTabChat({
         <div className="flex flex-col flex-1 overflow-hidden">
             <Combobox.Root
                 items={conversationGroups}
+                itemToStringLabel={(item: Conversation) => item?.title ?? ''}
                 itemToStringValue={(item: Conversation) => item?.title ?? ''}
                 open
                 autoHighlight
@@ -117,6 +118,7 @@ export function NavTabChat({
                         </label>
                         <Link
                             to={urls.ai()}
+                            data-attr="nav-chat-new"
                             buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
                             tooltip="New chat"
                         >
@@ -141,8 +143,12 @@ export function NavTabChat({
                                 <Combobox.List className="flex flex-col">
                                     {(group: ConversationGroup) => (
                                         <Collapsible
-                                            key={group.value}
-                                            defaultOpen={group.value === 'Today' || conversationGroups.length === 1}
+                                            key={`${group.value}-${!!inputValue}`}
+                                            defaultOpen={
+                                                !!inputValue ||
+                                                group.value === 'Today' ||
+                                                conversationGroups.length === 1
+                                            }
                                         >
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel
@@ -173,6 +179,7 @@ export function NavTabChat({
                                                                                     to={AiChatListItem.getHref(
                                                                                         conversation.id
                                                                                     )}
+                                                                                    data-attr="nav-chat-history-conversation"
                                                                                     buttonProps={{
                                                                                         active:
                                                                                             conversation.id ===
@@ -181,13 +188,6 @@ export function NavTabChat({
                                                                                         className: 'pr-0',
                                                                                         menuItem: true,
                                                                                     }}
-                                                                                    extraContextMenuItems={
-                                                                                        <AiChatListItem.ContextMenuAction
-                                                                                            conversationId={
-                                                                                                conversation.id
-                                                                                            }
-                                                                                        />
-                                                                                    }
                                                                                     onClick={(e) => {
                                                                                         e.preventDefault()
                                                                                         router.actions.push(

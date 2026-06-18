@@ -38,7 +38,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 placeholder={placeholder}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
-                onPressCmdEnter={sendComposedContent}
+                onPressCmdEnter={() => sendComposedContent(false)}
                 disabled={commentsLoading}
             />
             <div className="flex justify-between items-center gap-2">
@@ -53,9 +53,19 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                         Cancel
                     </LemonButton>
                 ) : null}
+                {!replyingCommentId ? (
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => sendComposedContent(true)}
+                        disabledReason={isEmpty ? 'No message' : null}
+                        data-attr="discussions-comment-task"
+                    >
+                        Add as task
+                    </LemonButton>
+                ) : null}
                 <LemonButton
                     type="primary"
-                    onClick={sendComposedContent}
+                    onClick={() => sendComposedContent(false)}
                     disabledReason={isEmpty ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"

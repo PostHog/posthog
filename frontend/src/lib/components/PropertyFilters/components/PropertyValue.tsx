@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures, IconRefresh } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -12,15 +13,25 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { DistinctIdSelect } from 'lib/components/PropertyFilters/components/DistinctIdSelect'
+import { GroupKeyFilterTooltip } from 'lib/components/PropertyFilters/components/GroupKeyFilterTooltip'
 import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
+import {
+    isOperatorBetween,
+    isOperatorDate,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRegex,
+} from 'lib/utils/operators'
+import { toString } from 'lib/utils/strings'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -93,8 +104,24 @@ export function PropertyValue({
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
+    const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
+
+    // A group property like `id` often holds the group key. We don't swap the
+    // value editor (that would break filtering the property by an arbitrary
+    // value), but we do decorate the value with a read-only group-info card so
+    // the user can confirm a pasted id resolves to the right group. Display only
+    // — it falls back to the plain value when the lookup isn't a real group key.
+    const showGroupCardOnValue = isGroupCardFilterKey(propertyKey, type) && groupTypeIndex != null
+    const groupCardTooltip = (groupKey: string): JSX.Element => (
+        <GroupKeyFilterTooltip
+            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
+            groupKey={groupKey}
+            fallbackLabel={groupKey}
+        />
+    )
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -130,6 +157,7 @@ export function PropertyValue({
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
             !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
@@ -137,12 +165,13 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isAssigneeProperty])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isDistinctIdProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
             !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
@@ -150,12 +179,27 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, isAssigneeProperty, load, propertyOptions?.status])
+    }, [
+        propertyKey,
+        isDateTimeProperty,
+        isGroupKeyProperty,
+        isDistinctIdProperty,
+        isAssigneeProperty,
+        load,
+        propertyOptions?.status,
+    ])
 
-    // set initial suggested values when options are loaded, but only if there is no search input
-    // (to avoid overwriting suggestions based on search input)
+    // set initial suggested values when options are loaded, but only if the response was for an
+    // empty search (so we don't merge search-filtered results into the suggested set). We gate on
+    // the model's recorded `searchInput` rather than the local ref because background polling
+    // refreshes reuse the original request's search term — the local ref reflects the user's
+    // current input, not the request that produced these results.
     useEffect(() => {
-        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+        if (
+            propertyOptions?.status === 'loaded' &&
+            propertyOptions?.values &&
+            (propertyOptions?.searchInput ?? '') === ''
+        ) {
             const newKeys = propertyOptions.values.map((v) => toString(v.name))
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
@@ -171,7 +215,7 @@ export function PropertyValue({
                 return { set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
@@ -257,6 +301,19 @@ export function PropertyValue({
             <GroupKeySelect
                 value={value ?? null}
                 groupTypeIndex={groupTypeIndex}
+                operator={operator}
+                onChange={setValue}
+                size={size}
+                autoFocus={autoFocus}
+                forceSingleSelect={forceSingleSelect}
+            />
+        )
+    }
+
+    if (isDistinctIdProperty && editable) {
+        return (
+            <DistinctIdSelect
+                value={value ?? null}
                 operator={operator}
                 onChange={setValue}
                 size={size}
@@ -375,7 +432,7 @@ export function PropertyValue({
                         propertyKey,
                         eventNames,
                         properties: [],
-                        forceRefresh: true,
+                        refresh: 'force_blocking',
                     })
                 }
                 noPadding
@@ -394,14 +451,36 @@ export function PropertyValue({
                 singleValueAsSnack
                 allowCustomValues={propertyOptions?.allowCustomValues ?? true}
                 inputTransform={
-                    isNumericProperty
+                    shouldRestrictToNumericInput
                         ? (input: string) => {
                               // Only allow numeric characters, decimal point, and +/- signs
                               return input.replace(/[^0-9+\-.]/g, '')
                           }
                         : undefined
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onChange={(nextVal) => {
+                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
+                    // doesn't silently break the filter — the snack display hides the space.
+                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
+                    // part of the pattern (e.g. `^ foo`, `bar $`).
+                    const trimmedVal = isOperatorRegex(operator)
+                        ? nextVal
+                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
+                    if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+                        posthog.capture('property_value_selected', {
+                            property_key: propertyKey,
+                            property_type: type,
+                            from_suggestion: fromSuggestion,
+                            options_count: displayOptions.length,
+                            had_search_input: currentSearchInput.current !== '',
+                        })
+                    }
+                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
+                }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
@@ -409,30 +488,34 @@ export function PropertyValue({
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
                 popoverClassName="max-w-200"
-                options={displayOptions.map(({ name: _name }, index) => {
-                    const name = toString(_name)
-                    const isSuggested = initialSuggestedValues.set.has(name)
-                    return {
-                        key: name,
-                        label: name,
-                        value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
-                        labelComponent: (
-                            <span
-                                key={name}
-                                data-attr={'prop-val-' + index}
-                                className="ph-no-capture flex items-center gap-1.5"
-                                title={name}
-                            >
-                                {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                                {isSuggested && currentSearchInput.current && (
-                                    <Tooltip title="Suggested value">
-                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                    </Tooltip>
-                                )}
-                            </span>
-                        ),
-                    }
-                })}
+                options={[
+                    ...displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return {
+                            key: name,
+                            label: name,
+                            value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
+                            tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
+                            labelComponent: (
+                                <span
+                                    key={name}
+                                    data-attr={'prop-val-' + index}
+                                    className="ph-no-capture flex items-center gap-1.5"
+                                    title={name}
+                                >
+                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                </span>
+                            ),
+                        }
+                    }),
+                    // A pasted group id is a custom value absent from the suggestions, so add
+                    // an option for each selected value to carry the group-card tooltip on its snack.
+                    ...(showGroupCardOnValue
+                        ? formattedValues
+                              .filter((v) => !displayOptions.some((o) => toString(o.name) === v))
+                              .map((v) => ({ key: v, label: v, tooltip: groupCardTooltip(v) }))
+                        : []),
+                ]}
             />
             {showInlineValidationErrors && validationError && (
                 <div className="text-danger flex items-center gap-1 text-sm mt-1">

@@ -21,11 +21,10 @@ import {
     IconPiggyBank,
     IconPlusSmall,
     IconRetention,
+    IconSparkles,
     IconRetentionHeatmap,
     IconHeart,
     IconHeartFilled,
-    IconStar,
-    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
@@ -39,28 +38,34 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { isNonEmptyObject } from 'lib/utils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { projectLogic } from 'scenes/projectLogic'
-import { HomeTab } from 'scenes/saved-insights/HomeTab'
-import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -80,11 +85,7 @@ import {
 } from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
-import { savedInsightsLogic } from './savedInsightsLogic'
-
-interface NewInsightButtonProps {
-    dataAttr: string
-}
+import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export interface InsightTypeMetadata {
     name: string
@@ -216,6 +217,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight.',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an experiment.',
         icon: IconPerson,
         inMenu: false,
     },
@@ -375,12 +382,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.WebTrendsQuery]: {
-        name: 'Web Trends',
-        description: 'Analyze web trends and patterns over time.',
-        icon: IconTrends,
-        inMenu: true,
-    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -505,17 +506,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Analytics Traces',
+        name: 'AI observability traces',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceNeighborsQuery]: {
-        name: 'LLM Analytics Trace Neighbors',
+        name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
-        name: 'LLM Analytics Trace',
+        name: 'AI observability trace',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
@@ -550,6 +551,26 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.TraceSpansAggregationQuery]: {
+        name: 'Trace Spans Aggregation',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansTreeQuery]: {
+        name: 'Trace Spans Tree',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansAttributeBreakdownQuery]: {
+        name: 'Trace Spans Attribute Breakdown',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansSymbolStatsQuery]: {
+        name: 'Trace Spans Symbol Stats',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -575,6 +596,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.AccountsQuery]: {
+        name: 'Accounts',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.EndpointsUsageOverviewQuery]: {
         name: 'Endpoints usage overview',
         icon: IconPieChart,
@@ -593,6 +619,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.PropertyValuesQuery]: {
         name: 'Property values',
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.WebNotableChangesQuery]: {
+        name: 'Notable changes',
+        description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
         inMenu: false,
     },
 }
@@ -666,8 +698,47 @@ export function InsightIcon({
     return Icon ? <Icon className={className} /> : null
 }
 
-export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    const useInsightOptionsPage = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'test')
+export function NewInsightButton(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
+        ([insightType]) =>
+            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
+    )
+    const menuItems: LemonMenuItems = [
+        {
+            icon: <IconSparkles className="text-ai" />,
+            label: (
+                <div className="flex flex-col text-sm py-1">
+                    <strong>AI</strong>
+                    <span className="text-xs font-normal">
+                        Ask PostHog AI to create insights using natural language and query any of your data
+                    </span>
+                </div>
+            ),
+            to: urls.ai(),
+            'data-attr': 'new-insight-menu-ai',
+        },
+        {
+            title: 'Insight types',
+            items: insightEntries
+                .filter(([, metadata]) => metadata.inMenu)
+                .map(([insightType, metadata]) => ({
+                    icon: metadata.icon ? <metadata.icon /> : undefined,
+                    label: (
+                        <div className="flex flex-col text-sm py-1">
+                            <strong>{metadata.name}</strong>
+                            <span className="text-xs font-normal">{metadata.description}</span>
+                        </div>
+                    ),
+                    to: INSIGHT_TYPE_URLS[insightType as InsightType],
+                    'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
+                    onClick: () => {
+                        eventUsageLogic.actions.reportSavedInsightNewInsightClicked(insightType)
+                    },
+                })),
+        },
+    ]
 
     return (
         <AccessControlAction
@@ -682,25 +753,17 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                 scope={Scene.SavedInsights}
                 priority={100}
             >
-                <LemonButton
-                    type="primary"
-                    to={useInsightOptionsPage ? urls.insightOptions() : urls.insightNew()}
-                    sideAction={{
-                        dropdown: {
-                            placement: 'bottom-end',
-                            className: 'new-insight-overlay',
-                            actionable: true,
-                            overlay: <OverlayForNewInsightMenu dataAttr={dataAttr} />,
-                        },
-                        'data-attr': 'saved-insights-new-insight-dropdown',
-                    }}
-                    data-attr="saved-insights-new-insight-button"
-                    size="small"
-                    icon={<IconPlusSmall />}
-                    tooltip="New insight"
-                >
-                    New
-                </LemonButton>
+                <LemonMenu items={menuItems} placement="bottom-end">
+                    <LemonButton
+                        type="primary"
+                        data-attr="saved-insights-new-insight-button"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        tooltip="New insight"
+                    >
+                        New
+                    </LemonButton>
+                </LemonMenu>
             </AppShortcut>
         </AccessControlAction>
     )
@@ -714,12 +777,10 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
-    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
-    const columns: LemonTableColumns<QueryBasedInsightModel> = [
+    const columns: LemonTableColumns<SavedInsightListItem> = [
         {
             key: 'id',
             width: 32,
@@ -749,20 +810,23 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        isAIFirst ? (
-                                            <IconHeartFilled className="text-danger" />
-                                        ) : (
-                                            <IconStarFilled className="text-warning" />
-                                        )
-                                    ) : isAIFirst ? (
-                                        <IconHeart className="text-secondary" />
+                                        <IconHeartFilled className="text-danger" />
                                     ) : (
-                                        <IconStar className="text-secondary" />
+                                        <IconHeart className="text-secondary" />
                                     )
                                 }
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </AccessControlAction>
+                        {insight.search_match_type === 'similar' && (
+                            <span className="ml-auto">
+                                <Tooltip title="Not an exact match for your search, but a close one">
+                                    <LemonTag type="muted" size="small">
+                                        similar
+                                    </LemonTag>
+                                </Tooltip>
+                            </span>
+                        )}
                     </div>
                 )
             },
@@ -770,7 +834,7 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Tags',
-            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            dataIndex: 'tags' as keyof SavedInsightListItem,
             key: 'tags',
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={[...tags].sort()} staticOnly />
@@ -778,8 +842,8 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Created by',
-            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
-            render: function Render(_: any, item: QueryBasedInsightModel) {
+            dataIndex: 'created_by' as keyof SavedInsightListItem,
+            render: function Render(_: any, item: SavedInsightListItem) {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
@@ -929,28 +993,14 @@ export function SavedInsights(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
-                actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
+                actions={<NewInsightButton />}
             />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    ...(showHomeTab
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Home,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Home
-                                          <LemonTag type="warning" size="small">
-                                              BETA
-                                          </LemonTag>
-                                      </div>
-                                  ),
-                              },
-                          ]
-                        : []),
-                    { key: SavedInsightsTabs.All, label: 'Insights' },
+                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
@@ -960,16 +1010,21 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.Home ? (
-                <HomeTab />
-            ) : tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
-                    <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-
+                    <SavedInsightsFilters
+                        filters={filters}
+                        setFilters={setSavedInsightsFilters}
+                        quickFilters={
+                            tab === SavedInsightsTabs.Yours
+                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
+                                : undefined
+                        }
+                    />
                     <ReloadInsight />
                     <LemonTable
                         loading={insightsLoading}
@@ -996,6 +1051,30 @@ export function SavedInsights(): JSX.Element {
                                 </div>
                             ) : undefined
                         }
+                        bulkSelection={{
+                            getKey: (insight: SavedInsightListItem): number => insight.id,
+                            isRowSelectable: (insight: SavedInsightListItem) =>
+                                accessLevelSatisfied(
+                                    AccessControlResourceType.Insight,
+                                    insight.user_access_level,
+                                    AccessControlLevel.Editor
+                                )
+                                    ? true
+                                    : { disabledReason: "You don't have permission to edit this insight." },
+                            rowAriaLabel: (insight: SavedInsightListItem) =>
+                                `Select insight ${insight.name || 'Untitled'}`,
+                            headerAriaLabel: 'Select all insights on this page',
+                            renderActions: (ctx) => (
+                                <BulkUpdateTagsButton
+                                    resource="insights"
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        loadInsights()
+                                    }}
+                                />
+                            ),
+                        }}
                     />
                 </>
             )}

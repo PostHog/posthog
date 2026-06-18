@@ -1,22 +1,39 @@
+import re
+import dataclasses
 from typing import Any
 
-import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.buildbetter.queries import QUERIES, VIEWER_QUERY
+from posthog.temporal.data_imports.sources.buildbetter.queries import OPTIONAL_QUERY_FIELDS, QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+_MISSING_FIELD_RE = re.compile(r"field '([^']+)' not found in type")
 
 
 class BuildBetterRetryableError(Exception):
     pass
 
 
+class BuildBetterMissingFieldError(Exception):
+    def __init__(self, field_name: str) -> None:
+        self.field_name = field_name
+        super().__init__(field_name)
+
+
+@dataclasses.dataclass
+class BuildBetterResumeConfig:
+    offset: int
+
+
 def _make_paginated_request(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
     incremental_field: str | None = None,
     incremental_field_last_value: str | None = None,
 ):
@@ -28,11 +45,13 @@ def _make_paginated_request(
     if not query:
         raise ValueError(f"No GraphQL query for endpoint: {endpoint_name}")
 
+    # Nested fields still present in the query that we will drop if the account's schema rejects them.
+    droppable_fields = dict(OPTIONAL_QUERY_FIELDS.get(endpoint_name, {}))
+
     graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
-    sess = requests.Session()
-    sess.headers.update(
-        {
+    sess = make_tracked_session(
+        headers={
             "X-Buildbetter-API-Key": api_key,
             "Content-Type": "application/json",
         }
@@ -67,6 +86,10 @@ def _make_paginated_request(
             joined = "; ".join(error_messages)
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {joined})")
+            for msg in error_messages:
+                match = _MISSING_FIELD_RE.search(msg)
+                if match and (field := match.group(1)) in droppable_fields:
+                    raise BuildBetterMissingFieldError(field)
             raise Exception(f"BuildBetter GraphQL error: {joined}")
 
         if not response.ok:
@@ -78,19 +101,31 @@ def _make_paginated_request(
         return payload
 
     page_size = endpoint_config.page_size
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_offset = resume_config.offset if resume_config is not None else 0
+    if resume_config is not None:
+        logger.debug(f"BuildBetter: resuming {endpoint_name} from offset {initial_offset}")
+
     variables: dict[str, Any] = {
         "limit": page_size,
-        "offset": 0,
+        "offset": initial_offset,
     }
 
     if incremental_field and incremental_field_last_value:
         variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
 
     try:
-        has_more = True
-        while has_more:
+        while True:
             logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
-            payload = execute(variables)
+            try:
+                payload = execute(variables)
+            except BuildBetterMissingFieldError as e:
+                query = query.replace(droppable_fields.pop(e.field_name), "")
+                logger.warning(
+                    f"BuildBetter: field '{e.field_name}' not available for {endpoint_name}, retrying without it"
+                )
+                continue
 
             data = payload["data"][graphql_query_name]
             if not data:
@@ -98,9 +133,11 @@ def _make_paginated_request(
 
             yield data
 
-            has_more = len(data) >= page_size
-            if has_more:
-                variables["offset"] = variables["offset"] + len(data)
+            if len(data) < page_size:
+                break
+
+            variables["offset"] = variables["offset"] + len(data)
+            resumable_source_manager.save_state(BuildBetterResumeConfig(offset=variables["offset"]))
     finally:
         sess.close()
 
@@ -109,6 +146,7 @@ def buildbetter_source(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
     incremental_field: str | None = None,
     incremental_field_last_value: str | None = None,
 ) -> SourceResponse:
@@ -126,6 +164,7 @@ def buildbetter_source(
             api_key=api_key,
             endpoint_name=endpoint_name,
             logger=logger,
+            resumable_source_manager=resumable_source_manager,
             incremental_field=incremental_field,
             incremental_field_last_value=incremental_field_last_value,
         )
@@ -144,12 +183,14 @@ def buildbetter_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     try:
-        response = requests.post(
-            BUILDBETTER_API_URL,
+        sess = make_tracked_session(
             headers={
                 "X-Buildbetter-API-Key": api_key,
                 "Content-Type": "application/json",
-            },
+            }
+        )
+        response = sess.post(
+            BUILDBETTER_API_URL,
             json={"query": VIEWER_QUERY},
             timeout=10,
         )

@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "days": {
+            "description": "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.",
+            "type": "number"
+        },
+        "limit": {
+            "description": "Maximum number of insights to return. Defaults to 10. Capped at 100.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

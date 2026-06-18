@@ -5,12 +5,15 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
+from posthog.scoping_audit import skip_team_scope_audit
+
 from products.notifications.backend.models import NotificationEvent
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def cleanup_old_notifications() -> None:
     cutoff = timezone.now() - timedelta(days=90)
     batch_size = 10000

@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFolderMove, IconFolderOpen, IconShortcut, IconStar, IconStarFilled } from '@posthog/icons'
+import { IconFolderMove, IconFolderOpen, IconStar, IconStarFilled } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -23,7 +22,6 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
 
 export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
-    const isAIFirst = useFeatureFlag('AI_FIRST')
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
@@ -95,20 +93,8 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                                         : `${dataAttrKey}-add-to-shortcuts-dropdown-menu-item`
                                 }
                             >
-                                {isAIFirst ? (
-                                    isAlreadyStarred ? (
-                                        <IconStarFilled className="text-warning" />
-                                    ) : (
-                                        <IconStar />
-                                    )
-                                ) : (
-                                    <IconShortcut />
-                                )}
-                                {isAIFirst
-                                    ? isAlreadyStarred
-                                        ? 'Remove from starred'
-                                        : 'Add to starred'
-                                    : 'Add to shortcuts panel'}
+                                {isAlreadyStarred ? <IconStarFilled className="text-warning" /> : <IconStar />}
+                                {isAlreadyStarred ? 'Remove from starred' : 'Add to starred'}
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     </DropdownMenuGroup>

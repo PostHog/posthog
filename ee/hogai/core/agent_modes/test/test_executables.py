@@ -309,6 +309,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
                 return_value=1000,
             ),
+            patch(
+                "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
+                return_value="control",
+            ),
         ):
             node = _create_agent_node(self.team, self.user)
 

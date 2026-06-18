@@ -87,6 +87,7 @@ export function AboutStep(): JSX.Element {
                     onChange={(value) => setExperimentValue('description', value)}
                     data-attr="experiment-wizard-hypothesis"
                     minRows={3}
+                    maxLength={3000}
                 />
             </LemonField.Pure>
 

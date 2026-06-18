@@ -11,14 +11,14 @@ export interface iOSSetupProps {
 }
 
 function IOSInstallCocoaPodsSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.56"'}</CodeSnippet>
 }
 
 function IOSInstallSPMSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Swift}>
             {`dependencies: [
-  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0")
+  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
 ]`}
         </CodeSnippet>
     )
@@ -57,7 +57,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let POSTHOG_PROJECT_TOKEN = "${currentTeam?.api_token}"
         let POSTHOG_HOST = "${apiHostOrigin()}"
 
-        let config = PostHogConfig(apiKey: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
+        let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
         ${configSection}
         PostHogSDK.shared.setup(config)
 

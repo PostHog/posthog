@@ -331,11 +331,14 @@ class PolicyEngine:
             if not org:
                 return False
 
-            actor_roles = set(
-                RoleMembership.objects.filter(user=actor, role__organization=org).values_list("role_id", flat=True)
-            )
+            actor_roles = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(user=actor, role__organization=org).values_list(
+                    "role_id", flat=True
+                )
+            }
 
-            approver_roles = set(approver_config["roles"])
+            approver_roles = {str(r) for r in approver_config["roles"]}
             if actor_roles & approver_roles:
                 return True
 

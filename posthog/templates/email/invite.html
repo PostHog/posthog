@@ -1,17 +1,17 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <h1 class="invite-header">
-    <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
-    <strong>{{ invite.organization.name }}</strong> on PostHog
+    <strong>{{ inviter_first_name }}</strong> has invited you to join
+    <strong>{{ org_name }}</strong> on PostHog
 </h1>
 <p class="text-center">
-    <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
-    <strong>{{invite.organization.name }}</strong> on PostHog. PostHog is a product analytics suite that helps you
+    <strong>{{ inviter_first_name }}</strong> ({{ inviter_email }}) has invited you to join
+    <strong>{{ org_name }}</strong> on PostHog. PostHog is a product analytics suite that helps you
     better understand your users. Build the best product <i>together</i>.
 </p>
-{% if invite.message %}
+{% if invite_message %}
 <div class="invite-message">
     <div class="invite-message-divider"></div>
-    {{ invite.message }}
+    {{ invite_message }}
 </div>
 {% endif %}
 <div class="mb mt text-center">

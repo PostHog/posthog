@@ -1,0 +1,351 @@
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+
+import { initializePrometheusLabels } from '../api/router'
+import {
+    HogTransformerServiceConfig,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '../cdp/hog-transformations/hog-transformer.service'
+import { EncryptedFields } from '../cdp/utils/encryption-utils'
+import { CommonConfig, PluginServerMode } from '../common/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import {
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+} from '../config/kafka-topics'
+import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
+import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
+import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
+import { extend, newScope } from '../ingestion/common/scopes'
+import {
+    DatabaseConnectionConfig,
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    PersonHogConfig,
+    RedisConnectionsConfig,
+    getDefaultIngestionOutputsConfig,
+} from '../ingestion/config'
+import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
+import { createHeatmapsConsumer } from '../ingestion/heatmaps'
+import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
+import { PluginServerService, RedisPool } from '../types'
+import { ServerCommands } from '../utils/commands'
+import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
+import { RedisPoolComponent } from '../utils/db/redis'
+import { GeoIPService } from '../utils/geoip'
+import { logger } from '../utils/logger'
+import { PubSub } from '../utils/pubsub'
+import { TeamManagerComponent } from '../utils/team-manager'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
+import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
+import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+
+/**
+ * Complete config type for an ingestion-v2 deployment.
+ *
+ * This is the union of:
+ * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
+ * - IngestionConsumerConfig: ingestion pipeline, person/group processing, overflow, cookieless, etc.
+ * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
+ * - Remaining CommonConfig picks: server mode, services, observability
+ *
+ * This type is the source of truth for which env vars ingestion-events-* deployments need.
+ */
+export type IngestionGeneralServerConfig = BaseServerConfig &
+    IngestionConsumerConfig &
+    HogTransformerServiceConfig &
+    KafkaBrokerConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
+    IngestionOutputsConfig &
+    DatabaseConnectionConfig &
+    RedisConnectionsConfig &
+    KafkaConsumerBaseConfig &
+    PersonHogConfig &
+    Pick<
+        CommonConfig,
+        | 'LOG_LEVEL'
+        | 'PLUGIN_SERVER_MODE'
+        | 'CLOUD_DEPLOYMENT'
+        | 'MMDB_FILE_LOCATION'
+        | 'CAPTURE_INTERNAL_URL'
+        | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
+        | 'LAZY_LOADER_MAX_SIZE'
+        | 'TASK_TIMEOUT'
+        | 'POSTHOG_API_KEY'
+        | 'POSTHOG_HOST_URL'
+        | 'HEALTHCHECK_MAX_STALE_SECONDS'
+        | 'KAFKA_HEALTHCHECK_SECONDS'
+    >
+
+export class IngestionGeneralServer implements NodeServer {
+    readonly lifecycle: ServerLifecycle
+    private config: IngestionGeneralServerConfig
+
+    private postgres?: PostgresRouter
+    private redisPool?: RedisPool
+    private pubsub?: PubSub
+    private stopSharedServices?: () => Promise<void>
+
+    constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...config,
+        }
+        this.lifecycle = new ServerLifecycle(this.config)
+    }
+
+    async start(): Promise<void> {
+        return this.lifecycle.start(
+            () => this.startServices(),
+            () => this.getCleanupResources()
+        )
+    }
+
+    async stop(error?: Error): Promise<void> {
+        return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private async startServices(): Promise<void> {
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+
+        // 1. Shared infrastructure — postgres + redis lifetimes are owned
+        //    by a server-level Scope so consumers can extend off it via
+        //    `Scope.extend` to get them as handles without taking
+        //    ownership.
+        logger.info('ℹ️', 'Connecting to shared infrastructure...')
+
+        const sharedInfraScope = newScope('shared-infra', (builder) =>
+            builder
+                .add('postgres', new PostgresRouterComponent(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add(
+                    'redisPool',
+                    new RedisPoolComponent({
+                        connection: createIngestionRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                // Cookieless Redis is a separate pool, shared by every consumer that runs cookieless
+                // processing (analytics, heatmaps, …).
+                .add(
+                    'cookielessRedisPool',
+                    new RedisPoolComponent({
+                        connection: createCookielessRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
+        )
+
+        // Services are built off the started infra scope (postgres, redis pools, kafka). They're
+        // owned by this scope, so consumers can `Scope.extend` off it to read shared services like
+        // the team manager and cookieless manager without taking ownership of their lifecycle.
+        const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
+            builder
+                .add(
+                    'teamManager',
+                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                    // transient failure can surface as an unhandled rejection and restart the worker.
+                    new TeamManagerComponent(container.postgres, {
+                        loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+                    })
+                )
+                .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
+        )
+
+        const sharedServices = await sharedServicesScope.start()
+        this.postgres = sharedServices.container.postgres
+        this.redisPool = sharedServices.container.redisPool
+        const teamManager = sharedServices.container.teamManager
+        const cookielessManager = sharedServices.container.cookielessManager
+        this.stopSharedServices = sharedServices.stop
+        logger.info('👍', 'Postgres Router ready')
+        logger.info('👍', 'Ingestion Redis ready')
+
+        this.pubsub = new PubSub(this.redisPool)
+        await this.pubsub.start()
+
+        // 2. Ingestion + CDP shared services (geoip, repos, encryption)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        await geoipService.get()
+
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
+            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        })
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+
+        const groupRepository = buildGroupRepository(
+            personhogClient,
+            postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
+
+        const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
+        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+
+        // 3. Ingestion-specific services
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+
+        const serviceLoaders: (() => Promise<PluginServerService>)[] = []
+
+        const isCombinedMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_combined
+
+        // Producer registry is owned by `sharedInfraScope`; the
+        // server reads it back from the started services. Outputs is
+        // a typed view over it — built once here for analytics, and
+        // separately by each consumer factory as needed.
+        const ingestionProducerRegistry = sharedServices.container.producerRegistry
+        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+        const hogTransformerDeps: HogTransformerServiceDeps = {
+            geoipService,
+            postgres: this.postgres,
+            pubSub: this.pubsub,
+            encryptedFields,
+            integrationManager,
+            monitoringOutputs: ingestionOutputs,
+            teamManager,
+        }
+
+        const ingestionDeps: IngestionConsumerDeps = {
+            postgres: this.postgres,
+            redisPool: this.redisPool,
+            outputs: ingestionOutputs,
+            teamManager,
+            groupTypeManager,
+            groupRepository,
+            clickhouseGroupRepository,
+            personRepository,
+            cookielessManager,
+            hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+        }
+
+        const startClientWarnings = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumerScope = createClientWarningsConsumer(consumerConfig, sharedServicesScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
+
+        const startHeatmaps = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumerScope = createHeatmapsConsumer(consumerConfig, sharedServicesScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
+
+        if (isCombinedMode) {
+            // Local dev / hobby: run multiple consumers for all ingestion topics in one process
+            const consumersOptions = [
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+            ]
+
+            for (const consumerOption of consumersOptions) {
+                serviceLoaders.push(async () => {
+                    const consumer = new IngestionConsumer(this.config, ingestionDeps, {
+                        INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                        INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                    })
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            startClientWarnings({
+                topic: 'ingestion-clientwarnings-main-1',
+                groupId: 'ingestion-clientwarnings-main',
+            })
+
+            startHeatmaps({
+                topic: 'heatmaps_ingestion',
+                groupId: 'heatmaps_ingestion',
+            })
+        } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
+            startClientWarnings()
+        } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
+            startHeatmaps()
+        } else {
+            // Production ingestion-v2: single consumer using config-provided topic
+            serviceLoaders.push(async () => {
+                const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        // ServerCommands is always created
+        serviceLoaders.push(() => {
+            const serverCommands = new ServerCommands(this.pubsub!)
+            this.lifecycle.expressApp.use('/', serverCommands.router())
+            return Promise.resolve(serverCommands.service)
+        })
+
+        const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
+        this.lifecycle.services.push(...readyServices)
+    }
+
+    private getCleanupResources(): CleanupResources {
+        return {
+            kafkaProducers: [],
+            redisPools: [],
+            pubsub: this.pubsub,
+            additionalCleanup: async () => {
+                if (this.stopSharedServices) {
+                    await this.stopSharedServices()
+                }
+            },
+        }
+    }
+}

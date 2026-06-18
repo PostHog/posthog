@@ -2,8 +2,9 @@ from posthog.test.base import APIBaseTest
 
 from posthog.test.db_context_capturing import capture_db_queries
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.api.lineage import topological_sort
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestLineage(APIBaseTest):

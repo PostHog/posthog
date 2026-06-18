@@ -1,14 +1,13 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -19,9 +18,7 @@ export interface EventToEmit<O extends string> {
 }
 
 export interface EmitEventStepConfig<O extends string> {
-    outputs: IngestionOutputs<O>
-    kafkaProducer: KafkaProducerWrapper
-    groupId: string
+    outputs: IngestionOutputs<O | IngestionWarningsOutput>
 }
 
 export interface EmitEventStepInput<O extends string> {
@@ -31,21 +28,44 @@ export interface EmitEventStepInput<O extends string> {
     message: Message
 }
 
+/**
+ * Info about an ingested event, resolved by `ingested` promises once the
+ * event has been acked by Kafka.
+ */
+export interface IngestedEventInfo {
+    /** Capture time from the `now` header; undefined when the header is missing. */
+    capturedAt?: Date
+    /** Topic and partition the event was consumed from. */
+    topic: string
+    partition: number
+}
+
+export interface EmitEventStepOutput {
+    /**
+     * One promise per emitted event, resolving with the event info once the
+     * emission has been acked by Kafka, or with null when the event was not
+     * ingested (e.g. rejected as too large). The same promises also flow
+     * through side effects for scheduling; this field lets downstream steps
+     * (e.g. ingestion lag recording) observe when the events have actually
+     * been ingested. Empty when nothing was emitted.
+     */
+    ingested: Promise<IngestedEventInfo | null>[]
+}
+
 export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
     config: EmitEventStepConfig<O>
-): ProcessingStep<T, void> {
+): ProcessingStep<T, EmitEventStepOutput> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
-        const { outputs, groupId } = config
+        const { outputs } = config
 
-        // Record ingestion lag metric if we have the required data
-        if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
-            const lag = Date.now() - headers.now.getTime()
-            ingestionLagGauge.labels({ topic: message.topic, partition: String(message.partition), groupId }).set(lag)
-            ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
+        const ingestedInfo: IngestedEventInfo = {
+            capturedAt: headers.now,
+            topic: message.topic,
+            partition: message.partition,
         }
 
-        const sideEffects: Promise<void>[] = []
+        const ingested: Promise<IngestedEventInfo | null>[] = []
 
         for (const { event, output } of eventsToEmit) {
             const serialized = serializeEvent(event)
@@ -58,10 +78,11 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: { productTrack: productTrackHeader(event) },
+                    teamId: serialized.team_id,
                 })
-                .then((result) => {
+                .then(() => {
                     eventProcessedAndIngestedCounter.inc()
-                    return result
+                    return ingestedInfo
                 })
                 .catch(async (error) => {
                     // TODO: For now we have to live with the ingestion warning happening here
@@ -69,24 +90,21 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     // Some messages end up significantly larger than the original
                     // after plugin processing, person & group enrichment, etc.
                     if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(
-                            config.kafkaProducer,
-                            serialized.team_id,
-                            'message_size_too_large',
-                            {
-                                eventUuid: serialized.uuid,
-                                distinctId: serialized.distinct_id,
-                            }
-                        )
+                        await emitIngestionWarning(outputs, serialized.team_id, 'message_size_too_large', {
+                            eventUuid: serialized.uuid,
+                            distinctId: serialized.distinct_id,
+                        })
+                        // The event was not ingested, so there is no info to resolve with
+                        return null
                     } else {
                         throw error
                     }
                 })
 
-            sideEffects.push(emitPromise)
+            ingested.push(emitPromise)
         }
 
-        return Promise.resolve(ok(undefined, sideEffects))
+        return Promise.resolve(ok({ ingested }, ingested))
     }
 }
 

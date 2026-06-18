@@ -13,22 +13,20 @@ import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, Pro
 
 import { customerProfileLogic } from '../customerProfileLogic'
 import { CustomerProfileMenu } from './CustomerProfileMenu'
-import { FeedbackBanner } from './FeedbackBanner'
 
 interface GroupProfileCanvasProps {
     group: Group
-    tabId: string
     attachTo: BuiltLogic | LogicWrapper
 }
 
-export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanvasProps): JSX.Element => {
+export const GroupProfileCanvas = ({ group, attachTo }: GroupProfileCanvasProps): JSX.Element => {
     const { aggregationLabel } = useValues(groupsModel)
     const { reportGroupProfileViewed } = useActions(eventUsageLogic)
 
     const groupKey = group.group_key
     const groupTypeIndex = group.group_type_index
     const mode = 'canvas'
-    const shortId = `${mode}-${groupKey}-${tabId}`
+    const shortId = `${mode}-${groupKey}`
     const attrs = useMemo(
         () => ({
             groupKey,
@@ -39,7 +37,7 @@ export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanva
     const customerProfileLogicProps = {
         attrs,
         scope: CustomerProfileScope[`GROUP_${groupTypeIndex}`],
-        key: `customer-profile-${groupKey}-${tabId}`,
+        key: `customer-profile-${groupKey}`,
         canvasShortId: shortId,
     }
     const { content } = useValues(customerProfileLogic(customerProfileLogicProps))
@@ -67,12 +65,8 @@ export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanva
 
     return (
         <BindLogic logic={notebookLogic} props={notebookLogicProps}>
-            <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
+            <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                    <FeedbackBanner
-                        feedbackButtonId="group-profile"
-                        message="We're improving the groups experience. Send us your feedback!"
-                    />
                     <CustomerProfileMenu />
                     <Notebook
                         editable={false}

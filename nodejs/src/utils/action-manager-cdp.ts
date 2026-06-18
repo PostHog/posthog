@@ -1,3 +1,4 @@
+import { coerceActionIds } from './coerce-action-ids'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
@@ -72,6 +73,7 @@ export class ActionManagerCDP {
 
         // Group actions by team_id
         result.rows.forEach((action) => {
+            coerceActionIds(action)
             const teamIdStr = String(action.team_id)
             if (!resultRecord[teamIdStr]) {
                 resultRecord[teamIdStr] = []

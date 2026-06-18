@@ -60,9 +60,11 @@ class TestPopulateUserProductListOp:
 
             entries = UserProductList.objects.filter(user=user, team=team)
             assert entries.count() == 1
-            assert entries.first().product_path == "product_analytics"
-            assert entries.first().enabled is True
-            assert entries.first().reason is None
+            entry = entries.first()
+            assert entry is not None
+            assert entry.product_path == "product_analytics"
+            assert entry.enabled is True
+            assert entry.reason is None
 
             metadata = context.get_output_metadata("result")
             assert metadata["created"].value == 1
@@ -260,6 +262,7 @@ class TestPopulateUserProductListOp:
             entries = UserProductList.objects.filter(user=user, team=team, product_path="product_analytics")
             assert entries.count() == 1
             entry = entries.first()
+            assert entry is not None
             assert entry.reason == "product_intent"
 
             metadata = context.get_output_metadata("result")

@@ -6,20 +6,24 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
+    isQuickFilterItem,
     isSkeletonItem,
+    QuickFilterItem,
     SkeletonItem,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -31,9 +35,10 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
@@ -43,6 +48,50 @@ import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+}
+
+function hasLocalListContext(item: unknown): boolean {
+    return hasRecentContext(item) || hasPinnedContext(item)
+}
+
+function quickFilterPopoverContents(item: QuickFilterItem): JSX.Element {
+    const label = AUTOCAPTURE_INTERACTIONS.find((i) => i.eventType === item.filterValue)?.label ?? item.filterValue
+    const verbLower = label.toLowerCase()
+    const description = item.eventName
+        ? `Autocapture event filtered by ${verbLower} event type`
+        : `${label} event type filter`
+    return (
+        <div className="p-3">
+            <div className="text-sm">{description}</div>
+            <LemonDivider />
+            <div className="text-xs text-secondary">
+                Adds {item.eventName ? <code>{item.eventName}</code> : 'a property filter'} with{' '}
+                <code>
+                    {item.propertyKey} = {item.filterValue}
+                </code>
+            </div>
+        </div>
+    )
+}
+
+function getSourceGroupType(item: TaxonomicDefinitionTypes): TaxonomicFilterGroupType | undefined {
+    if (hasRecentContext(item)) {
+        return item._recentContext.sourceGroupType
+    }
+    if (hasPinnedContext(item)) {
+        return item._pinnedContext.sourceGroupType
+    }
+    return undefined
+}
+
+function getLocalListLabel(item: TaxonomicDefinitionTypes): string | undefined {
+    if (hasRecentContext(item)) {
+        return 'recent'
+    }
+    if (hasPinnedContext(item)) {
+        return 'pinned'
+    }
+    return undefined
 }
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
@@ -55,6 +104,26 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
             }
         >
             <LemonTag>Stale</LemonTag>
+        </Tooltip>
+    )
+}
+
+const VALUE_MATCH_MAX_LENGTH = 30
+
+const valueMatchIndicator = (matchedValue: string): JSX.Element => {
+    const truncated =
+        matchedValue.length > VALUE_MATCH_MAX_LENGTH
+            ? matchedValue.slice(0, VALUE_MATCH_MAX_LENGTH) + '…'
+            : matchedValue
+    return (
+        <Tooltip title={<>Matched on value: "{matchedValue}"</>}>
+            <LemonTag
+                aria-label="Matched on value"
+                data-attr="taxonomic-value-match-indicator"
+                className="ml-1 max-w-[12rem] truncate"
+            >
+                {truncated}
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -102,11 +171,36 @@ const renderItemContents = ({
     eventNames: string[]
     isActive: boolean
 }): JSX.Element | string => {
-    if (hasRecentContext(item)) {
-        if (item._recentContext.propertyFilter) {
+    if (isQuickFilterItem(item)) {
+        const icon = itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+        return (
+            <div
+                className="taxonomic-list-row-contents min-w-0 flex items-center gap-2"
+                data-attr={`taxonomic-shortcut-${item.filterValue}${item.eventName ? '-series' : '-property'}`}
+            >
+                {icon}
+                <span className="truncate" title={item.name}>
+                    {item.name}
+                </span>
+            </div>
+        )
+    }
+    if (hasLocalListContext(item)) {
+        const icon = isActive ? (
+            <div className="taxonomic-list-row-contents-icon">
+                <IconCheck />
+            </div>
+        ) : itemGroup.getIcon ? (
+            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+        ) : null
+
+        if (hasRecentContext(item) && item._recentContext.propertyFilter) {
             const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
             return (
                 <div className="taxonomic-list-row-contents min-w-0">
+                    {icon}
                     <span className="truncate" title={label}>
                         {label}
                     </span>
@@ -117,6 +211,7 @@ const renderItemContents = ({
         const label = coreDef?.label || item.name || ''
         return (
             <div className="taxonomic-list-row-contents min-w-0">
+                {icon}
                 <span className="truncate" title={label}>
                     {label}
                 </span>
@@ -169,59 +264,58 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents min-w-0">
-            {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
-            ) : (
-                <>
-                    {icon}
-                    <span className="truncate" title={itemGroup.getName?.(item) || item.name || ''}>
-                        {itemGroup.getName?.(item) || item.name || ''}
-                    </span>
-                </>
-            )}
-        </div>
+        <>
+            <div className="taxonomic-list-row-contents min-w-0">
+                {listGroupType === TaxonomicFilterGroupType.Elements ? (
+                    <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
+                ) : (
+                    <>
+                        {icon}
+                        <span className="truncate" title={itemGroup.getName?.(item) || item.name || ''}>
+                            {itemGroup.getName?.(item) || item.name || ''}
+                        </span>
+                    </>
+                )}
+            </div>
+            {(() => {
+                const matchedValue = getMatchedValue(item)
+                return matchedValue ? valueMatchIndicator(matchedValue) : null
+            })()}
+        </>
     )
+}
+
+function getMatchedValue(item: TaxonomicDefinitionTypes): string | null {
+    if (typeof item !== 'object' || item === null) {
+        return null
+    }
+    const candidate = item as unknown as { matchedOn?: string; matchedValue?: string }
+    if (
+        candidate.matchedOn === 'value' &&
+        typeof candidate.matchedValue === 'string' &&
+        candidate.matchedValue.length > 0
+    ) {
+        return candidate.matchedValue
+    }
+    return null
 }
 
 const selectedItemHasPopover = (
     item?: TaxonomicDefinitionTypes,
-    listGroupType?: TaxonomicFilterGroupType,
-    group?: TaxonomicFilterGroup
+    group?: TaxonomicFilterGroup,
+    taxonomicGroups?: TaxonomicFilterGroup[]
 ): boolean => {
-    // NB: also update "renderItemContents" above
-    return (
-        !!item &&
-        !!group?.getValue?.(item) &&
-        !!listGroupType &&
-        ([
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.Elements,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.DataWarehouse,
-            TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-            TaxonomicFilterGroupType.CustomEvents,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-            TaxonomicFilterGroupType.NumericalEventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.Metadata,
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.ErrorTrackingProperties,
-            TaxonomicFilterGroupType.PageviewUrls,
-            TaxonomicFilterGroupType.PageviewEvents,
-            TaxonomicFilterGroupType.Screens,
-            TaxonomicFilterGroupType.ScreenEvents,
-            TaxonomicFilterGroupType.EmailAddresses,
-            TaxonomicFilterGroupType.AutocaptureEvents,
-        ].includes(listGroupType) ||
-            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
-    )
+    if (!item || !group) {
+        return false
+    }
+
+    const sourceGroupType = getSourceGroupType(item)
+    if (sourceGroupType) {
+        const sourceGroup = taxonomicGroups?.find((g) => g.type === sourceGroupType)
+        return !!sourceGroup && !sourceGroup.isMetaGroup
+    }
+
+    return !!group.getValue?.(item) && !group.isMetaGroup
 }
 
 const canSelectItem = (
@@ -259,11 +353,14 @@ interface InfiniteListRowProps {
     showSuggestedFiltersEmptyState: boolean
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     setIndex: (index: number) => void
+    pinnedRowIndex: number | null
+    onToggleRowPin: (rowIndex: number) => void
     expand: () => void
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
+        meta?: SelectItemMeta
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -295,7 +392,7 @@ function InfiniteListSkeletonItem({
     )
 }
 
-const InfiniteListRow = ({
+export const InfiniteListRow = ({
     index: rowIndex,
     style,
     results,
@@ -322,6 +419,8 @@ const InfiniteListRow = ({
     showSuggestedFiltersEmptyState,
     taxonomicGroupTypes,
     setIndex,
+    pinnedRowIndex,
+    onToggleRowPin,
     expand,
     selectItem,
     setHighlightedItemElement,
@@ -354,7 +453,14 @@ const InfiniteListRow = ({
     }
 
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
-    const itemValue = item ? itemGroup?.getValue?.(item) : null
+    // Recent items are stripped to { name, id? } — getValue on the source group
+    // (e.g. Persons expects distinct_ids) returns undefined. Use the canonical
+    // sourceValue recorded at first selection instead.
+    const itemValue = item
+        ? hasRecentContext(item)
+            ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
+            : itemGroup?.getValue?.(item)
+        : null
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
@@ -366,7 +472,12 @@ const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
+            selectItem(
+                itemGroup,
+                trimmedSearchQuery,
+                { name: trimmedSearchQuery, isNonCaptured: true },
+                { position: rowIndex }
+            )
         }
 
         return (
@@ -399,15 +510,29 @@ const InfiniteListRow = ({
         )
     }
 
+    const isPinnedToAnotherRow = pinnedRowIndex !== null && pinnedRowIndex !== rowIndex
+    const isCurrentRowPinned = pinnedRowIndex === rowIndex
+
     const commonDivProps: React.HTMLProps<HTMLDivElement> = {
         className: clsx(
             'taxonomic-list-row',
             rowIndex === highlightedIndex && mouseInteractionsEnabled && 'hover',
+            isCurrentRowPinned && 'active',
             isActive && 'active',
             isSelected && 'selected'
         ),
-        onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
-        onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
+        onMouseOver: () => {
+            if (!mouseInteractionsEnabled) {
+                setIndex(NO_ITEM_SELECTED)
+                return
+            }
+            if (isPinnedToAnotherRow) {
+                return
+            }
+            setIndex(rowIndex)
+        },
+        onMouseLeave: () =>
+            mouseInteractionsEnabled && !showPopover && !isPinnedToAnotherRow ? setIndex(NO_ITEM_SELECTED) : null,
         style: style,
         ref: isHighlighted
             ? (element) => {
@@ -418,18 +543,25 @@ const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+        const isPinnable = !canSelectItem(listGroupType, dataWarehousePopoverFields) && !isDisabledItem
         const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
-        const itemHasRecentContext = hasRecentContext(item)
-        const recentGroup = itemHasRecentContext
-            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+        const localListLabel = getLocalListLabel(item)
+        const localListGroup = hasLocalListContext(item)
+            ? taxonomicGroups.find((g) => g.type === listGroupType)
             : undefined
+        const shouldShowPinIcon = isPinnable && (isHighlighted || isCurrentRowPinned)
+        const pinIcon = isCurrentRowPinned ? (
+            <IconPinFilled className="size-4 text-warning" />
+        ) : (
+            <IconPin className="size-4 text-secondary" />
+        )
 
         const { listGroupType: resolvedListGroupType, itemGroup: resolvedItemGroup } = resolveItemRendering({
             item,
             itemGroup,
             listGroupType,
             isCrossGroupItem,
-            recentGroup,
+            localListGroup,
             fallbackGroup: group,
         })
 
@@ -449,10 +581,10 @@ const InfiniteListRow = ({
                         event.stopPropagation()
                         return
                     }
-                    return (
-                        canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item)
-                    )
+                    if (canSelectItem(listGroupType, dataWarehousePopoverFields)) {
+                        return selectItem(itemGroup, itemValue ?? null, item, { position: rowIndex })
+                    }
+                    onToggleRowPin(rowIndex)
                 }}
             >
                 {renderItemContents({
@@ -464,8 +596,17 @@ const InfiniteListRow = ({
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemHasRecentContext ? `${itemGroup.name} - recent` : itemGroup.name}
+                        {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}
                     </LemonTag>
+                )}
+                {isPinnable && (
+                    <div
+                        className="taxonomic-list-row-pin"
+                        data-attr={`pin-row-${listGroupType}-${rowIndex}`}
+                        aria-hidden="true"
+                    >
+                        {shouldShowPinIcon ? pinIcon : null}
+                    </div>
                 )}
             </div>
         )
@@ -510,12 +651,29 @@ const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
+    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, infiniteListCounts, eventNames } =
+        useValues(taxonomicFilterLogic)
+    const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
-    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters } = useValues(infiniteListLogic)
+    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
+        useValues(infiniteListLogic)
 
     const emptySearchQuery = searchQuery.trim().length === 0
     const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
+    const canOfferStaleToggle =
+        !emptySearchQuery &&
+        !includeStaleEvents &&
+        (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
+
+    // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
+    // jump there so the user doesn't have to guess which tab their match lives in.
+    const allSectionHasResults = (infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters] ?? 0) > 0
+    const canOfferAllSwitch =
+        !emptySearchQuery &&
+        !isSuggestedFilters &&
+        taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+        allSectionHasResults
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -547,6 +705,32 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {canOfferStaleToggle && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-include-stale-events"
+                            onClick={() => setIncludeStaleEvents(true)}
+                        >
+                            Include stale events
+                        </LemonButton>
+                    )}
+                    {canOfferAllSwitch && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-switch-to-all"
+                            onClick={() => {
+                                reportTaxonomicFilterCategorySelected(
+                                    TaxonomicFilterGroupType.SuggestedFilters,
+                                    eventNames?.[0]
+                                )
+                                setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
+                            }}
+                        >
+                            See results from other categories
+                        </LemonButton>
+                    )}
                 </>
             )}
         </div>
@@ -556,8 +740,6 @@ function InfiniteListEmptyState(): JSX.Element {
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
-        activeTab,
-        searchQuery,
         eventNames,
         groupType,
         value,
@@ -585,12 +767,15 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showEmptyState,
         showLoadingState,
         isSuggestedFilters,
+        isActiveTab,
+        rowCount,
+        pinnedRowIndex,
+        trimmedSearchQuery,
+        showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-    const isActiveTab = listGroupType === activeTab
     const listRef = useListRef(null)
-    const trimmedSearchQuery = searchQuery.trim()
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -600,7 +785,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
-    const showSuggestedFiltersEmptyState = isSuggestedFilters && !trimmedSearchQuery && results.length > 0
+    const selectedItemIsQuickFilter = selectedItem ? isQuickFilterItem(selectedItem) : false
 
     return (
         <div
@@ -624,12 +809,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={
-                                    showNonCapturedEventOption
-                                        ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0) +
-                                          (showSuggestedFiltersEmptyState ? 1 : 0)
-                                }
+                                rowCount={rowCount}
                                 overscanCount={100}
                                 rowHeight={(i) => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36)}
                                 rowComponent={InfiniteListRow}
@@ -658,6 +838,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     showSuggestedFiltersEmptyState,
                                     taxonomicGroupTypes,
                                     setIndex,
+                                    pinnedRowIndex,
+                                    onToggleRowPin: togglePinnedRow,
                                     expand,
                                     selectItem,
                                     setHighlightedItemElement,
@@ -675,7 +857,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
+            selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&
             selectedItem ? (
                 <BindLogic
@@ -692,42 +874,44 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
                         definitionPopoverRenderer={
-                            selectedItemIsRecent
-                                ? ({ item, group, defaultView }) => {
-                                      const recentRenderer = definitionPopoverRenderer
-                                          ? definitionPopoverRenderer({ item, group, defaultView })
-                                          : defaultView
-                                      let label: string
-                                      if (
-                                          hasRecentContext(selectedItem) &&
-                                          selectedItem._recentContext.propertyFilter
-                                      ) {
-                                          label = formatPropertyLabel(selectedItem._recentContext.propertyFilter, {})
-                                      } else {
-                                          const coreDef = getCoreFilterDefinition(
-                                              selectedItem.name,
-                                              selectedItemGroup?.type
-                                          )
-                                          label =
-                                              coreDef?.label ||
-                                              selectedItemGroup?.getName?.(selectedItem) ||
-                                              selectedItem.name ||
-                                              ''
-                                      }
-                                      return (
-                                          <>
-                                              <div className="p-3 pb-0">
-                                                  <div className="text-xs font-semibold text-secondary uppercase">
-                                                      Recent filter
-                                                  </div>
-                                                  <div className="text-sm mt-1">{label}</div>
-                                              </div>
-                                              <LemonDivider />
-                                              {recentRenderer}
-                                          </>
-                                      )
-                                  }
-                                : definitionPopoverRenderer
+                            selectedItemIsQuickFilter
+                                ? ({ item }) => quickFilterPopoverContents(item as QuickFilterItem)
+                                : selectedItemIsRecent
+                                  ? ({ item, group, defaultView }) => {
+                                        const recentRenderer = definitionPopoverRenderer
+                                            ? definitionPopoverRenderer({ item, group, defaultView })
+                                            : defaultView
+                                        let label: string
+                                        if (
+                                            hasRecentContext(selectedItem) &&
+                                            selectedItem._recentContext.propertyFilter
+                                        ) {
+                                            label = formatPropertyLabel(selectedItem._recentContext.propertyFilter, {})
+                                        } else {
+                                            const coreDef = getCoreFilterDefinition(
+                                                selectedItem.name,
+                                                selectedItemGroup?.type
+                                            )
+                                            label =
+                                                coreDef?.label ||
+                                                selectedItemGroup?.getName?.(selectedItem) ||
+                                                selectedItem.name ||
+                                                ''
+                                        }
+                                        return (
+                                            <>
+                                                <div className="p-3 pb-0">
+                                                    <div className="text-xs font-semibold text-secondary uppercase">
+                                                        Recent filter
+                                                    </div>
+                                                    <div className="text-sm mt-1">{label}</div>
+                                                </div>
+                                                <LemonDivider />
+                                                {recentRenderer}
+                                            </>
+                                        )
+                                    }
+                                  : definitionPopoverRenderer
                         }
                     />
                 </BindLogic>
@@ -769,14 +953,14 @@ function resolveItemRendering({
     itemGroup,
     listGroupType,
     isCrossGroupItem,
-    recentGroup,
+    localListGroup,
     fallbackGroup,
 }: {
     item: TaxonomicDefinitionTypes
     itemGroup: TaxonomicFilterGroup
     listGroupType: TaxonomicFilterGroupType
     isCrossGroupItem: boolean
-    recentGroup: TaxonomicFilterGroup | undefined
+    localListGroup: TaxonomicFilterGroup | undefined
     fallbackGroup: TaxonomicFilterGroup
 }): { listGroupType: TaxonomicFilterGroupType; itemGroup: TaxonomicFilterGroup } {
     const isRecentPropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
@@ -784,7 +968,14 @@ function resolveItemRendering({
     if (isRecentPropertyFilter) {
         return {
             listGroupType,
-            itemGroup: recentGroup ?? fallbackGroup,
+            itemGroup: localListGroup ?? fallbackGroup,
+        }
+    }
+
+    if (hasLocalListContext(item) && !isCrossGroupItem) {
+        return {
+            listGroupType,
+            itemGroup: localListGroup ?? fallbackGroup,
         }
     }
 
@@ -805,8 +996,9 @@ export function getItemGroup(
 ): TaxonomicFilterGroup {
     let group = defaultGroup
 
-    if (item && hasRecentContext(item)) {
-        const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
+    const sourceType = item ? getSourceGroupType(item) : undefined
+    if (sourceType) {
+        const itemGroup = groups.find((g) => g.type === sourceType)
         if (itemGroup) {
             group = itemGroup
         }

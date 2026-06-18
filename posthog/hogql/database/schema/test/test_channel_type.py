@@ -147,6 +147,17 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
         return (session_response.results or [])[0][0]
 
+    def test_nested_expanded_function_is_rejected(self):
+        # Nesting a printer-expanded marker (only reachable from user-written HogQL) would expand
+        # exponentially; the printer must reject it rather than blow up.
+        inner = "_defaultChannelType('a', 'b', 'c', 'd', 'e', 'f', 'g')"
+        with self.assertRaises(Exception) as ctx:
+            execute_hogql_query(
+                parse_select(f"select _defaultChannelType({inner}, 'b', 'c', 'd', 'e', 'f', 'g') from events"),
+                self.team,
+            )
+        assert "cannot be nested" in str(ctx.exception)
+
     def test_direct(self):
         self.assertEqual(
             "Direct",
@@ -898,39 +909,4 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             == "Login"
-        )
-
-    def test_initial_channel_type_url_falls_back_to_initial_url(self):
-        assert (
-            self._get_person_initial_channel_type_with_rules(
-                {"$initial_url": "https://example.com/signup"},
-                custom_channel_rules=[
-                    CustomChannelRule(
-                        items=[CustomChannelCondition(key="url", op="icontains", value="/signup", id="1")],
-                        channel_type="Signup",
-                        combiner=FilterLogicalOperator.AND_,
-                        id="a",
-                    )
-                ],
-            )
-            == "Signup"
-        )
-
-    def test_initial_channel_type_url_prefers_initial_current_url_over_initial_url(self):
-        assert (
-            self._get_person_initial_channel_type_with_rules(
-                {
-                    "$initial_current_url": "https://example.com/correct",
-                    "$initial_url": "https://example.com/wrong",
-                },
-                custom_channel_rules=[
-                    CustomChannelRule(
-                        items=[CustomChannelCondition(key="url", op="icontains", value="/correct", id="1")],
-                        channel_type="Correct",
-                        combiner=FilterLogicalOperator.AND_,
-                        id="a",
-                    )
-                ],
-            )
-            == "Correct"
         )

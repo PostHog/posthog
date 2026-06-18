@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
@@ -7,14 +9,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval, EventsNode, TrendsQuery
+from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.models.insight_variable import InsightVariable
-
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.endpoints.backend.api import EndpointViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -73,7 +74,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enable materialization via API
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -200,7 +201,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_hogql_endpoint_rejects_filters_override(self):
         endpoint = create_endpoint_with_version(
@@ -344,7 +345,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
         endpoint = create_endpoint_with_version(
@@ -463,7 +464,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self._materialize_endpoint(endpoint)
 
         # Execute with variable filter - should filter materialized table by event_name
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"event_name": "$pageleave"}},
@@ -498,7 +501,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"event_name": "$pageview"}},
@@ -686,9 +691,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # refresh: direct should bypass materialization and run inline
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -733,7 +740,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"event_name": "$pageleave", "browser": "Safari"}},
@@ -788,7 +797,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"start_date": "2026-01-05", "end_date": "2026-01-08"}},
@@ -857,7 +868,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"start_ts": "2026-01-05", "end_ts": "2026-01-08", "host": "example.com"}},
@@ -901,7 +914,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             run_data = {}
             if request_limit is not None:
                 run_data["limit"] = request_limit
@@ -935,7 +950,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self._materialize_endpoint(endpoint)
 
         # Filter by breakdown using actual property name
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"$browser": "Chrome"}},
@@ -968,7 +985,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"$browser": "Chrome", "$os": "Mac"}},
@@ -1005,7 +1024,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"$browser": "Chrome", "$os": "Mac", "$device_type": "Desktop"}},
@@ -1132,7 +1153,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self._materialize_endpoint(endpoint)
 
         # Using filters_override instead of variables should work (backwards compat)
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
@@ -1154,9 +1177,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -1209,7 +1234,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enabling materialization should succeed for multiple equality variables
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1238,7 +1263,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1404,6 +1429,81 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "OS breakdown property filter should be applied",
             )
 
+    @parameterized.expand(
+        [
+            (
+                "non_empty_value",
+                {
+                    "properties.$browser": "Chrome",
+                    "date_from": "2026-01-05",
+                    "date_to": "2026-01-08",
+                },
+            ),
+            ("empty_value", {"properties.$browser": ""}),
+        ]
+    )
+    def test_non_materialized_insight_endpoint_accepts_hogql_breakdown_variable(self, _name, variables):
+        from posthog.schema import BreakdownFilter, BreakdownType
+
+        # Legacy single-breakdown format with a HogQL expression.
+        endpoint = create_endpoint_with_version(
+            name=f"trends_hogql_breakdown_{_name}",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdown="properties.$browser",
+                    breakdown_type=BreakdownType.HOGQL,
+                ),
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": variables},
+            format="json",
+        )
+
+        # Before the fix this returned 500 because _variables_to_filters built a
+        # HogQLPropertyFilter dict with `operator` set, which fails pydantic's
+        # extra="forbid" on DashboardFilter.properties.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def test_non_materialized_insight_endpoint_rejects_unbuildable_hogql_breakdown_variable(self):
+        from posthog.schema import BreakdownFilter, BreakdownType
+
+        # An unparseable HogQL expression stored as the breakdown — parse_expr
+        # will raise when _variables_to_filters tries to build a predicate for it.
+        # We must reject with 400 rather than silently skipping the filter, which
+        # would return unfiltered data (same principle that gates materialized
+        # endpoints on having all variables present).
+        endpoint = create_endpoint_with_version(
+            name="trends_hogql_breakdown_unparseable",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdown=")garbage(",
+                    breakdown_type=BreakdownType.HOGQL,
+                ),
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {")garbage(": "Chrome"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("breakdown variable", response.json().get("detail", ""))
+
     # =========================================================================
     # OFFSET-BASED PAGINATION
     # =========================================================================
@@ -1443,7 +1543,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         fake_results = [{"event": "$pageview", "distinct_id": "user1"}] * num_result_rows
 
         with mock.patch.object(
-            EndpointViewSet,
+            EndpointExecutionService,
             "_execute_query_and_respond",
             return_value=Response({"results": fake_results}),
         ) as mock_exec:
@@ -1497,7 +1597,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         fake_results = [{"event": "$pageview", "count()": 10}] * 5
 
         with mock.patch.object(
-            EndpointViewSet,
+            EndpointExecutionService,
             "_execute_query_and_respond",
             return_value=Response({"results": fake_results}),
         ) as mock_exec:
@@ -1542,7 +1642,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         fake_results = [{"event": "$pageview", "distinct_id": "user1"}] * num_result_rows
 
         with mock.patch.object(
-            EndpointViewSet,
+            EndpointExecutionService,
             "_execute_query_and_respond",
             return_value=Response({"results": fake_results}),
         ) as mock_exec:
@@ -1604,7 +1704,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("only supported for HogQL", response.json()["error"])
+        self.assertIn("only supported for HogQL", str(response.json()))
 
     # =========================================================================
     # CALENDAR HEATMAP ENDPOINTS
@@ -1636,7 +1736,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # BREAKDOWN SENTINEL CLEANUP
     # =========================================================================
 
-    @mock.patch("products.endpoints.backend.api.process_query_model")
+    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
     def test_inline_insight_sentinel_null_cleaned_from_breakdown_value(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1663,7 +1763,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["breakdown_value"], ["Chrome", None])
         self.assertIsNone(results[1]["breakdown_value"])
 
-    @mock.patch("products.endpoints.backend.api.process_query_model")
+    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
     def test_inline_insight_sentinel_cleaned_from_label(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1692,7 +1792,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         results = response.json()["results"]
         self.assertEqual(results[0]["label"], "Chrome::null")
 
-    @mock.patch("products.endpoints.backend.api.process_query_model")
+    @mock.patch("products.endpoints.backend.services.execution.process_query_model")
     def test_hogql_result_sentinel_cleaned_from_breakdown_column(self, mock_process):
         mock_process.return_value = {
             "results": [
@@ -1720,7 +1820,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(
@@ -1746,8 +1846,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
-            mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.materialization_transforms.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.services.strategies.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
@@ -1835,7 +1935,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self._materialize_endpoint(endpoint)
 
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
                 {"variables": {"event_name": "$pageview"}},
@@ -1916,3 +2018,379 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # cte2 filters by event_name, so should return count for $pageleave only
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], 10)
+
+    # =========================================================================
+    # METRICS
+    # =========================================================================
+
+    def _make_simple_hogql_endpoint(self, name: str):
+        return create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events",
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+    def test_execution_metric_records_query_kind_label(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_query_kind")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_validation_error_metric_unknown_variable(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_unknown_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"reason": "unknown_variable"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"nonexistent": "x"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_observed_on_success(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_result_rows")
+        labels = {"execution_type": "inline"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_not_observed_for_insight_endpoint(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_insight_no_rows",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        def total_count() -> float:
+            total = 0.0
+            for metric in REGISTRY.collect():
+                if metric.name != "posthog_endpoint_hogql_result_rows":
+                    continue
+                for sample in metric.samples:
+                    if sample.name.endswith("_count"):
+                        total += sample.value
+            return total
+
+        before = total_count()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = total_count()
+        self.assertEqual(after - before, 0.0)
+
+    def test_cache_outcome_metric_records_miss_on_first_execution(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_cache_outcome")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "outcome": "miss"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_cache_outcome_only_uses_hit_or_miss_labels(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_no_stale_served")
+        for _ in range(2):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        observed_outcomes: set[str] = set()
+        for metric in REGISTRY.collect():
+            if metric.name != "posthog_endpoint_cache_result_total":
+                continue
+            for sample in metric.samples:
+                outcome = sample.labels.get("outcome")
+                if outcome and sample.value > 0:
+                    observed_outcomes.add(outcome)
+
+        self.assertTrue(observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}")
+        self.assertNotIn("stale_served", observed_outcomes)
+
+    def test_disable_materialization_no_op_does_not_increment_counter(self):
+        from prometheus_client import REGISTRY
+
+        from products.endpoints.backend.services.materialization import EndpointMaterializationService
+
+        endpoint = self._make_simple_hogql_endpoint("metric_disable_no_op")
+        labels = {"action": "disable", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+
+        service = EndpointMaterializationService(self.team, mock.MagicMock())
+        service.disable_materialization(endpoint, endpoint.get_version())
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+        self.assertEqual(after - before, 0.0)
+
+    def test_inline_endpoint_failure_emits_signal(self):
+        """When inline execution raises, we emit a Signal for self-driving diagnostics."""
+        endpoint = self._make_simple_hogql_endpoint("failure_emits_signal")
+        boom = RuntimeError("synthetic failure")
+
+        with (
+            mock.patch("products.endpoints.backend.services.execution.process_query_model", side_effect=boom),
+            mock.patch("products.endpoints.backend.services.execution._emit_endpoint_failure_signal") as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        mock_emit.assert_called_once()
+        args, kwargs = mock_emit.call_args
+        self.assertEqual(args[0].id, self.team.id)
+        self.assertEqual(args[1].name, endpoint.name)
+        self.assertIs(args[2], boom)
+        self.assertFalse(kwargs["materialized"])
+
+    def test_emit_failure_signal_swallows_errors(self):
+        """Signal emission must never mask the original exception."""
+        from products.endpoints.backend.services.execution import _emit_endpoint_failure_signal
+
+        endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
+
+        with mock.patch(
+            "products.signals.backend.facade.api.emit_signal",
+            side_effect=RuntimeError("signal layer exploded"),
+        ):
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)
+
+    def _make_fresh_materialized_endpoint(self, name: str, query: dict):
+        """Endpoint whose current version has a fresh, Completed materialization."""
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=f"{name}_v1",
+            query=query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=24),
+            last_run_at=timezone.now(),
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"{name}_v1",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query=query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save()
+        return endpoint
+
+    def test_hogql_endpoint_empty_string_in_breakdown_value_column_not_rewritten(self):
+        """A HogQL endpoint that happens to emit a column named breakdown_value must not have
+        plain empty strings rewritten to null — that rewrite is an insight-materialization artifact."""
+        endpoint = create_endpoint_with_version(
+            name="hogql-breakdown-col",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT '' AS breakdown_value, 'x' AS other"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["results"]
+        self.assertEqual(results[0][0], "", "plain empty string was rewritten to null for a HogQL endpoint")
+
+    def test_breakdown_limit_exceeded_emits_signal(self):
+        """When the Other bucket appears (breakdown limit exceeded), a signal should fire."""
+        for event_name in [f"event_{i}" for i in range(30)]:
+            _create_event(
+                event="$pageview",
+                distinct_id="user1",
+                team=self.team,
+                timestamp="2026-01-05 12:00:00",
+                properties={"unique_prop": event_name},
+            )
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name="limit-signal",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+                breakdownFilter={"breakdown": "unique_prop", "breakdown_type": "event", "breakdown_limit": 5},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.materialization_transforms.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.signals.backend.facade.api.emit_signal", new_callable=mock.AsyncMock) as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        breakdown_signal_calls = [
+            c for c in mock_emit.call_args_list if c.kwargs.get("source_type") == "endpoint_breakdown_limit_exceeded"
+        ]
+        self.assertEqual(len(breakdown_signal_calls), 1, "expected a breakdown-limit-exceeded signal")
+
+    def test_materialized_failure_falls_back_to_inline(self):
+        """A materialized execution failure must fall back to inline execution, not 500."""
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-fallback", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        inline_response = Response({"results": [[1]], "columns": ["count()"]})
+        with mock.patch.object(
+            EndpointExecutionService,
+            "_execute_query_and_respond",
+            side_effect=[RuntimeError("materialized table exploded"), inline_response],
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+
+    def test_series_mismatch_falls_back_to_inline(self):
+        """Series drift triggers re-materialization AND serves the request inline."""
+        from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+        from products.endpoints.backend.services.strategies import InsightEndpointStrategy
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mismatch-fallback",
+            TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+        )
+
+        flat_response = Response({"results": [[0, "2026-01-01", 0]], "columns": ["__series_index", "day", "count"]})
+        inline_response = Response({"results": [{"label": "$pageview", "count": 0}]})
+        with (
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                side_effect=[flat_response, inline_response],
+            ) as mock_exec,
+            mock.patch.object(
+                InsightEndpointStrategy,
+                "transform_materialized_response",
+                side_effect=MaterializedSeriesMismatchError("series drift"),
+            ),
+            mock.patch("products.endpoints.backend.services.execution.trigger_saved_query_schedule") as mock_trigger,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_trigger.assert_called_once()
+        self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+
+    def test_emit_failure_signal_reaches_workflow_boundary(self):
+        """The failure-signal plumbing must make it to the Temporal boundary when the
+        org/source gates allow it — anything raising before that is a plumbing bug."""
+        from products.endpoints.backend.services.execution import _emit_endpoint_failure_signal
+        from products.signals.backend.models import SignalSourceConfig
+
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        endpoint = create_endpoint_with_version(
+            name="signal-boundary",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        mock_client = mock.AsyncMock()
+        with (
+            mock.patch(
+                "products.signals.backend.facade.api.async_connect",
+                new=mock.AsyncMock(return_value=mock_client),
+            ),
+            # The gate runs on a separate DB connection (thread_sensitive=False) and can't see
+            # rows from the test transaction, so patch it rather than creating a config row.
+            mock.patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
+
+        self.assertGreaterEqual(mock_client.start_workflow.await_count, 1, "signal never reached the Temporal boundary")

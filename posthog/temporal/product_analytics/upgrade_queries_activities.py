@@ -1,15 +1,16 @@
 import textwrap
 import dataclasses
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.db import connection
 
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.models import Insight
 from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.schema_migrations.upgrade import upgrade
+
+from products.product_analytics.backend.models.insight import Insight
 
 LOGGER = get_logger(__name__)
 
@@ -77,7 +78,7 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[i
 
     for insight in insights:
         try:
-            insight.query = upgrade(insight.query)
+            insight.query = upgrade(cast(dict[Any, Any], insight.query))
             insight.save()
         except Exception as e:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")

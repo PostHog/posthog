@@ -1,0 +1,22 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Docs
+feature: docs
+url_prefix: /
+ui_apps: {}
+tools:
+    docs-search:
+        operation: docs_search
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search documentation
+        description_file: ./prompts/docs-search.md

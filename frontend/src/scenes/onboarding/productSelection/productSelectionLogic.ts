@@ -1,15 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
-import { getRelativeNextPath } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { USE_CASE_OPTIONS, UseCaseOption, getRecommendedProducts } from 'scenes/onboarding/productRecommendations'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { localStorageProductKey } from '~/layout/panel-layout/ai-first/promotedProductLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
@@ -17,13 +16,12 @@ import { availableOnboardingProducts } from '../utils'
 import {
     getBrowsingHistoryFromPostHog,
     getBrowsingHistoryLabels,
-    mapAIProductsToProductKeys,
     mapBrowsingHistoryToProducts,
 } from './browsingHistoryMapping'
 import type { productSelectionLogicType } from './productSelectionLogicType'
 
 export type OnboardingStep = 'choose_path' | 'product_selection'
-export type RecommendationSource = 'use_case' | 'ai' | 'browsing_history' | 'manual' | 'simplified'
+export type RecommendationSource = 'use_case' | 'browsing_history' | 'manual' | 'simplified' | 'multiproduct'
 
 export const productSelectionLogic = kea<productSelectionLogicType>([
     path(['scenes', 'onboarding', 'productSelection', 'productSelectionLogic']),
@@ -50,11 +48,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
         // Use case selection
         selectUseCase: (useCase: UseCaseOption) => ({ useCase }),
         clearUseCase: true,
-
-        // AI recommendation
-        setAiDescription: (description: string) => ({ description }),
-        submitAiRecommendation: true,
-        setAiRecommendation: (recommendation: { products: string[]; reasoning: string } | null) => ({ recommendation }),
 
         // Product selection
         toggleProduct: (productKey: ProductKey) => ({ productKey }),
@@ -98,13 +91,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             },
         ],
 
-        aiDescription: [
-            '',
-            {
-                setAiDescription: (_, { description }) => description,
-            },
-        ],
-
         selectedProducts: [
             [] as ProductKey[],
             {
@@ -135,34 +121,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 setShowAllProducts: (_, { show }) => show,
             },
         ],
-
-        aiRecommendationError: [
-            null as string | null,
-            {
-                submitAiRecommendation: () => null,
-                submitAiRecommendationFailure: (_, { error }) => error,
-            },
-        ],
     }),
-
-    loaders(({ values }) => ({
-        aiRecommendation: [
-            null as { products: string[]; reasoning: string } | null,
-            {
-                submitAiRecommendation: async () => {
-                    const result = await api.onboarding.recommendProducts(
-                        {
-                            description: values.aiDescription,
-                            browsingHistory: values.browsingHistory,
-                        },
-                        values.currentTeam?.id
-                    )
-                    return result
-                },
-                setAiRecommendation: ({ recommendation }) => recommendation,
-            },
-        ],
-    })),
 
     selectors({
         browsingHistoryProducts: [
@@ -187,25 +146,12 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             },
         ],
 
-        aiRecommendedProducts: [
-            (s) => [s.aiRecommendation],
-            (aiRecommendation): ProductKey[] => {
-                if (!aiRecommendation) {
-                    return []
-                }
-                return mapAIProductsToProductKeys(aiRecommendation.products)
-            },
-        ],
-
         recommendedProducts: [
-            (s) => [s.recommendationSource, s.browsingHistoryProducts, s.useCaseProducts, s.aiRecommendedProducts],
-            (source, browsingProducts, useCaseProducts, aiProducts): ProductKey[] => {
+            (s) => [s.recommendationSource, s.browsingHistoryProducts, s.useCaseProducts],
+            (source, browsingProducts, useCaseProducts): ProductKey[] => {
                 switch (source) {
                     case 'use_case':
-                        // Merge use case products with browsing history products
                         return [...new Set([...useCaseProducts, ...browsingProducts])]
-                    case 'ai':
-                        return aiProducts
                     case 'browsing_history':
                     case 'manual':
                     default:
@@ -232,8 +178,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 switch (source) {
                     case 'use_case':
                         return 'based on your goal'
-                    case 'ai':
-                        return 'based on AI analysis'
                     case 'browsing_history':
                         return 'based on your browsing'
                     case 'manual':
@@ -282,25 +226,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             })
         },
 
-        submitAiRecommendationSuccess: ({ aiRecommendation }) => {
-            if (aiRecommendation) {
-                actions.setRecommendationSource('ai')
-
-                let products = mapAIProductsToProductKeys(aiRecommendation.products)
-                if (products.length === 0) {
-                    products = [ProductKey.PRODUCT_ANALYTICS]
-                }
-                actions.setSelectedProducts(products)
-                actions.setStep('product_selection')
-
-                // Analytics
-                actions.reportOnboardingProductSelectionPath('ai', {
-                    recommendedProducts: products,
-                    hasBrowsingHistory: values.hasBrowsingHistory,
-                })
-            }
-        },
-
         toggleProduct: ({ productKey }) => {
             const isNowSelected = values.selectedProducts.includes(productKey)
 
@@ -347,7 +272,16 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                       ? secondStepKey
                       : OnboardingStepKey.INSTALL
 
-            router.actions.push(urls.onboarding({ productKey: values.firstProductOnboarding, stepKey }))
+            const secondaryProducts = values.selectedProducts.filter(
+                (k) => k !== values.firstProductOnboarding
+            ) as string[]
+            router.actions.push(
+                urls.onboarding({
+                    productKey: values.firstProductOnboarding,
+                    stepKey,
+                    withProducts: secondaryProducts,
+                })
+            )
 
             values.selectedProducts.forEach((productKey) => {
                 actions.addProductIntent({
@@ -358,6 +292,20 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                             : ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                 })
             })
+
+            // Mirror the primary onboarding choice into localStorage so the experimental
+            // 'Promoted product' sidebar entry can render immediately, without waiting
+            // for the ClickHouse-backed APP_CONTEXT value to catch up with ingestion lag.
+            if (values.firstProductOnboarding && values.currentTeam?.id) {
+                try {
+                    window.localStorage.setItem(
+                        localStorageProductKey(values.currentTeam.id),
+                        values.firstProductOnboarding
+                    )
+                } catch {
+                    // localStorage disabled — APP_CONTEXT will be the fallback after ingestion.
+                }
+            }
 
             // Analytics
             window.posthog?.capture('onboarding_products_confirmed', {

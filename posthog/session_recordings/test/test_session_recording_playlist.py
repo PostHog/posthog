@@ -2,12 +2,15 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.core.cache import cache
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from boto3 import resource
 from botocore.config import Config
@@ -17,16 +20,25 @@ from rest_framework import status
 from posthog import redis
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.session_recordings.session_recording_playlist_api import (
+    MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST,
+    PLAYLIST_COUNT_REDIS_PREFIX,
+    PLAYLIST_LIST_MAX_LIMIT,
+    _attach_empty_recordings_counts,
+    _empty_saved_filters_counts,
+    parse_non_negative_int,
+    parse_positive_int,
+    precompute_recordings_counts,
+)
+from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -216,22 +228,55 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             },
         ]
 
+    def test_list_does_not_issue_redundant_db_count(self) -> None:
+        self._create_playlist({"name": "test", "type": "collection"})
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        playlist_count_queries = [
+            q
+            for q in ctx.captured_queries
+            if "count(" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylist" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylistitem" not in q["sql"].lower()
+        ]
+        assert len(playlist_count_queries) == 1, (
+            f"expected a single COUNT on the playlists table, saw {len(playlist_count_queries)}: "
+            f"{[q['sql'] for q in playlist_count_queries]}"
+        )
+
     @parameterized.expand(
         [
-            ["without_type", {"name": "test"}],
-            ["with_unknown_type", {"name": "test", "type": "tomato"}],
+            [
+                "without_type",
+                {"name": "test"},
+                {
+                    "attr": None,
+                    "code": "invalid_input",
+                    "detail": "Must provide a valid playlist type: either filters or collection",
+                    "type": "validation_error",
+                },
+            ],
+            [
+                "with_unknown_type",
+                {"name": "test", "type": "tomato"},
+                {
+                    "attr": "type",
+                    "code": "invalid_choice",
+                    "detail": '"tomato" is not a valid choice.',
+                    "type": "validation_error",
+                },
+            ],
         ]
     )
-    def test_rejects_invalid_playlist_type(self, _name: str, playlist_data: dict) -> None:
+    def test_rejects_invalid_playlist_type(self, _name: str, playlist_data: dict, expected_response: dict) -> None:
         self._create_playlist(
             playlist_data,
             status.HTTP_400_BAD_REQUEST,
-            expected_response_json={
-                "attr": None,
-                "code": "invalid_input",
-                "detail": "Must provide a valid playlist type: either filters or collection",
-                "type": "validation_error",
-            },
+            expected_response_json=expected_response,
         )
 
     @parameterized.expand(
@@ -286,13 +331,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        # one query to get started and then 14 per creation (was 13, +1 for organization query)
-        with self.assertNumQueries(14 * 50 + 1):
+        # one query to get started and then 13 per creation (was 14, -1 after dropping duplicate session lookup)
+        with self.assertNumQueries(13 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        # 14 per creation (was 13, +1 for organization query)
-        with self.assertNumQueries(14 * 100):
+        # 13 per creation (was 14, -1 after dropping duplicate session lookup)
+        with self.assertNumQueries(13 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
@@ -706,6 +751,72 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(result["results"]) == 1
         assert result["results"][0]["id"] == session_one
 
+    def test_collection_recordings_keep_one_year_search_bound(self) -> None:
+        # long retention keeps the old recording alive, so only the collections -1y bound excludes it
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        recent_session = f"recent-{uuid4()}"
+        over_a_year_old_session = f"over-a-year-old-{uuid4()}"
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+        over_a_year_ago = (datetime.now() - timedelta(days=400)).replace(tzinfo=UTC)
+
+        for session_id, timestamp in [(recent_session, three_days_ago), (over_a_year_old_session, over_a_year_ago)]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=timestamp,
+                last_timestamp=timestamp,
+                retention_period_days=1826,
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == {recent_session}
+
+    @parameterized.expand(
+        [
+            ("narrow_window_excludes", "-1d", False),
+            ("covering_window_includes", "-30d", True),
+        ]
+    )
+    def test_filters_playlist_pinned_recordings_respect_date_params(
+        self, _name: str, date_from: str, expect_found: bool
+    ) -> None:
+        # legacy filters playlists can still carry pinned items
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="legacy filters with pins", created_by=self.user, type="filters"
+        )
+
+        old_session = f"old-{uuid4()}"
+        ten_days_ago = (datetime.now() - timedelta(days=10)).replace(tzinfo=UTC)
+        produce_replay_summary(
+            team_id=self.team.id,
+            session_id=old_session,
+            distinct_id="123",
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago,
+        )
+        # pinning via the API is collection-only, so create the legacy rows directly
+        recording, _ = SessionRecording.objects.get_or_create(
+            session_id=old_session, team=self.team, defaults={"deleted": False}
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data={"date_from": date_from},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == ({old_session} if expect_found else set())
+
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -798,6 +909,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):
+        # Prime the expiring-playlist cache so its cold-start scan (which builds the
+        # warehouse HogQL Database and emits a DataWarehouseSavedQuery lookup) stays
+        # out of this query snapshot. The scan runs once per hour in production; left
+        # to LocMemCache state it fires or not depending on test order, making the
+        # captured query set flaky.
+        cache.set(ExpiringPlaylistSource._get_cache_key(self.team.pk), [], ExpiringPlaylistSource.CACHE_TTL)
+
         # Setup playlists with different types and conditions
         p_filters_explicit = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -1033,6 +1151,218 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert result["added_count"] == 2  # Only new ones counted
         assert result["total_requested"] == 3
 
+    @parameterized.expand(
+        [
+            # (order, limit) across the synth/DB boundary, both sort directions.
+            ["desc_boundary", "-last_modified_at", 30],
+            ["desc_smaller", "-last_modified_at", 17],
+            ["asc_boundary", "last_modified_at", 30],
+            ["name_asc", "name", 12],
+        ]
+    )
+    def test_pagination_covers_every_db_playlist_across_pages(self, _name: str, order: str, limit: int) -> None:
+        # Walking every page must return each DB playlist exactly once with no empty
+        # interior pages — synthetics displaced items off page boundaries before the fix.
+        db_playlist_count = 50
+        for i in range(db_playlist_count):
+            SessionRecordingPlaylist.objects.create(
+                team=self.team, name=f"playlist-{i:02d}", created_by=self.user, type="collection"
+            )
+
+        seen_db_ids: list[str] = []
+        seen_synth_ids: set[str] = set()
+        offset = 0
+        total_count: int | None = None
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?order={order}&limit={limit}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total_count = data["count"]
+            results = data["results"]
+            # Synthetics may span several pages, so accumulate unique ids across the walk.
+            seen_synth_ids.update(r["short_id"] for r in results if r.get("is_synthetic"))
+
+            assert results, f"page at offset={offset} was unexpectedly empty"
+            if offset + limit < total_count:
+                assert len(results) == limit, "interior pages must be full"
+
+            seen_db_ids.extend(r["short_id"] for r in results if not r.get("is_synthetic"))
+            offset += limit
+            if offset >= total_count:
+                break
+
+        assert len(seen_synth_ids) > 0, "test relies on synthetic playlists being present"
+        assert total_count == db_playlist_count + len(seen_synth_ids)
+        # Every DB playlist appears exactly once — no skips, no duplicates.
+        assert len(seen_db_ids) == db_playlist_count
+        assert len(set(seen_db_ids)) == db_playlist_count
+
+    def test_pagination_returns_displaced_db_playlists_on_later_pages(self) -> None:
+        # The reported bug: synthetics fill slots on page 1, so page 2 came back empty
+        # while count still claimed more. Page 2 must return the displaced DB rows.
+        page_size = 30
+        db_playlist_count = page_size
+        for i in range(db_playlist_count):
+            SessionRecordingPlaylist.objects.create(
+                team=self.team, name=f"playlist-{i:02d}", created_by=self.user, type="collection"
+            )
+
+        page_one = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?limit={page_size}&offset=0"
+        )
+        assert page_one.status_code == status.HTTP_200_OK
+        page_one_data = page_one.json()
+        synth_count = sum(1 for r in page_one_data["results"] if r.get("is_synthetic"))
+        total_count = page_one_data["count"]
+        assert synth_count > 0, "test relies on synthetic playlists being present"
+        assert total_count == db_playlist_count + synth_count
+        assert len(page_one_data["results"]) == page_size
+        assert page_one_data["next"] is not None
+        assert page_one_data["previous"] is None
+
+        page_two = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?limit={page_size}&offset={page_size}"
+        )
+        assert page_two.status_code == status.HTTP_200_OK
+        page_two_data = page_two.json()
+        assert page_two_data["count"] == total_count
+        # Displaced DB rows must appear here — previously this page was empty.
+        assert len(page_two_data["results"]) == total_count - page_size
+        assert all(not r.get("is_synthetic") for r in page_two_data["results"])
+        assert page_two_data["previous"] is not None
+        assert page_two_data["next"] is None
+
+        # No overlap, and together they cover every DB playlist.
+        page_one_db_ids = {r["short_id"] for r in page_one_data["results"] if not r.get("is_synthetic")}
+        page_two_db_ids = {r["short_id"] for r in page_two_data["results"]}
+        assert page_one_db_ids.isdisjoint(page_two_db_ids)
+        assert len(page_one_db_ids | page_two_db_ids) == db_playlist_count
+
+    def test_pagination_with_name_sort_places_synthetics_by_name(self) -> None:
+        # Under name-ascending, synthetics sit at their alphabetical position, not
+        # unconditionally at the start or end of the merged list.
+        SessionRecordingPlaylist.objects.create(
+            team=self.team, name="aaa-first", created_by=self.user, type="collection"
+        )
+        SessionRecordingPlaylist.objects.create(
+            team=self.team, name="zzz-last", created_by=self.user, type="collection"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit=3&offset=0"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        # "aaa-first" sorts ahead of every synthetic, so page 1 must include it.
+        assert "aaa-first" in names
+        # "zzz-last" sorts after every synthetic; it must not appear on page 1.
+        assert "zzz-last" not in names
+
+    def test_pagination_with_name_sort_is_case_insensitive(self) -> None:
+        # Rank math and the DB slice must share one case-insensitive order, else mixed-case
+        # names get skipped or duplicated across pages.
+        db_names = ["Banana", "apple", "Cherry", "date", "Elder", "fig", "Grape", "kiwi"]
+        for name in db_names:
+            SessionRecordingPlaylist.objects.create(team=self.team, name=name, created_by=self.user, type="collection")
+
+        page_size = 5
+        seen_db_names: list[str] = []
+        offset = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            seen_db_names.extend(r["name"] for r in data["results"] if not r.get("is_synthetic"))
+            offset += page_size
+            if offset >= data["count"]:
+                break
+
+        # Every DB playlist appears exactly once across all pages — no skips, no duplicates.
+        assert sorted(seen_db_names) == sorted(db_names)
+
+    def test_pagination_with_name_ties_across_page_boundary(self) -> None:
+        # Duplicate names (including one colliding with a synthetic, "Expiring soon")
+        # force ties that straddle page boundaries. The unique id tiebreaker must keep
+        # every DB row appearing exactly once — without it the slice skips/repeats rows.
+        created_ids: set[str] = set()
+        for name in ["dup-a", "dup-a", "dup-a", "Expiring soon", "Expiring soon", "dup-z", "dup-z", "dup-z"]:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name=name, created_by=self.user, type="collection"
+            )
+            created_ids.add(playlist.short_id)
+
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            seen.extend(r["short_id"] for r in data["results"] if not r.get("is_synthetic"))
+            offset += page_size
+            if offset >= data["count"]:
+                break
+
+        assert sorted(seen) == sorted(created_ids)
+        assert len(seen) == len(set(seen))
+
+    def test_pagination_synthetics_only_when_no_db_collections(self) -> None:
+        # No DB rows: the response is exactly the synthetics, and paging across a small
+        # limit returns each once — pins the rank range() branch with zero DB rows.
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        total = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total = data["count"]
+            assert all(r.get("is_synthetic") for r in data["results"])
+            seen.extend(r["short_id"] for r in data["results"])
+            offset += page_size
+            if offset >= total:
+                break
+
+        assert total > 0
+        assert len(seen) == total
+        assert len(set(seen)) == total
+
+    def test_pagination_with_zero_synthetics(self) -> None:
+        # collection_type=custom filters out all synthetics, exercising the empty-ranks
+        # early return; pure-DB pagination must still return each row exactly once.
+        db_names = [f"custom-{i:02d}" for i in range(8)]
+        for name in db_names:
+            SessionRecordingPlaylist.objects.create(team=self.team, name=name, created_by=self.user, type="collection")
+
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        total = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?collection_type=custom&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total = data["count"]
+            assert not any(r.get("is_synthetic") for r in data["results"])
+            seen.extend(r["name"] for r in data["results"])
+            offset += page_size
+            if offset >= total:
+                break
+
+        assert total == len(db_names)
+        assert sorted(seen) == sorted(db_names)
+
 
 class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
     def _create_personal_api_key(self, scopes: list[str], scoped_teams: list[int] | None = None) -> str:
@@ -1155,3 +1485,225 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
         response = self.client.get(f"/api/projects/{other_team.pk}/session_recording_playlists")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestPrecomputeRecordingsCounts(APIBaseTest):
+    def _make_playlist(self, name: str, playlist_type: str = "collection") -> SessionRecordingPlaylist:
+        return SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name=name,
+            created_by=self.user,
+            type=playlist_type,
+        )
+
+    @parameterized.expand(
+        [
+            ("all_synthetic", "synthetic"),
+            ("empty_list", "empty"),
+        ]
+    )
+    def test_noop_paths_do_not_attach_prefetch_attrs(self, _name: str, scenario: str) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+            playlists: list[SessionRecordingPlaylist] = [playlist]
+        else:
+            playlists = []
+
+        precompute_recordings_counts(playlists, self.user, self.team)
+
+        for playlist in playlists:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+            assert not hasattr(playlist, "_prefetched_saved_filters_count")
+
+    def test_collection_with_items_attaches_count(self) -> None:
+        playlist = self._make_playlist("with items")
+        for session_id in ["s1", "s2", "s3"]:
+            recording = SessionRecording.objects.create(team=self.team, session_id=session_id)
+            SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="s1")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="s2")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": 3, "watched_count": 2}  # type: ignore[attr-defined]
+        assert not hasattr(playlist, "_prefetched_saved_filters_count")
+
+    def test_collection_with_soft_deleted_items_excluded_from_count(self) -> None:
+        playlist = self._make_playlist("all deleted")
+        rec = SessionRecording.objects.create(team=self.team, session_id="deleted-1")
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, deleted=True)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="deleted-1")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        # count excludes the soft-deleted item (None), but watched_count includes it
+        # to match the historical behavior of count_collection_recordings.
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 1}  # type: ignore[attr-defined]
+
+    def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
+        playlist = self._make_playlist("empty")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="a")
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps({"session_ids": ["a", "b"], "previous_ids": ["b"], "has_more": False}),
+        )
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == {  # type: ignore[attr-defined]
+            "count": 2,
+            "has_more": False,
+            "watched_count": 1,
+            "increased": True,
+            "last_refreshed_at": None,
+        }
+
+    def test_saved_filter_count_and_watched_stay_consistent_when_capped(self) -> None:
+        # When a Redis payload contains more than MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # session IDs, both `count` and `watched_count` must be derived from the same
+        # capped list — otherwise watched_count can exceed count or reference IDs that
+        # were never part of the MGET viewed-status lookup.
+        playlist = self._make_playlist("huge saved filter")
+        extra = 5
+        total_ids = MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + extra
+        session_ids = [f"sid-{i}" for i in range(total_ids)]
+        # Mark two sessions as viewed: one inside the cap and one outside.
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="sid-0")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=f"sid-{MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST + 1}",
+        )
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps({"session_ids": session_ids, "previous_ids": [], "has_more": True}),
+        )
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        result = playlist._prefetched_saved_filters_count  # type: ignore[attr-defined]
+        assert result["count"] == MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST
+        # Only the in-cap viewed session is counted.
+        assert result["watched_count"] == 1
+
+    def test_malformed_redis_payload_degrades_to_empty(self) -> None:
+        playlist = self._make_playlist("bad redis")
+        redis.get_client().set(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", "not json")
+
+        precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_redis_mget_failure_degrades_without_raising(self) -> None:
+        playlist = self._make_playlist("redis down")
+
+        with patch("posthog.session_recordings.session_recording_playlist_api.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_redis.mget.side_effect = RuntimeError("redis unavailable")
+            mock_get_client.return_value = mock_redis
+
+            precompute_recordings_counts([playlist], self.user, self.team)
+
+        assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_does_not_read_items_from_other_team(self) -> None:
+        # Defense-in-depth: even if a caller misuses the helper by passing a
+        # cross-team playlist id, items belonging to another team must not leak in.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        mine = self._make_playlist("mine")
+        theirs = SessionRecordingPlaylist.objects.create(team=other_team, name="theirs", type="collection")
+        rec = SessionRecording.objects.create(team=other_team, session_id="theirs-1")
+        SessionRecordingPlaylistItem.objects.create(playlist=theirs, recording=rec)
+
+        # Simulate a buggy caller passing both playlists.
+        precompute_recordings_counts([mine, theirs], self.user, self.team)
+
+        assert mine._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+        # The other-team playlist's items are filtered out by playlist__team_id.
+        assert theirs._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
+
+    @parameterized.expand(
+        [
+            ("sets_defaults", "default", {"count": None, "watched_count": None}, True),
+            ("skips_synthetic", "synthetic", None, False),
+            ("preserves_existing_attrs", "preexisting", {"count": 5, "watched_count": 1}, False),
+        ]
+    )
+    def test_attach_empty_recordings_counts(
+        self,
+        _name: str,
+        scenario: str,
+        expected_collection_count: dict | None,
+        expect_saved_filters_default: bool,
+    ) -> None:
+        if scenario == "synthetic":
+            playlist = SessionRecordingPlaylist(team=self.team, type="collection")
+            playlist._is_synthetic = True  # type: ignore[attr-defined]
+        else:
+            playlist = self._make_playlist(scenario)
+            if scenario == "preexisting":
+                playlist._prefetched_collection_count = {"count": 5, "watched_count": 1}  # type: ignore[attr-defined]
+
+        _attach_empty_recordings_counts([playlist])
+
+        if expected_collection_count is None:
+            assert not hasattr(playlist, "_prefetched_collection_count")
+        else:
+            assert playlist._prefetched_collection_count == expected_collection_count  # type: ignore[attr-defined]
+
+        if expect_saved_filters_default:
+            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+
+    def test_list_clamps_limit_query_param_to_max(self) -> None:
+        # Sanity-check the pagination cap — requesting limit=99999 must cap at the configured max.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?limit={PLAYLIST_LIST_MAX_LIMIT + 100}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Even with no playlists created, the response must be well-formed and bounded.
+        # (Actual item count depends on synthetic playlists; the cap is enforced inside list()
+        # and by the paginator.)
+        results = response.json()["results"]
+        assert len(results) <= PLAYLIST_LIST_MAX_LIMIT
+
+    def test_list_with_zero_limit_does_not_loop_pagination(self) -> None:
+        # limit=0 would make the next link point back at the same offset (infinite paging);
+        # it must fall back to the default page size and terminate.
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?limit=0")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # Default page size (100) comfortably holds the synthetics, so there's no next page
+        # and certainly no self-referential loop.
+        assert data["next"] is None
+        assert len(data["results"]) == data["count"]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30", 30),
+        ("0", 0),
+        ("-5", 0),
+        ("abc", 100),
+        (None, 100),
+    ],
+)
+def test_parse_non_negative_int(value: object, expected: int) -> None:
+    assert parse_non_negative_int(value, 100) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30", 30),
+        ("0", 100),  # limit=0 would loop pagination -> default
+        ("-5", 100),  # non-positive -> default
+        ("abc", 100),
+        (None, 100),
+    ],
+)
+def test_parse_positive_int(value: object, expected: int) -> None:
+    assert parse_positive_int(value, 100) == expected

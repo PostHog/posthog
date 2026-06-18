@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use cymbal::consumer::start_consumer;
 use cymbal::{app_context::AppContext, config::Config, server::start_server};
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -38,26 +37,15 @@ async fn main() {
         }
     };
 
-    match &config.posthog_api_key {
-        Some(key) => {
-            let ph_config = posthog_rs::ClientOptionsBuilder::default()
-                .api_key(key.clone())
-                .api_endpoint(config.posthog_endpoint.clone())
-                .build()
-                .unwrap();
-            posthog_rs::init_global(ph_config).await.unwrap();
-            info!("Posthog client initialized");
-        }
-        None => {
-            posthog_rs::disable_global();
-            warn!("Posthog client disabled");
-        }
-    }
+    common_posthog::init(
+        "cymbal",
+        config.posthog_api_key.as_deref(),
+        &config.posthog_endpoint,
+    )
+    .await
+    .unwrap();
 
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());
 
-    tokio::join!(
-        start_server(config.clone(), context.clone()),
-        start_consumer(&config, context.clone())
-    );
+    start_server(config.clone(), context.clone()).await;
 }

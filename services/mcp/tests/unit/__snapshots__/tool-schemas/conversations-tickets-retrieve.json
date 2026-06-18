@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The ticket's UUID or its numeric ticket number.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

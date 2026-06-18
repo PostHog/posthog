@@ -24,18 +24,18 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.checks import check_alert
+from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 # 8:55 AM
 FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
 @freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -142,7 +142,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert["last_notified_at"] is None
         assert alert["next_check_at"] is None
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -160,7 +160,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (0) is less than lower threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -182,7 +184,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -198,7 +200,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -216,7 +220,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -249,7 +253,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -293,7 +297,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -309,7 +313,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_breakdown_low_threshold_breached(
@@ -339,7 +345,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -355,7 +361,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_breakdown_no_threshold_breached(
@@ -385,7 +393,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -429,7 +437,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -445,7 +453,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for current interval (3) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for current interval (3) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_aggregate_trend_with_breakdown_high_threshold_breached(
@@ -475,7 +485,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -491,7 +501,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_current_interval_high_threshold_breached(
@@ -516,7 +528,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -532,7 +544,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_current_interval_should_not_fallback_to_previous_high_threshold_breached(
@@ -567,7 +581,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -607,7 +621,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -638,7 +652,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -657,10 +671,15 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
@@ -680,7 +699,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # Check at 08:05 - checks previous hour (07:00-07:59), should fire (3 events > upper threshold of 1)
         with freeze_time(dateutil.parser.parse("2024-06-02T08:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1
@@ -702,7 +721,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # Second check at 09:05 - checks previous hour (08:00-08:59), should not fire (0 events)
         with freeze_time(dateutil.parser.parse("2024-06-02T09:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is still CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1

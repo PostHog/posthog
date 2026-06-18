@@ -13,8 +13,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from parameterized import parameterized
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group, GroupTypeMapping
 from posthog.models.filters.utils import GroupTypeIndex
@@ -47,21 +45,18 @@ class BaseRelatedActorsTest(ABC, ClickhouseTestMixin, APIBaseTest):
             group_type_index=org_type_index,
             group_key="org:1",
             properties={"name": "org 1"},
-            sync=True,
         )
         self.another_org = create_group(
             team_id=self.team.id,
             group_type_index=org_type_index,
             group_key="another-org",
             properties={"name": "another org"},
-            sync=True,
         )
         self.instance = create_group(
             team_id=self.team.id,
             group_type_index=instance_type_index,
             group_key="instance:1",
             properties={"name": "instance 1"},
-            sync=True,
         )
 
         self._create_group_event("user1", RECENT_DATE, self.org1)
@@ -150,74 +145,58 @@ class TestRelatedPersonsQuery(BaseRelatedActorsTest):
 
 @freeze_time("2025-03-01T12:00:00Z")
 class TestRelatedGroupsQuery(BaseRelatedActorsTest):
-    def run_query(self, variant: str = "control") -> list:
-        return RelatedActorsQuery(team=self.team, group_type_index=None, id=str(self.person.uuid)).run(variant=variant)
+    def run_query(self) -> list:
+        return RelatedActorsQuery(team=self.team, group_type_index=None, id=str(self.person.uuid)).run()
 
     @snapshot_clickhouse_queries
-    def test_control_query(self):
-        results = self.run_query(variant="control")
+    def test_query(self):
+        results = self.run_query()
 
         assert len(results) == 2
         ids = self.get_ids_from_results(results)
         assert ids == {"org:1", "instance:1"}
 
-    @snapshot_clickhouse_queries
-    def test_optimized_query(self):
-        results = self.run_query(variant="test")
-
-        assert len(results) == 2
-        ids = self.get_ids_from_results(results)
-        assert ids == {"org:1", "instance:1"}
-
-    @parameterized.expand(["control", "test"])
-    def test_returns_related_groups(self, variant):
-        results = self.run_query(variant=variant)
+    def test_returns_related_groups(self):
+        results = self.run_query()
 
         ids = self.get_ids_from_results(results)
         assert "org:1" in ids
         assert "instance:1" in ids
 
-    @parameterized.expand(["control", "test"])
-    def test_excludes_unrelated_groups(self, variant):
-        results = self.run_query(variant=variant)
+    def test_excludes_unrelated_groups(self):
+        results = self.run_query()
 
         ids = self.get_ids_from_results(results)
         assert "another-org" not in ids
 
-    @parameterized.expand(["control", "test"])
-    def test_excludes_old_groups(self, variant):
-        results = self.run_query(variant=variant)
+    def test_excludes_old_groups(self):
+        results = self.run_query()
 
         ids = self.get_ids_from_results(results)
         assert str(self.old_related_person.uuid) not in ids
 
-    @parameterized.expand(["control", "test"])
-    def test_returns_all_groups_of_same_type(self, variant):
+    def test_returns_all_groups_of_same_type(self):
         extra_org = create_group(
             team_id=self.team.id,
             group_type_index=cast(GroupTypeIndex, self.org_group_type.group_type_index),
             group_key="org:2",
             properties={"name": "org 2"},
-            sync=True,
         )
         self._create_group_event("user1", RECENT_DATE, extra_org)
         flush_persons_and_events()
 
-        results = self.run_query(variant=variant)
+        results = self.run_query()
 
         ids = self.get_ids_from_results(results)
         assert "org:1" in ids
         assert "org:2" in ids
         assert "instance:1" in ids
 
-    @parameterized.expand(["control", "test"])
-    def test_no_groups_when_no_mappings(self, variant):
+    def test_no_groups_when_no_mappings(self):
         another_team = self.create_team_with_organization(self.organization)
         another_person = _create_person(team=another_team, uuid=uuid4())
 
-        results = RelatedActorsQuery(team=another_team, group_type_index=None, id=str(another_person.uuid)).run(
-            variant=variant
-        )
+        results = RelatedActorsQuery(team=another_team, group_type_index=None, id=str(another_person.uuid)).run()
 
         group_results = [r for r in results if r.get("type") == "group"]
         assert len(group_results) == 0

@@ -2,12 +2,9 @@ use crate::{
     api::{
         auth,
         errors::{ClientFacingError, FlagError},
+        instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
-    flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_request::FlagRequestType,
-        flag_service::FlagService,
-    },
+    flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
     handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
@@ -24,10 +21,83 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_types::TeamId;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
+use sqlx::PgPool;
+use std::collections::HashSet;
 use tracing::{info, warn};
+
+const ALLOWLIST_TTL_SECS: u64 = 60;
+static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
+
+/// Refresh the rate limit allowlist from the database if stale, then update the limiter.
+/// Matches Django's `get_team_allow_list(round(time.time() / 60))` pattern.
+/// The cache is per-instance (stored on the rate limiter), not global.
+///
+/// To avoid stampeding the database at the TTL boundary (10k+ req/s),
+/// `claim_allowlist_refresh` atomically checks staleness and marks as refreshed,
+/// so only one request triggers the DB query. If the query fails, we serve stale
+/// data for another TTL cycle.
+async fn refresh_rate_limit_allowlist_if_stale(state: &AppState) {
+    if !state
+        .flag_definitions_limiter
+        .claim_allowlist_refresh(ALLOWLIST_TTL_SECS)
+    {
+        return;
+    }
+
+    match fetch_allowlist_from_db(&state.database_pools.non_persons_reader).await {
+        Ok(Some(new_allowlist)) => {
+            state
+                .flag_definitions_limiter
+                .update_allowlist(new_allowlist);
+        }
+        Ok(None) => {
+            // Row not in DB — keep the env var default
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh rate limit allowlist from database, using cached value");
+        }
+    }
+}
+
+/// Query the posthog_instancesetting table for the rate limit allowlist.
+/// Returns None if the row doesn't exist (env var default should be kept),
+/// Some(set) if the row exists (overrides the env var).
+pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<TeamId>>, String> {
+    let raw = match fetch_instance_setting_raw_value(pool, &CONSTANCE_KEY).await? {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let value = raw.trim();
+    if value.is_empty() {
+        return Ok(Some(HashSet::new()));
+    }
+
+    let mut team_ids = HashSet::new();
+    for part in value.split(',').map(|p| p.trim()) {
+        if part.is_empty() {
+            continue;
+        }
+        match part.parse::<TeamId>() {
+            Ok(id) => {
+                team_ids.insert(id);
+            }
+            Err(e) => {
+                warn!(
+                    part = part,
+                    error = %e,
+                    "Skipping invalid team ID in RATE_LIMITING_ALLOW_LIST_TEAMS"
+                );
+            }
+        }
+    }
+
+    Ok(Some(team_ids))
+}
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -36,8 +106,11 @@ pub type FlagDefinitionsResponse = Value;
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
-    /// Team API token - required to specify which team's flags to return
-    pub token: String,
+    /// Team API token. Required when authenticating with a personal API key (which
+    /// can access multiple teams). Optional when authenticating with a `phs_` secret
+    /// token or project secret API key, since those are team-scoped and the team can
+    /// be derived from the token itself.
+    pub token: Option<String>,
 }
 
 /// Flag definitions endpoint handler
@@ -73,7 +146,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = %params.token,
+        token = ?params.token,
         "Processing flag definitions request"
     );
 
@@ -83,19 +156,28 @@ pub async fn flags_definitions(
         return Ok(handle_non_get_method(&method));
     }
 
-    // Fetch team using the token from query parameter
-    let team = fetch_team_by_token(&state, &params.token).await?;
+    // Resolve the team. Two flows:
+    // 1. Token provided: look up team by token, then authenticate against it (standard SDK flow)
+    // 2. Token absent: authenticate with phs_ secret token first, derive team_id from it
+    //    (supports direct API callers who authenticate with Bearer phs_<key> only)
+    let team = if let Some(ref token) = params.token {
+        let team = fetch_team_by_token(&state, token).await?;
+        authenticate_flag_definitions(&state, &team, &headers).await?;
+        team
+    } else {
+        resolve_team_from_auth(&state, &headers).await?
+    };
 
-    // Authenticate against the specified team
-    authenticate_flag_definitions(&state, &team, &headers).await?;
+    // Refresh the rate limit allowlist from the database if stale (every ~60s)
+    refresh_rate_limit_allowlist_if_stale(&state).await;
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
     if state
         .feature_flags_billing_limiter
-        .is_limited(&params.token)
+        .is_limited(&team.api_token)
         .await
     {
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
@@ -136,21 +218,9 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
-            state.redis_client.clone(),
-            team.id,
-            1,
-            FlagRequestType::FlagDefinitions,
-            Some(library),
-        )
-        .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+        state
+            .billing_aggregator
+            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
     }
 
     Ok(ok_response_with_etag(
@@ -259,7 +329,7 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
-fn handle_non_get_method(method: &Method) -> Response {
+pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     match *method {
         Method::HEAD => (
             StatusCode::OK,
@@ -281,15 +351,49 @@ fn handle_non_get_method(method: &Method) -> Response {
 /// Fetches a team by its API token, delegating to FlagService for consistent
 /// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    let flag_service = FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    );
-    flag_service.verify_token_and_get_team(token).await
+    state.flag_service().verify_token_and_get_team(token).await
+}
+
+/// Resolves a team from the Authorization header when no `?token=` param is provided.
+///
+/// Only works with `phs_` secret tokens and project secret API keys, which are
+/// team-scoped. Personal API keys can access multiple teams and require an explicit
+/// `?token=` param to disambiguate — returns an error in that case.
+async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (team_id, api_token, is_project_secret) =
+            auth::validate_secret_api_token(state, &token).await?;
+
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+
+        // Prefer HyperCache via api_token (new cache entries include it).
+        // Fall back to PG for old cache entries that predate the field.
+        let svc = state.flag_service();
+        return match api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await,
+            None => svc.get_team_by_id(team_id).await,
+        };
+    }
+
+    // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
+    if auth::extract_personal_api_key(headers)?.is_some() {
+        return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
+            "The 'token' query parameter is required unless authenticating with a \
+             phs_-prefixed token."
+                .to_string(),
+        )));
+    }
+
+    Err(FlagError::NoAuthenticationProvided)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
@@ -331,6 +435,7 @@ async fn get_from_cache(
                 HyperCacheError::S3(_) => "s3_error",
                 HyperCacheError::Redis(_) => "redis_error",
                 HyperCacheError::Json(_) => "json_parse_error",
+                HyperCacheError::Pickle(_) => "pickle_parse_error",
                 HyperCacheError::Timeout(_) => "timeout",
             };
             inc(
@@ -368,10 +473,12 @@ async fn authenticate_flag_definitions(
     // Try team secret token or project secret API key (from Authorization header only)
     // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let auth_data = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
-        let method = match &auth_data {
-            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
-            _ => "secret_api_key",
+        let (_, _, is_project_secret) =
+            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
+        let method = if is_project_secret {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
         };
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
@@ -391,18 +498,8 @@ async fn authenticate_flag_definitions(
             1,
         );
 
-        if !*state.config.skip_writes {
-            // Use shared Redis, not the dedicated flags cache client —
-            // PAK last_used_at tracking is advisory and shouldn't steal
-            // capacity from the critical path.
-            let redis = state.redis_client.clone();
-            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
-                state.database_pools.non_persons_writer.clone();
-            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
-            // spawning a background task on every request. Only the DB write
-            // (triggered when the key is newly set) runs in a spawned task.
-            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
-        }
+        // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
+        state.record_pak_last_used(pak_id).await;
 
         return Ok(());
     }

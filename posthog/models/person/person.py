@@ -1,4 +1,6 @@
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any, NamedTuple, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
@@ -11,11 +13,24 @@ from posthog.models.utils import UUIDT
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
-from .missing_person import uuidFromDistinctId
 
 logger = structlog.get_logger(__name__)
 
 MAX_LIMIT_DISTINCT_IDS = 2500
+
+# Mirrors MAX_SPLIT_BATCH_SIZE enforced by the personhog SplitPerson RPC.
+PERSONHOG_SPLIT_BATCH_SIZE = 250
+
+
+class SplitOutcome(NamedTuple):
+    """One distinct_id split onto a new person — the data needed to publish to Kafka."""
+
+    distinct_id: str
+    new_person_uuid: UUID
+    new_person_version: int
+    pdi_version: int
+    new_person_created_at: datetime
+
 
 # Use centralized database routing constant
 READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
@@ -123,7 +138,7 @@ class PersonManager(models.Manager):
             if not kwargs.get("distinct_ids"):
                 return super().create(*args, **kwargs)
             distinct_ids = kwargs.pop("distinct_ids")
-            person = super().create(*args, **kwargs)
+            person = cast("Person", super().create(*args, **kwargs))
             person._add_distinct_ids(distinct_ids)
             return person
 
@@ -214,7 +229,7 @@ class Person(models.Model):
             return self._distinct_ids
         return [
             id[0]
-            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=self, team_id=self.team_id)
             .order_by("id")
             .values_list("distinct_id")
@@ -250,7 +265,9 @@ class Person(models.Model):
             # Delete PersonDistinctId records with explicit team_id for partition pruning.
             # Django's Collector.delete() generates: DELETE FROM posthog_persondistinctid WHERE person_id IN (...)
             # which misses team_id and would scan all partitions on a partitioned table.
-            PersonDistinctId.objects.filter(team_id=person_team_id, person_id=person_pk).delete()
+            PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=person_team_id, person_id=person_pk
+            ).delete()  # nosemgrep: no-direct-persons-db-orm
 
             # Now delete the Person itself with explicit team_id for partition pruning
             db_connection = connections[using]
@@ -264,160 +281,215 @@ class Person(models.Model):
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
-        PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
+        PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
+            person=self, distinct_id=distinct_id, team_id=self.team_id
+        )  # nosemgrep: no-direct-persons-db-orm
 
     # :DEPRECATED: This should happen through the plugin server
     def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        original_person = Person.objects.only("id", "team_id", "uuid", "version").get(team_id=self.team_id, pk=self.pk)
-        distinct_ids = original_person.distinct_ids
-        original_person_version = original_person.version or 0
+    def split_person(
+        self,
+        main_distinct_id: Optional[str],
+        max_splits: Optional[int] = None,
+        distinct_ids_to_split: Optional[list[str]] = None,
+    ):
+        """Split distinct_ids off of this person onto new persons.
 
-        logger.info(
-            "split_person queried person",
-            person_id=self.pk,
-            person_uuid=str(original_person.uuid),
-            team_id=self.team_id,
-            version=original_person_version,
-            distinct_ids_count=len(distinct_ids),
-            main_distinct_id=main_distinct_id,
-            max_splits=max_splits,
-        )
+        When ``distinct_ids_to_split`` is provided, only those specific distinct_ids are
+        moved to new persons; the original person keeps all other distinct_ids and its
+        properties intact. In that mode, ``main_distinct_id`` and ``max_splits`` are
+        ignored. This is the "partial split" path — useful to surgically extract IDs
+        that were over-merged into a mega-person.
 
-        if not main_distinct_id:
-            self.properties = {}
-            self.save(update_fields=["properties"])
-            main_distinct_id = distinct_ids[0]
+        When ``distinct_ids_to_split`` is None, every distinct_id except
+        ``main_distinct_id`` is split off (or only the first ``max_splits`` of them).
+        If ``main_distinct_id`` is also None, the first distinct_id is kept. The
+        original person always retains its properties.
+        """
+        from posthog.personhog_client.caller_tag import personhog_caller_tag
+        from posthog.personhog_client.client import get_personhog_client
+        from posthog.personhog_client.proto import GetPersonRequest
 
-        if max_splits is not None and len(distinct_ids) > max_splits:
-            # Split the last N distinct_ids of the list
-            distinct_ids = distinct_ids[-1 * max_splits :]
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError(
+                "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
+            )
 
-        distinct_ids_to_split = [did for did in distinct_ids if did != main_distinct_id]
-        if not distinct_ids_to_split:
+        # Tag every personhog call made during the split (get_person, the paged
+        # get_distinct_ids_for_person, and the split_person RPCs) so the traffic is attributable.
+        with personhog_caller_tag("persons/split"):
+            person_resp = client.get_person(GetPersonRequest(team_id=self.team_id, person_id=self.pk))
+            if not person_resp.person or not person_resp.person.id:
+                raise ValueError(f"Person not found: person_id={self.pk}, team_id={self.team_id}")
+
+            logger.info(
+                "split_person queried person",
+                person_id=self.pk,
+                person_uuid=person_resp.person.uuid,
+                team_id=self.team_id,
+                version=person_resp.person.version,
+                main_distinct_id=main_distinct_id,
+                max_splits=max_splits,
+                explicit_distinct_ids_count=len(distinct_ids_to_split) if distinct_ids_to_split is not None else None,
+            )
+
+            if distinct_ids_to_split is not None:
+                self._split_explicit_ids(distinct_ids_to_split)
+            else:
+                self._split_all_ids(client, main_distinct_id, max_splits)
+
+    def _split_explicit_ids(self, distinct_ids_to_split: list[str]) -> None:
+        """Partial split: caller specifies exactly which IDs to move.
+
+        The RPC validates that every ID belongs to this person — no need to
+        fetch all distinct IDs upfront.
+        """
+        seen: set[str] = set()
+        distinct_ids_to_process: list[str] = []
+        for did in distinct_ids_to_split:
+            if did not in seen:
+                seen.add(did)
+                distinct_ids_to_process.append(did)
+
+        if not distinct_ids_to_process:
             return
 
         logger.info(
-            "split_person will split distinct_ids",
+            "split_person will split explicit distinct_ids",
             person_id=self.pk,
             team_id=self.team_id,
-            main_distinct_id=main_distinct_id,
-            distinct_ids_to_split_count=len(distinct_ids_to_split),
+            distinct_ids_to_split_count=len(distinct_ids_to_process),
         )
 
-        db_alias = router.db_for_write(PersonDistinctId) or "default"
-        new_uuid_by_distinct_id = {
-            distinct_id: uuidFromDistinctId(self.team_id, distinct_id) for distinct_id in distinct_ids_to_split
-        }
+        for start in range(0, len(distinct_ids_to_process), PERSONHOG_SPLIT_BATCH_SIZE):
+            batch = distinct_ids_to_process[start : start + PERSONHOG_SPLIT_BATCH_SIZE]
+            outcomes = self._split_distinct_ids_batch(batch)
+            self._publish_split_to_kafka(outcomes)
 
-        with transaction.atomic(using=db_alias):
-            # 1. Lock all PDIs in one query — hits unique index (team_id, distinct_id)
-            locked_pdis = self._lock_person_distinct_ids(distinct_ids_to_split)
+    def _split_all_ids(self, client: Any, main_distinct_id: Optional[str], max_splits: Optional[int]) -> None:
+        """Full split: fetch pages of distinct IDs and split each page.
 
-            # 2. Create or update persons for each split distinct_id
-            new_person_by_uuid = self._create_split_persons(new_uuid_by_distinct_id, original_person_version)
-
-            # 3. Reassign PDIs to new persons
-            self._assign_person_distinct_ids(locked_pdis, new_person_by_uuid, new_uuid_by_distinct_id)
-
-        # 4. Publish Kafka messages after transaction commits — DB is source of truth,
-        # Kafka/ClickHouse catches up via versioning
-        self._publish_split_to_kafka(locked_pdis, new_person_by_uuid, new_uuid_by_distinct_id)
-
-    def _lock_person_distinct_ids(self, distinct_ids: list[str]) -> dict[str, "PersonDistinctId"]:
-        """Lock and return PDIs for the given distinct_ids. Raises if any are missing."""
-        locked = {
-            person_distinct_id.distinct_id: person_distinct_id
-            for person_distinct_id in PersonDistinctId.objects.select_for_update().filter(
-                team_id=self.team_id, person=self, distinct_id__in=distinct_ids
-            )
-        }
-
-        missing = set(distinct_ids) - set(locked.keys())
-        if missing:
-            raise ValueError(
-                f"split_person: PDIs missing for distinct_ids {missing} (team_id={self.team_id}, person_id={self.pk})"
-            )
-
-        logger.info(
-            "split_person locked PDIs",
-            person_id=self.pk,
-            team_id=self.team_id,
-            locked_count=len(locked),
-        )
-
-        return locked
-
-    def _create_split_persons(self, new_uuid_by_distinct_id: dict, original_person_version: int) -> dict:
-        """Create or update a Person for each split distinct_id.
-
-        update_or_create handles pre-existing persons (e.g., from a previous partial run)
-        by bumping their version, so the Kafka message carries the correct version.
-        Set version higher than delete events (which use version + 100).
-        Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
-        and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+        Each split removes the IDs from this person, so the next fetch returns
+        a shrinking set. No ordering is needed — the loop terminates when only
+        the main distinct_id remains (or max_splits is reached).
         """
-        new_person_by_uuid = {}
-        for new_uuid in new_uuid_by_distinct_id.values():
-            new_person, _created = Person.objects.update_or_create(
-                uuid=new_uuid,
-                team_id=self.team_id,
-                defaults={"version": original_person_version + 101},
+        from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
+
+        splits_done = 0
+        # +1 so the main_distinct_id can appear in the page without eating a split slot
+        fetch_limit = PERSONHOG_SPLIT_BATCH_SIZE + 1
+
+        while True:
+            did_resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(
+                    team_id=self.team_id,
+                    person_id=self.pk,
+                    limit=fetch_limit,
+                )
             )
-            new_person_by_uuid[new_uuid] = new_person
+            page = [d.distinct_id for d in did_resp.distinct_ids]
 
-        logger.info(
-            "split_person created persons",
-            person_id=self.pk,
-            team_id=self.team_id,
-            created_count=len(new_person_by_uuid),
+            if not page:
+                break
+
+            if not main_distinct_id:
+                main_distinct_id = page[0]
+
+            to_split = [did for did in page if did != main_distinct_id]
+
+            if not to_split:
+                break
+
+            if max_splits is not None:
+                remaining = max_splits - splits_done
+                if remaining <= 0:
+                    break
+                to_split = to_split[:remaining]
+
+            logger.info(
+                "split_person splitting page",
+                person_id=self.pk,
+                team_id=self.team_id,
+                main_distinct_id=main_distinct_id,
+                page_size=len(page),
+                splitting_count=len(to_split),
+                splits_done=splits_done,
+            )
+
+            outcomes = self._split_distinct_ids_batch(to_split)
+            self._publish_split_to_kafka(outcomes)
+            splits_done += len(outcomes)
+
+            if len(page) < fetch_limit:
+                break
+
+    def _split_distinct_ids_batch(self, distinct_ids: list[str]) -> list[SplitOutcome]:
+        """Split one batch of distinct_ids onto new persons via the personhog
+        SplitPerson RPC. Personhog owns this write — there is no ORM path.
+
+        The server creates each new person with a deterministic UUIDv5
+        (matching ``uuidFromDistinctId``) and bumps versions by 101, higher
+        than delete events (which use version + 100) so the split overrides
+        any deleted rows. Keep in sync with:
+        posthog/models/person/util.py (_delete_person) and
+        rust/personhog-replica/src/storage/postgres/person.rs (SPLIT_VERSION_OFFSET).
+        """
+        from posthog.personhog_client.client import get_personhog_client
+        from posthog.personhog_client.proto import SplitPersonRequest
+
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError(
+                "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
+            )
+
+        response = client.split_person(
+            SplitPersonRequest(
+                team_id=self.team_id,
+                person_id=self.pk,
+                distinct_ids_to_split=distinct_ids,
+            )
         )
+        if len(response.splits) != len(distinct_ids):
+            logger.error(
+                "split_person RPC returned unexpected number of splits",
+                expected=len(distinct_ids),
+                actual=len(response.splits),
+                team_id=self.team_id,
+                person_id=self.pk,
+            )
+        return [
+            SplitOutcome(
+                distinct_id=split.distinct_id,
+                new_person_uuid=UUID(split.new_person_uuid),
+                new_person_version=split.new_person_version,
+                pdi_version=split.pdi_version,
+                new_person_created_at=datetime.fromtimestamp(split.new_person_created_at_ms / 1000, tz=UTC),
+            )
+            for split in response.splits
+        ]
 
-        return new_person_by_uuid
-
-    @staticmethod
-    def _assign_person_distinct_ids(
-        locked_pdis: dict[str, "PersonDistinctId"],
-        new_person_by_uuid: dict,
-        new_uuid_by_distinct_id: dict,
-    ) -> None:
-        """Point each locked PDI to its new person and bump its version."""
-        for distinct_id, person_distinct_id in locked_pdis.items():
-            new_person = new_person_by_uuid[new_uuid_by_distinct_id[distinct_id]]
-            person_distinct_id.person_id = str(new_person.id)
-            # Set distinct_id version higher than delete events (which use pdi.version + 100).
-            # This ensures the split distinct_id overrides any deleted distinct_id.
-            person_distinct_id.version = (person_distinct_id.version or 0) + 101
-
-        PersonDistinctId.objects.bulk_update(list(locked_pdis.values()), ["person_id", "version"])
-
-    def _publish_split_to_kafka(
-        self,
-        locked_pdis: dict[str, "PersonDistinctId"],
-        new_person_by_uuid: dict,
-        new_uuid_by_distinct_id: dict,
-    ) -> None:
+    def _publish_split_to_kafka(self, outcomes: list[SplitOutcome]) -> None:
         """Publish Kafka messages for each split person and PDI reassignment."""
         from posthog.models.person.util import create_person, create_person_distinct_id
 
-        for distinct_id, person_distinct_id in locked_pdis.items():
-            new_person = new_person_by_uuid[new_uuid_by_distinct_id[distinct_id]]
-
+        for outcome in outcomes:
             create_person_distinct_id(
                 team_id=self.team_id,
-                distinct_id=distinct_id,
-                person_id=str(new_person.uuid),
+                distinct_id=outcome.distinct_id,
+                person_id=str(outcome.new_person_uuid),
                 is_deleted=False,
-                version=person_distinct_id.version,
+                version=outcome.pdi_version,
             )
             create_person(
                 team_id=self.team_id,
-                uuid=str(new_person.uuid),
-                version=new_person.version,
-                created_at=new_person.created_at,
+                uuid=str(outcome.new_person_uuid),
+                version=outcome.new_person_version,
+                created_at=outcome.new_person_created_at,
             )
 
 
@@ -503,7 +575,7 @@ class PersonOverride(models.Model):
                 name="unique override per old_person_id",
             ),
             models.CheckConstraint(
-                check=~Q(old_person_id__exact=F("override_person_id")),
+                condition=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
             ),
         ]
@@ -545,7 +617,7 @@ class FlatPersonOverride(models.Model):
                 name="flatpersonoverride_unique_old_person_by_team",
             ),
             models.CheckConstraint(
-                check=~Q(old_person_id__exact=F("override_person_id")),
+                condition=~Q(old_person_id__exact=F("override_person_id")),
                 name="flatpersonoverride_check_circular_reference",
             ),
         ]
@@ -572,19 +644,28 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
     last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
 
     if person is not None:
+        # When a Person comes from personhog (via proto_person_to_model), distinct IDs
+        # are already populated on _distinct_ids — use them directly to avoid hitting
+        # the Django ORM below, which would defeat the purpose of the personhog path.
+        if hasattr(person, "_distinct_ids") and person._distinct_ids is not None:
+            ids = person._distinct_ids
+            if len(ids) <= MAX_LIMIT_DISTINCT_IDS:
+                return ids
+            return list(set(ids[:first_ids_limit] + ids[-last_ids_limit:]))
+
         first_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=person, team=team)
             .order_by("id")
             .values_list("distinct_id", flat=True)[:first_ids_limit]
         )
         last_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(person=person, team=team)
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]
         )
-        distinct_ids = first_ids.union(last_ids)
+        distinct_ids = cast(Any, first_ids).union(last_ids)
     else:
         distinct_ids = []
     return list(map(str, distinct_ids))

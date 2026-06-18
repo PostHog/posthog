@@ -28,7 +28,67 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Team, User
+
+
+LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
+    """
+    SELECT min(partition_checkpoint) FROM (
+        SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
+        FROM logs_kafka_metrics
+        GROUP BY _topic, _partition
+    )
+"""
+)
+
+
+def ilike_pattern(search: str | None) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = (search or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _trace_id_normalise_to_base64(value: str) -> str:
+    """Accept either hex or base64 encoded trace_id/span_id values.
+
+    The `trace_id` and `span_id` columns store base64-encoded bytes. Hex input (32-char for
+    trace_id, 16-char for span_id) is the form users normally see in trace UIs, so we accept
+    it and convert. Values that aren't valid hex are passed through as-is (assumed base64).
+    """
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
+    """In-place: normalize trace_id/span_id filter values to base64 to match column storage."""
+    if isinstance(log_filter.value, list):
+        log_filter.value = [_trace_id_normalise_to_base64(str(v)) for v in log_filter.value]
+    elif log_filter.value is not None:
+        log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
+
+
+def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
+    """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
+
+    Only equality operators (Exact/IsNot) are exposed in the UI.
+    """
+    values: list[str]
+    if isinstance(log_filter.value, list):
+        values = [str(v) for v in log_filter.value]
+    elif log_filter.value is None:
+        values = []
+    else:
+        values = [str(log_filter.value)]
+
+    op = ast.CompareOperationOp.NotIn if log_filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.In
+    return ast.CompareOperation(
+        op=op,
+        left=ast.Field(chain=["severity_text"]),
+        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
+    )
 
 
 def _generate_resource_attribute_filters(
@@ -93,11 +153,16 @@ def _generate_resource_attribute_filters(
         converted_exprs.append(converted_expr)
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
+    # For positive filters we want resources that match ALL filters (arrayAll), then keep them via IN.
+    # For negative filters we want to exclude resources that match ANY of the inverted filters
+    # (arrayExists), then drop them via NOT IN — otherwise multiple negatives would only exclude
+    # resources that match every one of them, instead of any one of them.
+    array_fn = "arrayExists" if is_negative_filter else "arrayAll"
 
     # this query fetches all resource fingerprints that match at least one resource attribute filter
-    # then does a secondary filter for those that match every filter
+    # then does a secondary filter for those that match every filter (positive) or any filter (negative)
     # this sounds over complicated but it's because each row in the table is a single attribute - so we need to first group
-    # them to collapse the rows into a single row per resource fingerprint, _then_ check every filter is met
+    # them to collapse the rows into a single row per resource fingerprint, _then_ check the per-filter match counts
     return parse_expr(
         f"""
         (resource_fingerprint) {IN_}
@@ -110,7 +175,7 @@ def _generate_resource_attribute_filters(
                 AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
                 AND {{resource_attribute_filters}} AND {{existing_filters}}
             GROUP BY resource_fingerprint
-            HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
+            HAVING {array_fn}(x -> x > 0, sumForEach({{ops}}))
         )
     """,
         placeholders={
@@ -122,34 +187,26 @@ def _generate_resource_attribute_filters(
     )
 
 
-class LogsQueryRunnerMixin(QueryRunner):
-    @cached_property
-    def settings(self):
-        return HogQLGlobalSettings(
-            max_bytes_to_read=None,
-            read_overflow_mode=None,
-        )
+def _get_property_type(value) -> str:
+    try:
+        float(value)
+        return "float"
+    except ValueError:
+        pass
+    # todo: datetime?
+    return "str"
 
-    def __init__(self, query, *args, **kwargs):
-        super().__init__(query, *args, **kwargs)
 
-        self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
-            offset=self.query.offset,
-        )
+class LogsFilterBuilder:
+    """Builds HogQL WHERE clause AST from LogsQuery filter fields.
 
-        self.modifiers.convertToProjectTimezone = False
-        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+    Standalone — no QueryRunner dependency.
+    """
 
-        def get_property_type(value):
-            try:
-                value = float(value)
-                return "float"
-            except ValueError:
-                pass
-            # todo: datetime?
-            return "str"
+    def __init__(self, query: LogsQuery, team: "Team", query_date_range: QueryDateRange):
+        self.query = query
+        self.team = team
+        self.query_date_range = query_date_range
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
@@ -163,7 +220,7 @@ class LogsQueryRunnerMixin(QueryRunner):
                         f
                         for f in property_group.values
                         if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE
-                        and not operator_is_negative(f.operator)
+                        and not operator_is_negative(f.operator)  # type: ignore[arg-type, union-attr]
                     ],
                 )
                 self.resource_attribute_negative_filters = cast(
@@ -171,11 +228,12 @@ class LogsQueryRunnerMixin(QueryRunner):
                     [
                         f
                         for f in property_group.values
-                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)  # type: ignore[arg-type, union-attr]
                     ],
                 )
                 self.log_filters = cast(
-                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG],
                 )
 
             # dynamically detect type of the given property values
@@ -194,61 +252,19 @@ class LogsQueryRunnerMixin(QueryRunner):
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
                     property_type = "str"
                     if isinstance(property_filter.value, list):
-                        property_types = {get_property_type(v) for v in property_filter.value}
+                        property_types = {_get_property_type(v) for v in property_filter.value}
                         # only use the detected type if all given values have the same type
                         # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
                         if len(property_types) == 1:
                             property_type = property_types.pop()
                     else:
-                        property_type = get_property_type(property_filter.value)
+                        property_type = _get_property_type(property_filter.value)
 
                     # defensive copy as we mutate the filter here and don't want to impact other copies
                     property_filter = property_filter.copy(deep=True)
                     property_filter.key = f"{property_filter.key}__{property_type}"
 
                     self.attribute_filters.insert(0, property_filter)
-
-    @cached_property
-    def query_date_range(self) -> QueryDateRange:
-        qdr = QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=IntervalType.MINUTE,
-            interval_count=2,
-            now=dt.datetime.now(),
-        )
-
-        _step = (qdr.date_to() - qdr.date_from()) / 50
-        interval_type = IntervalType.SECOND
-
-        def find_closest(target, arr):
-            if not arr:
-                raise ValueError("Input array cannot be empty")
-            closest_number = min(arr, key=lambda x: (abs(x - target), x))
-
-            return closest_number
-
-        # set the number of intervals to a "round" number of minutes
-        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
-        # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(
-            _step.total_seconds(),
-            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
-        )
-
-        if _step >= dt.timedelta(minutes=1):
-            interval_type = IntervalType.MINUTE
-            interval_count //= 60
-
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=interval_type,
-            interval_count=int(interval_count),
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
-            exact_timerange=True,
-        )
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
@@ -290,6 +306,12 @@ class LogsQueryRunnerMixin(QueryRunner):
 
             if self.log_filters:
                 for log_filter in self.log_filters:
+                    if log_filter.key == "severity_level":
+                        exprs.append(_severity_level_to_expr(log_filter))
+                        continue
+                    if log_filter.key in ("trace_id", "span_id"):
+                        log_filter = log_filter.copy(deep=True)
+                        _normalise_trace_id_filter(log_filter)
                     if log_filter.key == "message":
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
@@ -400,6 +422,83 @@ class LogsQueryRunnerMixin(QueryRunner):
         return ast.Constant(value=1)
 
 
+class LogsQueryRunnerMixin(QueryRunner):
+    # Target bucket count for the adaptive interval picker in `query_date_range`.
+    # Subclasses can override per-instance to request a different resolution.
+    BUCKET_TARGET: int = 50
+
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
+        )
+
+    def __init__(self, query, *args, **kwargs):
+        super().__init__(query, *args, **kwargs)
+
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
+        )
+
+        self.modifiers.convertToProjectTimezone = False
+        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    @cached_property
+    def _filter_builder(self) -> LogsFilterBuilder:
+        return LogsFilterBuilder(self.query, self.team, self.query_date_range)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        qdr = QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.MINUTE,
+            interval_count=2,
+            now=dt.datetime.now(),
+        )
+
+        _step = (qdr.date_to() - qdr.date_from()) / self.BUCKET_TARGET
+        interval_type = IntervalType.SECOND
+
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
+
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
+
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
+        )
+
+    def where(self) -> ast.Expr:
+        return self._filter_builder.where()
+
+    def resource_filter(self, *, existing_filters):
+        return self._filter_builder.resource_filter(existing_filters=existing_filters)
+
+
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
@@ -466,22 +565,29 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 hex(tryBase64Decode(trace_id)),
                 hex(tryBase64Decode(span_id)),
                 body,
-                attributes,
+                {attributes},
                 timestamp,
                 observed_timestamp,
                 severity_text,
                 severity_number,
                 severity_text as level,
-                resource_attributes,
+                {resource_attributes},
                 resource_fingerprint,
                 instrumentation_scope,
                 event_name,
-                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
+                {live_logs_checkpoint} as live_logs_checkpoint
             FROM logs
             WHERE {where}
         """,
                 placeholders={
                     "where": self.where(),
+                    "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
+                    # Attribute maps dominate payload size. When excluded we still SELECT a column
+                    # (an empty map) so the positional result mapping in _calculate stays stable.
+                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    "resource_attributes": parse_expr(
+                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                    ),
                 },
             )
         )
@@ -502,7 +608,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            enable_analyzer=True,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )

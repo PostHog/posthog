@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
-import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
+import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -372,9 +373,22 @@ const strToBool = (value: any): boolean | undefined => {
     return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
-export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+export type FiltersToQueryNodeTrackingContext = {
+    source: string
+}
+
+export const filtersToQueryNode = (
+    filters: Partial<FilterType>,
+    trackingContext?: FiltersToQueryNodeTrackingContext
+): InsightQueryNode => {
     const captureException = (message: string): void => {
         posthog.captureException(new Error(message), { filters, DataExploration: true })
+    }
+    if (trackingContext) {
+        posthog.capture('legacy_filters_to_query_node_called', {
+            source: trackingContext.source,
+            insight: filters.insight,
+        })
     }
 
     if (!filters.insight) {
@@ -480,7 +494,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     // group aggregation
-    if (filters.aggregation_group_type_index !== undefined) {
+    if (filters.aggregation_group_type_index != null) {
         query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
@@ -529,6 +543,8 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
         decimalPlaces: filters.decimal_places,
+        xAxisLabel: filters.x_axis_label,
+        yAxisLabel: filters.y_axis_label,
         formula: filters.formula,
         display: filters.display,
         showValuesOnSeries: filters.show_values_on_series,

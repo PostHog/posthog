@@ -30,6 +30,78 @@ describe('maxContextConverters', () => {
                 },
             },
             {
+                name: 'converts evaluation with all fields',
+                input: {
+                    evaluation: {
+                        id: 'eval-123',
+                        name: 'Check output quality',
+                        description: 'Validates LLM output',
+                        evaluation_type: 'hog' as const,
+                        hog_source: 'return length(output) > 0',
+                    },
+                },
+                expected: {
+                    evaluations: [
+                        {
+                            id: 'eval-123',
+                            name: 'Check output quality',
+                            description: 'Validates LLM output',
+                            evaluation_type: 'hog',
+                            hog_source: 'return length(output) > 0',
+                            type: MaxContextType.EVALUATION,
+                        },
+                    ],
+                },
+            },
+            {
+                name: 'converts evaluation with minimal fields',
+                input: {
+                    evaluation: {
+                        id: 'eval-456',
+                        evaluation_type: 'llm_judge' as const,
+                    },
+                },
+                expected: {
+                    evaluations: [
+                        {
+                            id: 'eval-456',
+                            name: undefined,
+                            description: undefined,
+                            evaluation_type: 'llm_judge',
+                            hog_source: undefined,
+                            type: MaxContextType.EVALUATION,
+                        },
+                    ],
+                },
+            },
+            {
+                name: 'converts both error tracking issue and evaluation',
+                input: {
+                    errorTrackingIssue: { id: 'issue-1', name: 'Error' },
+                    evaluation: {
+                        id: 'eval-1',
+                        name: 'Test eval',
+                        evaluation_type: 'hog' as const,
+                        hog_source: 'return true',
+                    },
+                },
+                expected: {
+                    error_tracking_issues: [
+                        { id: 'issue-1', name: 'Error', type: MaxContextType.ERROR_TRACKING_ISSUE },
+                    ],
+                    evaluations: [
+                        {
+                            id: 'eval-1',
+                            name: 'Test eval',
+                            description: undefined,
+                            evaluation_type: 'hog',
+                            hog_source: 'return true',
+                            type: MaxContextType.EVALUATION,
+                        },
+                    ],
+                },
+            },
+            {
                 name: 'returns empty object for empty context',
                 input: {},
                 expected: {},

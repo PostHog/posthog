@@ -27,12 +27,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
 
     connect((props: LogsViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [
-            logsViewerFiltersLogic({ id: props.id }),
-            ['setFilters'],
-            logsSceneLogic({ tabId: props.id }),
-            ['setActiveTab'],
-        ],
+        actions: [logsViewerFiltersLogic({ id: props.id }), ['setFilters'], logsSceneLogic(), ['setActiveTab']],
     })),
 
     actions({
@@ -45,10 +40,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             [] as LogsView[],
             {
                 loadViews: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`${logsViewsUrl(values.currentTeamId)}/`)
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: LogsViewApiFilters }) => {
+                    // nosemgrep: prefer-codegen-api
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
@@ -69,6 +66,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
     listeners(({ actions, values }) => ({
         deleteView: async ({ shortId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.delete(`${logsViewsUrl(values.currentTeamId)}/${shortId}/`)
                 lemonToast.success('View deleted')
             } catch {

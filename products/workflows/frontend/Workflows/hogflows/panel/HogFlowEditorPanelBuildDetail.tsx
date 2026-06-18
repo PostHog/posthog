@@ -59,11 +59,17 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
     const action = selectedNode.data
 
+    const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
     const numberOfActionFilters =
         (actionFilters.events?.length ?? 0) +
         (actionFilters.properties?.length ?? 0) +
         (actionFilters.actions?.length ?? 0)
+    // Branching steps don't surface the skip-conditions accordion by default — it was a source of
+    // confusion with their own branch conditions. We still show it if legacy filters are already
+    // set, so users have a UI surface to review or clear them.
+    const hasLegacyBranchingFilters = isBranchingStep && numberOfActionFilters > 0
+    const hideFiltersPanel = isBranchingStep && !hasLegacyBranchingFilters
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -295,31 +301,53 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                         </div>
                                     ),
                                 },
-                                {
-                                    key: 'filters',
-                                    header: (
-                                        <>
-                                            <span className="flex-1">Conditions</span>
-                                            <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
-                                        </>
-                                    ),
-                                    content: (
-                                        <div>
-                                            <p>
-                                                Add conditions to the step. If these conditions aren't met, the user
-                                                will skip this step and continue to the next one.
-                                            </p>
-                                            <HogFlowPropertyFilters
-                                                filtersKey={`action-skip-conditions-${action.id}`}
-                                                filters={action.filters ?? {}}
-                                                setFilters={(filters) =>
-                                                    setWorkflowAction(action.id, { ...action, filters })
-                                                }
-                                                buttonCopy="Add filter conditions"
-                                            />
-                                        </div>
-                                    ),
-                                },
+                                ...(hideFiltersPanel
+                                    ? []
+                                    : [
+                                          {
+                                              key: 'filters',
+                                              header: (
+                                                  <>
+                                                      <span className="flex-1">
+                                                          {hasLegacyBranchingFilters
+                                                              ? 'Legacy skip conditions'
+                                                              : 'Conditions'}
+                                                      </span>
+                                                      <LemonBadge.Number
+                                                          count={numberOfActionFilters}
+                                                          showZero={false}
+                                                      />
+                                                  </>
+                                              ),
+                                              content: (
+                                                  <div>
+                                                      {hasLegacyBranchingFilters ? (
+                                                          <p>
+                                                              These skip conditions were set on this branching step
+                                                              before we removed the option. They still apply at runtime:
+                                                              if they aren't met, the user skips the entire branching
+                                                              step and continues to the next step. Clear them to hide
+                                                              this panel.
+                                                          </p>
+                                                      ) : (
+                                                          <p>
+                                                              Add conditions to the step. If these conditions aren't
+                                                              met, the user will skip this step and continue to the next
+                                                              one.
+                                                          </p>
+                                                      )}
+                                                      <HogFlowPropertyFilters
+                                                          filtersKey={`action-skip-conditions-${action.id}`}
+                                                          filters={action.filters ?? {}}
+                                                          setFilters={(filters) =>
+                                                              setWorkflowAction(action.id, { ...action, filters })
+                                                          }
+                                                          buttonCopy="Add filter conditions"
+                                                      />
+                                                  </div>
+                                              ),
+                                          },
+                                      ]),
                                 {
                                     key: 'on_error',
                                     header: <span className="flex-1">Error handling</span>,

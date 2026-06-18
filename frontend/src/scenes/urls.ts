@@ -9,8 +9,9 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } f
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
-import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
+import type { InboxTabKey } from './inbox/types'
+import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -44,16 +45,15 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
-    sources: (): string => '/data-management/sources',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
+    eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
-    marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: ({
@@ -65,6 +65,7 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        dashboard,
     }: {
         query?: string
         view_id?: string
@@ -74,6 +75,7 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        dashboard?: number
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -99,6 +101,10 @@ export const urls = {
             params.set('source', source)
         }
 
+        if (dashboard) {
+            params.set('dashboard', String(dashboard))
+        }
+
         const queryString = params.toString()
         const hashParams = new URLSearchParams()
         if (connectionId) {
@@ -117,6 +123,14 @@ export const urls = {
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
         `/resource-transfer/${resourceKind}/${resourceId}`,
+    dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
+        const path = `/dashboard/templates/${templateId}/copy-to-project`
+        return sourceTeamId === undefined
+            ? path
+            : combineUrl(path, {
+                  source_team: sourceTeamId,
+              }).url
+    },
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
@@ -125,6 +139,7 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
@@ -132,6 +147,17 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
+    accountSocialConnected: (): string => '/account/social-connected',
+    /**
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
+     * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     */
+    accountConnected: (kind: string = ':kind'): string =>
+        kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
+    /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
+    credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -145,28 +171,40 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
+    agenticAccountMismatch: (): string => '/agentic/account-mismatch',
     inviteSignup: (id: string): string => `/signup/${id}`,
     onboarding: ({
         campaign,
         productKey,
         stepKey,
+        step,
         sdk,
+        withProducts,
     }: {
         campaign?: string
         productKey?: string
         stepKey?: OnboardingStepKey
+        // Namespaced step ID (e.g. `install:logs`). Takes precedence over `stepKey` when both are passed.
+        step?: string
         sdk?: SDKKey
+        /** Other products to include in the flow alongside the primary (comma-joined in the URL). */
+        withProducts?: string[]
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
         }
 
         const params = new URLSearchParams()
-        if (stepKey) {
+        if (step) {
+            params.set('step', step)
+        } else if (stepKey) {
             params.set('step', stepKey)
         }
         if (sdk) {
             params.set('sdk', sdk)
+        }
+        if (withProducts?.length) {
+            params.set('with', withProducts.join(','))
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`
@@ -190,9 +228,12 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    queryPerformance: (): string => '/instance/query_performance',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
+    integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
+    stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(
             `/shared/${token}`,
@@ -236,22 +277,6 @@ export const urls = {
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
-    dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
-        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (kind?: string, returnUrl?: string, returnLabel?: string): string => {
-        const params = new URLSearchParams()
-        if (kind) {
-            params.set('kind', kind)
-        }
-        if (returnUrl) {
-            params.set('returnUrl', returnUrl)
-        }
-        if (returnLabel) {
-            params.set('returnLabel', returnLabel)
-        }
-        const queryString = params.toString()
-        return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
-    },
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
@@ -261,13 +286,28 @@ export const urls = {
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
+    organizationPendingDeletion: (): string => '/organization-pending-deletion',
+    projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
-    inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    healthCategory: (category: string): string => `/health/${category}`,
+    healthAlerts: (presetKinds?: string[]): string =>
+        presetKinds && presetKinds.length > 0
+            ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
+            : '/health/alerts',
+    // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
-    sdkDoctor: (): string => '/health/sdk-doctor',
+    sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
+    subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
@@ -15,6 +15,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     Survey,
+    SurveyEventName,
     SurveyQuestionType,
     SurveySchedule,
     SurveyType,
@@ -201,6 +202,113 @@ const MOCK_RESPONSES_COUNT = {
     '0187c279-bcae-0000-34f5-4f121921f006': 25,
 }
 
+// Survey whose results actually load, so the question-visualization charts render.
+const MOCK_SURVEY_WITH_RESULTS: Survey = {
+    id: '0187c279-bcae-0000-34f5-4f121921f099',
+    name: 'survey with results',
+    description: 'survey whose question charts render',
+    type: SurveyType.Popover,
+    created_at: '2023-05-01T10:04:37.977401Z',
+    created_by: {
+        id: 1,
+        uuid: '01863799-062b-0000-8a61-b2842d5f8642',
+        distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',
+        first_name: 'Employee 427',
+        email: 'test2@posthog.com',
+    },
+    questions: [
+        {
+            type: SurveyQuestionType.Rating,
+            question: 'How likely are you to recommend us to a friend?',
+            id: 'q-rating',
+            display: 'number',
+            scale: 10,
+            lowerBoundLabel: 'Not likely',
+            upperBoundLabel: 'Very likely',
+        },
+        {
+            type: SurveyQuestionType.SingleChoice,
+            question: 'What is your favorite feature?',
+            id: 'q-single',
+            choices: ['Dashboards', 'Insights', 'Experiments', 'Surveys'],
+        },
+        {
+            type: SurveyQuestionType.MultipleChoice,
+            question: "We're sorry to see you go. What's your reason for unsubscribing?",
+            id: 'q-multi',
+            choices: [
+                'I no longer need the product',
+                'I found a better product',
+                'I found the product too difficult to use',
+                'Other',
+            ],
+        },
+    ],
+    conditions: null,
+    linked_flag: null,
+    linked_flag_id: null,
+    targeting_flag: null,
+    targeting_flag_filters: undefined,
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
+    start_date: '2023-05-02T10:04:37.977401Z',
+    end_date: null,
+    archived: false,
+    responses_limit: null,
+    iteration_count: null,
+    iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
+}
+
+// Rows from the consolidated aggregate query: [question_id, label, count].
+const MOCK_SURVEY_AGGREGATE_RESULTS = {
+    columns: ['question_id', 'label', 'cnt'],
+    types: [
+        ['question_id', 'String'],
+        ['label', 'String'],
+        ['cnt', 'UInt64'],
+    ],
+    results: [
+        // Rating (NPS scale 0-10) — mix of detractors / passives / promoters
+        ['q-rating', '10', 32],
+        ['q-rating', '9', 28],
+        ['q-rating', '8', 14],
+        ['q-rating', '7', 9],
+        ['q-rating', '6', 5],
+        ['q-rating', '5', 4],
+        ['q-rating', '3', 2],
+        ['q-rating', '0', 3],
+        // Single choice
+        ['q-single', 'Dashboards', 30],
+        ['q-single', 'Insights', 25],
+        ['q-single', 'Experiments', 12],
+        ['q-single', 'Surveys', 8],
+        // Multiple choice (with the synthetic total row the processor expects)
+        ['q-multi', 'I no longer need the product', 20],
+        ['q-multi', 'I found a better product', 15],
+        ['q-multi', 'I found the product too difficult to use', 10],
+        ['q-multi', 'Other', 5],
+        ['q-multi', '__total__', 40],
+    ],
+}
+
+// Rows from the base-stats query: [event_name, total_count, unique_persons, first_seen, last_seen].
+const MOCK_SURVEY_BASE_STATS = {
+    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen'],
+    types: [
+        ['event_name', 'String'],
+        ['total_count', 'UInt64'],
+        ['unique_persons', 'UInt64'],
+        ['first_seen', "Nullable(DateTime64(6, 'UTC'))"],
+        ['last_seen', "Nullable(DateTime64(6, 'UTC'))"],
+    ],
+    results: [
+        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z'],
+        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z'],
+        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z'],
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Surveys',
@@ -211,6 +319,12 @@ const meta: Meta = {
         pageUrl: urls.surveys(),
     },
     decorators: [
+        (Story) => {
+            // Pin the survey editor preference to the full editor so the
+            // `/surveys/new` stories don't get redirected to the guided wizard.
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+            return <Story />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/surveys/': toPaginatedResponse([
@@ -231,25 +345,22 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/': async (req, res, ctx) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     if (body.kind == 'EventsQuery') {
-                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                        return [200, MOCK_SURVEY_RESULTS]
                     }
-                    return res(ctx.json(MOCK_SURVEY_SHOWN))
+                    return [200, MOCK_SURVEY_SHOWN]
                 },
                 // flag targeting has loaders, make sure they don't keep loading
-                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
-                    200,
-                    { users_affected: 120, total_users: 2000 },
-                ],
+                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [200, { affected: 120, total: 2000 }],
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const SurveysList: Story = {}
 
 export const SurveysGlobalSettings: Story = {
@@ -264,150 +375,163 @@ export const NewSurvey: Story = {
     },
 }
 
-export const NewSurveyCustomisationSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
-    })
-
-    return <App />
-}
-NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
-
-export const NewMultiQuestionSurveySection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.MultipleChoice,
-                question: "We're sorry to see you go. What's your reason for unsubscribing?",
-                choices: [
-                    'I no longer need the product',
-                    'I found a better product',
-                    'I found the product too difficult to use',
-                    'Other',
-                ],
-            } as MultipleSurveyQuestion,
-        ])
-    })
-
-    return <App />
-}
-NewMultiQuestionSurveySection.parameters = { pageUrl: urls.survey('new') }
-
-export const NewSurveyPresentationSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
-    })
-
-    return <App />
-}
-NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
-NewSurveyPresentationSection.tags = ['test-skip']
-
-export const NewSurveyTargetingSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
-            groups: [
-                {
-                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
-                    rollout_percentage: 20,
-                },
-            ],
+export const NewSurveyCustomisationSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
         })
-    })
 
-    return <App />
-}
-NewSurveyTargetingSection.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+        return <App />
     },
+    parameters: { pageUrl: urls.survey('new') },
 }
 
-export const NewSurveyAppearanceSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
-    })
-
-    return <App />
-}
-NewSurveyAppearanceSection.parameters = { pageUrl: urls.survey('new?edit=true') }
-NewSurveyAppearanceSection.tags = ['test-skip']
-
-export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            // TODO: setting available featues should be a decorator to make this easy
-            '/api/users/@me': () => [
-                200,
+export const NewMultiQuestionSurveySection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
                 {
-                    email: 'test@posthog.com',
-                    first_name: 'Test Hedgehog',
-                    organization: {
-                        ...organizationCurrent,
-                        available_product_features: [
-                            {
-                                key: 'surveys_text_html',
-                                name: 'surveys_text_html',
-                            },
-                        ],
-                    },
-                },
-            ],
-        },
-    })
+                    type: SurveyQuestionType.MultipleChoice,
+                    question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                    choices: [
+                        'I no longer need the product',
+                        'I found a better product',
+                        'I found the product too difficult to use',
+                        'Other',
+                    ],
+                } as MultipleSurveyQuestion,
+            ])
+        })
 
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'html',
-            },
-        ])
-    })
-
-    return <App />
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new') },
 }
-NewSurveyWithHTMLQuestionDescription.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: '.survey-question-description strong',
+
+export const NewSurveyPresentationSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
+        })
+
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new') },
+    tags: ['test-skip'],
+}
+
+export const NewSurveyTargetingSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+                groups: [
+                    {
+                        properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                        rollout_percentage: 20,
+                    },
+                ],
+            })
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+        },
     },
 }
 
-export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'text',
-            },
-        ])
-    })
+export const NewSurveyAppearanceSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
+        })
 
-    return <App />
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new?edit=true') },
+    tags: ['test-skip'],
 }
 
-NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: '.survey-question-description',
+export const NewSurveyWithHTMLQuestionDescription: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                // TODO: setting available featues should be a decorator to make this easy
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        email: 'test@posthog.com',
+                        first_name: 'Test Hedgehog',
+                        organization: {
+                            ...organizationCurrent,
+                            available_product_features: [
+                                {
+                                    key: 'surveys_text_html',
+                                    name: 'surveys_text_html',
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'html',
+                },
+            ])
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: '.survey-question-description strong',
+        },
+    },
+}
+
+export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'text',
+                },
+            ])
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: '.survey-question-description',
+        },
     },
 }
 
@@ -416,6 +540,44 @@ export const SurveyView: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id),
     },
+}
+
+export const SurveyResults: Story = {
+    parameters: {
+        pageUrl: urls.survey(MOCK_SURVEY_WITH_RESULTS.id),
+        testOptions: {
+            waitForSelector: '[data-attr="survey-rating"] canvas',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/surveys/${MOCK_SURVEY_WITH_RESULTS.id}/`]: MOCK_SURVEY_WITH_RESULTS,
+                [`/api/projects/:team_id/surveys/${MOCK_SURVEY_WITH_RESULTS.id}/archived-response-uuids/`]: [],
+                '/api/projects/:team_id/surveys/responses_count/': {
+                    ...MOCK_RESPONSES_COUNT,
+                    [MOCK_SURVEY_WITH_RESULTS.id]: 75,
+                },
+                '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
+                    const sql: string = body?.query?.query ?? ''
+                    if (sql.includes('question_id, label, cnt')) {
+                        return MOCK_SURVEY_AGGREGATE_RESULTS
+                    }
+                    if (sql.includes('BASE STATS')) {
+                        return MOCK_SURVEY_BASE_STATS
+                    }
+                    if (sql.includes('DISMISSED AND SENT COUNT')) {
+                        return { results: [[60]] }
+                    }
+                    return { results: [] }
+                },
+            },
+        }),
+    ],
 }
 
 export const SurveyNotFound: Story = {

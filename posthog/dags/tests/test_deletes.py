@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from functools import partial
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -74,7 +75,7 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
             d = AsyncDeletion.objects.create(
                 team_id=delete[0],
                 deletion_type=delete[1],
-                key=delete[2],
+                key=str(delete[2]),
                 delete_verified_at=delete[3],
             )
             d.created_at = events[i][3] + timedelta(hours=1)
@@ -223,11 +224,11 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     cluster.any_host(insert_plugin_log_entries).result()
     cluster.any_host(insert_person_distinct_id2).result()
 
-    def get_by_team(table: str, client: Client) -> dict[tuple[int, UUID], int]:
+    def get_by_team(table: str, client: Client) -> dict[int, int]:
         result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
             return {}
-        return {(row[0]): row[1] for row in result}
+        return {row[0]: row[1] for row in result}
 
     # Insert some pending deletions
     def insert_pending_deletes() -> None:
@@ -241,7 +242,7 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
                 key=delete[2],
                 delete_verified_at=delete[3],
                 # for team deletes, we don't care about the created_at. If a team deletion was requested, we need to delete all its data.
-                created_at=None,
+                created_at=cast(datetime, timestamp),
             )
             d.save()
 

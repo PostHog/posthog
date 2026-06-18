@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::time::Duration;
+use std::{borrow::Cow, sync::Arc};
 
 use anyhow::Result;
 use common_kafka::kafka_consumer::Offset;
@@ -20,6 +20,10 @@ use crate::{
     },
     organization::apply_ai_opt_in,
 };
+
+static CL100K_ENCODER: std::sync::LazyLock<tiktoken_rs::CoreBPE> = std::sync::LazyLock::new(|| {
+    tiktoken_rs::cl100k_base().expect("Failed to initialize cl100k_base encoder")
+});
 
 const MAX_RETRY_ATTEMPTS: usize = 4; // 1 initial + 3 retries
 const RETRY_BASE_SECS: u64 = 2;
@@ -87,6 +91,7 @@ pub async fn handle_single(
         Ok(r) => r,
         Err(e) => {
             counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            error!("Failed to handle request: {request:?}");
             return Err(e);
         }
     };
@@ -94,6 +99,13 @@ pub async fn handle_single(
     counter!(EMBEDDINGS_GENERATED, labels.render()).increment(1);
 
     Ok((model, embedding))
+}
+
+// Exponential backoff (base 2) with jitter, in milliseconds, for retry `attempt`.
+fn retry_backoff_ms(attempt: usize) -> u64 {
+    let base_ms = RETRY_BASE_SECS.pow(attempt as u32 + 1) * 1000;
+    let jitter_ms = rand::thread_rng().gen_range(RETRY_JITTER_RANGE);
+    (base_ms as i64 + jitter_ms).max(0) as u64
 }
 
 pub async fn generate_embedding(
@@ -112,6 +124,7 @@ pub async fn generate_embedding(
 
     let mut last_status = None;
     let mut last_error_body = None;
+    let mut last_transport_error = None;
 
     for attempt in 0..MAX_RETRY_ATTEMPTS {
         let api_req = construct_request(
@@ -122,7 +135,28 @@ pub async fn generate_embedding(
         );
 
         counter!(REQUESTS_SENT, labels.render()).increment(1);
-        let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
+        let response = match context.client.execute(api_req).await {
+            Ok(response) => response,
+            Err(e) => {
+                // Transport errors (timeouts, connection resets, etc.) are transient.
+                // Retry them with backoff like a 5xx rather than aborting the whole
+                // batch, which would panic and restart the worker.
+                if attempt < MAX_RETRY_ATTEMPTS - 1 {
+                    let sleep_ms = retry_backoff_ms(attempt);
+                    warn!(
+                        "Request to embedding provider failed ({}), retrying in {}ms (attempt {}/{})",
+                        e,
+                        sleep_ms,
+                        attempt + 1,
+                        MAX_RETRY_ATTEMPTS - 1
+                    );
+                    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                }
+                last_status = None;
+                last_transport_error = Some(e);
+                continue;
+            }
+        };
 
         let status = response.status();
         let response_labels = labels
@@ -154,9 +188,7 @@ pub async fn generate_embedding(
         }
 
         if attempt < MAX_RETRY_ATTEMPTS - 1 {
-            let base_ms = RETRY_BASE_SECS.pow(attempt as u32 + 1) * 1000;
-            let jitter_ms = rand::thread_rng().gen_range(RETRY_JITTER_RANGE);
-            let sleep_ms = (base_ms as i64 + jitter_ms).max(0) as u64;
+            let sleep_ms = retry_backoff_ms(attempt);
             warn!(
                 "Got {} from embedding provider, retrying in {}ms (attempt {}/{})",
                 status,
@@ -169,14 +201,26 @@ pub async fn generate_embedding(
     }
 
     // All attempts exhausted or non-retryable error
-    let status = last_status.unwrap();
-    error!(
-        "Failed to generate embeddings, got {} from {}",
-        status,
-        model.provider()
-    );
-    if let Some(error_message) = last_error_body {
-        error!("Error message from {}: {}", model.provider(), error_message);
+    match last_status {
+        Some(status) => {
+            error!(
+                "Failed to generate embeddings, got {} from {}",
+                status,
+                model.provider()
+            );
+            if let Some(error_message) = last_error_body {
+                error!("Error message from {}: {}", model.provider(), error_message);
+            }
+        }
+        None => {
+            error!(
+                "Failed to generate embeddings, no response from {}: {}",
+                model.provider(),
+                last_transport_error
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "unknown error".to_string())
+            );
+        }
     }
 
     Err(anyhow::anyhow!("Failed to generate embeddings"))
@@ -184,19 +228,25 @@ pub async fn generate_embedding(
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
 // can reconsider it later if we want
-pub fn generate_embedding_text(
-    content: &str,
+pub fn generate_embedding_text<'a>(
+    content: &'a str,
     model: &EmbeddingModel,
     labels: &RequestLabels,
-) -> Result<(String, usize)> {
+) -> Result<(Cow<'a, str>, usize)> {
+    let content = model.escape_input(content);
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-            let encoder = tiktoken_rs::cl100k_base()?;
+            let encoder = &*CL100K_ENCODER;
             let mut tokens: Vec<_> = encoder
-                .encode_with_special_tokens(content)
+                .encode_with_special_tokens(&content)
                 .into_iter()
                 .take(model.model_input_window())
                 .collect();
+
+            if tokens.len() < model.model_input_window() {
+                return Ok((content, tokens.len()));
+            }
+
             // Truncation can split a multi-byte character's token sequence,
             // producing bytes that aren't valid UTF-8 on decode. Drop trailing
             // tokens until we land on a clean boundary.
@@ -217,7 +267,7 @@ pub fn generate_embedding_text(
         counter!(MESSAGE_TRUNCATED, labels.render()).increment(1);
     }
 
-    Ok((text, count))
+    Ok((Cow::Owned(text), count))
 }
 
 pub fn construct_request(
@@ -259,6 +309,6 @@ mod tests {
 
         let (text, _count) =
             generate_embedding_text(&content, &model, &RequestLabels::default()).unwrap();
-        assert!(content.starts_with(&text));
+        assert!(content.starts_with(&*text));
     }
 }

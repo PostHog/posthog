@@ -14,6 +14,7 @@ import type { funnelFlowGraphLogicType } from './funnelFlowGraphLogicType'
 import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import {
     bridgeConfigForExpansion,
+    buildFunnelStepReplacementMap,
     buildPathFlowElements,
     PathFlowEdgeData,
     PATH_NODE_HEIGHT,
@@ -32,7 +33,7 @@ export const PROFILE_NODE_HEIGHT = 80
 export const PROFILE_NODE_WIDTH = 180
 export const PROFILE_FIT_VIEW_OPTIONS = {
     padding: 0.1,
-    maxZoom: 2,
+    maxZoom: 1,
 }
 
 export const ELK_OPTIONS = {
@@ -254,13 +255,11 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 }
                 const bridgeConfig = bridgeConfigForExpansion(expandedPath)
 
-                const funnelStepByEventName = new Map<string, string>()
-                for (const node of funnelNodes) {
-                    const eventName = node.data.step.name
-                    if (!funnelStepByEventName.has(eventName)) {
-                        funnelStepByEventName.set(eventName, node.id)
-                    }
-                }
+                const funnelStepByEventName = buildFunnelStepReplacementMap(
+                    funnelNodes.map((n) => ({ id: n.id, name: n.data.step.name })),
+                    bridgeConfig.sourceStepId,
+                    bridgeConfig.targetStepId
+                )
 
                 const { nodes, edges } = buildPathFlowElements(
                     expandedPathResults,

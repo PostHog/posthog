@@ -27,28 +27,28 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsListUrl = (projectId: string, params?: CoreEventsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/core_events/?${stringifiedParams}`
-        : `/api/environments/${projectId}/core_events/`
+        ? `/api/projects/${projectId}/core_events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/core_events/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsList = async (
     projectId: string,
     params?: CoreEventsListParams,
@@ -60,16 +60,16 @@ export const coreEventsList = async (
     })
 }
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/core_events/`
+    return `/api/projects/${projectId}/core_events/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsCreate = async (
     projectId: string,
     coreEventApi: NonReadonly<CoreEventApi>,
@@ -83,16 +83,16 @@ export const coreEventsCreate = async (
     })
 }
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsRetrieve = async (
     projectId: string,
     id: string,
@@ -104,16 +104,16 @@ export const coreEventsRetrieve = async (
     })
 }
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsUpdate = async (
     projectId: string,
     id: string,
@@ -128,20 +128,20 @@ export const coreEventsUpdate = async (
     })
 }
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedCoreEventApi: NonReadonly<PatchedCoreEventApi>,
+    patchedCoreEventApi?: NonReadonly<PatchedCoreEventApi>,
     options?: RequestInit
 ): Promise<CoreEventApi> => {
     return apiMutator<CoreEventApi>(getCoreEventsPartialUpdateUrl(projectId, id), {
@@ -152,16 +152,16 @@ export const coreEventsPartialUpdate = async (
     })
 }
 
-/**
- * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
- */
 export const getCoreEventsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
+/**
+ * CRUD operations for Core Events.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
+ */
 export const coreEventsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCoreEventsDestroyUrl(projectId, id), {
         ...options,

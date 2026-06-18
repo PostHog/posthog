@@ -2,7 +2,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../utils/json-parse'
 import { aiToolCallExtractionCounter } from '../metrics'
-import { extractToolCallNames } from './extract-tool-calls'
+import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
 
 const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
@@ -14,6 +14,53 @@ function stringMayContainToolCalls(s: string): boolean {
         }
     }
     return false
+}
+
+/**
+ * Normalize a user-provided $ai_tools_called value to a comma-separated string.
+ *
+ * Downstream queries (e.g. the Tools view) assume a comma-separated string and
+ * render via splitByChar(','). Users often send an array or a JSON-stringified
+ * array instead, which caused tool names to render with JSON punctuation.
+ *
+ * Returns null if the value cannot be coerced into a usable string.
+ */
+function normalizeUserProvidedToolsCalled(value: unknown): string | null {
+    let names: unknown[] | null = null
+
+    if (Array.isArray(value)) {
+        names = value
+    } else if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            try {
+                const parsed = parseJSON(trimmed)
+                if (Array.isArray(parsed)) {
+                    names = parsed
+                }
+            } catch {
+                // Fall through to treat as a plain string
+            }
+        }
+        if (names === null) {
+            // Treat empty / whitespace-only strings the same as empty arrays.
+            return value.trim().length > 0 ? value : null
+        }
+    } else {
+        return String(value)
+    }
+
+    const sanitized: string[] = []
+    for (const name of names) {
+        if (typeof name !== 'string') {
+            continue
+        }
+        const clean = sanitizeToolName(name)
+        if (clean !== null) {
+            sanitized.push(clean)
+        }
+    }
+    return sanitized.length > 0 ? sanitized.join(',') : null
 }
 
 /**
@@ -37,14 +84,24 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
     }
 
     try {
-        // Respect user-provided $ai_tools_called, but ensure $ai_tool_call_count is set
+        // Respect user-provided $ai_tools_called, but normalize array / JSON-stringified array
+        // shapes into the comma-separated string that downstream queries expect, and ensure
+        // $ai_tool_call_count is set.
         if (event.properties['$ai_tools_called'] !== undefined && event.properties['$ai_tools_called'] !== null) {
+            const normalized = normalizeUserProvidedToolsCalled(event.properties['$ai_tools_called'])
+            if (normalized === null) {
+                delete event.properties['$ai_tools_called']
+                aiToolCallExtractionCounter.labels({ status: 'user_provided_invalid' }).inc()
+                return event
+            }
+            event.properties['$ai_tools_called'] = normalized
             if (
                 event.properties['$ai_tool_call_count'] === undefined ||
                 event.properties['$ai_tool_call_count'] === null
             ) {
-                const userTools = String(event.properties['$ai_tools_called'])
-                event.properties['$ai_tool_call_count'] = userTools.split(',').filter((s) => s.trim().length > 0).length
+                event.properties['$ai_tool_call_count'] = normalized
+                    .split(',')
+                    .filter((s) => s.trim().length > 0).length
             }
             aiToolCallExtractionCounter.labels({ status: 'user_provided' }).inc()
             return event

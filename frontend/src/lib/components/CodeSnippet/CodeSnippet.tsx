@@ -2,26 +2,10 @@ import './CodeSnippet.scss'
 
 import clsx from 'clsx'
 import { toHtml } from 'hast-util-to-html'
-import bash from 'highlight.js/lib/languages/bash'
-import csharp from 'highlight.js/lib/languages/csharp'
 import dart from 'highlight.js/lib/languages/dart'
 import elixir from 'highlight.js/lib/languages/elixir'
-import go from 'highlight.js/lib/languages/go'
 import groovy from 'highlight.js/lib/languages/groovy'
 import http from 'highlight.js/lib/languages/http'
-import java from 'highlight.js/lib/languages/java'
-import javascript from 'highlight.js/lib/languages/javascript'
-import json from 'highlight.js/lib/languages/json'
-import kotlin from 'highlight.js/lib/languages/kotlin'
-import objectivec from 'highlight.js/lib/languages/objectivec'
-import php from 'highlight.js/lib/languages/php'
-import python from 'highlight.js/lib/languages/python'
-import ruby from 'highlight.js/lib/languages/ruby'
-import sql from 'highlight.js/lib/languages/sql'
-import swift from 'highlight.js/lib/languages/swift'
-import typescript from 'highlight.js/lib/languages/typescript'
-import xml from 'highlight.js/lib/languages/xml'
-import yaml from 'highlight.js/lib/languages/yaml'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -35,30 +19,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import terraform from './terraformLanguage'
 
+// `common` already registers 16 of our 20 languages — only add the missing ones.
 const lowlight = createLowlight(common)
-lowlight.register({
-    bash,
-    csharp,
-    dart,
-    elixir,
-    go,
-    groovy,
-    http,
-    java,
-    javascript,
-    json,
-    kotlin,
-    xml,
-    objectivec,
-    php,
-    python,
-    ruby,
-    sql,
-    swift,
-    terraform,
-    typescript,
-    yaml,
-})
+lowlight.register({ dart, elixir, groovy, http, terraform })
 
 export enum Language {
     Text = 'text',

@@ -2,11 +2,9 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, Union
 
-import posthoganalytics
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
-from posthog.cloud_utils import is_cloud
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -15,7 +13,10 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS"
+# Separate from the zset so an empty result has somewhere to land without a sentinel team.
+RECENTLY_ACCESSED_TEAMS_POPULATED_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS_POPULATED"
 
+IN_AN_HOUR = 3_600
 IN_A_DAY = 86_400
 
 
@@ -42,60 +43,71 @@ def largest_teams(limit: int) -> set[int]:
     return {int(team_id) for team_id, _ in teams_by_event_count}
 
 
+def _populate_active_teams(redis) -> dict[int, float]:
+    # NOTE: the ClickHouse `now()` function used here does not cooperate with freezegun.
+    teams_by_recency = sync_execute(
+        """
+        SELECT team_id, date_diff('second', max(timestamp), now()) AS age
+        FROM events
+        WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
+        GROUP BY team_id
+        ORDER BY age;
+    """
+    )
+    teams = dict(teams_by_recency)
+    # Marker is set even on empty results, so callers don't re-query for every inactive team.
+    # Empty results get a shorter TTL so a newly-active team gets picked up within an hour.
+    marker_ttl = IN_A_DAY if teams else IN_AN_HOUR
+    pipe = redis.pipeline()
+    if teams:
+        pipe.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, teams)
+        pipe.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
+    else:
+        pipe.delete(RECENTLY_ACCESSED_TEAMS_REDIS_KEY)
+    pipe.set(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY, "1", ex=marker_ttl)
+    pipe.execute()
+    return teams
+
+
+def is_team_active(team_id: int) -> bool:
+    """
+    O(log n) membership test on the recently-accessed-teams zset. Hot-path callers
+    (signal-fired `sync_insight_caching_state` Celery tasks) should use this instead
+    of `active_teams()` — one ZSCORE instead of a full ZRANGE of the set.
+    """
+    redis = get_client()
+    score = redis.zscore(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, team_id)
+    if score is not None:
+        return True
+    # ZSCORE None: either the team isn't recently active, or we haven't populated yet.
+    if redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
+        return False
+    populated = _populate_active_teams(redis)
+    return team_id in populated
+
+
 def active_teams() -> set[int]:
     """
     Teams are stored in a sorted set. [{team_id: score}, {team_id: score}].
     Their "score" is the number of seconds since last event.
     Lower is better.
     This lets us exclude teams not in the set as they don't have recent events.
-    That is, if a team has not ingested events in the last seven days, why refresh its insights?
+    That is, if a team has not ingested events in the last three days, why refresh its insights?
     And could let us process the teams in order of how recently they ingested events.
     This assumes that the list of active teams is small enough to reasonably load in one go.
+
+    Retained for the batch path `sync_insight_cache_states()`, which genuinely iterates over
+    every insight/tile and benefits from loading the set once. Do NOT use this on the
+    signal-fired hot path — use `is_team_active()` instead.
     """
     redis = get_client()
     all_teams: list[tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
-    if not all_teams:
-        # NOTE: `active_teams()` doesn't cooperate with freezegun (aka `freeze_time()`), because of
-        # the ClickHouse `now()` function being used below
-        teams_by_recency = sync_execute(
-            """
-            SELECT team_id, date_diff('second', max(timestamp), now()) AS age
-            FROM events
-            WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
-            GROUP BY team_id
-            ORDER BY age;
-        """
-        )
-        if not teams_by_recency:
-            return set()
-        redis.zadd(
-            RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
-            dict(teams_by_recency),
-        )
-        redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
-        all_teams = teams_by_recency
-
-    return {int(team_id) for team_id, _ in all_teams}
-
-
-def stale_cache_invalidation_disabled(team: Team) -> bool:
-    """Can be disabled temporarly to help in cases of service degradation."""
-    if is_cloud():  # on PostHog Cloud, use the feature flag
-        return not posthoganalytics.feature_enabled(
-            "stale-cache-invalidation-enabled",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    else:
-        return False
+    if all_teams:
+        return {int(team_id) for team_id, _ in all_teams}
+    if redis.exists(RECENTLY_ACCESSED_TEAMS_POPULATED_KEY):
+        return set()
+    teams = _populate_active_teams(redis)
+    return set(teams.keys())
 
 
 def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
@@ -170,9 +182,6 @@ def is_stale(
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
     requested date (date_to) and the granularity of the query (interval).
     """
-
-    if stale_cache_invalidation_disabled(team):
-        return False
 
     if last_refresh is None:
         raise ValueError("Cached results require a last_refresh")

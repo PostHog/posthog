@@ -182,8 +182,9 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     from posthog.models import Team, User
     from posthog.models.integration import Integration
 
+    from products.posthog_ai.backend.models.assistant import Conversation
+
     from ee.hogai.chat_agent.runner import ChatAgentRunner
-    from ee.models import Conversation
 
     team = await Team.objects.aget(id=inputs.team_id)
     integration = await Integration.objects.aget(id=inputs.integration_id)
@@ -312,10 +313,10 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         queries_section = "\n\nSources:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
         final_response += queries_section
 
-    # Replace loading reaction with checkmark on user's message
+    # Replace loading reaction with hedgehog on user's message
     if inputs.user_message_ts:
         await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
-        await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
+        await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hedgehog")
 
     # Build conversation URL for the "View chat in PostHog" button
     conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"

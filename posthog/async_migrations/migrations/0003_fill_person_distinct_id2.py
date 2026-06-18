@@ -1,6 +1,10 @@
 from functools import cached_property
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_DATABASE
@@ -50,8 +54,8 @@ class Migration(AsyncMigrationDefinition):
         comments = [row[0] for row in rows]
         return "skip_0003_fill_person_distinct_id2" not in comments
 
-    @cached_property
-    def operations(self):
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
         return [self.migrate_team_operation(team_id) for team_id in self._team_ids]
 
     def migrate_team_operation(self, team_id: int):

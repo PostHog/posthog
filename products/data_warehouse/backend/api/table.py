@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -11,23 +11,27 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, serialize_fields
+from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import (
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseTable,
 )
-from products.data_warehouse.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -44,7 +48,7 @@ class CredentialSerializer(serializers.ModelSerializer):
         extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
 
 
-class TableSerializer(serializers.ModelSerializer):
+class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
@@ -67,8 +71,17 @@ class TableSerializer(serializers.ModelSerializer):
             "external_data_source",
             "external_schema",
             "options",
+            "user_access_level",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "external_data_source",
+            "external_schema",
+            "user_access_level",
+        ]
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
@@ -112,7 +125,7 @@ class TableSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
 
         validated_data["team_id"] = team_id
-        validated_data["created_by"] = self.context["request"].user
+        validated_data["created_by"] = cast(User, self.context["request"].user)
         credential = validated_data.get("credential")
 
         if not credential:
@@ -121,9 +134,10 @@ class TableSerializer(serializers.ModelSerializer):
         access_key: str | None = credential.get("access_key")
         access_secret: str | None = credential.get("access_secret")
 
+        # CRITICAL: users MUST provide an access key and secret, otherwise we'll fall back to using the EC2 node's internal role.
+        # this would allow an external user to then access one of PostHog's internal S3 buckets
         if not access_key or not access_secret:
             raise serializers.ValidationError("Access key and secret are required")
-
         if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
             raise serializers.ValidationError("Access key and secret can't be blank")
 
@@ -176,13 +190,22 @@ class TableSerializer(serializers.ModelSerializer):
         return name
 
 
-class SimpleTableSerializer(serializers.ModelSerializer):
+class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
+    hogql_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or "
+        "`postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier.",
+    )
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count"]
-        read_only_fields = ["id", "name", "columns", "row_count"]
+        fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+        read_only_fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+
+    @extend_schema_field(serializers.CharField())
+    def get_hogql_name(self, table: DataWarehouseTable) -> str:
+        return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
@@ -211,7 +234,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         ]
 
 
-class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
@@ -292,18 +315,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+
         updates = request.data.get("updates", None)
         if updates is None:
             return response.Response(status=status.HTTP_200_OK)
 
-        table: DataWarehouseTable = self.get_object()
         if table.external_data_source is not None:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
-        columns = table.columns
-        column_keys: list[str] = columns.keys()
+        columns = table.columns or {}
+        column_keys = list(columns.keys())
         for key in updates.keys():
             if key not in column_keys:
                 return response.Response(
@@ -421,11 +445,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             # Create the table if it doesn't exist, otherwise use existing one
             if table is None:
+                created_by = request.user if isinstance(request.user, User) else None
                 table = DataWarehouseTable.objects.create(
                     team_id=team_id,
                     name=table_name,
                     format=file_format,
-                    created_by=request.user,
+                    created_by=created_by,
                 )
 
             # Generate URL pattern and store file in object storage

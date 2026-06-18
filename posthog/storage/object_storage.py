@@ -1,6 +1,7 @@
 import abc
 import threading
-from typing import Any, Optional, Union
+from typing import IO, Any, Optional, Union
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -67,6 +68,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
+        pass
+
+    @abc.abstractmethod
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
@@ -78,7 +83,15 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        pass
+
+    @abc.abstractmethod
     def delete(self, bucket: str, key: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
         pass
 
 
@@ -119,14 +132,23 @@ class UnavailableStorage(ObjectStorageClient):
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
 
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
+        pass
+
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         pass
 
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        pass
+
     def delete(self, bucket: str, key: str) -> None:
         pass
+
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        return []
 
 
 class ObjectStorage(ObjectStorageClient):
@@ -270,6 +292,30 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
+        """
+        Stream an upload straight from a binary file-like object. Peak memory is
+        bounded by boto3's chunk size rather than the size of the payload — use
+        this when the source is a network stream (e.g. `requests.get(stream=True).raw`)
+        instead of buffering the whole body before calling `write()`.
+        """
+        try:
+            self.aws_client.upload_fileobj(
+                Fileobj=fileobj,
+                Bucket=bucket,
+                Key=key,
+                ExtraArgs=extras or {},
+            )
+        except Exception as e:
+            logger.exception(
+                "object_storage.write_stream_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("write_stream failed") from e
+
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         """Upload a file to S3 by streaming from disk."""
         try:
@@ -305,6 +351,20 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def copy(self, bucket: str, source_key: str, target_key: str) -> None:
+        try:
+            self.aws_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.copy_failed",
+                bucket=bucket,
+                source_key=source_key,
+                target_key=target_key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("copy failed") from e
+
     def delete(self, bucket: str, key: str) -> None:
         response = {}
         try:
@@ -314,8 +374,44 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        failed_keys: list[str] = []
+
+        for index in range(0, len(keys), 1000):
+            chunk = keys[index : index + 1000]
+            if not chunk:
+                continue
+
+            response = {}
+            try:
+                response = self.aws_client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True},
+                )
+                failed_keys.extend(error["Key"] for error in response.get("Errors", []))
+            except Exception as e:
+                logger.exception(
+                    "object_storage.delete_objects_failed",
+                    bucket=bucket,
+                    keys_count=len(chunk),
+                    error=e,
+                    s3_response=response,
+                )
+                capture_exception(e)
+                failed_keys.extend(chunk)
+
+        return failed_keys
+
 
 _client: ObjectStorageClient = UnavailableStorage()
+
+
+def is_usable_endpoint(endpoint: str | None) -> bool:
+    """A usable endpoint is a syntactically valid URL with no unsubstituted ${...} deployment placeholders."""
+    if not endpoint or "${" in endpoint:
+        return False
+    parsed = urlparse(endpoint)
+    return bool(parsed.scheme and parsed.netloc)
 
 
 def object_storage_client() -> ObjectStorageClient:
@@ -338,15 +434,32 @@ def object_storage_client() -> ObjectStorageClient:
             region_name=settings.OBJECT_STORAGE_REGION,
         )
         presigned_client = None
-        if settings.OBJECT_STORAGE_PUBLIC_ENDPOINT != settings.OBJECT_STORAGE_ENDPOINT:
-            presigned_client = client(
-                "s3",
-                endpoint_url=settings.OBJECT_STORAGE_PUBLIC_ENDPOINT,
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                config=s3_config,
-                region_name=settings.OBJECT_STORAGE_REGION,
-            )
+        public_endpoint = settings.OBJECT_STORAGE_PUBLIC_ENDPOINT
+        if public_endpoint != settings.OBJECT_STORAGE_ENDPOINT:
+            # A misconfigured public endpoint (e.g. an unsubstituted `${POSTHOG_DOMAIN}`
+            # deployment template literal) must never take down the read path: every reader
+            # routes through this factory, and boto3 raises `ValueError` when handed an
+            # invalid endpoint. Validate up front and degrade to the internal client so
+            # presigned URLs lose their public host but reads keep working.
+            if is_usable_endpoint(public_endpoint):
+                try:
+                    presigned_client = client(
+                        "s3",
+                        endpoint_url=public_endpoint,
+                        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                        config=s3_config,
+                        region_name=settings.OBJECT_STORAGE_REGION,
+                    )
+                except Exception as e:
+                    logger.exception("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
+                    capture_exception(e)
+            else:
+                # The Django system check only fails `manage.py`-style startup; gunicorn/ASGI
+                # workers skip it, so capture here too to surface the bad config in Sentry.
+                error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
+                logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
+                capture_exception(error)
         _client = ObjectStorage(aws_client, presigned_client)
 
     return _client
@@ -369,8 +482,21 @@ def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -
     )
 
 
+def write_stream(file_name: str, fileobj: IO[bytes], extras: dict | None = None, bucket: str | None = None) -> None:
+    return object_storage_client().write_stream(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        fileobj=fileobj,
+        extras=extras,
+    )
+
+
 def delete(file_name: str, bucket: str | None = None) -> None:
     return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
+
+
+def delete_objects(file_names: list[str], bucket: str | None = None) -> list[str]:
+    return object_storage_client().delete_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, keys=file_names)
 
 
 def tag(file_name: str, tags: dict[str, str]) -> None:
@@ -400,6 +526,14 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
             target_prefix=target_prefix,
         )
         or 0
+    )
+
+
+def copy(source_key: str, target_key: str, bucket: str | None = None) -> None:
+    return object_storage_client().copy(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        source_key=source_key,
+        target_key=target_key,
     )
 
 
@@ -462,8 +596,8 @@ def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expirat
     return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
 
 
-def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
-    return object_storage_client().head_object(file_key=file_key, bucket=bucket)
+def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
 
 
 def health_check() -> bool:

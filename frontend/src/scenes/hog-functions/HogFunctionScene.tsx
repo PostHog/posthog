@@ -1,19 +1,19 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
@@ -44,8 +44,9 @@ import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'runs', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
@@ -60,10 +61,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => id ?? templateId ?? 'new'),
     path((key) => ['scenes', 'hog-functions', 'hogFunctionSceneLogic', key]),
     connect((props: HogFunctionConfigurationLogicProps) => ({
-        values: [
-            hogFunctionConfigurationLogic(props),
-            ['configuration', 'type', 'loading', 'loaded', 'teamHasCohortFilters', 'currentProjectId'],
-        ],
+        values: [hogFunctionConfigurationLogic(props), ['configuration', 'type', 'loading', 'loaded']],
     })),
     actions({
         setCurrentTab: (tab: HogFunctionSceneTab) => ({ tab }),
@@ -78,6 +76,16 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        supportsBackfills: [
+            (s) => [s.type, s.configuration],
+            (type: HogFunctionTypeType, configuration: HogFunctionType | null): boolean => {
+                if (type !== 'destination') {
+                    return false
+                }
+                const source = configuration?.filters?.source ?? 'events'
+                return source === 'events'
+            },
+        ],
         alertId: [
             (s) => [s.configuration],
             (configuration: HogFunctionType | null): string | undefined => {
@@ -148,6 +156,27 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
                     iconType: 'data_pipeline',
+                }
+
+                const firstEventId = configuration?.filters?.events?.[0]?.id
+                const isLogsAlert = typeof firstEventId === 'string' && firstEventId.startsWith('$logs_alert_')
+
+                if (type === 'internal_destination' && isLogsAlert && alertId) {
+                    return [
+                        {
+                            key: Scene.Logs,
+                            name: 'Logs',
+                            path: `${urls.logs()}?activeTab=alerts`,
+                            iconType: 'logs',
+                        },
+                        {
+                            key: Scene.LogsAlertDetail,
+                            name: 'Alert',
+                            path: returnTo ?? urls.logsAlertDetail(alertId, 'notifications'),
+                            iconType: 'logs',
+                        },
+                        finalCrumb,
+                    ]
                 }
 
                 if (type === 'internal_destination' && alertId) {
@@ -356,8 +385,7 @@ function HogFunctionHeader(): JSX.Element {
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
-        useValues(hogFunctionSceneLogic)
+    const { currentTab, loading, loaded, logicProps, type, supportsBackfills } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -415,11 +443,26 @@ export function HogFunctionScene(): JSX.Element {
                   content: <HogFunctionTesting />,
               },
 
-        type === 'destination' && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
             ? {
-                  label: 'Backfills',
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Backfills</div>
+                          <LemonTag className="ml-2 uppercase" type="primary">
+                              New
+                          </LemonTag>
+                      </div>
+                  ),
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
+              }
+            : null,
+
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+            ? {
+                  label: 'Backfill Runs',
+                  key: 'runs',
+                  content: <HogFunctionRuns id={id} />,
               }
             : null,
 
@@ -434,17 +477,6 @@ export function HogFunctionScene(): JSX.Element {
         <SceneContent>
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
-                {teamHasCohortFilters && (
-                    <LemonBanner type="warning" className="mb-4">
-                        <strong>Warning:</strong> This function has "Filter out internal and test users" enabled, but
-                        your team's test account filters include cohorts. Cohorts cannot be used in real-time filters
-                        and may cause this function to fail. Please update your{' '}
-                        <Link to={`/project/${currentProjectId}/settings/project#internal-user-filtering`}>
-                            test account filters
-                        </Link>{' '}
-                        to use inline expressions instead of cohorts.
-                    </LemonBanner>
-                )}
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
                 ) : (

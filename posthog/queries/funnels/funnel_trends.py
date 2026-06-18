@@ -2,7 +2,6 @@ from datetime import datetime
 from itertools import groupby
 from typing import Optional
 
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels.base import ClickhouseFunnelBase
@@ -13,6 +12,8 @@ from posthog.queries.util import (
     get_interval_func_ch,
     get_start_of_interval_sql,
 )
+
+from products.cohorts.backend.models.cohort import Cohort
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"

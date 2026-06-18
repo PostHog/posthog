@@ -35,7 +35,7 @@ class QueryCompareToDateRange(QueryDateRange):
 
         start_date = relative_date_parse(
             self.compare_to,
-            self._team.timezone_info,
+            self._timezone_info,
             now=current_period_date_from,
             human_friendly_comparison_periods=bool(self._team.human_friendly_comparison_periods),
         )

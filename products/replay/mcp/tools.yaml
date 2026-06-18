@@ -1,0 +1,211 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Session replays
+feature: replay
+url_prefix: /replay
+ui_apps:
+    session-recording:
+        type: detail
+        view_prop: recording
+    session-summary:
+        type: detail
+        view_prop: data
+tools:
+    create-session-summaries-individually:
+        operation: create_session_summaries_individually
+        enabled: false
+    session-recording-delete:
+        operation: session_recordings_destroy
+        enabled: true
+        scopes:
+            - session_recording:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete session recording
+        description: >
+            Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance
+            workflows.
+    session-recording-get:
+        operation: session_recordings_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get session recording
+        description: >
+            Get a specific session recording by ID. Returns full recording metadata including duration, interaction
+            counts, console log counts, person info, and viewing status. Session recordings are reachable from events,
+            errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be
+            passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
+            exists — session replay may not be enabled for that project or session. A 404 means no recording was
+            captured. If the user wants to understand what happened without watching the recording, check
+            `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via
+            `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is
+            missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
+            `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
+            `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
+            session, or sample recent events for project-wide issues).
+        ui_app: session-recording
+    session-recording-playlist-create:
+        operation: session_recording_playlists_create
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create session recording playlist
+        description: >
+            Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters'
+            for a saved filter view. Collections cannot have filters, and filter playlists must include at least one
+            filter criterion.
+        exclude_params:
+            - created_at
+            - created_by
+            - last_modified_at
+            - last_modified_by
+            - recordings_counts
+            - is_synthetic
+            - _create_in_folder
+    session-recording-playlist-get:
+        operation: session_recording_playlists_retrieve
+        enabled: true
+        scopes:
+            - session_recording_playlist:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get session recording playlist
+        description: >
+            Get a specific session recording playlist by short_id. Returns full playlist metadata including name,
+            description, filters, type, and recording counts.
+    session-recording-playlist-update:
+        operation: session_recording_playlists_partial_update
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update session recording playlist
+        description: >
+            Update an existing session recording playlist by short_id. Can update name, description, pinned status, and
+            filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating
+            a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the
+            update will fail.
+        exclude_params:
+            - created_at
+            - created_by
+            - last_modified_at
+            - last_modified_by
+            - recordings_counts
+            - is_synthetic
+            - _create_in_folder
+            - type
+    session-recording-playlists-destroy:
+        operation: session_recording_playlists_destroy
+        enabled: false
+    session-recording-playlists-list:
+        operation: session_recording_playlists_list
+        enabled: true
+        scopes:
+            - session_recording_playlist:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session recording playlists
+        description: >
+            List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
+            playlists with their metadata and recording counts.
+    session-recording-playlists-recordings-create:
+        operation: session_recording_playlists_recordings_create
+        enabled: false
+    session-recording-playlists-recordings-destroy:
+        operation: session_recording_playlists_recordings_destroy
+        enabled: false
+    session-recording-playlists-recordings-retrieve:
+        operation: session_recording_playlists_recordings_retrieve
+        enabled: false
+    session-recording-playlists-update:
+        operation: session_recording_playlists_update
+        enabled: false
+    session-recording-summaries-list:
+        operation: single_session_summaries_list
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session summaries
+        description: >
+            List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use
+            to discover which sessions have already been summarized and to filter for sessions with specific problems —
+            `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by
+            `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use
+            `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries
+            only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this
+            reads the legacy session-summary store, which is being retired — for new summaries the forward path is
+            Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).
+    session-recording-summary-get:
+        operation: single_session_summaries_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{session_id}'
+        title: Get session summary
+        description: >
+            Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event).
+            Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion /
+            exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus
+            `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model,
+            whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This
+            reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay
+            Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.
+    session-recordings-list:
+        operation: session_recordings_list
+        enabled: false
+    session-recordings-partial-update:
+        operation: session_recordings_partial_update
+        enabled: false
+    session-recordings-update:
+        operation: session_recordings_update
+        enabled: false
+wrappers:
+    query-session-recordings-list:
+        schema_ref: AssistantRecordingsQuery
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List session recordings
+        description_file: ./prompts/query-session-recordings-list.md
+        system_prompt_hint: Session replay metadata and activity
+        exclude_properties:
+            - response
+            - modifiers
+        url_prefix: /replay

@@ -7,6 +7,7 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.models import Project
 
 
+@admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         "id",

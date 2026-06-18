@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -101,7 +103,7 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
             submit: async (formValues) => {
                 const configuration = {
                     ...DEFAULT_HOG_FUNCTION_CONFIGURATION,
-                    template_id: `template-${values.integration}-error-tracking-issue-created`,
+                    template_id: `template-${values.integration}`,
                 }
 
                 if (values.integration === 'microsoft-teams') {
@@ -122,7 +124,14 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                     }
                 }
 
-                await api.hogFunctions.create(configuration)
+                try {
+                    await api.hogFunctions.create(configuration)
+                } catch (e: any) {
+                    // Without this, kea-forms swallows the API error and the "Next" button
+                    // appears to do nothing
+                    lemonToast.error(e?.detail || e?.message || 'Failed to create alert')
+                    throw e
+                }
                 actions.goToNextStep()
             },
         },

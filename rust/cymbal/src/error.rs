@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
-use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
-use common_types::{CapturedEvent, ClickHouseEvent};
+use common_types::ClickHouseEvent;
 use posthog_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
@@ -50,8 +49,6 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
-    #[error("Unhandled geoip error: {0}")]
-    GeoIpError(#[from] GeoIpError),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
     #[error("Unhandled error: {0}")]
@@ -74,6 +71,8 @@ pub enum FrameError {
     Proguard(#[from] ProguardError),
     #[error(transparent)]
     Apple(#[from] AppleError),
+    #[error(transparent)]
+    Native(#[from] NativeError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -182,28 +181,53 @@ pub enum AppleError {
     NoMatchingDebugImage,
 }
 
+// Errors produced by the shared native (DWARF/symcache) resolution machinery.
+// Apple frames map these 1:1 onto AppleError so that stored failure reasons
+// and metric labels for apple keep their existing shape.
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
+pub enum NativeError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("No debug symbols uploaded for debug_id: {0}")]
+    MissingSymbolSet(String),
+    #[error("No debug_id found for frame")]
+    NoDebugId,
+    #[error("Invalid address format: {0}")]
+    InvalidAddress(String),
+    #[error("Symbol not found at address: {0:#x}")]
+    SymbolNotFound(u64),
+    #[error("Failed to parse debug symbols: {0}")]
+    ParseError(String),
+    #[error("No matching debug image found for frame")]
+    NoMatchingDebugImage,
+}
+
+impl From<NativeError> for AppleError {
+    fn from(e: NativeError) -> Self {
+        match e {
+            NativeError::DataError(e) => AppleError::DataError(e),
+            NativeError::MissingSymbolSet(id) => AppleError::MissingDsym(id),
+            NativeError::NoDebugId => AppleError::NoDebugId,
+            NativeError::InvalidAddress(s) => AppleError::InvalidAddress(s),
+            NativeError::SymbolNotFound(addr) => AppleError::SymbolNotFound(addr),
+            NativeError::ParseError(s) => AppleError::ParseError(s),
+            NativeError::NoMatchingDebugImage => AppleError::NoMatchingDebugImage,
+        }
+    }
+}
+
 #[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
-    #[error("No properties on event {0}")]
-    NoProperties(Uuid),
     #[error("Invalid properties on event {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
     #[error("Empty exception list on event {0}")]
     EmptyExceptionList(Uuid),
-    #[error("Invalid event timestamp: {0}, {1}")]
-    InvalidTimestamp(String, String),
-    #[error("No team for token: {0}")]
-    NoTeamForToken(String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
     #[error("Suppressed by rule: {0}")]
     SuppressedByRule(Uuid),
-    #[error("Could not deserialize event data: {1}")]
-    FailedToDeserialize(Box<CapturedEvent>, String),
-    #[error("Filtered by team id")]
-    FilteredByTeamId,
 }
 
 impl JsResolveErr {
@@ -260,6 +284,17 @@ impl AppleError {
     }
 }
 
+impl NativeError {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::NoDebugId | Self::NoMatchingDebugImage => "no_reference",
+            Self::MissingSymbolSet(_) => "no_symbol_set",
+            Self::SymbolNotFound(_) => "symbol_not_found",
+            Self::DataError(_) | Self::InvalidAddress(_) | Self::ParseError(_) => "invalid_data",
+        }
+    }
+}
+
 impl FrameError {
     pub fn metric_reason(&self) -> &'static str {
         match self {
@@ -267,6 +302,7 @@ impl FrameError {
             Self::Hermes(e) => e.metric_reason(),
             Self::Proguard(e) => e.metric_reason(),
             Self::Apple(e) => e.metric_reason(),
+            Self::Native(e) => e.metric_reason(),
             Self::MissingChunkIdData(_) => "no_symbol_set",
         }
     }
@@ -293,6 +329,12 @@ impl From<ProguardError> for ResolveError {
 impl From<AppleError> for ResolveError {
     fn from(e: AppleError) -> Self {
         FrameError::Apple(e).into()
+    }
+}
+
+impl From<NativeError> for ResolveError {
+    fn from(e: NativeError) -> Self {
+        FrameError::Native(e).into()
     }
 }
 

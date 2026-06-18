@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+
 
 class ActivityLoggingStorage:
     """
@@ -41,9 +44,31 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "was_impersonated"):
             delattr(self._local, "was_impersonated")
 
+    def set_client(self, client: Optional[str]) -> None:
+        self._local.client = client
+
+    def get_client(self) -> Optional[str]:
+        return getattr(self._local, "client", None)
+
+    def clear_client(self) -> None:
+        if hasattr(self._local, "client"):
+            delattr(self._local, "client")
+
+    def set_ip_address(self, ip_address: Optional[str]) -> None:
+        self._local.ip_address = ip_address
+
+    def get_ip_address(self) -> Optional[str]:
+        return getattr(self._local, "ip_address", None)
+
+    def clear_ip_address(self) -> None:
+        if hasattr(self._local, "ip_address"):
+            delattr(self._local, "ip_address")
+
     def clear_all(self) -> None:
         self.clear_user()
         self.clear_was_impersonated()
+        self.clear_client()
+        self.clear_ip_address()
 
 
 activity_storage = ActivityLoggingStorage()

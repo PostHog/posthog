@@ -1,12 +1,10 @@
 from datetime import datetime
-from typing import Optional, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.schema import FunnelsQuery
+from posthog.schema import BreakdownFilter, DateRange, EventsNode, FunnelsFilter, FunnelsQuery
 
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.test.test_journeys import journeys_for
 
 
@@ -114,47 +112,30 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journey, team=self.team, create_people=True)
 
-    def _run(self, extra: Optional[dict] = None, events_extra: Optional[dict] = None):
-        if events_extra is None:
-            events_extra = {}
-        if extra is None:
-            extra = {}
-        filters = {
-            "events": [
-                {
-                    "id": "watched movie",
-                    "name": "watched movie",
-                    "type": "events",
-                    "order": 0,
-                    **events_extra,
-                },
-                {
-                    "id": "terminate funnel",
-                    "name": "terminate funnel",
-                    "type": "events",
-                    "order": 1,
-                    **events_extra,
-                },
-            ],
-            "funnel_viz_type": "steps",
-            "insight": "FUNNELS",
-            "date_from": "2020-01-02T00:00:00Z",
-            "date_to": "2020-01-12T00:00:00Z",
-            "breakdown_limit": 100,  # never have other
-            **extra,
-        }
-        query = cast(FunnelsQuery, filter_to_query(filters))
+    def _run(self, query: FunnelsQuery):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
         return results
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_pathname(self) -> None:
         response = self._run(
-            {
-                "breakdown": "$pathname",
-                "breakdown_type": "event",
-                "breakdown_normalize_url": True,
-            }
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
         )
 
         actual = []
@@ -182,11 +163,23 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_by_current_url(self) -> None:
         response = self._run(
-            {
-                "breakdown": "$current_url",
-                "breakdown_type": "event",
-                "breakdown_normalize_url": True,
-            }
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$current_url",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
         )
 
         actual = []
@@ -207,6 +200,106 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 ("terminate funnel", 2, ["https://example.com/home"]),
                 ("watched movie", 2, ["https://example.com"]),
                 ("terminate funnel", 2, ["https://example.com"]),
+            ],
+            key=sk,
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_pathname_with_path_cleaning(self) -> None:
+        self.team.path_cleaning_filters = [{"alias": "/cleaned-home", "regex": "/home.*"}]
+        self.team.save()
+
+        response = self._run(
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_path_cleaning=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
+        )
+
+        actual = []
+        for breakdown_value in response:
+            for funnel_step in breakdown_value:
+                actual.append(
+                    (
+                        funnel_step["name"],
+                        funnel_step["count"],
+                        funnel_step["breakdown"],
+                    )
+                )
+
+        sk = lambda x: (x[1], x[2][0], x[0])
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["/"]),
+                ("terminate funnel", 2, ["/"]),
+                ("watched movie", 2, ["/cleaned-home"]),
+                ("terminate funnel", 2, ["/cleaned-home"]),
+            ],
+            key=sk,
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_pathname_with_path_cleaning_without_normalization(self) -> None:
+        # Path cleaning must apply on its own, not only when normalize_url is also enabled.
+        self.team.path_cleaning_filters = [{"alias": "/cleaned-home", "regex": "/home.*"}]
+        self.team.save()
+
+        response = self._run(
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=False,
+                    breakdown_path_cleaning=True,
+                    breakdown_limit=100,
+                ),
+            )
+        )
+
+        actual = []
+        for breakdown_value in response:
+            for funnel_step in breakdown_value:
+                actual.append(
+                    (
+                        funnel_step["name"],
+                        funnel_step["count"],
+                        funnel_step["breakdown"],
+                    )
+                )
+
+        sk = lambda x: (x[1], x[2][0], x[0])
+        # The /home* variants collapse to /cleaned-home; the others keep their raw, un-normalized values.
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["/cleaned-home"]),
+                ("terminate funnel", 2, ["/cleaned-home"]),
+                ("watched movie", 1, ["?"]),
+                ("terminate funnel", 1, ["?"]),
+                ("watched movie", 1, ["/"]),
+                ("terminate funnel", 1, ["/"]),
             ],
             key=sk,
         )

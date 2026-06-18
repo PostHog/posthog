@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use common_metrics::gauge;
+use lifecycle::Handle;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +28,8 @@ impl DatabasePoolMonitor {
         }
     }
 
-    pub async fn start_monitoring(&self) {
+    pub async fn start_monitoring(&self, shutdown: Handle) {
+        let _scope = shutdown.process_scope();
         let mut ticker = interval(self.monitoring_interval);
 
         // Check if persons DB routing is enabled by comparing pool pointers
@@ -47,10 +49,16 @@ impl DatabasePoolMonitor {
         }
 
         loop {
-            ticker.tick().await;
-
-            if let Err(e) = self.collect_pool_metrics().await {
-                error!("Failed to collect database pool metrics: {}", e);
+            tokio::select! {
+                _ = shutdown.shutdown_recv() => {
+                    tracing::info!("Database pool monitor shutting down");
+                    break;
+                }
+                _ = ticker.tick() => {
+                    if let Err(e) = self.collect_pool_metrics().await {
+                        error!("Failed to collect database pool metrics: {}", e);
+                    }
+                }
             }
         }
     }

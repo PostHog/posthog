@@ -1,8 +1,13 @@
 import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { GraphDataset } from '~/types'
 
+type DatasetToActorsInput = Pick<
+    GraphDataset,
+    'action' | 'breakdown_value' | 'compare_label' | 'status' | 'breakdownValues' | 'compareLabels'
+>
+
 interface DatasetToActorsQueryProps {
-    dataset: GraphDataset
+    dataset: DatasetToActorsInput
     query: InsightActorsQuery['source']
     day?: string | number
     index?: number

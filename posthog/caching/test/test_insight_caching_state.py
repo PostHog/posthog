@@ -15,18 +15,13 @@ from posthog.caching.insight_caching_state import (
     sync_insight_cache_states,
     upsert,
 )
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    InsightCachingState,
-    InsightViewed,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
+from posthog.models import SharingConfiguration, Team, User
 from posthog.models.signals import mute_selected_signals
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
 filter_dict = {
     "events": [{"id": "$pageview"}],
@@ -38,6 +33,7 @@ def create_insight(
     team: Team,
     user: User,
     mock_active_teams: Any = None,
+    mock_is_team_active: Any = None,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = timedelta(hours=1),  # noqa
     is_shared=True,
@@ -47,6 +43,8 @@ def create_insight(
 ) -> Insight:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
+    if mock_is_team_active:
+        mock_is_team_active.return_value = team_should_be_active
 
     if query is not None:
         filters = {}
@@ -69,6 +67,7 @@ def create_tile(
     team: Team,
     user: User,
     mock_active_teams: Any = None,
+    mock_is_team_active: Any = None,
     on_home_dashboard=False,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = None,
@@ -82,6 +81,8 @@ def create_tile(
 ) -> DashboardTile:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
+    if mock_is_team_active:
+        mock_is_team_active.return_value = team_should_be_active
 
     dashboard = Dashboard.objects.create(
         team=team,
@@ -310,9 +311,11 @@ def create_tile(
     ],
 )
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_calculate_target_age(
     mock_active_teams,
+    mock_is_team_active,
     team: Team,
     user: User,
     create_item,
@@ -321,17 +324,29 @@ def test_calculate_target_age(
 ):
     item = cast(
         Union[Insight, DashboardTile],
-        create_item(team=team, user=user, mock_active_teams=mock_active_teams, **create_item_kw),
+        create_item(
+            team=team,
+            user=user,
+            mock_active_teams=mock_active_teams,
+            mock_is_team_active=mock_is_team_active,
+            **create_item_kw,
+        ),
     )
     target_age = calculate_target_age(team, item, LazyLoader())
     assert target_age == expected_target_age
 
 
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
-def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
+def test_upsert_new_insight(mock_active_teams, mock_is_team_active, team: Team, user: User):
     with mute_selected_signals():
-        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+        insight = create_insight(
+            team=team,
+            user=user,
+            mock_active_teams=mock_active_teams,
+            mock_is_team_active=mock_is_team_active,
+        )
     upsert(team, insight)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
@@ -349,10 +364,16 @@ def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
 
 
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
-def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
+def test_upsert_update_insight(mock_active_teams, mock_is_team_active, team: Team, user: User):
     with mute_selected_signals():
-        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+        insight = create_insight(
+            team=team,
+            user=user,
+            mock_active_teams=mock_active_teams,
+            mock_is_team_active=mock_is_team_active,
+        )
     upsert(team, insight)
 
     caching_state = InsightCachingState.objects.get(team=team)
@@ -378,10 +399,16 @@ def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
 
 
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
-def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team, user: User):
+def test_upsert_update_insight_with_filter_change(mock_active_teams, mock_is_team_active, team: Team, user: User):
     with mute_selected_signals():
-        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+        insight = create_insight(
+            team=team,
+            user=user,
+            mock_active_teams=mock_active_teams,
+            mock_is_team_active=mock_is_team_active,
+        )
 
     upsert(team, insight)
 
@@ -410,10 +437,16 @@ def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team,
 
 
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
-def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
+def test_upsert_new_tile(mock_active_teams, mock_is_team_active, team: Team, user: User):
     with mute_selected_signals():
-        tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
+        tile = create_tile(
+            team=team,
+            user=user,
+            mock_active_teams=mock_active_teams,
+            mock_is_team_active=mock_is_team_active,
+        )
     upsert(team, tile)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
@@ -431,9 +464,16 @@ def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
 
 
 @pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.is_team_active")
 @patch("posthog.caching.insight_caching_state.active_teams")
-def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, user: User):
-    tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams, text_tile=True)
+def test_upsert_text_tile_does_not_create_record(mock_active_teams, mock_is_team_active, team: Team, user: User):
+    tile = create_tile(
+        team=team,
+        user=user,
+        mock_active_teams=mock_active_teams,
+        mock_is_team_active=mock_is_team_active,
+        text_tile=True,
+    )
     upsert(team, tile)
 
     assert InsightCachingState.objects.filter(team=team).count() == 0
@@ -477,6 +517,26 @@ def test_insight_cache_states_when_deleted_insight(team: Team, user: User):
 
 
 class TestLazyLoader(BaseTest):
+    @patch("posthog.caching.insight_caching_state.is_team_active")
+    def test_lazy_loader_is_team_active_memoizes(self, mock_is_team_active):
+        mock_is_team_active.return_value = True
+        loader = LazyLoader()
+
+        self.assertTrue(loader.is_team_active(42))
+        self.assertTrue(loader.is_team_active(42))
+
+        mock_is_team_active.assert_called_once_with(42)
+
+    @patch("posthog.caching.insight_caching_state.active_teams")
+    def test_lazy_loader_active_teams_still_works(self, mock_active_teams):
+        mock_active_teams.return_value = {1, 2, 3}
+        loader = LazyLoader()
+
+        self.assertEqual(loader.active_teams, {1, 2, 3})
+        # cached_property — only called once even across repeated access
+        _ = loader.active_teams
+        mock_active_teams.assert_called_once()
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_recently_viewed_insights(self):
         insights = [Insight.objects.create(team=self.team) for _ in range(3)]

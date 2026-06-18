@@ -220,6 +220,7 @@ export const insertIntegration = async (
         errors: '',
         created_at: new Date().toISOString(),
         created_by_id: 1001,
+        repository_cache: JSON.stringify([]),
     })
     return res
 }

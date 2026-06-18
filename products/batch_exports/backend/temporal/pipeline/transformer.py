@@ -31,6 +31,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
     TypeTupleToCastMapping,
     are_types_compatible,
 )
+from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
 
 logger = get_write_only_logger()
 
@@ -56,8 +57,8 @@ class TransformerProtocol[T](typing.Protocol):
             # Chunk as that is a concrete type. But we still need the yield for the
             # reason above. And if we have a yield, then we must yield something that
             # fits the type hint for mypy to be happy. But no concrete type fits a
-            # generic. So, the best we can do is to just ignore.
-            yield Chunk(b"", False)  # type: ignore[misc]
+            # generic. So, the best we can do is to just cast.
+            yield typing.cast(T, Chunk(b"", False))
         raise NotImplementedError
 
 
@@ -122,7 +123,9 @@ class JSONLStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -189,7 +192,9 @@ class JSONLBrotliStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -445,11 +450,16 @@ class ParquetStreamTransformer:
     @property
     def parquet_writer(self) -> pq.ParquetWriter:
         if self._parquet_writer is None:
+            json_columns = {"properties", "person_properties", "set", "set_once"}
+            # self.schema is set before getting a ParquetWriter.
+            dicitionary_encoded_columns = [col for col in self.schema.names if col not in json_columns]
+
             self._parquet_writer = pq.ParquetWriter(
                 self._parquet_buffer,
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
+                use_dictionary=dicitionary_encoded_columns,  # type: ignore
             )
         assert self._parquet_writer is not None
         return self._parquet_writer
@@ -827,7 +837,11 @@ class PipelineTransformer:
             async for chunk in transformer.iter(record_batches_iter):
                 yield chunk
 
-        pipeline = functools.reduce(generate, iter(self.transformers), record_batches)
+        pipeline: collections.abc.AsyncIterable[Chunk] = functools.reduce(  # ty: ignore[invalid-assignment]
+            generate,
+            iter(self.transformers),
+            record_batches,  # type: ignore[arg-type]
+        )
 
         async for chunk in pipeline:
-            yield chunk  # type: ignore[misc]
+            yield chunk

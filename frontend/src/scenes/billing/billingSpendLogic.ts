@@ -9,9 +9,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping, toParams } from 'lib/utils'
+import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { toParams } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 
@@ -20,7 +20,6 @@ import { DateMappingOption, OrganizationType } from '~/types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
-    canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -75,10 +74,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect(() => ({
         values: [
-            organizationLogic,
-            ['currentOrganization'],
             billingLogic,
-            ['billing', 'billingPeriodUTC'],
+            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -105,7 +102,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
+                    if (!values.canAccessBilling || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters

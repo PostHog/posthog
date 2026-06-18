@@ -3,6 +3,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -o allexport
+    source "$REPO_ROOT/.env"
+    set +o allexport
+fi
+
 provision_api_key() {
     local max_attempts=10
     local wait_sec=3
@@ -24,11 +30,7 @@ cd "$REPO_ROOT/services/llm-gateway"
 unset VIRTUAL_ENV
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 
-if [ ! -d ".venv" ]; then
-    uv venv .venv
-fi
-
-uv pip install -e . --quiet
+uv sync --quiet
 
 exec .venv/bin/uvicorn llm_gateway.main:app \
     --host 0.0.0.0 \

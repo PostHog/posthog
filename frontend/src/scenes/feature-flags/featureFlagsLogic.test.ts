@@ -7,6 +7,7 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FeatureFlagsTab,
     featureFlagsLogic,
+    flagMatchesFilters,
     flagMatchesSearch,
     flagMatchesStatus,
     flagMatchesType,
@@ -32,6 +33,88 @@ describe('flagMatchesSearch', () => {
         ['nonexistent', false],
     ])('search=%p → %p', (search, expected) => {
         expect(flagMatchesSearch(flag, search)).toBe(expected)
+    })
+
+    describe('regex-based search', () => {
+        const webAnalyticsFlag = {
+            ...NEW_FLAG,
+            id: 2,
+            key: 'web-analytics',
+            name: 'Web Analytics Feature',
+        } as FeatureFlagType
+        const webUnderscoreFlag = { ...NEW_FLAG, id: 3, key: 'web_dashboard', name: 'Test Flag' } as FeatureFlagType
+        const webSpaceFlag = { ...NEW_FLAG, id: 4, key: 'web analytics', name: 'Space Flag' } as FeatureFlagType
+        const flagWithExperiment = {
+            ...NEW_FLAG,
+            id: 5,
+            key: 'experiment-flag',
+            name: 'Experiment Flag',
+            experiment_set: [1],
+            experiment_set_metadata: [{ id: 1, name: 'My Experiment Test', is_running: false }],
+        } as FeatureFlagType
+
+        it.each<[FeatureFlagType, string, boolean]>([
+            // Regex pattern searches - spaces match any separator
+            [webAnalyticsFlag, 'web ana', true], // "web ana" matches "web-analytics"
+            [webUnderscoreFlag, 'web dash', true], // "web dash" matches "web_dashboard"
+            [webSpaceFlag, 'web ana', true], // "web ana" matches "web analytics"
+            [webAnalyticsFlag, 'web analytics', true], // Should match name
+
+            // Experiment name searches
+            [flagWithExperiment, 'experiment test', true], // Should match experiment name
+            [flagWithExperiment, 'my experiment', true], // Should match experiment name
+            [flagWithExperiment, 'experiment', true], // Should match flag name
+
+            // Searches that shouldn't match
+            [webAnalyticsFlag, 'web mobile', false], // "mobile" not in "web-analytics"
+            [webUnderscoreFlag, 'web mobile', false], // "mobile" not in flag
+            [flagWithExperiment, 'mobile test', false], // "mobile" not in flag or experiment
+
+            // Single word searches (existing behavior)
+            [webAnalyticsFlag, 'web', true],
+            [webAnalyticsFlag, 'analytics', true],
+            [webAnalyticsFlag, 'mobile', false],
+            [flagWithExperiment, 'experiment', true],
+
+            // Test trimming
+            [webAnalyticsFlag, 'web ', true], // Trailing space should be trimmed
+            [webAnalyticsFlag, ' web', true], // Leading space should be trimmed
+            [webAnalyticsFlag, '  web  ', true], // Multiple spaces should be trimmed
+        ])('flag=%p search=%p → %p', (testFlag, search, expected) => {
+            expect(flagMatchesSearch(testFlag, search)).toBe(expected)
+        })
+
+        it('handles null experiment names safely', () => {
+            const flagWithNullExperimentName = {
+                ...NEW_FLAG,
+                id: 5,
+                key: 'null-test-flag',
+                name: 'Flag with Null Test',
+                experiment_set: [2],
+                experiment_set_metadata: [{ id: 2, name: null as any, is_running: false }],
+            } as FeatureFlagType
+
+            // Should not throw error and should still match by flag name
+            expect(flagMatchesSearch(flagWithNullExperimentName, 'flag')).toBe(true)
+            // Should not match by experiment name since it's null
+            expect(flagMatchesSearch(flagWithNullExperimentName, 'experiment')).toBe(false)
+            // Should not throw when searching for something that would only match the null experiment name
+            expect(flagMatchesSearch(flagWithNullExperimentName, 'nonexistent')).toBe(false)
+        })
+
+        it('handles regex metacharacters safely', () => {
+            const testFlag = { ...NEW_FLAG, id: 6, key: 'test[flag]', name: 'Test (Flag)' } as FeatureFlagType
+
+            // Should not throw error and should match using escaped regex
+            expect(() => flagMatchesSearch(testFlag, '[flag]')).not.toThrow()
+            expect(() => flagMatchesSearch(testFlag, '(Flag)')).not.toThrow()
+            expect(() => flagMatchesSearch(testFlag, '*invalid')).not.toThrow()
+            expect(() => flagMatchesSearch(testFlag, '?invalid')).not.toThrow()
+
+            // Should match literal characters
+            expect(flagMatchesSearch(testFlag, '[flag]')).toBe(true)
+            expect(flagMatchesSearch(testFlag, '(Flag)')).toBe(true)
+        })
     })
 })
 
@@ -71,6 +154,28 @@ describe('flagMatchesType', () => {
         ['remote_config', 'remote_config', true],
     ])('%s with type=%p → %p', (flagKey, type, expected) => {
         expect(flagMatchesType(flags[flagKey], type)).toBe(expected)
+    })
+})
+
+describe('flagMatchesFilters creator filter', () => {
+    const flagByUser = (id: number | null): FeatureFlagType =>
+        ({
+            ...NEW_FLAG,
+            id: 1,
+            key: 'test',
+            created_by: id == null ? null : ({ id } as FeatureFlagType['created_by']),
+        }) as FeatureFlagType
+
+    it.each<[string, number | null, number[] | undefined, boolean]>([
+        ['no filter set matches any flag', 7, undefined, true],
+        ['no filter set matches a creatorless flag', null, undefined, true],
+        ['no filter set matches a creatorless flag with empty list', null, [], true],
+        ['author in the list matches', 7, [7], true],
+        ['author in a multi-id list matches', 7, [3, 7], true],
+        ['author absent from the list does not match', 7, [3, 5], false],
+        ['creatorless flag is excluded once a filter is set', null, [7], false],
+    ])('%s', (_name, createdById, createdByIdFilter, expected) => {
+        expect(flagMatchesFilters(flagByUser(createdById), { created_by_id: createdByIdFilter })).toBe(expected)
     })
 })
 
@@ -118,6 +223,24 @@ describe('the feature flags logic', () => {
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
+        })
+    })
+
+    describe('activity deep-link', () => {
+        it('preserves the activity deep-link param when staying on the history tab', async () => {
+            router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            })
+            expect(router.values.searchParams['activity']).toEqual('some-uuid')
+        })
+
+        it('drops the activity deep-link param when switching away from the history tab', async () => {
+            router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
+            })
+            expect(router.values.searchParams['activity']).toBeUndefined()
         })
     })
 })

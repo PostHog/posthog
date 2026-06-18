@@ -158,7 +158,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
 })
 
 export function initHogJsonLanguage(monaco: Monaco): void {
-    if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
+    if (!monaco.languages.getLanguages().some(({ id }: { id: string }) => id === 'hogJson')) {
         monaco.languages.register({
             id: 'hogJson',
             mimetypes: ['application/hog+json'],

@@ -1,9 +1,11 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, HermesMap};
 
 use crate::{
-    error::{HermesError, ResolveError},
+    error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
+    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -24,24 +26,32 @@ pub struct HermesMapProvider {}
 #[async_trait]
 impl Fetcher for HermesMapProvider {
     type Ref = HermesRef;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
 
-    async fn fetch(&self, _: i32, _: HermesRef) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, _: i32, _: HermesRef) -> Result<Bytes, Self::Err> {
         unreachable!("HermesRef is impossible to construct, so cannot be passed")
     }
 }
 
 #[async_trait]
 impl Parser for HermesMapProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = ParsedHermesMap;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Vec<u8>) -> Result<ParsedHermesMap, Self::Err> {
-        let (map, decompressed_bytes): (HermesMap, usize) =
-            read_symbol_data_with_byte_count(source).map_err(HermesError::DataError)?;
-        Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
+    async fn parse(&self, source: Bytes) -> Result<ParsedHermesMap, Self::Err> {
+        // zstd decompress + Hermes sourcemap parse are both CPU-bound; offload from the
+        // tokio runtime so a large bundle doesn't block other in-flight requests.
+        tokio::task::spawn_blocking(move || -> Result<ParsedHermesMap, ResolveError> {
+            let (map, decompressed_bytes): (HermesMap, usize) =
+                read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
+            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "hermes")
+                .record(decompressed_bytes as f64);
+            Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("hermes map parse task failed: {e}")))?
     }
 }
 

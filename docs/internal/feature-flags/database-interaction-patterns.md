@@ -134,6 +134,64 @@ let flags = sqlx::query("SELECT * FROM posthog_featureflag WHERE team_id = $1")
 
 **Important**: Always include `team_id` in queries against persons tables. These tables are partitioned by `team_id`, and queries without it will scan all partitions instead of targeting the correct one via the index.
 
+## Parallel query execution
+
+The `fetch_and_locally_cache_all_relevant_properties` function in `flag_matching_utils.rs` uses parallel execution to optimize property fetching when groups are needed.
+
+### Query branches
+
+The function decomposes into two independent query branches:
+
+1. **Person + cohort branch** (`fetch_person_and_cohorts`): Fetches person data followed by static cohort membership. These queries run sequentially because cohort lookup depends on `person_id` from the person query.
+
+2. **Group properties branch** (`fetch_group_properties`): Fetches group properties independently of person data.
+
+### Execution pattern
+
+```text
+When groups needed:
+┌──────────────────────────────────────────────────────────────┐
+│                    tokio::try_join!                          │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐   │
+│  │  fetch_person_and_      │  │  fetch_group_           │   │
+│  │  cohorts                │  │  properties             │   │
+│  │  ┌───────────────────┐  │  │  ┌───────────────────┐  │   │
+│  │  │ 1. Person query   │  │  │  │ Group query       │  │   │
+│  │  │ 2. Cohort query   │  │  │  └───────────────────┘  │   │
+│  │  └───────────────────┘  │  │                         │   │
+│  └─────────────────────────┘  └─────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+
+When no groups needed:
+┌─────────────────────────┐
+│  fetch_person_and_      │
+│  cohorts                │
+│  ┌───────────────────┐  │
+│  │ 1. Person query   │  │
+│  │ 2. Cohort query   │  │
+│  └───────────────────┘  │
+└─────────────────────────┘
+```
+
+### Connection pool implications
+
+Both branches acquire connections from the same `persons_reader` pool:
+
+- `fetch_person_and_cohorts`: Acquires one connection for person + cohort queries
+- `fetch_group_properties`: Acquires a separate connection for group query
+
+For requests requiring groups, two connections are held simultaneously from the same pool.
+
+### Task-local safety
+
+`tokio::try_join!` runs both futures cooperatively on the **same task**. This is required for `with_canonical_log` which uses a task-local `RefCell`. The synchronous borrows (no `.await` while borrowed) prevent double-borrow panics.
+
+**Do not refactor to `tokio::spawn`**: Spawned tasks do not inherit the `CANONICAL_LOG` task-local scope (see `handler/canonical_log.rs`). This would cause `with_canonical_log` to silently no-op and drop canonical-log counters.
+
+### Error handling
+
+On error, `tokio::try_join!` short-circuits and cancels the other future. If one branch fails (e.g., connection timeout), the entire operation fails and no partial state is applied.
+
 ## Error handling
 
 ### Transient error detection
@@ -226,20 +284,25 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 
 ### Prometheus metrics
 
-| Metric                                  | Labels                 | Purpose                                                       |
-| --------------------------------------- | ---------------------- | ------------------------------------------------------------- |
-| `flags_db_connection_time`              | `pool`, `operation`    | Connection acquisition latency                                |
-| `flags_person_query_time`               | -                      | Person lookup query duration                                  |
-| `flags_definition_query_time`           | -                      | Flag definition query duration                                |
-| `flags_pool_utilization_ratio`          | `pool`                 | Pool utilization (0.0-1.0)                                    |
-| `flags_connection_hold_time_ms`         | `pool`, `operation`    | How long connections are held                                 |
-| `flags_hash_key_retries_total`          | `team_id`, `operation` | Retry counter                                                 |
-| `flags_flag_evaluation_error_total`     | `error_type`           | Error counter                                                 |
-| `db_connection_created_total`           | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse) |
-| `flags_db_connection_pool_size`         | `pool`                 | Total pool size (should equal active + idle)                  |
-| `flags_db_connection_pool_active_total` | `pool`                 | Active (in-use) connections                                   |
-| `flags_db_connection_pool_idle_total`   | `pool`                 | Idle (available) connections                                  |
-| `flags_db_connection_pool_max_total`    | `pool`                 | Configured maximum connections                                |
+| Metric                                  | Labels                 | Purpose                                                                |
+| --------------------------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `flags_db_connection_time`              | `pool`, `operation`    | Connection acquisition latency (sub-ms precision, bucket floor 0.05ms) |
+| `flags_person_query_time`               | -                      | Person lookup query duration                                           |
+| `flags_definition_query_time`           | -                      | Flag definition query duration                                         |
+| `flags_pool_utilization_ratio`          | `pool`                 | Pool utilization (0.0-1.0)                                             |
+| `flags_connection_hold_time_ms`         | `pool`, `operation`    | How long connections are held                                          |
+| `flags_hash_key_retries_total`          | `team_id`, `operation` | Retry counter                                                          |
+| `flags_flag_evaluation_error_total`     | `error_type`           | Error counter                                                          |
+| `db_connection_created_total`           | `pool`                 | Connection creation events (physical TCP/TLS, not pool reuse)          |
+| `flags_db_connection_pool_size`         | `pool`                 | Total pool size (should equal active + idle)                           |
+| `flags_db_connection_pool_active_total` | `pool`                 | Active (in-use) connections                                            |
+| `flags_db_connection_pool_idle_total`   | `pool`                 | Idle (available) connections                                           |
+| `flags_db_connection_pool_max_total`    | `pool`                 | Configured maximum connections                                         |
+| `flags_queue_time_ms`                   | `team_id`              | Request queue wait time (bucket ceiling 30000ms)                       |
+| `flags_pre_handler_time_ms`             | `team_id`              | Pre-handler work timing (UA parse, rate limit checks, token extract)   |
+| `flags_rate_limit_check_ms`             | `kind`                 | Rate limit check duration (`kind="ip"` or `kind="token"`)              |
+| `flags_token_extract_ms`                | -                      | Token extraction timing                                                |
+| `flags_concurrency_limit_wait_ms`       | -                      | Concurrency limit permit wait time (pod-level, no `team_id`)           |
 
 ### Example PromQL queries
 
@@ -330,3 +393,4 @@ WRITER_STATEMENT_TIMEOUT_MS=2000  # 2s for writes (should be fast)
 | `rust/feature-flags/src/config.rs`                    | Environment configuration                             |
 | `rust/feature-flags/src/flags/flag_matching_utils.rs` | Query patterns, retry logic                           |
 | `rust/feature-flags/src/metrics/consts.rs`            | Metric constants                                      |
+| `rust/feature-flags/src/metrics/buckets.rs`           | Per-metric histogram bucket overrides                 |

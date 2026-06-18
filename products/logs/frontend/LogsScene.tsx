@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconBookmark, IconGear } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -14,14 +14,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
+import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { logsViewsListLogic } from 'products/logs/frontend/components/LogsViews/logsViewsListLogic'
-import { SavedViewsModal } from 'products/logs/frontend/components/LogsViews/SavedViewsModal'
+import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
-import { LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
+import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
 export const LOGS_LOGIC_KEY = 'logs'
 
@@ -42,7 +44,6 @@ export function LogsScene(): JSX.Element {
 }
 
 const LogsSceneContent = (): JSX.Element => {
-    const { tabId } = useValues(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const openLogsSettings = useOpenLogsSettingsPanel()
 
@@ -78,7 +79,7 @@ const LogsSceneContent = (): JSX.Element => {
             )}
             <LogsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={tabId} />
+                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                 </div>
             </LogsSetupPrompt>
         </>
@@ -86,10 +87,20 @@ const LogsSceneContent = (): JSX.Element => {
 }
 
 const LogsSceneTabbedContent = (): JSX.Element => {
-    const { tabId, activeTab } = useValues(logsSceneLogic)
+    const { activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-    const { openModal } = useActions(logsViewsListLogic({ id: tabId }))
+    const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showAlerting = useFeatureFlag('LOGS_ALERTING')
+    const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
+
+    const tabs: { key: LogsSceneActiveTab; label: string }[] = [
+        { key: 'viewer', label: 'Viewer' },
+        ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
+        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
+        { key: 'configuration', label: 'Configuration' },
+    ]
 
     return (
         <>
@@ -98,16 +109,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <>
-                        {hasLogs && <LogsSceneFeedbackButton />}
-                        <LemonButton size="small" type="secondary" icon={<IconBookmark />} onClick={openModal}>
-                            Saved views
-                        </LemonButton>
-                    </>
-                }
+                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
             />
-            <SavedViewsModal id={tabId} />
             {teamHasLogsCheckFailed && (
                 <LemonBanner
                     type="info"
@@ -123,20 +126,30 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             )}
             <LemonTabs<LogsSceneActiveTab>
                 activeKey={activeTab}
-                onChange={(key) => setActiveTab(key)}
-                tabs={[
-                    { key: 'viewer', label: 'Viewer' },
-                    { key: 'configuration', label: 'Configuration' },
-                ]}
+                onChange={(key) => {
+                    if (key === 'sql' && activeTab !== 'sql') {
+                        posthog.capture('logs sql tab opened')
+                    }
+                    setActiveTab(key)
+                }}
+                tabs={tabs}
                 sceneInset
             />
             {activeTab === 'viewer' && (
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                        <LogsViewer id={tabId} />
+                        <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
             )}
+            {activeTab === 'services' && showServicesView && (
+                <>
+                    <LogsServices />
+                    <LogsViewerModal />
+                </>
+            )}
+            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}

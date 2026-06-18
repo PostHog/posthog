@@ -22,10 +22,11 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.scopes import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -61,6 +62,13 @@ def get_device_cache_key(device_code: str) -> str:
 def get_user_code_cache_key(user_code: str) -> str:
     """Get cache key for user code"""
     return f"cli_user_code:{user_code}"
+
+
+def get_validation_error_description(error: serializers.ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, list) and detail:
+        return str(detail[0])
+    return str(detail)
 
 
 class DeviceCodeResponseSerializer(serializers.Serializer):
@@ -183,11 +191,20 @@ class CLIAuthViewSet(viewsets.ViewSet):
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
         scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+        user: User = request.user
 
         # Validate that at least one scope is provided
         if not scopes:
             return Response(
                 {"error": "invalid_request", "error_description": "At least one scope is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_personal_api_key_scopes(scopes, user, allowed_scopes=UNPRIVILEGED_SCOPES)
+        except serializers.ValidationError as error:
+            return Response(
+                {"error": "invalid_scope", "error_description": get_validation_error_description(error)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -216,8 +233,6 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         # Verify user has access to the project
-        user: User = request.user
-
         try:
             team = Team.objects.get(id=project_id)
             # Check if user has access to this team's organization
@@ -243,13 +258,27 @@ class CLIAuthViewSet(viewsets.ViewSet):
         team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
         label = f"CLI - {team_name_truncated} - {timestamp}"
 
+        had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
+
         PersonalAPIKey.objects.create(
             user=user,
             label=label,
             secure_value=secure_value,
             mask_value=mask_value,
             scopes=scopes,
+            scoped_teams=[team.id],
+            scoped_organizations=[],
         )
+
+        # User explicitly authorized this CLI via SessionAuthentication (see
+        # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
+        # had no prior PATs, treat the CLI key as already-acknowledged so the
+        # review interstitial doesn't fire for the key they just minted. Skip
+        # when prior PATs exist - those may be partner-issued and still warrant
+        # the review.
+        if not had_prior_pat and user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
 
         # Mark device as authorized and store the API key
         device_data["status"] = "authorized"

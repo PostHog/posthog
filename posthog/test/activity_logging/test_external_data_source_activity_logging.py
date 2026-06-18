@@ -1,6 +1,6 @@
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestExternalDataSourceActivityLogging(ActivityLogTestHelper):

@@ -3,7 +3,9 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
+import { calculateDays } from 'lib/utils/durations'
+import { isNumeric } from 'lib/utils/guards'
+import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
@@ -27,6 +29,7 @@ import {
     CohortType,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -93,7 +96,10 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
     )
 }
 
-export function createCohortFormData(cohort: CohortType): FormData {
+export function createCohortFormData(
+    cohort: CohortType,
+    { preserveStaticFilters = false }: { preserveStaticFilters?: boolean } = {}
+): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
         description: cohort.description ?? '',
@@ -101,7 +107,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
         filters: JSON.stringify(
-            cohort.is_static
+            cohort.is_static && !preserveStaticFilters
                 ? {
                       properties: {},
                   }
@@ -168,7 +174,13 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
+            .map((c) => {
+                const behavioralFilterType = criteriaToBehavioralFilterType(c)
+                // Fall back to the raw filter type when the label map has no entry: this surfaces which
+                // BehavioralFilterType is missing from BEHAVIORAL_TYPE_TO_LABEL (e.g. a new enum value that
+                // landed before the map was updated) rather than crashing on an undefined `.label`.
+                return `'${BEHAVIORAL_TYPE_TO_LABEL[behavioralFilterType]?.label ?? behavioralFilterType}'`
+            })
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
@@ -333,6 +345,9 @@ export function validateGroup(
 
             // Handle EventFilters separately, since these are optional
             requiredFields = requiredFields.filter((f) => f.fieldKey !== 'event_filters')
+
+            // explicit_datetime_to is the optional upper bound of a date range
+            requiredFields = requiredFields.filter((f) => f.fieldKey !== 'explicit_datetime_to')
             const eventFilterError =
                 c?.event_filters &&
                 c.event_filters.length > 0 &&
@@ -473,14 +488,18 @@ export function determineFilterType(
 export function resolveCohortFieldValue(
     criteria: AnyCohortCriteriaType,
     fieldKey: string
-): string | number | boolean | null | undefined | AnyPropertyFilter[] {
+): string | number | boolean | null | undefined | AnyPropertyFilter[] | PropertyFilterValue {
     // Resolve correct behavioral filter type
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
     }
     return (
-        (criteria as Record<string, string | number | boolean | null | undefined | AnyPropertyFilter[]>)[fieldKey] ??
-        null
+        (
+            criteria as Record<
+                string,
+                string | number | boolean | null | undefined | AnyPropertyFilter[] | PropertyFilterValue
+            >
+        )[fieldKey] ?? null
     )
 }
 
@@ -532,7 +551,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {

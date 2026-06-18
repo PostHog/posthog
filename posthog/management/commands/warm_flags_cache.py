@@ -11,15 +11,13 @@ Usage:
     # Warm specific teams
     python manage.py warm_flags_cache --team-ids 12345 67890
 
-    # Schema changes (invalidates all caches first)
-    python manage.py warm_flags_cache --invalidate-first
-
     # Custom batch size and TTL range
     python manage.py warm_flags_cache --batch-size 200 --min-ttl-days 6 --max-ttl-days 8
 """
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.models.feature_flag.flags_cache import FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
+
+from products.feature_flags.backend.flags_cache import FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
 
 
 class Command(BaseHyperCacheCommand):
@@ -36,7 +34,6 @@ class Command(BaseHyperCacheCommand):
 
         team_ids = options.get("team_ids")
         batch_size = options["batch_size"]
-        invalidate_first = options["invalidate_first"]
         stagger_ttl = not options["no_stagger"]
         min_ttl_days = options["min_ttl_days"]
         max_ttl_days = options["max_ttl_days"]
@@ -51,7 +48,6 @@ class Command(BaseHyperCacheCommand):
         self.run_warm(
             team_ids=team_ids,
             batch_size=batch_size,
-            invalidate_first=invalidate_first,
             stagger_ttl=stagger_ttl,
             min_ttl_days=min_ttl_days,
             max_ttl_days=max_ttl_days,

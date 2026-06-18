@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { ConcurrentlyGroupingBatchPipeline } from './concurrently-grouping-batch-pipeline'
-import { createContext, createNewBatchPipeline, createNewPipeline } from './helpers'
+import { createContext, createNewBatchPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
-import { dlq, drop, ok, redirect } from './results'
+import { dlq, drop, ok } from './results'
 
 // xoshiro128** PRNG (Vigna & Blackman, 2018) - fast 128-bit state generator
 function xoshiro128ss(a: number, b: number, c: number, d: number): () => number {
@@ -73,7 +73,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const spy = jest.spyOn(previousPipeline, 'feed')
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
-            const testBatch = [createContext(ok({ value: 'test', group: 'A' }), context1)]
+            const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
 
             pipeline.feed(testBatch)
 
@@ -100,7 +100,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             })
 
             const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const testBatch = [createContext(ok({ value: 'test', group: 'A' }), context1)]
+            const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
@@ -117,9 +117,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'b1', group: 'B' }), context2),
-                createContext(ok({ value: 'a2', group: 'A' }), context3),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'a2', group: 'A' }, context3),
             ]
             previousPipeline.feed(testBatch)
 
@@ -147,8 +147,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'a2', group: 'A' }), context2),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'a2', group: 'A' }, context2),
             ]
             previousPipeline.feed(testBatch)
 
@@ -190,7 +190,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             )
             const previousPipeline = createNewBatchPipeline<{ group: string; groupIndex: number }>().build()
 
-            const testBatch = events.map((e) => createContext(ok(e), context1))
+            const testBatch = events.map((e) => createOkContext(e, context1))
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
@@ -248,7 +248,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
             const testBatch = []
             for (let i = 0; i < groupCount; i++) {
-                testBatch.push(createContext(ok({ index: i, group: `group-${i}` }), context1))
+                testBatch.push(createOkContext({ index: i, group: `group-${i}` }, context1))
             }
             previousPipeline.feed(testBatch)
 
@@ -283,10 +283,10 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             let index = 0
             for (let g = 0; g < normalGroupCount; g++) {
                 for (let e = 0; e < elementsPerGroup; e++) {
-                    testBatch.push(createContext(ok({ index: index++, group: `group-${g}` }), context1))
+                    testBatch.push(createOkContext({ index: index++, group: `group-${g}` }, context1))
                 }
             }
-            testBatch.push(createContext(ok({ index: index++, group: 'slow' }), context1))
+            testBatch.push(createOkContext({ index: index++, group: 'slow' }, context1))
             previousPipeline.feed(testBatch)
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
@@ -323,15 +323,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             })
             const dropResult = drop<{ value: string; group: string }>('test drop')
             const dlqResult = dlq<{ value: string; group: string }>('test dlq', new Error('test error'))
-            const redirectResult = redirect<{ value: string; group: string }>('test redirect', 'test-topic')
 
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const testBatch: BatchPipelineResultWithContext<{ value: string; group: string }, any> = [
-                createContext(dropResult, context1),
-                createContext(dlqResult, context2),
-                createContext(redirectResult, context3),
-            ]
-            previousPipeline.feed(testBatch)
+            const testBatch = [createContext(dropResult, context1), createContext(dlqResult, context2)]
+            const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
 
@@ -343,10 +337,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
 
             expect(processorCallCount).toBe(0)
-            expect(results).toHaveLength(3)
-            expect(results.map((r) => r.result)).toEqual(
-                expect.arrayContaining([dropResult, dlqResult, redirectResult])
-            )
+            expect(results).toHaveLength(2)
+            expect(results.map((r) => r.result)).toEqual(expect.arrayContaining([dropResult, dlqResult]))
         })
 
         it('should handle mixed success and non-success results', async () => {
@@ -357,13 +349,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             })
             const dropResult = drop<{ value: string; group: string }>('test drop')
 
-            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
-            const testBatch: BatchPipelineResultWithContext<{ value: string; group: string }, any> = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
+            const testBatch = [
+                createOkContext({ value: 'a1', group: 'A' }, context1),
                 createContext(dropResult, context2),
-                createContext(ok({ value: 'a2', group: 'A' }), context3),
+                createOkContext({ value: 'a2', group: 'A' }, context3),
             ]
-            previousPipeline.feed(testBatch)
+            const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
             const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
 
@@ -394,9 +385,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 .build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'b1', group: 'B' }), context2),
-                createContext(ok({ value: 'a2', group: 'A' }), context3),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'a2', group: 'A' }, context3),
             ]
             pipeline.feed(testBatch)
 
@@ -423,9 +414,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 .build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'b1', group: 'B' }), context2),
-                createContext(ok({ value: 'a2', group: 'A' }), context3),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'a2', group: 'A' }, context3),
             ]
             pipeline.feed(testBatch)
 
@@ -450,8 +441,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
             // Feed first batch with items for group A
             previousPipeline.feed([
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'a2', group: 'A' }), context2),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'a2', group: 'A' }, context2),
             ])
             expect(processingOrder).toEqual([])
 
@@ -463,17 +454,19 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1'])
 
-            // Feed more items for group A while a1 is still processing
-            previousPipeline.feed([createContext(ok({ value: 'a3', group: 'A' }), context3)])
+            // Feed more items for group A while a1 is still processing. Fed through the
+            // pipeline (not previousPipeline directly) so the wake-up reaches the parked next().
+            pipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
             expect(processingOrder).toEqual(['start-a1'])
 
             // Advance to complete a1 (50ms), a2 should start
             await jest.advanceTimersByTimeAsync(50)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2'])
 
-            // Advance to complete a2 - first batch processing ends
+            // Advance to complete a2 - the group's batch ends and the queued a3
+            // starts (per-key ordering: a3 runs after a1, a2)
             await jest.advanceTimersByTimeAsync(50)
-            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2'])
+            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
 
             // Await first next() - gets results for a1 and a2
             const results: any[] = []
@@ -483,7 +476,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(2)
 
-            // Call next() to route and process a3
+            // a3 is already in flight; the second next() collects it
             const nextPromise2 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
@@ -514,8 +507,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
             // Feed one element each for groups A and B (B is slow)
             previousPipeline.feed([
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'b1', group: 'B' }), context2),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
             ])
             expect(processingOrder).toEqual([])
 
@@ -531,8 +524,8 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             // Feed one element each for groups B and C
             // b2 will be queued (B is still processing b1), c1 should start immediately
             previousPipeline.feed([
-                createContext(ok({ value: 'b2', group: 'B' }), context3),
-                createContext(ok({ value: 'c1', group: 'C' }), context4),
+                createOkContext({ value: 'b2', group: 'B' }, context3),
+                createOkContext({ value: 'c1', group: 'C' }, context4),
             ])
             expect(processingOrder).toEqual(['start-a1', 'start-b1', 'end-a1'])
 
@@ -562,10 +555,19 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             expect(results).toHaveLength(2)
             expect((results[1].result as any).value.value).toBe('c1')
 
-            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms)
+            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms).
+            // The parked next() eagerly starts the queued b2 when b1's group ends.
             const nextPromise3 = pipeline.next()
             await jest.advanceTimersByTimeAsync(900)
-            expect(processingOrder).toEqual(['start-a1', 'start-b1', 'end-a1', 'start-c1', 'end-c1', 'end-b1'])
+            expect(processingOrder).toEqual([
+                'start-a1',
+                'start-b1',
+                'end-a1',
+                'start-c1',
+                'end-c1',
+                'end-b1',
+                'start-b2',
+            ])
 
             // Await third next() - returns b1's result
             const result3 = await nextPromise3
@@ -574,7 +576,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(3)
 
-            // Call next() to route b2 and start processing
+            // b2 is already in flight; the fourth next() collects it
             const nextPromise4 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual([
@@ -627,10 +629,10 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 .build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'a2', group: 'A' }), context2),
-                createContext(ok({ value: 'b1', group: 'B' }), context3),
-                createContext(ok({ value: 'b2', group: 'B' }), context4),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'a2', group: 'A' }, context2),
+                createOkContext({ value: 'b1', group: 'B' }, context3),
+                createOkContext({ value: 'b2', group: 'B' }, context4),
             ]
             pipeline.feed(testBatch)
 
@@ -686,9 +688,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
                 .build()
 
             const testBatch = [
-                createContext(ok({ value: 'a1', group: 'A' }), context1),
-                createContext(ok({ value: 'b1', group: 'B' }), context2),
-                createContext(ok({ value: 'c1', group: 'C' }), context3),
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'c1', group: 'C' }, context3),
             ]
             pipeline.feed(testBatch)
 
@@ -696,6 +698,168 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
             expect(result).not.toBeNull()
             expect(result).toHaveLength(3)
+        })
+    })
+
+    describe('feeds interleaving with in-flight group processing', () => {
+        it('wakes a parked drain when a group fed after it parked completes', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                // A is slow enough to keep the drain parked; B finishes quickly.
+                const delay = input.group === 'A' ? 1000 : 10
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+            const nextPromise = pipeline.next()
+            await jest.advanceTimersByTimeAsync(0) // A starts, the drain parks on it
+
+            // Feed a brand-new group B while the drain is parked on A.
+            pipeline.feed([createOkContext({ value: 'b1', group: 'B' }, context2)])
+            await jest.advanceTimersByTimeAsync(10)
+
+            // B started only after the drain parked, yet its completion wakes it.
+            const result = await nextPromise
+            expect(result).toHaveLength(1)
+            expect((result![0].result as any).value.value).toBe('b1')
+        })
+
+        it('starts groups from several feeds while a slow group keeps the drain parked', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                const delay = input.group === 'A' ? 1000 : 10
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+
+            const drained: any[] = []
+            const run = (async () => {
+                let result = await pipeline.next()
+                while (result !== null) {
+                    drained.push(...result)
+                    // Stop once both fast groups are collected — A blocks for 1000ms.
+                    if (drained.length >= 2) {
+                        break
+                    }
+                    result = await pipeline.next()
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(0) // A starts, the drain parks
+            pipeline.feed([createOkContext({ value: 'b1', group: 'B' }, context2)])
+            await jest.advanceTimersByTimeAsync(0) // B starts
+            pipeline.feed([createOkContext({ value: 'c1', group: 'C' }, context3)])
+            await jest.advanceTimersByTimeAsync(10) // B and C complete
+            await run
+
+            // Both groups, each from a separate feed landed mid-park, were processed.
+            expect(drained.map((r) => r.result.value.value).sort()).toEqual(['b1', 'c1'])
+        })
+    })
+
+    describe('failure surfacing with concurrent groups', () => {
+        it('returns a completed group before surfacing a later failure in an in-flight group', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                if (input.group === 'B') {
+                    await new Promise((resolve) => setTimeout(resolve, 10))
+                    throw new Error('group B failed')
+                }
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+            ])
+
+            // A completes at t=5 while B is still in flight, so the first drain
+            // returns A's result rather than waiting on B.
+            const first = pipeline.next()
+            await jest.advanceTimersByTimeAsync(5)
+            const result = await first
+            expect(result).toHaveLength(1)
+            expect((result![0].result as any).value.value).toBe('a1')
+
+            // The second drain parks on the in-flight B; B's failure at t=10 wakes
+            // it and the failure surfaces. Attach the rejection handler before
+            // advancing time so the rejection that lands mid-advance is observed.
+            const second = pipeline.next()
+            const failure = expect(second).rejects.toThrow('group B failed')
+            await jest.advanceTimersByTimeAsync(5)
+            await failure
+        })
+
+        it('drains all completed group results before surfacing a failure', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                if (input.group === 'C') {
+                    throw new Error('group C failed')
+                }
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'c1', group: 'C' }, context3),
+            ])
+
+            const drained: any[] = []
+            let thrown: Error | undefined
+            const run = (async () => {
+                try {
+                    let result = await pipeline.next()
+                    while (result !== null) {
+                        drained.push(...result)
+                        result = await pipeline.next()
+                    }
+                } catch (error) {
+                    thrown = error as Error
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(5)
+            await run
+
+            // Both successful groups come out before the failure ends the stream.
+            expect(drained.map((r) => r.result.value.value).sort()).toEqual(['a1', 'b1'])
+            expect(thrown?.message).toBe('group C failed')
+        })
+
+        it('keeps rejecting after a processor error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(() =>
+                Promise.reject(new Error('processor boom'))
+            )
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+        })
+
+        it('poisons permanently after a source error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
+                Promise.resolve(ok(input))
+            )
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
+            }
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+            await expect(pipeline.next()).rejects.toThrow('source boom')
         })
     })
 })

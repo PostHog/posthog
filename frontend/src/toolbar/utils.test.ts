@@ -1,6 +1,25 @@
-import { joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
+    describe('asNonEmptyString', () => {
+        const testCases: Array<{ input: unknown; expected: string | null }> = [
+            { input: 'hello', expected: 'hello' },
+            { input: '', expected: null },
+            { input: null, expected: null },
+            { input: undefined, expected: null },
+            { input: true, expected: null },
+            { input: false, expected: null },
+            { input: 0, expected: null },
+            { input: 1, expected: null },
+            { input: {}, expected: null },
+            { input: [], expected: null },
+            { input: ['a'], expected: null },
+        ]
+        it.each(testCases)('$input -> $expected', ({ input, expected }) => {
+            expect(asNonEmptyString(input)).toBe(expected)
+        })
+    })
+
     describe('joinWithUiHost', () => {
         const testCases: Array<{ uiHost: string; path: string; expected: string }> = [
             {

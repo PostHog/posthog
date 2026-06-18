@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,6 +22,8 @@ import {
     mockPersonProperty,
 } from '~/test/mocks'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>

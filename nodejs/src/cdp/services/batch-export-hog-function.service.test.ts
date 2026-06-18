@@ -1,8 +1,8 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
-import { DateTime } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -17,7 +17,10 @@ import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
+import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupsManagerService } from './managers/groups-manager.service'
 
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
@@ -44,7 +47,10 @@ describe('BatchExportHogFunctionService', () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
         team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, createCdpConsumerDeps(hub))
+        api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -287,9 +293,14 @@ describe('BatchExportHogFunctionService', () => {
     })
 
     describe('groups enrichment', () => {
+        let originalGroupsManager: GroupsManagerService
+
         beforeEach(() => {
-            // Clear cached group data between tests
-            api['batchExportHogFunctionService']['groupsManager'].clear()
+            originalGroupsManager = api['batchExportHogFunctionService']['groupsManager']
+        })
+
+        afterEach(() => {
+            api['batchExportHogFunctionService']['groupsManager'] = originalGroupsManager
         })
 
         const setupGroups = async () => {
@@ -297,19 +308,30 @@ describe('BatchExportHogFunctionService', () => {
                 { key: 'data_pipelines', name: 'Data Pipelines' },
                 { key: 'group_analytics', name: 'Group Analytics' },
             ])
-            // Clear cached team data so the new features are picked up
             hub.teamManager['lazyLoader'].clear()
 
-            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
+            const mockGroupRepo: GroupReadRepository = {
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                    {
+                        team_id: team.id as TeamId,
+                        group_type_index: 0 as GroupTypeIndex,
+                        group_key: 'acme-inc',
+                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                    },
+                ]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                    const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+                    for (const id of teamIds) {
+                        result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
+                    }
+                    return Promise.resolve(result)
+                }),
+                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
+            }
 
-            await hub.groupRepository.insertGroup(
-                team.id,
-                0 as any,
-                'acme-inc',
-                { name: 'Acme Inc', industry: 'Tech' },
-                DateTime.now(),
-                {},
-                {}
+            api['batchExportHogFunctionService']['groupsManager'] = new GroupsManagerService(
+                hub.teamManager,
+                mockGroupRepo
             )
         }
 

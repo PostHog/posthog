@@ -2,7 +2,6 @@ import json
 import time
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
@@ -17,9 +16,11 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-@pytest.mark.requires_secrets
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID)
-class StripeProvisioningTestBase(APIBaseTest):
+@override_settings(
+    STRIPE_SIGNING_SECRET=HMAC_SECRET,
+    STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+)
+class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
@@ -37,6 +38,10 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
+                # The test app stands in for the grandfathered legacy Stripe app, which is
+                # the one app that still mints a provisioned PAT.
+                "provisioning_issues_personal_api_key": True,
             },
         )
 
@@ -116,7 +121,6 @@ class StripeProvisioningTestBase(APIBaseTest):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         return res.json()["access_token"]

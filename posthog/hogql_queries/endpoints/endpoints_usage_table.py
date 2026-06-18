@@ -5,6 +5,7 @@ from posthog.schema import (
     EndpointsUsageBreakdown,
     EndpointsUsageTableQuery,
     EndpointsUsageTableQueryResponse,
+    ProductKey,
 )
 
 from posthog.hogql import ast
@@ -100,13 +101,14 @@ class EndpointsUsageTableQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTab
         return [ast.OrderExpr(expr=ast.Field(chain=[column]), order=cast(Literal["ASC", "DESC"], order_direction))]
 
     def _calculate(self) -> EndpointsUsageTableQueryResponse:
-        from posthog.clickhouse.query_tagging import tag_queries
+        from posthog.clickhouse.query_tagging import Feature, tag_queries
 
-        tag_queries(name="endpoints_usage_table")
+        tag_queries(name="endpoints_usage_table", product=ProductKey.ENDPOINTS, feature=Feature.USAGE_REPORT)
         response = execute_hogql_query(
             query_type="endpoints_usage_table_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

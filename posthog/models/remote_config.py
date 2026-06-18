@@ -1,12 +1,10 @@
-import os
 import json
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.http import HttpRequest
 from django.utils import timezone
 
 import requests
@@ -14,16 +12,20 @@ import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import PluginConfig
+from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import PluginConfig
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -32,12 +34,6 @@ tracer = trace.get_tracer(__name__)
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
     "Number of times the remote config sync task has been run",
-    labelnames=["result"],
-)
-
-REMOTE_CONFIG_CACHE_COUNTER = Counter(
-    "posthog_remote_config_via_cache",
-    "Metric tracking whether a remote config was fetched from cache or not",
     labelnames=["result"],
 )
 
@@ -51,45 +47,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-# Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
-
-
-@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
-def get_array_js_content():
-    global _array_js_content
-
-    if _array_js_content is None:
-        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
-            _array_js_content = f.read()
-
-    return _array_js_content
-
-
 @tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-@tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
-def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
-    from posthog.api.utils import on_permitted_recording_domain
-
-    # Remove domains from session recording
-    if config.get("sessionRecording"):
-        if "domains" in config["sessionRecording"]:
-            domains = config["sessionRecording"].pop("domains")
-
-            # Empty list of domains means always permitted
-            if request and domains:
-                if not on_permitted_recording_domain(domains, request=request):
-                    config["sessionRecording"] = False
-
-    # Remove site apps JS
-    config.pop("siteAppsJS", None)
-    return config
 
 
 class RemoteConfig(UUIDTModel):
@@ -113,11 +75,16 @@ class RemoteConfig(UUIDTModel):
             except RemoteConfig.DoesNotExist:
                 return HyperCacheStoreMissing()
 
+        has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
         return HyperCache(
             namespace="array",
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
+            # Mirror to the shared Redis so the hypercache-server doesn't fall
+            # through to (potentially stale) S3.
+            secondary_cache_alias="default" if has_dedicated_cache else None,
         )
 
     def _build_session_recording_config(self, team: Team) -> dict:
@@ -192,10 +159,29 @@ class RemoteConfig(UUIDTModel):
         # V2: If trigger groups configured, send V2 + V1 fallback fields
         if team.session_recording_trigger_groups:
             trigger_groups_config = team.session_recording_trigger_groups
+            groups = trigger_groups_config.get("groups", [])
+
+            # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
+            # This future-proofs the contract so WHERE clauses (property filters on events)
+            # can be added later without a breaking SDK change.
+            # Build normalized copies to avoid mutating the team's stored data.
+            normalized_groups = []
+            for group in groups:
+                conditions = group.get("conditions", {})
+                if "events" in conditions:
+                    group = {
+                        **group,
+                        "conditions": {
+                            **conditions,
+                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
+                        },
+                    }
+                normalized_groups.append(group)
+
             return {
                 **base_config,
                 "version": 2,
-                "triggerGroups": trigger_groups_config.get("groups", []),
+                "triggerGroups": normalized_groups,
                 # Include V1 fields for backward compatibility with old SDKs
                 **v1_fields,
             }
@@ -208,12 +194,12 @@ class RemoteConfig(UUIDTModel):
         }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
-    def build_config(self):
-        from posthog.models.feature_flag import FeatureFlag
+    def build_config(self, bypass_recordings_quota_cache: bool = False):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -270,7 +256,9 @@ class RemoteConfig(UUIDTModel):
             from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
-                QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.RECORDINGS,
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                use_cache=not bypass_recordings_quota_cache,
             )
 
             if team.api_token in limited_tokens_recordings:
@@ -344,6 +332,11 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
+        # MARK: Snippet versioning — store requested version, resolved at request time
+        if settings.POSTHOG_JS_S3_BUCKET:
+            snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
+            config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}
+
         return config
 
     @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
@@ -351,8 +344,9 @@ class RemoteConfig(UUIDTModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.cdp.site_functions import get_transpiled_function
-        from posthog.models import HogFunction
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -365,7 +359,12 @@ class RemoteConfig(UUIDTModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
+            .filter(
+                team=self.team,
+                enabled=True,
+                deleted=False,
+                type__in=("site_destination", "site_app"),
+            )
             .all()
         )
 
@@ -388,72 +387,15 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        # source tells us where the result came from ("redis", "s3", or None).
-        # When data is None, source disambiguates: a cache hit returning None means
-        # the team was explicitly cached as missing, while no source means a true cache miss.
-        data, source = cls.get_hypercache().get_from_cache_with_source(token)
-
-        if data is None:
-            if source in ("redis", "s3"):
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            else:
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if source in ("redis", "s3"):
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-        else:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        return data
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
-    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_config_via_cache(token)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        return config
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
-        # Get the site apps JS so we can render it in the JS
-        site_apps_js = config.pop("siteAppsJS", None)
-        # We don't want to include the minimal site apps content as we have the JS now
-        config.pop("siteApps", None)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        js_content = f"""(function() {{
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
-  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
-    config: {json.dumps(config)},
-    siteApps: [{",".join(site_apps_js)}]
-  }}
-}})();
-        """.strip()
-
-        return js_content
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
-    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        js_content = cls.get_config_js_via_token(token, request=request)
-
-        return f"""{get_array_js_content()}\n\n{js_content}"""
-
-    def sync(self, force: bool = False):
+    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
         """
-        When called we sync to any configured CDNs as well as redis for the /decide endpoint
+        When called we sync to any configured CDNs as well as redis for the /decide endpoint.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
 
         try:
-            config = self.build_config()
+            config = self.build_config(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
             if not force and config == self.config:
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
@@ -495,7 +437,6 @@ class RemoteConfig(UUIDTModel):
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
@@ -511,6 +452,28 @@ class RemoteConfig(UUIDTModel):
 
         except Exception:
             logger.exception(f"Failed to purge CDN for team {self.team_id}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
+    @staticmethod
+    def purge_cdn_by_tag(tag: str):
+        """Purge all CDN entries matching a Cache-Tag."""
+        if not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN:
+            return
+
+        data = {"tags": [tag]}
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
+        except Exception:
+            logger.exception(f"Failed to purge CDN by tag {tag}")
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
         else:
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
@@ -596,4 +559,9 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamJsSnippetConfig")
+def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

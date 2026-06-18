@@ -7,9 +7,9 @@
 import type {
     ApproveSnapshotInputApi,
     ArtifactApi,
-    AutoApproveResultApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    FinalizeResultApi,
     RunApi,
     SnapshotApi,
     SnapshotManifestItemApi,
@@ -33,6 +33,17 @@ export interface ClientConfig {
     sessionCookie?: string
 }
 
+export class VisualReviewApiError extends Error {
+    constructor(
+        public status: number,
+        responseText: string,
+        public retryAfter?: number
+    ) {
+        super(`API error ${status}: ${responseText}`)
+        this.name = 'VisualReviewApiError'
+    }
+}
+
 export class VisualReviewClient {
     private apiUrl: string
     private teamId: string
@@ -45,7 +56,7 @@ export class VisualReviewClient {
             'Content-Type': 'application/json',
         }
         if (config.token) {
-            this.headers['Authorization'] = `Bearer ${config.token}`
+            this.headers['Authorization'] = `Bearer ${config.token.trim()}`
         } else if (config.sessionCookie) {
             this.headers['Cookie'] = config.sessionCookie
         }
@@ -56,20 +67,44 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        const response = await fetch(this.url(path), {
-            ...options,
-            headers: {
-                ...this.headers,
-                ...options.headers,
-            },
-        })
+        const maxRetries = 3
+        let lastError: VisualReviewApiError | undefined
 
-        if (!response.ok) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            if (attempt > 0) {
+                const delayMs = lastError?.retryAfter ? lastError.retryAfter * 1000 : 1000 * Math.pow(2, attempt - 1)
+                process.stderr.write(
+                    `[vr] Retrying request to ${path} (attempt ${attempt}/${maxRetries}) after ${delayMs / 1000}s...\n`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+            }
+
+            const response = await fetch(this.url(path), {
+                ...options,
+                headers: {
+                    ...this.headers,
+                    ...options.headers,
+                },
+            })
+
+            if (response.ok) {
+                return response.json() as Promise<T>
+            }
+
             const text = await response.text()
-            throw new Error(`API error ${response.status}: ${text}`)
+            const retryAfterHeader = response.headers.get('Retry-After')
+            const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) || undefined : undefined
+            const error = new VisualReviewApiError(response.status, text, retryAfter)
+
+            // Only retry on 5xx server errors or 429 rate limit
+            if (response.status !== 429 && response.status < 500) {
+                throw error
+            }
+
+            lastError = error
         }
 
-        return response.json() as Promise<T>
+        throw lastError!
     }
 
     /**
@@ -82,7 +117,9 @@ export class VisualReviewClient {
         branch: string
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
-        baselineHashes?: Record<string, string>
+        purpose?: string
+        metadata?: Record<string, string>
+        isPartial?: boolean
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -91,7 +128,9 @@ export class VisualReviewClient {
             branch: input.branch,
             snapshots: input.snapshots,
             pr_number: input.prNumber,
-            baseline_hashes: input.baselineHashes,
+            purpose: input.purpose,
+            metadata: input.metadata,
+            is_partial: input.isPartial,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
@@ -128,7 +167,24 @@ export class VisualReviewClient {
     }
 
     /**
-     * Signal that all artifacts are uploaded, trigger diff processing.
+     * Add a batch of snapshots to an existing run (shard-based flow).
+     */
+    async addSnapshots(
+        runId: string,
+        input: {
+            snapshots: SnapshotManifestItemApi[]
+        }
+    ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
+        return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                snapshots: input.snapshots,
+            }),
+        })
+    }
+
+    /**
+     * Complete a run: detect removals, verify uploads, trigger diff processing.
      */
     async completeRun(runId: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {
@@ -161,11 +217,15 @@ export class VisualReviewClient {
     }
 
     /**
-     * Auto-approve all changes in a run and get signed baseline YAML.
+     * Approve all changes and finalize, returning the signed baseline YAML to write/commit yourself.
+     *
+     * Uses commit_to_github=false so the server does not push the baseline — the CLI writes it
+     * locally and the CI commits it via git.
      */
-    async autoApproveRun(runId: string): Promise<AutoApproveResultApi> {
-        return this.request<AutoApproveResultApi>(`/visual_review/runs/${runId}/auto-approve/`, {
+    async autoApproveRun(runId: string): Promise<FinalizeResultApi> {
+        return this.request<FinalizeResultApi>(`/visual_review/runs/${runId}/finalize/`, {
             method: 'POST',
+            body: JSON.stringify({ approve_all: true, commit_to_github: false }),
         })
     }
 }

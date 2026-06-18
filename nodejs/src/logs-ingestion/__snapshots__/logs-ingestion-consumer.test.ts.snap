@@ -4,7 +4,7 @@ exports[`LogsIngestionConsumer general should process a valid log message 1`] = 
 [
   {
     "json-parse": "false",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },
@@ -15,19 +15,19 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
 [
   {
     "json-parse": "false",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },
   {
     "json-parse": "false",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },
   {
     "json-parse": "false",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },
@@ -38,7 +38,7 @@ exports[`LogsIngestionConsumer message parsing and validation should overwrite e
 [
   {
     "json-parse": "false",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },
@@ -50,7 +50,7 @@ exports[`LogsIngestionConsumer message parsing and validation should preserve ka
   {
     "json-parse": "false",
     "myHeader": "hello",
-    "retention-days": "15",
+    "retention-days": "14",
     "team_id": "2",
     "token": "THIS IS NOT A TOKEN FOR TEAM 2",
   },

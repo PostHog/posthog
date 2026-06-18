@@ -6,6 +6,7 @@ from .viewset import (
     ActivityLogViewSet,
     AdvancedActivityLogFiltersSerializer,
     AdvancedActivityLogsViewSet,
+    OrganizationAdvancedActivityLogsViewSet,
 )
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "ActivityLogSerializer",
     "ActivityLogViewSet",
     "AdvancedActivityLogsViewSet",
+    "OrganizationAdvancedActivityLogsViewSet",
     "AdvancedActivityLogFiltersSerializer",
     "AdvancedActivityLogFilterManager",
     "AdvancedActivityLogFieldDiscovery",

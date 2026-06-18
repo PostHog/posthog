@@ -1,5 +1,3 @@
-import '../../lib/components/Cards/InsightCard/InsightCard.scss'
-
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
@@ -21,13 +19,14 @@ import {
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
-import { areObjectValuesEmpty, pluralize } from 'lib/utils'
+import { areObjectValuesEmpty } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, isValidBreakdown } from '~/queries/utils'
+import { isInsightQueryNode, hasBreakdownFilter } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -245,7 +244,9 @@ const insightActionsMapping: Record<
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
-    const query = filtersToQueryNode(filtersAfter)
+    const query = filtersToQueryNode(filtersAfter, {
+        source: 'saved_insights_activity_descriptions',
+    })
     const trendsQuery = query as TrendsQuery
 
     return {
@@ -254,7 +255,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
                 <PropertiesSummary properties={query.properties} />
-                {isValidBreakdown(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
+                {hasBreakdownFilter(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
             </div>
         ),
     }

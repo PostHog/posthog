@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { HogQLQueryModifiers, NodeKind } from '~/queries/schema/schema-general'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 
@@ -33,33 +32,33 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
     query: Q
     setQuery: (query: Q) => void
 }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(externalDataSourcesLogic)
-    const { loadSources } = useActions(externalDataSourcesLogic)
-    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourcesDataLogic)
+    const { loadSources } = useActions(sourcesDataLogic)
     const isHogQLQuery = query.kind === NodeKind.HogQLQuery
 
     useEffect(() => {
-        if (isHogQLQuery && isDirectQueryEnabled && !dataWarehouseSources) {
+        if (isHogQLQuery && !dataWarehouseSources) {
             loadSources()
         }
-    }, [dataWarehouseSources, isDirectQueryEnabled, isHogQLQuery, loadSources])
+    }, [dataWarehouseSources, isHogQLQuery, loadSources])
 
-    const directPostgresSources = useMemo(
+    const directSources = useMemo(
         () =>
             (dataWarehouseSources?.results ?? []).filter(
-                (source) => source.access_method === 'direct' && source.source_type.toLowerCase().includes('postgres')
+                (source) =>
+                    source.access_method === 'direct' &&
+                    ['postgres', 'mysql'].some((engine) => source.source_type.toLowerCase().includes(engine))
             ),
         [dataWarehouseSources]
     )
 
-    if (!isHogQLQuery || !isDirectQueryEnabled) {
+    if (!isHogQLQuery) {
         return null
     }
 
     const selectedValue = query.connectionId ?? POSTHOG_WAREHOUSE
     const hasSelectedConnection =
-        !!query.connectionId && directPostgresSources.some((source) => source.id === query.connectionId)
+        !!query.connectionId && directSources.some((source) => source.id === query.connectionId)
 
     return (
         <LemonLabel className={labelClassName}>
@@ -70,9 +69,9 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
                 fullWidth
                 options={[
                     { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
-                    ...directPostgresSources.map((source) => ({
+                    ...directSources.map((source) => ({
                         value: source.id,
-                        label: `${source.prefix ?? source.id} (Postgres)`,
+                        label: `${source.prefix ?? source.id} (${source.source_type})`,
                     })),
                     ...(!hasSelectedConnection && query.connectionId
                         ? [{ value: query.connectionId, label: `${query.connectionId} (Unavailable)` }]

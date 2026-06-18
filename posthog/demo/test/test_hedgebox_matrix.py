@@ -5,7 +5,9 @@ from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
@@ -23,7 +25,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
 
-        matrix.clusters = [
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
             SimpleNamespace(
                 people=[
                     SimpleNamespace(
@@ -84,7 +86,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
 
-        matrix.clusters = [
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
             SimpleNamespace(
                 people=[
                     SimpleNamespace(
@@ -243,3 +245,40 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
             person_properties={},
             person_created_at=timestamp,
         )
+
+
+class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("local_dev", "dummy-key", True, False, False),
+            ("cloud_prod", "dummy-key", False, True, True),
+            ("self_hosted_prod", "dummy-key", False, False, True),
+            ("debug_but_cloud", "dummy-key", True, True, True),
+            ("no_oidc_key", "", True, False, True),
+        ]
+    )
+    @patch("posthog.demo.products.hedgebox.matrix.OAuthApplication.objects.create")
+    def test_demo_oauth_app_only_created_in_local_dev(
+        self,
+        _name: str,
+        oidc_key: str,
+        debug: bool,
+        cloud: bool,
+        should_skip: bool,
+        mock_create: MagicMock,
+    ) -> None:
+        matrix = HedgeboxMatrix(seed="oauth-test", n_clusters=0)
+        team = cast(Any, SimpleNamespace(organization=SimpleNamespace()))
+        user = cast(Any, SimpleNamespace())
+
+        with override_settings(OIDC_RSA_PRIVATE_KEY=oidc_key, DEBUG=debug):
+            with patch("posthog.demo.products.hedgebox.matrix.is_cloud", return_value=cloud):
+                matrix._set_up_demo_oauth_application(team, user)
+
+        if should_skip:
+            mock_create.assert_not_called()
+        else:
+            mock_create.assert_called_once()
+            kwargs = mock_create.call_args.kwargs
+            assert kwargs["is_first_party"] is True
+            assert "example.com" not in kwargs["redirect_uris"]

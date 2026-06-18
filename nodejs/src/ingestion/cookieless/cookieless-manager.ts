@@ -14,7 +14,14 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    RedisPool,
+    Team,
+} from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
@@ -91,6 +98,29 @@ interface CookielessConfig {
     sessionInactivityMs: number
 }
 
+/**
+ * The cookieless-related keys a CookielessManager needs from the consumer config.
+ */
+export type CookielessManagerConfig = Pick<
+    IngestionConsumerConfig,
+    | 'COOKIELESS_DISABLED'
+    | 'COOKIELESS_FORCE_STATELESS_MODE'
+    | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
+    | 'COOKIELESS_SESSION_TTL_SECONDS'
+    | 'COOKIELESS_SALT_TTL_SECONDS'
+    | 'COOKIELESS_SESSION_INACTIVITY_MS'
+    | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
+>
+
+/**
+ * Everything a server needs to instantiate a CookielessManager and its Redis pool —
+ * the manager's own config plus the Redis connection knobs read by
+ * `createCookielessRedisConnectionConfig`. Use this in service config slices instead
+ * of redeclaring the cookieless keys inline.
+ */
+export type CookielessServerConfig = CookielessManagerConfig &
+    Pick<IngestionConsumerConfig, 'COOKIELESS_REDIS_HOST' | 'COOKIELESS_REDIS_PORT'>
+
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig
@@ -99,19 +129,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(
-        config: Pick<
-            IngestionConsumerConfig,
-            | 'COOKIELESS_DISABLED'
-            | 'COOKIELESS_FORCE_STATELESS_MODE'
-            | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
-            | 'COOKIELESS_SESSION_TTL_SECONDS'
-            | 'COOKIELESS_SALT_TTL_SECONDS'
-            | 'COOKIELESS_SESSION_INACTIVITY_MS'
-            | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
-        >,
-        redis: GenericPool<Redis.Redis>
-    ) {
+    constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -1012,4 +1030,27 @@ export function extractRootDomain(input: string): string {
 
     // Add the port back if it exists
     return port ? `${domain}:${port}` : domain
+}
+
+/**
+ * Scope entry for a `CookielessManager`. Takes an already-built Redis pool (its own scope entry, so
+ * draining it is the pool component's job); `stop` only shuts the manager down — i.e. clears its
+ * cleanup interval.
+ */
+export class CookielessManagerComponent {
+    constructor(
+        private readonly config: CookielessManagerConfig,
+        private readonly redisPool: RedisPool
+    ) {}
+
+    start(): Promise<{ value: CookielessManager; stop: () => Promise<void> }> {
+        const manager = new CookielessManager(this.config, this.redisPool)
+        return Promise.resolve({
+            value: manager,
+            stop: (): Promise<void> => {
+                manager.shutdown()
+                return Promise.resolve()
+            },
+        })
+    }
 }

@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "job_id": {
+            "description": "Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "level": {
+            "description": "Minimum log level to return. Defaults to INFO (excludes DEBUG).",
+            "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Max number of log entries to return (default 100).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "schema_id": {
+            "description": "UUID of the external data schema (table) to get sync logs for.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "search": {
+            "description": "Search string to filter log messages (case-insensitive substring match).",
+            "type": "string"
+        }
+    },
+    "required": ["schema_id"],
+    "type": "object"
+}

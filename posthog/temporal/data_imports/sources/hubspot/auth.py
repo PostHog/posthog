@@ -1,10 +1,40 @@
 from django.conf import settings
 
 import requests
+import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+
+logger = structlog.get_logger(__name__)
 
 
-def hubspot_refresh_access_token(refresh_token: str) -> str:
-    res = requests.post(
+class HubspotRetryableError(Exception):
+    """Transient HubSpot API failure (429 rate limit or 5xx) that should be retried with backoff."""
+
+    pass
+
+
+def _error_message_from_response(res: requests.Response) -> str:
+    """Best-effort extraction of HubSpot's error message, tolerant of non-JSON or message-less bodies."""
+    try:
+        return res.json()["message"]
+    except Exception:
+        return res.text
+
+
+@retry(
+    # A 429/5xx from HubSpot's OAuth token endpoint is transient. The data-fetch paths already
+    # back off and retry on HubspotRetryableError; this refresh is also reached at source-setup
+    # time (and from helpers.fetch_data), where no surrounding retry exists — so back off here too
+    # instead of failing the whole sync on a momentary rate limit.
+    retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
+    res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "refresh_token",
@@ -15,14 +45,49 @@ def hubspot_refresh_access_token(refresh_token: str) -> str:
     )
 
     if res.status_code != 200:
-        err_message = res.json()["message"]
+        err_message = _error_message_from_response(res)
+        # A 429 (rate limit) or 5xx from the OAuth token endpoint is transient. Surface it as a
+        # retryable error so the calling fetch loop backs off and retries instead of failing the
+        # whole sync on a momentary rate limit.
+        if res.status_code == 429 or res.status_code >= 500:
+            raise HubspotRetryableError(err_message)
         raise Exception(err_message)
 
-    return res.json()["access_token"]
+    access_token = res.json()["access_token"]
+
+    if source_id:
+        _update_source_job_inputs(source_id, access_token)
+
+    return access_token
+
+
+def hubspot_access_token_is_valid(access_token: str) -> bool:
+    res = make_tracked_session().get(
+        "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
+    )
+    return res.status_code == 200
+
+
+def _update_source_job_inputs(source_id: str, access_token: str) -> None:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+    try:
+        source = ExternalDataSource.objects.get(id=source_id)
+        job_inputs = source.job_inputs or {}
+
+        # Only persist for legacy sources that store credentials directly in job_inputs
+        if "hubspot_integration_id" in job_inputs:
+            return
+
+        job_inputs["hubspot_secret_key"] = access_token
+        source.job_inputs = job_inputs
+        source.save(update_fields=["job_inputs"])
+    except Exception:
+        logger.exception("Failed to update job_inputs after HubSpot token refresh", source_id=source_id)
 
 
 def get_hubspot_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
-    res = requests.post(
+    res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "authorization_code",

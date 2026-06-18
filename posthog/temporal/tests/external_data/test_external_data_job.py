@@ -46,13 +46,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
 
-from products.data_warehouse.backend.models import (
-    ExternalDataJob,
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
-    ExternalDataSource,
-    get_latest_run_if_exists,
+    get_all_schemas_for_source_id,
 )
-from products.data_warehouse.backend.models.external_data_schema import get_all_schemas_for_source_id
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -264,7 +263,10 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     ExternalDataSchema.objects.create(
@@ -281,6 +283,40 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
     all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
 
     assert len(all_schemas) == len(STRIPE_ENDPOINTS)
+
+
+@pytest.mark.parametrize("source_state", ["never_existed", "soft_deleted"])
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
+    activity_environment, team, source_state, **kwargs
+):
+    if source_state == "never_existed":
+        source_id = str(uuid.uuid4())
+    else:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
+        )
+        source.soft_delete()
+        source_id = str(source.pk)
+
+    inputs = SyncNewSchemasActivityInputs(source_id=source_id, team_id=team.id)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
+    ) as mock_delete_schedule:
+        with pytest.raises(Exception, match="Source no longer exists"):
+            activity_environment.run(sync_new_schemas_activity, inputs)
+
+    mock_delete_schedule.assert_called_once_with(source_id)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -414,7 +450,9 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         team_id=team.id,
     )
     with mock.patch(
-        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+        # patched at its defining module: update_should_sync imports it function-locally now
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -465,7 +503,9 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
         team_id=team.id,
     )
     with mock.patch(
-        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+        # patched at its defining module: update_should_sync imports it function-locally now
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -475,6 +515,87 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
     assert schema.should_sync is False
+
+
+# The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.
+# Both `_ssl.c` line variants have been seen in the wild and must stay non-retryable.
+@pytest.mark.parametrize(
+    "tls_handshake_error",
+    [
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1032)')))\"))"
+        ),
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1010)')))\"))"
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_tls_handshake_failure_is_non_retryable(
+    activity_environment, team, tls_handshake_error, **kwargs
+):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=tls_handshake_error,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        return_value=False,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.should_sync is False
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "SSHTunnel auth is not valid",
+        "Exception: SSHTunnel auth is not valid",
+    ],
+)
+def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
+    is_non_retryable = any(pattern in error_msg for pattern in Any_Source_Errors.keys())
+    assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
 
 
 @pytest.fixture
@@ -526,7 +647,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -559,7 +683,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
@@ -596,7 +723,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -619,7 +746,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -644,7 +771,10 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -682,7 +812,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -713,7 +843,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -734,7 +867,8 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with (
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+            return_value={"id": "string"},
         ),
         mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):

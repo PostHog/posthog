@@ -1,4 +1,4 @@
-from typing import cast
+from datetime import datetime
 
 from posthog.test.base import (
     APIBaseTest,
@@ -8,12 +8,23 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest.case import skip
+from unittest.mock import patch
 
-from posthog.schema import FunnelsQuery, FunnelTimeToConvertResults
+from posthog.schema import (
+    CompareFilter,
+    DateRange,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelTimeToConvertResults,
+    FunnelVizType,
+    IntervalType,
+    StepOrderValue,
+)
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
@@ -76,24 +87,22 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
         # Converted from 0 to 1 in 82_800 s
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "funnel_window_interval": 7,
-            "funnel_window_interval_unit": "day",
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -173,23 +182,22 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
         # Converted from 0 to 1 in 82_800 s
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step one", "order": 1},
-                {"id": "step one", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step one"),
+                EventsNode(event="step one"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -267,24 +275,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
         # Converted from 0 to 1 in 82_800 s
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "funnel_window_days": 7,
-            "bin_count": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                binCount=7,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
@@ -366,21 +373,20 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-06-12 06:00:00",
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(
@@ -401,7 +407,10 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
-        query = cast(FunnelsQuery, filter_to_query({**filters, "funnel_from_step": 0, "funnel_to_step": 2}))
+        assert query.funnelsFilter is not None
+        query = query.model_copy(
+            update={"funnelsFilter": query.funnelsFilter.model_copy(update={"funnelFromStep": 0, "funnelToStep": 2})}
+        )
         results_steps_specified = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(results, results_steps_specified)
@@ -460,25 +469,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
         # Converted from 0 to 1 in 82_800 s
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "funnel_window_days": 7,
-            "funnel_order_type": FunnelOrderType.UNORDERED,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelOrderType=StepOrderValue.UNORDERED,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -590,25 +597,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-06-12 09:00:00",
         )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "time_to_convert",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-06-07 00:00:00",
-            "date_to": "2021-06-13 23:59:59",
-            "funnel_from_step": 0,
-            "funnel_to_step": 1,
-            "funnel_window_days": 7,
-            "funnel_order_type": FunnelOrderType.STRICT,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
             ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-13 23:59:59"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelOrderType=StepOrderValue.STRICT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
@@ -632,3 +637,70 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 average_conversion_time=29540,
             ),
         )
+
+
+class TestFunnelTimeToConvertCompare(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous on funnel TIME_TO_CONVERT viz: two histograms on shared bin boundaries."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to=None,
+        bin_count=None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+                binCount=bin_count,
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_returns_two_histograms_on_shared_bins(self, _feature_enabled):
+        # Current window 2021-06-07..06-13: one 600 s conversion.
+        # Default previous window 2021-05-31..06-06: one 3600 s conversion.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 10, 10, 0)},
+                ],
+                "previous_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11, 0, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        self.assertEqual([row["compare_label"] for row in results], ["current", "previous"])
+
+        current = next(r for r in results if r["compare_label"] == "current")
+        previous = next(r for r in results if r["compare_label"] == "previous")
+
+        # Both periods are bucketed on the SAME boundaries (union range [600, 3600]).
+        current_boundaries = [b[0] for b in current["bins"]]
+        previous_boundaries = [b[0] for b in previous["bins"]]
+        self.assertEqual(current_boundaries, previous_boundaries)
+        self.assertEqual(current_boundaries, [600, 2100, 3600])
+
+        # Current 600 s conversion lands in the first bin; previous 3600 s in the last.
+        self.assertEqual([count for _, count in current["bins"]], [1, 0, 0])
+        self.assertEqual([count for _, count in previous["bins"]], [0, 0, 1])
+
+        self.assertEqual(current["average_conversion_time"], 600)
+        self.assertEqual(previous["average_conversion_time"], 3600)

@@ -6,7 +6,6 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
-from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -20,6 +19,8 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_role,
     get_field_access_control_map,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -51,8 +52,8 @@ class BaseUserAccessControlTest(BaseTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -368,9 +369,9 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
 
-        # Enable advanced permissions & role-based access for tests
+        # Enable access control & role-based access for tests
         self.organization.available_product_features = [
-            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "sso_enforcement"},
         ]
         self.organization.save()
@@ -526,13 +527,38 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
         self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
 
+    def test_filtering_ignores_rules_without_entitlement(self):
+        # Global "none" rule on file_b (user is not its creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # Sanity: with the entitlement the rule is enforced (file_b hidden)
+        self.assertCountEqual(
+            [self.file_a],
+            self.user_access_control.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        self.assertCountEqual(
+            [self.file_a, self.file_b],
+            fresh_uac.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
+
 
 @pytest.mark.ee
 class TestUserAccessControlSerializer(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # We'll use Dashboard as a sample resource object
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         self.dashboard = Dashboard.objects.create(team=self.team)
 
@@ -1019,7 +1045,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1051,7 +1077,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_insight_specific_access_control(self):
         """Test insight-specific access controls"""
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1204,6 +1230,97 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_1.id in notebook_ids
         assert self.notebook_3.id in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
+
+    def test_filter_queryset_ignores_rules_without_entitlement(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the rule is enforced
+        self._clear_uac_caches()
+        enforced_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+        assert self.notebook_2.id not in enforced_ids
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        filtered_ids = list(
+            fresh_uac.filter_queryset_by_access_level(Notebook.objects.all()).values_list("id", flat=True)
+        )
+        assert self.notebook_1.id in filtered_ids
+        assert self.notebook_2.id in filtered_ids
+        assert self.notebook_3.id in filtered_ids
+
+    def test_blocked_resource_ids_by_scope_ignores_rules_without_entitlement(self):
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the object is reported as blocked
+        self._clear_uac_caches()
+        assert str(self.notebook_2.id) in self.user_access_control.blocked_resource_ids_by_scope.get("notebook", set())
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        assert fresh_uac.blocked_resource_ids_by_scope == {}
+
+    @parameterized.expand(
+        [
+            (
+                "include_all_if_admin lists default-none dashboard for org admin (issue #44364)",
+                True,
+                True,
+            ),
+            (
+                "include_all_if_admin false keeps blocked default-none dashboards out of list for org admin",
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_organization_admin_dashboard_list_respects_include_all_if_admin_flag(
+        self, _name: str, include_all_if_admin: bool, expect_dashboard_in_results: bool
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="none",
+        )
+
+        self._clear_uac_caches()
+        uac = UserAccessControl(self.user, self.team)
+        filtered = uac.filter_queryset_by_access_level(
+            Dashboard.objects.filter(team=self.team),
+            include_all_if_admin=include_all_if_admin,
+        )
+        ids = list(filtered.values_list("id", flat=True))
+        if expect_dashboard_in_results:
+            assert dashboard.id in ids
+        else:
+            assert dashboard.id not in ids
 
     def test_get_user_access_level_with_specific_access_priority(self):
         """Test that get_user_access_level prioritizes specific access over resource access"""

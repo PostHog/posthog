@@ -1,0 +1,52 @@
+/*
+ * Aggregator for all quill primitive CSS.
+ *
+ * Each primitive owns a sibling `.css` file next to its `.tsx`.
+ * The primitive's source imports its own CSS for side effect, so bundlers
+ * that tree-shake per-component pull only the CSS they use. This aggregator
+ * exists for consumers who prefer a single `@import '@posthog/quill-primitives/styles.css'`.
+ */
+@import './layers.css';
+
+/* Components — alphabetical. Add new primitives here. */
+@import '../accordion.css';
+@import '../badge.css';
+@import '../button.css';
+@import '../button-group.css';
+@import '../card.css';
+@import '../checkbox.css';
+@import '../chip.css';
+@import '../collapsible.css';
+@import '../combobox.css';
+@import '../command.css';
+@import '../dialog.css';
+@import '../dot.css';
+@import '../drawer.css';
+@import '../empty.css';
+@import '../field.css';
+@import '../input.css';
+@import '../input-group.css';
+@import '../item.css';
+@import '../kbd.css';
+@import '../label.css';
+@import '../menu.css';
+@import '../menu-empty.css';
+@import '../menu-label.css';
+@import '../number-field.css';
+@import '../popover.css';
+@import '../progress.css';
+@import '../radio-group.css';
+@import '../resizable.css';
+@import '../scroll-area.css';
+@import '../select.css';
+@import '../separator.css';
+@import '../skeleton.css';
+@import '../slider.css';
+@import '../spinner.css';
+@import '../switch.css';
+@import '../tabs.css';
+@import '../textarea.css';
+@import '../toast.css';
+@import '../toggle.css';
+@import '../toggle-group.css';
+@import '../tooltip.css';

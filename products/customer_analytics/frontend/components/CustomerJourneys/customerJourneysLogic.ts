@@ -5,8 +5,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isUUIDLike } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUUIDLike } from 'lib/utils/guards'
 
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -34,6 +34,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     actions({
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
+        setQueryOverride: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
     }),
     lazyLoaders(({ values }) => ({
         journeys: {
@@ -89,6 +90,14 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             null as string | null,
             {
                 setActiveJourneyId: (_, { journeyId }) => journeyId,
+            },
+        ],
+        queryOverride: [
+            null as InsightVizNode<FunnelsQuery> | null,
+            {
+                setQueryOverride: (_, { query }) => query,
+                setActiveJourneyId: () => null,
+                loadActiveInsightSuccess: () => null,
             },
         ],
     }),
@@ -163,8 +172,11 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
             },
         ],
         activeJourneyFullQuery: [
-            (s) => [s.activeInsight],
-            (activeInsight): InsightVizNode<FunnelsQuery> | null => {
+            (s) => [s.activeInsight, s.queryOverride],
+            (activeInsight, queryOverride): InsightVizNode<FunnelsQuery> | null => {
+                if (queryOverride) {
+                    return queryOverride
+                }
                 const query = activeInsight?.query
                 if (!query || !isInsightVizNode(query)) {
                     return null

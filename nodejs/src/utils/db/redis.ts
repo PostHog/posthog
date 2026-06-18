@@ -50,10 +50,30 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 }
 
 /**
+ * Scope entry for a `RedisPool`. `start` creates the pool (which connects
+ * to Redis eagerly via `autostart`), `stop` drains the pool then clears
+ * it so all connections are released.
+ */
+export class RedisPoolComponent {
+    constructor(private readonly config: RedisPoolConfig) {}
+
+    start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
+        const pool = createRedisPoolFromConfig(this.config)
+        return Promise.resolve({
+            value: pool,
+            stop: async (): Promise<void> => {
+                await pool.drain()
+                await pool.clear()
+            },
+        })
+    }
+}
+
+/**
  * Sanitizes a Redis URL for safe logging by extracting only the host portion.
  * This prevents leaking credentials that may be embedded in the URL.
  */
-function getRedisHost(url: string, options?: RedisOptions): string {
+export function getRedisHost(url: string, options?: RedisOptions): string {
     try {
         const parsed = new URL(url)
         return parsed.host || '[sanitized-redis-host]'

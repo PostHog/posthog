@@ -60,6 +60,9 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element {
 
         try {
             await api.dataWarehouseManagedViewsets.toggle(kind, false)
+            if (kind === 'revenue_analytics') {
+                await api.revenueAnalyticsJoins.sync(false)
+            }
             lemonToast.success(`${VIEWSET_TITLES[kind]} viewset disabled and views deleted successfully`)
             loadCurrentTeam()
             return true

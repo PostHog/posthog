@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -186,7 +187,10 @@ describe('DWH source webhooks', () => {
         const signingSecret = 'whsec_testsecret'
 
         beforeEach(async () => {
-            api = new CdpApi(hub, createCdpConsumerDeps(hub))
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -296,8 +300,12 @@ describe('DWH source webhooks', () => {
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].key).toEqual(`${team.id}:${invoiceSchemaId}`)
             expect(kafkaMessages[0].value).toMatchObject({
-                type: 'invoice.payment_succeeded',
-                data: { object: { id: 'inv_1', object: 'invoice' } },
+                team_id: team.id,
+                schema_id: invoiceSchemaId,
+                payload: JSON.stringify({
+                    type: 'invoice.payment_succeeded',
+                    data: { object: { id: 'inv_1', object: 'invoice' } },
+                }),
             })
         })
 
@@ -412,7 +420,11 @@ describe('DWH source webhooks', () => {
 
             const kafkaMessages = getDwhKafkaMessages()
             expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toMatchObject(eventBody)
+            expect(kafkaMessages[0].value).toMatchObject({
+                team_id: team.id,
+                schema_id: subscriptionSchemaId,
+                payload: JSON.stringify(eventBody),
+            })
         })
     })
 })

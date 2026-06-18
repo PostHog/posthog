@@ -3,7 +3,7 @@ from typing import Literal, NotRequired, TypedDict
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-FLOAT_FIELDS = {"costInUsd", "conversionValueInLocalCurrency"}
+FLOAT_FIELDS = {"costInUsd", "costInLocalCurrency", "conversionValueInLocalCurrency"}
 
 # There are in the results from the API. The value is in the URN format.
 URN_COLUMNS = ["campaignGroup", "account", "campaign", "creative"]
@@ -22,8 +22,10 @@ class LinkedinAdsResource(StrEnum):
     Accounts = "accounts"
     Campaigns = "campaigns"
     CampaignGroups = "campaign_groups"
+    Creatives = "creatives"
     CampaignStats = "campaign_stats"
     CampaignGroupStats = "campaign_group_stats"
+    CreativeStats = "creative_stats"
 
 
 class LinkedinAdsPivot(StrEnum):
@@ -38,14 +40,17 @@ LINKEDIN_ADS_ENDPOINTS = {
     LinkedinAdsResource.Accounts: "adAccounts",
     LinkedinAdsResource.Campaigns: "adCampaigns",
     LinkedinAdsResource.CampaignGroups: "adCampaignGroups",
+    LinkedinAdsResource.Creatives: "creatives",
     LinkedinAdsResource.CampaignStats: "adAnalytics",
     LinkedinAdsResource.CampaignGroupStats: "adAnalytics",
+    LinkedinAdsResource.CreativeStats: "adAnalytics",
 }
 
 # Pivot mappings for analytics resources
 LINKEDIN_ADS_PIVOTS = {
     LinkedinAdsResource.CampaignStats: LinkedinAdsPivot.CAMPAIGN,
     LinkedinAdsResource.CampaignGroupStats: LinkedinAdsPivot.CAMPAIGN_GROUP,
+    LinkedinAdsResource.CreativeStats: LinkedinAdsPivot.CREATIVE,
 }
 
 
@@ -116,6 +121,27 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "is_stats": False,
         "partition_size": 1,
     },
+    LinkedinAdsResource.Creatives: {
+        "resource_name": "creatives",
+        # CreativeV11 rejects `type` and `changeAuditStamps` — don't add them here.
+        "field_names": [
+            "id",
+            "account",
+            "campaign",
+            "name",
+            "intendedStatus",
+            "isServing",
+            "review",
+            "createdAt",
+            "lastModifiedAt",
+        ],
+        "primary_key": ["id"],
+        "partition_keys": ["created_time"],
+        "partition_mode": "datetime",
+        "partition_format": "week",
+        "is_stats": False,
+        "partition_size": 1,
+    },
     LinkedinAdsResource.CampaignStats: {
         "resource_name": "campaign_stats",
         "field_names": [
@@ -124,6 +150,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "dateRange",
             "pivotValues",
             "costInUsd",
+            "costInLocalCurrency",
             "externalWebsiteConversions",
             "conversionValueInLocalCurrency",
             "landingPageClicks",
@@ -151,6 +178,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "dateRange",
             "pivotValues",
             "costInUsd",
+            "costInLocalCurrency",
             "externalWebsiteConversions",
             "conversionValueInLocalCurrency",
             "landingPageClicks",
@@ -161,6 +189,34 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "follows",
         ],
         "primary_key": ["date_start", "date_end", "campaign_group_id"],
+        "filter_field_names": [
+            ("date_start", IncrementalFieldType.Date),
+        ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "week",
+        "is_stats": True,
+        "partition_size": 1,
+    },
+    LinkedinAdsResource.CreativeStats: {
+        "resource_name": "creative_stats",
+        "field_names": [
+            "impressions",
+            "clicks",
+            "dateRange",
+            "pivotValues",
+            "costInUsd",
+            "costInLocalCurrency",
+            "externalWebsiteConversions",
+            "conversionValueInLocalCurrency",
+            "landingPageClicks",
+            "totalEngagements",
+            "videoViews",
+            "videoCompletions",
+            "oneClickLeads",
+            "follows",
+        ],
+        "primary_key": ["date_start", "date_end", "creative_id"],
         "filter_field_names": [
             ("date_start", IncrementalFieldType.Date),
         ],

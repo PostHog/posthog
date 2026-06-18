@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -8,19 +9,30 @@ import express from 'ultimate-express'
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
-import { HogFunctionType } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
+import { defaultConfig } from '~/config/config'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { UUIDT } from '~/utils/utils'
+import * as envUtils from '~/utils/env-utils'
 
 import { Hub, Team } from '../../../types'
-import { PIXEL_GIF } from './email-tracking.service'
+import {
+    METRIC_NAME_TO_EVENT_NAME,
+    PIXEL_GIF,
+    addTrackingToEmail,
+    decodeHtmlEntitiesInHref,
+    resolveEmailEngagementDistinctId,
+} from './email-tracking.service'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
     let team: Team
+
+    const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, defaultConfig.CDP_EMAIL_TRACKING_URL)
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -28,14 +40,120 @@ describe('EmailTrackingService', () => {
         team = await getFirstTeam(hub.postgres)
 
         mockFetch.mockClear()
+        mockProducerObserver.resetKafkaProducer()
     })
 
     afterEach(async () => {
         await closeHub(hub)
     })
 
+    describe('addTrackingToEmail', () => {
+        const invocation = {
+            functionId: 'fn-1',
+            id: 'inv-1',
+            teamId: 1,
+        } as any
+
+        const extractTarget = (html: string): string => {
+            const match = html.match(/href="[^"]*target=([^"&]+)/)
+            if (!match) {
+                throw new Error(`no tracking href in: ${html}`)
+            }
+            return decodeURIComponent(match[1])
+        }
+
+        it.each([
+            [
+                'named entity &amp;',
+                '<body><a href="https://example.com/?foo=bar&amp;baz=bop">x</a></body>',
+                'https://example.com/?foo=bar&baz=bop',
+            ],
+            [
+                'decimal numeric entity &#38;',
+                '<body><a href="https://example.com/?a=1&#38;b=2">x</a></body>',
+                'https://example.com/?a=1&b=2',
+            ],
+            [
+                'hex numeric entity &#x26;',
+                '<body><a href="https://example.com/?a=1&#x26;b=2">x</a></body>',
+                'https://example.com/?a=1&b=2',
+            ],
+            [
+                'plain URL with no entities',
+                '<body><a href="https://example.com/path">x</a></body>',
+                'https://example.com/path',
+            ],
+        ])('decodes %s in the redirect target', (_name, html, expected) => {
+            expect(extractTarget(addTrackingToEmail(html, invocation, signer))).toBe(expected)
+        })
+
+        it('skips literal javascript: hrefs', () => {
+            const html = '<body><a href="javascript:alert(1)">x</a></body>'
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('href="javascript:alert(1)"')
+            expect(out).not.toContain('target=')
+        })
+
+        it('skips entity-encoded javascript: hrefs after decoding', () => {
+            const html = '<body><a href="java&#x73;cript:alert(1)">x</a></body>'
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('href="java&#x73;cript:alert(1)"')
+            expect(out).not.toContain('target=')
+        })
+
+        const invocationWithDistinctId = {
+            functionId: 'fn-1',
+            id: 'inv-1',
+            teamId: 1,
+            state: { globals: { event: { distinct_id: 'leaky-id' } } },
+        } as any
+        const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
+
+        it('includes distinct_id in the public tracking URLs in dev/test', () => {
+            const out = addTrackingToEmail(
+                '<body><a href="https://example.com">x</a></body>',
+                invocationWithDistinctId,
+                signer
+            )
+            expect(signer.parse(phIdOf(out))?.distinctId).toBe('leaky-id')
+        })
+
+        it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
+            const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
+            const testSpy = jest.spyOn(envUtils, 'isTestEnv').mockReturnValue(false)
+            try {
+                const out = addTrackingToEmail(
+                    '<body><a href="https://example.com">x</a></body>',
+                    invocationWithDistinctId,
+                    signer
+                )
+                expect(signer.parse(phIdOf(out))?.distinctId).toBeUndefined()
+            } finally {
+                devSpy.mockRestore()
+                testSpy.mockRestore()
+            }
+        })
+    })
+
+    describe('decodeHtmlEntitiesInHref', () => {
+        it.each([
+            ['https://example.com/?a=1&amp;b=2', 'https://example.com/?a=1&b=2'],
+            ['https://example.com/?a=1&#38;b=2', 'https://example.com/?a=1&b=2'],
+            ['https://example.com/?a=1&#x26;b=2', 'https://example.com/?a=1&b=2'],
+            ['https://example.com/?a=1&amp;b=2&amp;c=3', 'https://example.com/?a=1&b=2&c=3'],
+            ['https://example.com/path', 'https://example.com/path'],
+            // Non-entity ampersands (legacy unencoded HTML) pass through untouched.
+            ['https://example.com/?a=1&b=2', 'https://example.com/?a=1&b=2'],
+            // Out-of-range code points (> 0x10FFFF) must not throw RangeError;
+            // the entity is left as-is.
+            ['https://example.com/?x=&#x200000;', 'https://example.com/?x=&#x200000;'],
+            ['https://example.com/?x=&#2097152;', 'https://example.com/?x=&#2097152;'],
+        ])('decodes %s to %s', (input, expected) => {
+            expect(decodeHtmlEntitiesInHref(input)).toBe(expected)
+        })
+    })
+
     describe('api', () => {
-        // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType
@@ -43,7 +161,10 @@ describe('EmailTrackingService', () => {
         let server: Server
 
         beforeEach(async () => {
-            api = new CdpApi(hub, createCdpConsumerDeps(hub))
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -55,40 +176,39 @@ describe('EmailTrackingService', () => {
             server.close()
         })
 
+        // In production, opens/clicks come from SES webhooks. In dev/test (which jest runs as)
+        // there is no SES, so the pixel/redirect handlers themselves emit the metric — these
+        // tests run in test env and exercise that path.
         describe('handleEmailTrackingRedirect', () => {
-            it('should redirect to the target url and track the click metric', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}&target=https://example.com`
-                )
+            it('should redirect to the target url and record an email_link_clicked metric', async () => {
+                const phId = signer.generate({
+                    functionId: hogFunction.id,
+                    id: invocationId,
+                    teamId: team.id,
+                })
+                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}&target=https://example.com`)
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe('https://example.com')
 
-                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(messages).toHaveLength(1)
-                expect(messages[0].value).toMatchObject({
-                    app_source: 'hog_function',
-                    app_source_id: hogFunction.id,
-                    instance_id: invocationId,
-                    metric_kind: 'email',
-                    metric_name: 'email_link_clicked',
-                    team_id: team.id,
-                    count: 1,
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({
+                        team_id: team.id,
+                        metric_name: 'email_link_clicked',
+                        metric_kind: 'email',
+                    })
                 })
             })
 
             it('should return 404 if the target is not provided', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/redirect?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
-                )
+                const phId = signer.generate({
+                    functionId: hogFunction.id,
+                    id: invocationId,
+                    teamId: team.id,
+                })
+                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}`)
                 expect(res.status).toBe(404)
-            })
-
-            it('should redirect even if the tracking code is invalid', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/redirect?ph_fn_id=invalid-function-id&ph_inv_id=invalid-invocation-id&target=https://example.com`
-                )
-                expect(res.status).toBe(302)
-                expect(res.headers.location).toBe('https://example.com')
 
                 const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                 expect(messages).toHaveLength(0)
@@ -96,35 +216,84 @@ describe('EmailTrackingService', () => {
         })
 
         describe('email tracking pixel', () => {
-            it('should return a 200 and a gif image, tracking the open metric', async () => {
-                const res = await supertest(app).get(
-                    `/public/m/pixel?ph_fn_id=${hogFunction.id}&ph_inv_id=${invocationId}`
-                )
+            it('should return a gif image and record an email_opened metric', async () => {
+                const phId = signer.generate({
+                    functionId: hogFunction.id,
+                    id: invocationId,
+                    teamId: team.id,
+                })
+                const res = await supertest(app).get(`/public/m/pixel?ph_id=${phId}`)
                 expect(res.status).toBe(200)
                 expect(res.headers['content-type']).toBe('image/gif')
                 expect(res.body).toEqual(PIXEL_GIF)
 
-                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(messages).toHaveLength(1)
-                expect(messages[0].value).toMatchObject({
-                    app_source: 'hog_function',
-                    app_source_id: hogFunction.id,
-                    instance_id: invocationId,
-                    metric_kind: 'email',
-                    metric_name: 'email_opened',
-                    team_id: team.id,
-                    count: 1,
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({
+                        team_id: team.id,
+                        metric_name: 'email_opened',
+                        metric_kind: 'email',
+                    })
                 })
             })
 
             it('should return a 200 even if the tracking code is invalid', async () => {
-                const res = await supertest(app).get(`/public/m/pixel?ph_fn_id=${new UUIDT()}&ph_inv_id=${new UUIDT()}`)
+                const res = await supertest(app).get(`/public/m/pixel?ph_id=invalid-tracking-code`)
                 expect(res.status).toBe(200)
                 expect(res.headers['content-type']).toBe('image/gif')
                 expect(res.body).toEqual(PIXEL_GIF)
 
                 const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                 expect(messages).toHaveLength(0)
+            })
+        })
+    })
+
+    describe('resolveEmailEngagementDistinctId', () => {
+        const buildInvocation = (
+            globals: Partial<NonNullable<CyclotronJobInvocationHogFunction['state']['globals']>>
+        ): CyclotronJobInvocationHogFunction =>
+            ({
+                state: { globals: globals as any },
+            }) as CyclotronJobInvocationHogFunction
+
+        it.each([
+            {
+                name: 'uses event.distinct_id (native for event-triggered; backfilled by the worker for batch)',
+                globals: { event: { distinct_id: 'user-from-event' } },
+                expected: 'user-from-event',
+            },
+            {
+                // Empty event.distinct_id means no distinct_id resolved upstream; we must NOT derive
+                // one from globals.person — person.id is the uuid (phantom person) and person.distinct_id
+                // is the same source already folded into event.distinct_id.
+                name: 'ignores globals.person and returns undefined when event.distinct_id is empty',
+                globals: { event: { distinct_id: '' }, person: { id: 'person-uuid', distinct_id: 'person-distinct' } },
+                expected: undefined,
+            },
+            {
+                name: 'returns undefined when there is no event',
+                globals: {},
+                expected: undefined,
+            },
+        ])('$name', ({ globals, expected }) => {
+            expect(resolveEmailEngagementDistinctId(buildInvocation(globals as any))).toBe(expected)
+        })
+    })
+
+    describe('METRIC_NAME_TO_EVENT_NAME allowlist', () => {
+        it('maps every email metric we want to surface and excludes internal ones', () => {
+            // Adding entries here changes the set of events customers can build insights on top of —
+            // treat as a public-API change. Removing entries leaves customers with broken insights.
+            expect(METRIC_NAME_TO_EVENT_NAME).toEqual({
+                email_sent: '$workflows_email_sent',
+                email_failed: '$workflows_email_failed',
+                email_delivered: '$workflows_email_delivered',
+                email_opened: '$workflows_email_opened',
+                email_link_clicked: '$workflows_email_link_clicked',
+                email_bounced: '$workflows_email_bounced',
+                email_blocked: '$workflows_email_blocked',
             })
         })
     })

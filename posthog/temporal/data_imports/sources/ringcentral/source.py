@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class RingCentralSource(SimpleSource[RingCentralSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RING_CENTRAL,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="RingCentral",
             iconPath="/static/services/ringcentral.png",
             fields=cast(list[FieldType], []),

@@ -15,14 +15,15 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
-import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
     AnyPropertyFilter,
+    BaseMathType,
     DashboardTile,
     DashboardType,
+    FilterLogicalOperator,
     FilterType,
     InsightLogicProps,
     InsightShortId,
@@ -39,6 +40,18 @@ const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
+}
+
+const API_QUERY = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: 3, math: 'total' }],
+        properties: {
+            type: 'AND',
+            values: [{ type: 'AND', values: [{ key: 'a', type: 'a', value: 'a', operator: PropertyOperator.Exact }] }],
+        },
+    },
 }
 
 const Insight12 = '12' as InsightShortId
@@ -92,7 +105,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         id: 42,
         short_id: Insight42,
         result: ['result 42'],
-        query: queryFromFilters(API_FILTERS),
+        query: API_QUERY,
         dashboards: [],
         dashboard_tiles: [],
         saved: true,
@@ -128,16 +141,20 @@ describe('insightLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],
-                '/api/environments/:team_id/insights/trend/': async (req) => {
-                    const clientQueryId = req.url.searchParams.get('client_query_id')
+                '/api/environments/:team_id/quick_filters/': {
+                    results: [],
+                },
+                '/api/environments/:team_id/insights/trend/': async ({ request }) => {
+                    const url = new URL(request.url)
+                    const clientQueryId = url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
                     }
 
-                    if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
+                    if (JSON.parse(url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
-                    if (req.url.searchParams.get('date_from') === '-180d') {
+                    if (url.searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
                         return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
@@ -154,8 +171,9 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/42': partialInsight42,
                 '/api/environments/:team_id/insights/43/': partialInsight43,
                 '/api/environments/:team_id/insights/44/': partialInsight44,
-                '/api/environments/:team_id/insights/': (req) => {
-                    if (req.url.searchParams.get('saved')) {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const url = new URL(request.url)
+                    if (url.searchParams.get('saved')) {
                         return [
                             200,
                             {
@@ -173,7 +191,7 @@ describe('insightLogic', () => {
                             },
                         ]
                     }
-                    const shortId = req.url.searchParams.get('short_id') || ''
+                    const shortId = url.searchParams.get('short_id') || ''
                     if (shortId === '500') {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -185,7 +203,7 @@ describe('insightLogic', () => {
                                     result: parseInt(shortId) === 42 ? ['result from api'] : null,
                                     id: parseInt(shortId),
                                     short_id: shortId.toString(),
-                                    filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                                    filters: JSON.parse(url.searchParams.get('filters') || 'false') || API_FILTERS,
                                     name: 'original name',
                                     dashboards: [1, 2, 3],
                                 },
@@ -231,25 +249,25 @@ describe('insightLogic', () => {
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/viewed': [201],
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { ...(req.body as any), id: 12, short_id: Insight12 },
+                    { ...((await request.json()) as any), id: 12, short_id: Insight12 },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     const response = patchResponseFor(
                         payload,
-                        req.params['id'] as string,
-                        JSON.parse(req.url.searchParams.get('filters') || 'false')
+                        params.id as string,
+                        JSON.parse(new URL(request.url).searchParams.get('filters') || 'false')
                     )
                     return [200, response]
                 },
-                '/api/projects/:team/insights/:id': async (req) => {
-                    const payload = await req.json()
-                    return [200, { ...payload, id: req.params['id'] }]
+                '/api/projects/:team/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as Record<string, any>
+                    return [200, { ...payload, id: params.id }]
                 },
             },
         })
@@ -358,15 +376,31 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<QueryBasedInsightModel> = {
+                const insight: Partial<QueryBasedInsightModel<InsightVizNode>> = {
                     short_id: Insight42,
-                    query: queryFromFilters({
-                        insight: InsightType.TRENDS,
-                        events: [{ id: 3, throw: true }],
-                        properties: [
-                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
-                        ],
-                    }),
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [{ kind: NodeKind.EventsNode, event: '3', math: BaseMathType.TotalCount }],
+                            properties: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                value: 'a',
+                                                operator: PropertyOperator.Exact,
+                                                key: 'a',
+                                                type: PropertyFilterType.Person,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                    },
                 }
                 logic = insightLogic({
                     dashboardItemId: Insight42,
@@ -392,7 +426,7 @@ describe('insightLogic', () => {
                                             },
                                         ],
                                     },
-                                    series: [partial({ event: 3 })],
+                                    series: [partial({ event: '3' })],
                                 },
                             },
                         },
@@ -442,13 +476,10 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic({ tabId: '1' }).mount()
+            savedInsightsLogic().mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
-                'loadInsights',
-                'loadInsightsSuccess',
-            ])
+            await expectLogic(savedInsightsLogic()).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -461,7 +492,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43), id: 123, query: queryFromFilters(API_FILTERS) },
+            cachedInsight: { ...createEmptyInsight(Insight43), id: 123, query: API_QUERY },
         }
 
         logic = insightLogic(insightProps)
@@ -525,7 +556,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -542,10 +573,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -553,7 +584,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -569,7 +600,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+        savedInsightsLogic().mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -600,12 +631,14 @@ describe('insightLogic', () => {
         }).toDispatchActions(['updateInsightSuccess'])
     })
 
-    test('save as new insight', async () => {
-        savedInsightsLogic({ tabId: '1' }).mount()
+    test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
+        savedInsightsLogic().mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
+                id: 42,
+                short_id: Insight42,
                 query: examples.InsightFunnels,
             },
         }
@@ -618,14 +651,11 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
-            .toDispatchActions(['setInsight'])
-            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic(), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
-                    id: 12,
-                    short_id: Insight12,
-                    name: 'New Insight (copy)',
+                    short_id: Insight42,
                     query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }),
                 }),
                 insightChanged: false,
@@ -980,7 +1010,7 @@ describe('insightLogic', () => {
         ])('is %s → %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                cachedInsight: { ...partialInsight42, query: API_QUERY },
                 ...propsOverride,
             })
             logic.mount()
@@ -996,7 +1026,7 @@ describe('insightLogic', () => {
         ])('returns correct value when %s', (_label, propsOverride, expected) => {
             logic = insightLogic({
                 dashboardItemId: Insight42,
-                cachedInsight: { ...partialInsight42, query: queryFromFilters(API_FILTERS) },
+                cachedInsight: { ...partialInsight42, query: API_QUERY },
                 ...propsOverride,
             })
             logic.mount()
@@ -1014,7 +1044,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight42,
                 cachedInsight: {
                     ...partialInsight42,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     user_access_level: accessLevel,
                 },
             })
@@ -1030,7 +1060,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight43,
                 cachedInsight: {
                     ...partialInsight43,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     name: 'Original 43',
                     description: 'Original description',
                     tags: [],
@@ -1071,8 +1101,8 @@ describe('insightLogic', () => {
         it('syncs favorited to savedInsight on metadata save', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/insights/:id': async (req) => {
-                        const payload = await req.json()
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        const payload = (await request.json()) as Record<string, any>
                         return [
                             200,
                             {
@@ -1091,7 +1121,7 @@ describe('insightLogic', () => {
                 dashboardItemId: Insight43,
                 cachedInsight: {
                     ...partialInsight43,
-                    query: queryFromFilters(API_FILTERS),
+                    query: API_QUERY,
                     name: 'Foobar 43',
                     description: 'Lorem ipsum.',
                     tags: ['good'],

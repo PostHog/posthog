@@ -10,6 +10,7 @@ from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
+    AssistantLifecycleQuery,
     AssistantMessage,
     AssistantTrendsQuery,
     DateRange,
@@ -17,7 +18,6 @@ from posthog.schema import (
     EventsNode,
     FunnelsQuery,
     HumanMessage,
-    LifecycleQuery,
     NotebookArtifactContent,
     RetentionFilter,
     RetentionQuery,
@@ -26,12 +26,12 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Insight
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredNotebookArtifactContent
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import AgentArtifact, Conversation
 
 
 class TestArtifactManagerCreateMessage(BaseTest):
@@ -673,7 +673,7 @@ class TestArtifactManagerGetVisualizationWithSource(BaseTest):
         assert isinstance(result.content, VisualizationArtifactContent)
         self.assertEqual(result.content.name, "Lifecycle Insight")
         self.assertEqual(result.content.description, "Test lifecycle insight")
-        assert isinstance(result.content.query, LifecycleQuery)
+        assert isinstance(result.content.query, AssistantLifecycleQuery)
 
     async def test_retrieves_visualizations_in_batch(self):
         """Test that aget_visualizations returns ordered list matching input IDs."""

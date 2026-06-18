@@ -1,6 +1,7 @@
 import { Mark, MarkViewProps, mergeAttributes } from '@tiptap/core'
 import { MarkViewContent, ReactMarkViewRenderer } from '@tiptap/react'
-import { useMountedLogic } from 'kea'
+import clsx from 'clsx'
+import { useMountedLogic, useValues } from 'kea'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 
@@ -44,9 +45,11 @@ export const NotebookMarkComment = Mark.create({
 
 const Component = (props: MarkViewProps): JSX.Element => {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { activeCommentMarkId } = useValues(notebookLogic)
+    const isActive = activeCommentMarkId === props.mark.attrs.id
 
     const attributes = mergeAttributes(props.HTMLAttributes, {
-        class: 'NotebookComment',
+        class: clsx('NotebookComment', isActive && 'NotebookComment--active'),
     })
 
     return (

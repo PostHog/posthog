@@ -12,6 +12,14 @@ export const isURLNormalizeable = (propertyName: string): boolean => {
 }
 
 export function isMultipleBreakdownType(breakdownType?: BreakdownType | null): breakdownType is MultipleBreakdownType {
-    const types: MultipleBreakdownType[] = ['person', 'event', 'event_metadata', 'group', 'session', 'hogql']
+    const types: MultipleBreakdownType[] = [
+        'person',
+        'event',
+        'event_metadata',
+        'group',
+        'session',
+        'hogql',
+        'data_warehouse',
+    ]
     return !!breakdownType && (types as string[]).includes(breakdownType)
 }

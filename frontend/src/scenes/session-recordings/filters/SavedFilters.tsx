@@ -15,8 +15,8 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
-import { isObject } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import {
@@ -30,6 +30,7 @@ import {
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
+import { stripSessionIds } from '../playlist/playlistUtils'
 import { SavedFiltersEmptyState, SavedFiltersLoadingState } from './SavedFiltersStates'
 
 export function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
@@ -150,7 +151,7 @@ export function SavedFilters({
                         <div
                             onClick={() => {
                                 if (filter && filter.filters) {
-                                    setFilters(filter.filters)
+                                    setFilters(stripSessionIds(filter.filters))
                                     setActiveFilterTab('filters')
                                     setAppliedSavedFilter(filter)
                                 }

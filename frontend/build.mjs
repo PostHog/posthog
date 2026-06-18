@@ -10,6 +10,7 @@ import {
     copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
+    reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
 
@@ -35,6 +36,7 @@ await import('./build-products.mjs')
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
+    writeMetaFile: !isDev,
 }
 
 await buildInParallel(
@@ -42,10 +44,11 @@ await buildInParallel(
         {
             name: 'PostHog App',
             globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
+            entryPoints: ['src/index.tsx', 'src/sharedChunkAnchors.ts'],
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -56,11 +59,36 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Monaco Editor Worker',
+            entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco JSON Worker',
+            entryPoints: ['src/lib/monaco/workers/json.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoJsonWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco TypeScript Worker',
+            entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.js'),
+            ...common,
+        },
+        {
             name: 'Exporter',
-            globalName: 'posthogExporter',
-            entryPoints: ['src/exporter/index.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            entryPoints: {
+                exporter: 'src/exporter/index.tsx',
+                exporterSharedChunkAnchors: 'src/sharedChunkAnchors.ts',
+            },
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -93,10 +121,16 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
+                }
                 writeIndexHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Exporter') {
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                }
                 writeExporterHtml(chunks, entrypoints)
             }
 

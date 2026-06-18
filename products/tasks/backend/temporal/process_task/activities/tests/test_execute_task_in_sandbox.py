@@ -4,8 +4,8 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import (
     ExecuteTaskInput,
     execute_task_in_sandbox,
@@ -25,6 +25,8 @@ class TestExecuteTaskInSandboxActivity:
             task_id=task_id,
             run_id=run_id,
             team_id=github_integration.team_id,
+            team_uuid=str(github_integration.team.uuid),
+            organization_id=str(github_integration.team.organization_id),
             github_integration_id=github_integration.id,
             repository=repository,
             distinct_id="test-user-id",

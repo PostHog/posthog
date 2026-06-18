@@ -2,13 +2,9 @@ import json
 import datetime as dt
 import dataclasses
 
-from django.conf import settings
-
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
-from temporalio.exceptions import WorkflowAlreadyStartedError
-from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -20,6 +16,7 @@ from posthog.temporal.data_modeling.activities import (
     MaterializeViewInputs,
     PrepareQueryableTableInputs,
     SucceedMaterializationInputs,
+    check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
     materialize_view_activity,
@@ -32,10 +29,17 @@ from posthog.temporal.data_modeling.metrics import (
     get_duckgres_shadow_duration_metric,
     get_duckgres_shadow_finished_metric,
     get_duckgres_shadow_row_count_match_metric,
+    get_duckgres_shadow_rows_materialized_metric,
+    get_duckgres_shadow_storage_delta_mib_metric,
+    get_duckgres_shadow_storage_mib_metric,
+    get_node_duration_metric,
+    get_node_finished_metric,
+    get_node_rows_materialized_metric,
+    get_node_storage_delta_mib_metric,
+    get_node_total_storage_mib_metric,
 )
-from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -61,6 +65,7 @@ class MaterializeViewWorkflowInputs:
     dag_id: str
     node_id: str
     duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -113,44 +118,69 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
-        job_id = await temporalio.workflow.execute_activity(
-            create_data_modeling_job_activity,
-            CreateDataModelingJobInputs(
-                team_id=inputs.team_id,
-                node_id=inputs.node_id,
-                dag_id=inputs.dag_id,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-        )
+        parent_info = temporalio.workflow.info().parent
+        parent_workflow_id = parent_info.workflow_id if parent_info else None
+        job_id = None
+        duckgres_job_id = None
 
-        # create a separate job for the duckgres shadow materialization
-        duckgres_job_id = await temporalio.workflow.execute_activity(
-            create_data_modeling_job_activity,
-            CreateDataModelingJobInputs(
-                team_id=inputs.team_id,
-                node_id=inputs.node_id,
-                dag_id=inputs.dag_id,
-                engine=DataModelingJobEngine.DUCKGRES,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-        )
-
-        # fire-and-forget: start duckgres shadow materialization in parallel
-        duckgres_shadow_handle = temporalio.workflow.start_activity(
-            materialize_view_duckgres_activity,
-            DuckgresShadowInputs(
-                team_id=inputs.team_id,
-                node_id=inputs.node_id,
-                dag_id=inputs.dag_id,
-                job_id=duckgres_job_id,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=15),
+        # check whether duckgres shadow is enabled before creating the job
+        duckgres_enabled = await temporalio.workflow.execute_activity(
+            check_duckgres_shadow_enabled_activity,
+            inputs.team_id,
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=1,
+                maximum_attempts=3,
             ),
         )
+
+        duckgres_shadow_handle = None
+        if duckgres_enabled or inputs.duckgres_only:
+            duckgres_job_id = await temporalio.workflow.execute_activity(
+                create_data_modeling_job_activity,
+                CreateDataModelingJobInputs(
+                    team_id=inputs.team_id,
+                    node_id=inputs.node_id,
+                    dag_id=inputs.dag_id,
+                    engine=DataModelingJobEngine.DUCKGRES,
+                    parent_workflow_id=parent_workflow_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+            # fire-and-forget: start duckgres shadow materialization in parallel
+            duckgres_shadow_handle = temporalio.workflow.start_activity(
+                materialize_view_duckgres_activity,
+                DuckgresShadowInputs(
+                    team_id=inputs.team_id,
+                    node_id=inputs.node_id,
+                    dag_id=inputs.dag_id,
+                    job_id=duckgres_job_id,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3 if inputs.duckgres_only else 1,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
+                ),
+            )
 
         if not inputs.duckgres_only:
+            job_id = await temporalio.workflow.execute_activity(
+                create_data_modeling_job_activity,
+                CreateDataModelingJobInputs(
+                    team_id=inputs.team_id,
+                    node_id=inputs.node_id,
+                    dag_id=inputs.dag_id,
+                    parent_workflow_id=parent_workflow_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
             try:
                 materialize_result = await temporalio.workflow.execute_activity(
                     materialize_view_activity,
@@ -161,7 +191,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         job_id=job_id,
                     ),
                     # clickhouse timeout is 10mins so start to close is that plus a bit of margin
-                    start_to_close_timeout=dt.timedelta(minutes=15),
+                    start_to_close_timeout=dt.timedelta(minutes=20),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=temporalio.common.RetryPolicy(
                         maximum_attempts=3,
@@ -172,8 +202,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
                 )
 
-                # prepare files for querying and create DataWarehouseTable
-                await temporalio.workflow.execute_activity(
+                # prepare files for querying and create DataWarehouseTable.
+                # materialize_view_activity guarantees file_uris is non-empty even for
+                # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
+                # so prepare_s3_files_for_querying has something to list.
+                storage_result = await temporalio.workflow.execute_activity(
                     prepare_queryable_table_activity,
                     PrepareQueryableTableInputs(
                         team_id=inputs.team_id,
@@ -188,37 +221,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-                try:
-                    model = DuckLakeCopyModelInput(
-                        model_label=materialize_result.node_name,
-                        saved_query_id=materialize_result.saved_query_id,
-                        table_uri=materialize_result.table_uri,
-                    )
-                    ducklake_inputs = DataModelingDuckLakeCopyInputs(
-                        team_id=inputs.team_id, job_id=job_id, models=[model]
-                    )
-                    await temporalio.workflow.start_child_workflow(
-                        workflow="ducklake-copy.data-modeling",
-                        arg=dataclasses.asdict(ducklake_inputs),
-                        id=f"ducklake-copy-data-modeling-{inputs.team_id}-{materialize_result.saved_query_id}",
-                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                        parent_close_policy=ParentClosePolicy.ABANDON,
-                        retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=1,
-                            non_retryable_error_types=["NondeterminismError"],
-                        ),
-                    )
-                except WorkflowAlreadyStartedError:
-                    temporalio.workflow.logger.warning(
-                        "DuckLake copy already running, skipping",
-                        saved_query_id=materialize_result.saved_query_id,
-                    )
-                except Exception as ducklake_err:
-                    temporalio.workflow.logger.warning(
-                        f"DuckLake copy workflow failed: {str(ducklake_err)}",
-                        extra=inputs.properties_to_log,
-                    )
-                    capture_exception(ducklake_err)
                 # handle success
                 end_time = temporalio.workflow.now()
                 duration_seconds = (end_time - start_time).total_seconds()
@@ -239,13 +241,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 )
 
                 # after the main workflow succeeds, collect shadow stats for comparison
-                await self._collect_shadow_comparison(
-                    duckgres_shadow_handle,
-                    duckgres_job_id,
-                    materialize_result.row_count,
-                    duration_seconds,
-                    inputs,
-                )
+                if duckgres_shadow_handle is not None:
+                    await self._collect_shadow_comparison(
+                        duckgres_shadow_handle,
+                        materialize_result.row_count,
+                        duration_seconds,
+                        inputs,
+                    )
 
                 temporalio.workflow.logger.info(
                     "MaterializeViewWorkflow completed successfully",
@@ -255,6 +257,16 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         **inputs.properties_to_log,
                     },
                 )
+
+                # node-level metrics
+                get_node_finished_metric("completed").add(1)
+                get_node_duration_metric().record(duration_seconds)
+                get_node_rows_materialized_metric().record(materialize_result.row_count)
+                if storage_result.storage_delta_mib is not None and storage_result.storage_delta_mib >= 0:
+                    get_node_storage_delta_mib_metric().record(storage_result.storage_delta_mib)
+                if storage_result.total_storage_mib is not None:
+                    get_node_total_storage_mib_metric().record(storage_result.total_storage_mib)
+
                 return MaterializeViewWorkflowResult(
                     job_id=job_id,
                     node_id=inputs.node_id,
@@ -298,102 +310,47 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         f"Failed to mark job as failed: {str(fail_err)}",
                         extra=inputs.properties_to_log,
                     )
+                get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
                 raise
 
         # await the duckgres shadow activity so the parent workflow's concurrency
         # semaphore isn't released until the query finishes on duckgres
-        try:
-            shadow_result: DuckgresShadowResult = await duckgres_shadow_handle
-            await self._resolve_duckgres_job(shadow_result, duckgres_job_id, inputs)
-        except Exception as shadow_err:
-            temporalio.workflow.logger.warning(
-                f"Duckgres shadow activity failed (duckgres_only): {str(shadow_err)}",
-                extra=inputs.properties_to_log,
-            )
-            capture_exception(shadow_err)
-            await self._resolve_duckgres_job(
-                DuckgresShadowResult(
-                    error=str(shadow_err), row_count=0, duration_seconds=0, schema_name="", table_name=""
-                ),
-                duckgres_job_id,
-                inputs,
-            )
-        # TODO: populate with real values
+        result = None
+        if duckgres_shadow_handle is not None:
+            try:
+                result = await duckgres_shadow_handle
+            except Exception as shadow_err:
+                temporalio.workflow.logger.warning(
+                    f"Duckgres shadow activity failed (duckgres_only): {str(shadow_err)}",
+                    extra=inputs.properties_to_log,
+                )
+                capture_exception(shadow_err)
+        # fallback to duckgres job if no clickhouse job was run
+        if job_id is None:
+            if duckgres_job_id is None:
+                raise temporalio.exceptions.ApplicationError("No data modeling job was created")
+            job_id = duckgres_job_id
         return MaterializeViewWorkflowResult(
             job_id=job_id,
             node_id=inputs.node_id,
-            rows_materialized=-1,
-            duration_seconds=-1,
+            rows_materialized=result.row_count if result else 0,
+            duration_seconds=result.duration_seconds if result else 0,
         )
-
-    async def _resolve_duckgres_job(
-        self,
-        shadow_result: DuckgresShadowResult,
-        duckgres_job_id: str,
-        inputs: MaterializeViewWorkflowInputs,
-    ) -> None:
-        """Update the duckgres job based on the shadow result.
-
-        Best-effort — failures are logged but never affect the workflow result.
-        """
-        if shadow_result.error == "disabled":
-            return
-
-        try:
-            if shadow_result.error is None:
-                await temporalio.workflow.execute_activity(
-                    succeed_materialization_activity,
-                    SucceedMaterializationInputs(
-                        team_id=inputs.team_id,
-                        node_id=inputs.node_id,
-                        dag_id=inputs.dag_id,
-                        job_id=duckgres_job_id,
-                        row_count=shadow_result.row_count,
-                        duration_seconds=shadow_result.duration_seconds,
-                        update_node=False,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-                )
-            else:
-                await temporalio.workflow.execute_activity(
-                    fail_materialization_activity,
-                    FailMaterializationInputs(
-                        team_id=inputs.team_id,
-                        node_id=inputs.node_id,
-                        dag_id=inputs.dag_id,
-                        job_id=duckgres_job_id,
-                        error=shadow_result.error,
-                        update_node=False,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-                )
-        except Exception as e:
-            temporalio.workflow.logger.warning(
-                f"Failed to resolve duckgres job: {str(e)}",
-                extra=inputs.properties_to_log,
-            )
-            capture_exception(e)
 
     async def _collect_shadow_comparison(
         self,
         shadow_handle: temporalio.workflow.ActivityHandle[DuckgresShadowResult],
-        duckgres_job_id: str,
         clickhouse_row_count: int,
         clickhouse_duration_seconds: float,
         inputs: MaterializeViewWorkflowInputs,
     ) -> None:
-        """Await the duckgres shadow activity, update the duckgres job, and emit comparison metrics.
+        """Await the duckgres shadow activity and emit comparison metrics.
 
+        The activity itself is responsible for updating its job to a terminal state.
         This is best-effort — any failure is swallowed so it never affects the workflow result.
         """
         try:
             shadow_result: DuckgresShadowResult = await shadow_handle
-            await self._resolve_duckgres_job(shadow_result, duckgres_job_id, inputs)
-
-            if shadow_result.error == "disabled":
-                return
 
             row_count_matched = clickhouse_row_count == shadow_result.row_count
             status = "completed" if shadow_result.error is None else "failed"
@@ -403,7 +360,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
             if shadow_result.error is None:
                 get_duckgres_shadow_duration_metric().record(shadow_result.duration_seconds)
+                get_duckgres_shadow_rows_materialized_metric().record(shadow_result.row_count)
                 get_duckgres_shadow_row_count_match_metric(row_count_matched).add(1)
+                if shadow_result.file_size_bytes > 0:
+                    get_duckgres_shadow_storage_mib_metric().record(shadow_result.file_size_bytes / (1024 * 1024))
+                    if shadow_result.file_size_delta_bytes >= 0:
+                        get_duckgres_shadow_storage_delta_mib_metric().record(
+                            shadow_result.file_size_delta_bytes / (1024 * 1024)
+                        )
 
             # structured log for detailed comparison
             temporalio.workflow.logger.info(
@@ -427,10 +391,3 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
-            await self._resolve_duckgres_job(
-                DuckgresShadowResult(
-                    error=str(shadow_err), row_count=0, duration_seconds=0, schema_name="", table_name=""
-                ),
-                duckgres_job_id,
-                inputs,
-            )

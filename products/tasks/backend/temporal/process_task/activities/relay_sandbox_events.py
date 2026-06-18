@@ -11,10 +11,19 @@ import structlog
 import temporalio.client
 from temporalio import activity
 
-from products.tasks.backend.models import TaskRun as TaskRunModel
+from posthog.temporal.common.utils import close_db_connections
+
+from products.tasks.backend.models import (
+    Task as TaskModel,
+    TaskRun as TaskRunModel,
+)
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
+
+from ee.hogai.sandbox import is_turn_complete
 
 logger = structlog.get_logger(__name__)
 
@@ -39,9 +48,11 @@ class RelaySandboxEventsInput:
     sandbox_connect_token: str | None
     team_id: int
     distinct_id: str
+    sandbox_id: str | None = None
 
 
 @activity.defn
+@close_db_connections
 async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 
@@ -52,11 +63,20 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     if validation_error:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
+    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+
+    # Match the freshness window to the workflow's inactivity timeout for this run
+    # so the heartbeat suppression below never resets a timer it shouldn't.
+    origin_product = task_run.task.origin_product
+    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
+    inactivity_timeout_seconds = resolve_inactivity_timeout(
+        is_user_origin=is_user_origin, state=task_run.state
+    ).total_seconds()
+
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key)
+    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
     await redis_stream.initialize()
 
-    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
     created_by = task_run.task.created_by
     connection_token = create_sandbox_connection_token(
         task_run=task_run,
@@ -74,6 +94,18 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
 
     events_url = f"{input.sandbox_url.rstrip('/')}/events"
 
+    background_logs_enabled = False
+    if input.sandbox_id:
+        import posthoganalytics
+
+        background_logs_enabled = bool(
+            posthoganalytics.feature_enabled(
+                "posthog-code-background-agent-logs",
+                input.distinct_id,
+                send_feature_flag_events=False,
+            )
+        )
+
     try:
         await _relay_loop(
             events_url=events_url,
@@ -82,15 +114,78 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             redis_stream=redis_stream,
             run_id=input.run_id,
             task_id=input.task_id,
+            sandbox_id=input.sandbox_id,
+            background_logs_enabled=background_logs_enabled,
+            task_run=task_run,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
-        await redis_stream.mark_error("Relay cancelled")
+        # Cancellation is expected when the workflow finishes or is replaced.
+        # Do not emit an error sentinel: it makes clients treat a still-valid
+        # task run as unrecoverably disconnected.
+        await redis_stream.mark_complete()
         raise
-    except Exception as e:
+    except RuntimeError as e:
+        # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
+        # for getaddrinfo, and it gets torn down by atexit before in-flight
+        # reconnect attempts finish (common under pytest teardown of the eval
+        # harness). Exit quietly — logger and Redis are already unusable here,
+        # so touching them would cascade into "I/O on closed file" noise.
+        if "cannot schedule new futures after shutdown" in str(e):
+            return
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
         raise
+    except Exception as e:
+        try:
+            marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
+        except Exception as status_check_error:
+            logger.exception(
+                "relay_sandbox_events_terminal_status_check_failed",
+                run_id=input.run_id,
+                relay_error=str(e),
+                error=str(status_check_error),
+            )
+            try:
+                await redis_stream.mark_error(str(e)[:500])
+            except Exception as mark_error_error:
+                logger.exception(
+                    "relay_sandbox_events_mark_error_failed",
+                    run_id=input.run_id,
+                    relay_error=str(e),
+                    error=str(mark_error_error),
+                )
+            logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        else:
+            if marked_complete:
+                logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
+            else:
+                logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        raise
+
+
+async def _mark_error_unless_run_is_terminal(
+    redis_stream: TaskRunRedisStream,
+    run_id: str,
+    error: str,
+) -> bool:
+    try:
+        task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
+    except TaskRunModel.DoesNotExist:
+        await redis_stream.mark_error(error[:500])
+        return False
+
+    if task_run.status in (
+        TaskRunModel.Status.COMPLETED,
+        TaskRunModel.Status.FAILED,
+        TaskRunModel.Status.CANCELLED,
+    ):
+        await redis_stream.mark_complete()
+        return True
+
+    await redis_stream.mark_error(error[:500])
+    return False
 
 
 async def _background_heartbeat(
@@ -98,6 +193,8 @@ async def _background_heartbeat(
     workflow_handle: temporalio.client.WorkflowHandle | None = None,
     last_event_time: list[float] | None = None,
     last_workflow_signal: list[float] | None = None,
+    agent_active: list[bool] | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -111,21 +208,21 @@ async def _background_heartbeat(
             return  # stop_event was set
         except TimeoutError:
             activity.heartbeat()
-            # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT_MINUTES
-
             now = time.monotonic()
             if (
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT_MINUTES * 60
+                and (now - last_event_time[0]) < inactivity_timeout_seconds
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
+                and (agent_active is None or agent_active[0])
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
                 try:
-                    await workflow_handle.signal("heartbeat")
+                    await workflow_handle.signal(
+                        "heartbeat", arg=agent_active[0] if agent_active is not None else False
+                    )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
 
@@ -138,6 +235,10 @@ async def _relay_loop(
     redis_stream: TaskRunRedisStream,
     run_id: str,
     task_id: str,
+    sandbox_id: str | None = None,
+    background_logs_enabled: bool = False,
+    task_run: TaskRunModel | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -158,10 +259,19 @@ async def _relay_loop(
     # The background heartbeat reads this to decide whether the agent is active.
     last_event_time: list[float] = [0.0]  # list used as mutable container
     last_workflow_signal: list[float] = [0.0]  # shared with background heartbeat
+    agent_active: list[bool] = [True]  # agent is working; False after end_turn
+    last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
-        _background_heartbeat(stop_heartbeat, workflow_handle, last_event_time, last_workflow_signal)
+        _background_heartbeat(
+            stop_heartbeat,
+            workflow_handle,
+            last_event_time,
+            last_workflow_signal,
+            agent_active,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+        )
     )
 
     try:
@@ -183,7 +293,6 @@ async def _relay_loop(
                         params=params,
                     ) as event_source:
                         event_source.response.raise_for_status()
-                        reconnect_count = 0  # Reset on successful connection
                         last_event_time[0] = time.monotonic()
 
                         async for sse_event in event_source.aiter_sse():
@@ -200,17 +309,35 @@ async def _relay_loop(
                                 )
                                 continue
 
+                            if _is_keepalive_event(event_data):
+                                continue
+
                             await redis_stream.write_event(event_data)
+                            reconnect_count = 0
                             last_event_time[0] = time.monotonic()
+
+                            if _is_end_of_turn(event_data):
+                                agent_active[0] = False
+                                if sandbox_id and background_logs_enabled:
+                                    asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
+                                if task_run is not None and task_run.mode == "interactive":
+                                    # Interactive run finished a turn — the agent is now idle waiting
+                                    # for the user. Hop off the event loop because the dispatcher
+                                    # does sync Redis (cache.add) and a potential network call to
+                                    # the feature-flag service.
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
+                            elif not agent_active[0] and _is_session_update(event_data):
+                                agent_active[0] = True
 
                             now = time.monotonic()
                             if (
                                 workflow_handle is not None
+                                and agent_active[0]
                                 and (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS
                             ):
                                 last_workflow_signal[0] = now
                                 try:
-                                    await workflow_handle.signal("heartbeat")
+                                    await workflow_handle.signal("heartbeat", arg=True)
                                 except Exception as e:
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
@@ -222,7 +349,8 @@ async def _relay_loop(
 
                     # SSE stream ended normally (sandbox closed connection)
                     await redis_stream.mark_complete()
-                return
+                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
+                    return
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
@@ -233,7 +361,29 @@ async def _relay_loop(
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
-            except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status < 500:
+                    # 4xx errors are permanent — sandbox is gone or auth is invalid
+                    logger.warning(
+                        "relay_sandbox_events_sandbox_gone",
+                        run_id=run_id,
+                        status_code=status,
+                    )
+                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
+                    return
+                # 5xx — transient server error, worth retrying
+                reconnect_count += 1
+                logger.warning(
+                    "relay_sandbox_events_http_error",
+                    run_id=run_id,
+                    status_code=status,
+                    error=str(e),
+                    reconnect_count=reconnect_count,
+                )
+                await asyncio.sleep(min(reconnect_count * 2, 10))
+
+            except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
                 logger.warning(
                     "relay_sandbox_events_connection_error",
@@ -256,6 +406,58 @@ async def _relay_loop(
             pass
 
 
+def _is_session_update(event_data: dict) -> bool:
+    """Check if an event is a session/update notification (active agent processing)."""
+    if event_data.get("type") != "notification":
+        return False
+    notification = event_data.get("notification", {})
+    return notification.get("method") == "session/update"
+
+
+def _is_keepalive_event(event_data: dict) -> bool:
+    return event_data.get("type") == "keepalive"
+
+
+_is_end_of_turn = is_turn_complete
+
+
+async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
+    """Read recent agentsh network events and emit as debug console logs."""
+    from products.tasks.backend.services.agentsh import build_audit_query_command
+    from products.tasks.backend.services.sandbox import Sandbox
+    from products.tasks.backend.temporal.observability import emit_agent_log
+
+    try:
+        sandbox = Sandbox.get_by_id(sandbox_id)
+        result = await asyncio.to_thread(
+            sandbox.execute,
+            build_audit_query_command(since_ns=last_ts_ns[0]),
+            timeout_seconds=5,
+        )
+        if not result.stdout.strip() or result.stdout.strip() == "[]":
+            return
+        events = json.loads(result.stdout)
+        if not events:
+            return
+        last_ts_ns[0] = max(e["ts_unix_ns"] for e in events)
+        lines = []
+        for e in events:
+            decision = (e.get("effective_decision") or "").upper()
+            domain = e.get("domain") or e.get("remote") or ""
+            rule = e.get("policy_rule") or ""
+            if domain:
+                lines.append(f"  {decision:5s} {domain} (rule: {rule})")
+        if lines:
+            await asyncio.to_thread(
+                emit_agent_log,
+                run_id,
+                "debug",
+                "agentsh network events:\n" + "\n".join(lines),
+            )
+    except Exception as e:
+        logger.debug("agentsh_emit_failed", error=str(e))
+
+
 def _is_terminal_event(event_data: dict) -> bool:
     """Check if an ACP event signals the agent session has ended."""
     if event_data.get("type") != "notification":
@@ -263,3 +465,23 @@ def _is_terminal_event(event_data: dict) -> bool:
     notification = event_data.get("notification", {})
     method = notification.get("method", "")
     return method in TERMINAL_NOTIFICATION_METHODS
+
+
+def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
+    """Schedule a push when an interactive run idles waiting on the user.
+
+    Must be called via ``asyncio.to_thread`` (as the caller does) because the
+    dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
+    network call to the feature-flag service. Wrapped in a try so a failed
+    dispatch never bubbles into the relay loop.
+    """
+    try:
+        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+
+        notify_task_run_awaiting_input(task_run)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )

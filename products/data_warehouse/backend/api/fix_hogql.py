@@ -8,12 +8,18 @@ from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 
 class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
+
+    @extend_schema(operation_id="fix_hogql_list")
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         from products.data_warehouse.backend.hogql_fixer_ai import HogQLQueryFixerTool

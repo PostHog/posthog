@@ -1,0 +1,9 @@
+name: User interviews
+# Individual owners (not a team) — quoted because YAML disallows a plain scalar
+# starting with `@`. The assign-reviewers script soft-assigns these via CODEOWNERS-soft;
+# product.yaml only treats team slugs as auto-reviewers, so listing people here keeps
+# `owners` valid and documents ownership without tagging an unrelated team.
+owners:
+    - '@pauldambra'
+    - '@fivestarspicy'
+    - '@ksvat'

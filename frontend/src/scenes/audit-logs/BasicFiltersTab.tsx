@@ -7,16 +7,27 @@ import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/huma
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { ActivityScope } from '~/types'
 
-import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { advancedActivityLogsLogic, isValidIpFilterValue } from './advancedActivityLogsLogic'
 import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
-    const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =
-        useValues(advancedActivityLogsLogic)
+    const {
+        filters,
+        availableFilters,
+        availableFiltersLoading,
+        showMoreFilters,
+        activeAdvancedFiltersCount,
+        isOrganizationView,
+        teamsById,
+    } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
+    const projectOptions = Object.entries(teamsById)
+        .map(([id, name]) => ({ key: id, label: name as string }))
+        .sort((a, b) => a.label.localeCompare(b.label))
 
     return (
         <div className="flex flex-col gap-4 pt-4">
@@ -35,6 +46,29 @@ export const BasicFiltersTab = (): JSX.Element => {
                     />
                 </div>
 
+                {isOrganizationView && (
+                    <div className="flex flex-col gap-1">
+                        <label className="block text-sm font-medium mb-1">Project</label>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            value={(filters.team_ids ?? []).map(String)}
+                            onChange={(values) =>
+                                setFilters({
+                                    team_ids: values.map((v) => parseInt(v, 10)).filter((v) => !Number.isNaN(v)),
+                                })
+                            }
+                            options={projectOptions}
+                            placeholder="All projects"
+                            allowCustomValues={false}
+                            data-attr="audit-logs-project-filter"
+                            size="small"
+                            className="min-w-50"
+                        />
+                    </div>
+                )}
+
                 <div className="flex flex-col gap-1">
                     <label className="block text-sm font-medium mb-1">User</label>
                     <LemonInputSelect
@@ -49,6 +83,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 label: u.label,
                             })) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All users"
                         allowCustomValues={false}
                         data-attr="audit-logs-user-filter"
@@ -73,6 +108,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All scopes"
                         allowCustomValues={false}
                         data-attr="audit-logs-scope-filter"
@@ -97,6 +133,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 }))
                                 .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
+                        loading={availableFiltersLoading}
                         placeholder="All activities"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
@@ -198,6 +235,67 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 placeholder="Enter item IDs"
                                 allowCustomValues={true}
                                 data-attr="audit-logs-item-ids-filter"
+                                size="small"
+                                className="min-w-50"
+                            />
+                        </div>
+
+                        {(availableFilters?.static_filters?.clients?.length ?? 0) > 0 && (
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <label className="block text-sm font-medium">Client</label>
+                                    <Tooltip title="The SDK or integration that triggered the action (e.g. MCP).">
+                                        <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                    </Tooltip>
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    displayMode="count"
+                                    bulkActions="select-and-clear-all"
+                                    value={filters.clients || []}
+                                    onChange={(clients) => setFilters({ clients })}
+                                    options={
+                                        availableFilters?.static_filters?.clients?.map((c: any) => ({
+                                            key: c.value,
+                                            label: c.value,
+                                        })) || []
+                                    }
+                                    loading={availableFiltersLoading}
+                                    placeholder="All clients"
+                                    allowCustomValues={false}
+                                    data-attr="audit-logs-client-filter"
+                                    size="small"
+                                    className="min-w-50"
+                                />
+                            </div>
+                        )}
+
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">IP address</label>
+                                <Tooltip title="Filter by the client IP address captured at request time. Type a value and press enter to add it. Wildcards are supported, e.g. `203.0.113.*`.">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonInputSelect
+                                mode="multiple"
+                                displayMode="count"
+                                bulkActions="select-and-clear-all"
+                                value={filters.ip_addresses || []}
+                                onChange={(ip_addresses) => {
+                                    const invalid = ip_addresses.filter((v) => !isValidIpFilterValue(v))
+                                    if (invalid.length) {
+                                        lemonToast.error(
+                                            `Invalid IP address format: ${invalid.join(', ')}. Use a full IPv4/IPv6 address or a wildcard like 192.168.1.*`
+                                        )
+                                        return
+                                    }
+                                    setFilters({ ip_addresses })
+                                }}
+                                options={[]}
+                                placeholder="Enter IPs or patterns (e.g. 203.0.113.*)"
+                                allowCustomValues={true}
+                                data-attr="audit-logs-ip-address-filter"
                                 size="small"
                                 className="min-w-50"
                             />

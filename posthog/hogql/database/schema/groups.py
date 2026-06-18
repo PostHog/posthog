@@ -1,6 +1,7 @@
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.lazy_join_tags import GROUPS_REVENUE_ANALYTICS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -13,10 +14,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.groups_revenue_analytics import (
-    GroupsRevenueAnalyticsTable,
-    join_with_groups_revenue_analytics_table,
-)
+from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.errors import ResolutionError
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
@@ -29,7 +27,7 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "revenue_analytics": LazyJoin(
         from_field=["key"],
         join_table=GroupsRevenueAnalyticsTable(),
-        join_function=join_with_groups_revenue_analytics_table,
+        resolver=GROUPS_REVENUE_ANALYTICS,
     ),
 }
 
@@ -43,39 +41,42 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     )
 
 
-def join_with_group_n_table(group_index: int):
-    def join_with_group_table(
-        join_to_add: LazyJoinToAdd,
-        context: HogQLContext,
-        node: SelectQuery,
-    ):
-        from posthog.hogql import ast
+def join_with_group_n_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from posthog.hogql import ast
 
-        if not join_to_add.fields_accessed:
-            raise ResolutionError("No fields requested from person_distinct_ids")
+    # Which $group_N events column to join on; carried as plain data instead of being
+    # captured in a closure so the LazyJoin (and the Database holding it) stays serializable.
+    group_index = join_to_add.lazy_join.resolver_params.get("group_index")
+    if group_index is None:
+        raise ResolutionError("group_n lazy join requires resolver_params['group_index']")
 
-        select_query = select_from_groups_table(join_to_add.fields_accessed)
-        select_query.where = ast.CompareOperation(
-            left=ast.Field(chain=["index"]),
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from person_distinct_ids")
+
+    select_query = select_from_groups_table(join_to_add.fields_accessed)
+    select_query.where = ast.CompareOperation(
+        left=ast.Field(chain=["index"]),
+        op=ast.CompareOperationOp.Eq,
+        right=ast.Constant(value=group_index),
+    )
+
+    join_expr = ast.JoinExpr(table=select_query)
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=group_index),
-        )
+            left=ast.Field(chain=[join_to_add.from_table, f"$group_{group_index}"]),
+            right=ast.Field(chain=[join_to_add.to_table, "key"]),
+        ),
+        constraint_type="ON",
+    )
 
-        join_expr = ast.JoinExpr(table=select_query)
-        join_expr.join_type = "LEFT JOIN"
-        join_expr.alias = join_to_add.to_table
-        join_expr.constraint = ast.JoinConstraint(
-            expr=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[join_to_add.from_table, f"$group_{group_index}"]),
-                right=ast.Field(chain=[join_to_add.to_table, "key"]),
-            ),
-            constraint_type="ON",
-        )
-
-        return join_expr
-
-    return join_with_group_table
+    return join_expr
 
 
 class RawGroupsTable(Table):

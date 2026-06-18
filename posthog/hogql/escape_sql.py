@@ -160,12 +160,127 @@ POSTGRES_RESERVED_KEYWORDS = {
 }
 
 
+# DuckDB reserves a handful of additional keywords that Postgres doesn't, so identifiers
+# colliding with these must be quoted when emitting DuckDB SQL even though they'd be
+# unambiguous in Postgres. Derived from DuckDB's ``duckdb_keywords()`` catalog with
+# ``keyword_category = 'reserved'`` — re-verify and update before major DuckDB version bumps.
+DUCKDB_EXTRA_RESERVED_KEYWORDS = {
+    "ANTI",
+    "ASOF",
+    "ATTACH",
+    "DETACH",
+    "EXCLUDE",
+    "INSTALL",
+    "LOAD",
+    "MACRO",
+    "PIVOT",
+    "POSITIONAL",
+    "PRAGMA",
+    "QUALIFY",
+    "REPLACE",
+    "SAMPLE",
+    "SEMI",
+    "SUMMARIZE",
+    "UNPIVOT",
+}
+
+
+# Simple lowercase identifiers can stay unquoted; everything else is backtick-quoted
+# unless rejected by escape_mysql_identifier's hard exclusions.
+MYSQL_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
+
+
+# https://dev.mysql.com/doc/refman/8.0/en/keywords.html — reserved words only (not the full
+# keyword list). Identifiers colliding with these must be backtick-quoted.
+MYSQL_RESERVED_KEYWORDS = {
+    "ACCESSIBLE", "ADD", "ALL", "ALTER", "ANALYZE", "AND", "AS", "ASC", "ASENSITIVE",
+    "BEFORE", "BETWEEN", "BIGINT", "BINARY", "BLOB", "BOTH", "BY",
+    "CALL", "CASCADE", "CASE", "CHANGE", "CHAR", "CHARACTER", "CHECK", "COLLATE", "COLUMN",
+    "CONDITION", "CONSTRAINT", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CUBE", "CUME_DIST",
+    "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR",
+    "DATABASE", "DATABASES", "DAY_HOUR", "DAY_MICROSECOND", "DAY_MINUTE", "DAY_SECOND",
+    "DEC", "DECIMAL", "DECLARE", "DEFAULT", "DELAYED", "DELETE", "DENSE_RANK", "DESC",
+    "DESCRIBE", "DETERMINISTIC", "DISTINCT", "DISTINCTROW", "DIV", "DOUBLE", "DROP", "DUAL",
+    "EACH", "ELSE", "ELSEIF", "EMPTY", "ENCLOSED", "ESCAPED", "EXCEPT", "EXISTS", "EXIT",
+    "EXPLAIN", "FALSE", "FETCH", "FIRST_VALUE", "FLOAT", "FLOAT4", "FLOAT8", "FOR", "FORCE",
+    "FOREIGN", "FROM", "FULLTEXT", "FUNCTION",
+    "GENERATED", "GET", "GRANT", "GROUP", "GROUPING", "GROUPS",
+    "HAVING", "HIGH_PRIORITY", "HOUR_MICROSECOND", "HOUR_MINUTE", "HOUR_SECOND",
+    "IF", "IGNORE", "IN", "INDEX", "INFILE", "INNER", "INOUT", "INSENSITIVE", "INSERT",
+    "INT", "INT1", "INT2", "INT3", "INT4", "INT8", "INTEGER", "INTERSECT", "INTERVAL",
+    "INTO", "IO_AFTER_GTIDS", "IO_BEFORE_GTIDS", "IS", "ITERATE",
+    "JOIN", "JSON_TABLE", "KEY", "KEYS", "KILL",
+    "LAG", "LAST_VALUE", "LATERAL", "LEAD", "LEADING", "LEAVE", "LEFT", "LIKE", "LIMIT",
+    "LINEAR", "LINES", "LOAD", "LOCALTIME", "LOCALTIMESTAMP", "LOCK", "LONG", "LONGBLOB",
+    "LONGTEXT", "LOOP", "LOW_PRIORITY",
+    "MASTER_BIND", "MASTER_SSL_VERIFY_SERVER_CERT", "MATCH", "MAXVALUE", "MEDIUMBLOB",
+    "MEDIUMINT", "MEDIUMTEXT", "MIDDLEINT", "MINUTE_MICROSECOND", "MINUTE_SECOND", "MOD",
+    "MODIFIES", "NATURAL", "NOT", "NO_WRITE_TO_BINLOG", "NTH_VALUE", "NTILE", "NULL", "NUMERIC",
+    "OF", "ON", "OPTIMIZE", "OPTIMIZER_COSTS", "OPTION", "OPTIONALLY", "OR", "ORDER", "OUT",
+    "OUTER", "OUTFILE", "OVER",
+    "PARTITION", "PERCENT_RANK", "PRECISION", "PRIMARY", "PROCEDURE", "PURGE",
+    "RANGE", "RANK", "READ", "READS", "READ_WRITE", "REAL", "RECURSIVE", "REFERENCES",
+    "REGEXP", "RELEASE", "RENAME", "REPEAT", "REPLACE", "REQUIRE", "RESIGNAL", "RESTRICT",
+    "RETURN", "REVOKE", "RIGHT", "RLIKE", "ROW", "ROWS", "ROW_NUMBER",
+    "SCHEMA", "SCHEMAS", "SECOND_MICROSECOND", "SELECT", "SENSITIVE", "SEPARATOR", "SET",
+    "SHOW", "SIGNAL", "SMALLINT", "SPATIAL", "SPECIFIC", "SQL", "SQLEXCEPTION", "SQLSTATE",
+    "SQLWARNING", "SQL_BIG_RESULT", "SQL_CALC_FOUND_ROWS", "SQL_SMALL_RESULT", "SSL",
+    "STARTING", "STORED", "STRAIGHT_JOIN", "SYSTEM",
+    "TABLE", "TERMINATED", "THEN", "TINYBLOB", "TINYINT", "TINYTEXT", "TO", "TRAILING",
+    "TRIGGER", "TRUE",
+    "UNDO", "UNION", "UNIQUE", "UNLOCK", "UNSIGNED", "UPDATE", "USAGE", "USE", "USING",
+    "UTC_DATE", "UTC_TIME", "UTC_TIMESTAMP",
+    "VALUES", "VARBINARY", "VARCHAR", "VARCHARACTER", "VARYING", "VIRTUAL",
+    "WHEN", "WHERE", "WHILE", "WINDOW", "WITH", "WRITE",
+    "XOR", "YEAR_MONTH", "ZEROFILL",
+}  # fmt: skip
+
+
+def escape_mysql_identifier(v: str) -> str:
+    if len(v) > 64:
+        raise QueryError(f'The MySQL identifier "{v}" is too long. Maximum length is 64 characters.')
+    # MySQL allows almost anything inside backticks, but ``%`` would be interpreted
+    # as a parameter placeholder by PyMySQL and NUL bytes are invalid identifiers.
+    if "%" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains the "%" character')
+    if "\0" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains a NUL character')
+
+    # Always backtick-quote unless the identifier is a simple lowercase name. MySQL's reserved
+    # word list is long and version-dependent, so quoting anything non-trivial is the safe default.
+    if MYSQL_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in MYSQL_RESERVED_KEYWORDS:
+        return v
+    return "`" + v.replace("`", "``") + "`"
+
+
 def escape_postgres_identifier(v: str) -> str:
     if len(v) > 63:
         raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
 
-    if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in POSTGRES_RESERVED_KEYWORDS:
-        return v
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=None)
+
+
+def escape_duckdb_identifier(v: str) -> str:
+    """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
+    and with DuckDB's additional reserved keywords treated as requiring quotes."""
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
+
+
+def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:
+    # Reject ``%`` for parity with the HogQL and ClickHouse escape paths. psycopg
+    # interprets ``%`` as the start of a parameter placeholder when scanning SQL
+    # passed to ``cursor.execute(sql, params)``, so a literal ``%`` slipping through
+    # as an identifier name would either confuse parameter binding or get consumed
+    # as a format specifier.
+    if "%" in v:
+        raise QueryError(f'The Postgres identifier "{v}" is not permitted as it contains the "%" character')
+
+    if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v):
+        upper = v.upper()
+        if upper not in POSTGRES_RESERVED_KEYWORDS and (
+            extra_reserved_keywords is None or upper not in extra_reserved_keywords
+        ):
+            return v
 
     return '"' + v.replace('"', '""') + '"'
 
@@ -180,7 +295,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_hogql_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)

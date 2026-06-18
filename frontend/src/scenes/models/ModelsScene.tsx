@@ -1,10 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,10 +16,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
-import { modelsSceneLogic } from './modelsSceneLogic'
+import { DagsTab } from './DagsTab'
+import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
 
 export const scene: SceneExport = {
     component: ModelsScene,
@@ -24,7 +29,8 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId } = useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, currentTab } = useValues(modelsSceneLogic)
+    const { setCurrentTab } = useActions(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: DataWarehouseSavedQuery): string => {
@@ -33,6 +39,24 @@ export function ModelsScene(): JSX.Element {
         },
         [savedQueryIdToNodeId]
     )
+
+    const tabs: LemonTab<ModelsSceneTab>[] = [
+        {
+            label: 'Views',
+            key: 'views',
+            content: <ViewsTab getViewUrl={getViewUrl} />,
+        },
+        {
+            label: 'DAGs',
+            key: 'dags',
+            content: <DagsTab />,
+        },
+    ]
+    if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
+        return (
+            <AccessDenied reason="You don't have access to Data warehouse tables & views, so this page isn't available." />
+        )
+    }
 
     return (
         <SceneContent>
@@ -43,28 +67,35 @@ export function ModelsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Models].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <div className="flex gap-2">
-                        <AppShortcut
-                            name="NewModel"
-                            keybind={[keyBinds.new]}
-                            intent="New view"
-                            interaction="click"
-                            scope={Scene.Models}
-                        >
-                            <LemonButton
-                                type="primary"
-                                to={urls.sqlEditor()}
-                                size="small"
-                                tooltip="Create view"
-                                data-attr="new-view-button"
+                    currentTab === 'views' ? (
+                        <div className="flex gap-2">
+                            <AppShortcut
+                                name="NewModel"
+                                keybind={[keyBinds.new]}
+                                intent="New view"
+                                interaction="click"
+                                scope={Scene.Models}
                             >
-                                Create view
-                            </LemonButton>
-                        </AppShortcut>
-                    </div>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.sqlEditor()}
+                                        size="small"
+                                        tooltip="Create view"
+                                        data-attr="new-view-button"
+                                    >
+                                        Create view
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </AppShortcut>
+                        </div>
+                    ) : undefined
                 }
             />
-            <ViewsTab getViewUrl={getViewUrl} />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
 }

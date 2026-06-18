@@ -5,8 +5,9 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
-import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import {
     PropertyDefinitionsPaginatedResponse,
     normalizePropertyDefinitionEndpointUrl,
@@ -22,6 +23,7 @@ export interface Filters {
     property: string
     type: string
     group_type_index: number | null
+    verified?: boolean
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
@@ -29,6 +31,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         property: '',
         type: 'event',
         group_type_index: null,
+        verified: undefined,
         ...filter,
     }
 }
@@ -38,6 +41,7 @@ function removeDefaults(filter: Filters): Partial<Filters> {
         property: filter.property !== '' ? filter.property : undefined,
         type: filter.type !== 'event' ? filter.type : undefined,
         group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
+        verified: filter.verified,
     }
 }
 
@@ -155,20 +159,25 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             },
         ],
     })),
+    selectors(() => ({
+        showVerifiedFilter: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinitionsPaginatedResponse): boolean =>
+                propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0],
+        ],
+    })),
     listeners(({ actions, values, cache }) => ({
         setFilters: async (_, breakpoint) => {
             await breakpoint(500)
+            const params: Record<string, any> = {
+                offset: 0,
+                search: values.filters.property,
+                type: values.filters.type,
+                group_type_index: values.filters.group_type_index,
+                verified: values.filters.verified,
+            }
             actions.loadPropertyDefinitions(
-                normalizePropertyDefinitionEndpointUrl(
-                    values.propertyDefinitions.current,
-                    {
-                        offset: 0,
-                        search: values.filters.property,
-                        type: values.filters.type,
-                        group_type_index: values.filters.group_type_index,
-                    },
-                    true
-                )
+                normalizePropertyDefinitionEndpointUrl(values.propertyDefinitions.current, params, true)
             )
         },
         loadPropertyDefinitionsSuccess: () => {
@@ -206,8 +215,16 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             if (values.propertyDefinitionsLoading) {
                 return
             }
-            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
-                actions.setFilters(searchParams as Filters)
+            // Parse verified as boolean if present
+            const parsedParams = {
+                ...searchParams,
+                verified:
+                    searchParams.verified !== undefined
+                        ? searchParams.verified === 'true' || searchParams.verified === true
+                        : undefined,
+            }
+            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(parsedParams))) {
+                actions.setFilters(parsedParams as Filters)
             } else if (!values.propertyDefinitions.results.length) {
                 actions.loadPropertyDefinitions()
             }

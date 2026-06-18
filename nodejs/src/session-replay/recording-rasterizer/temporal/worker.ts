@@ -5,12 +5,13 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
+
 import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/recorder'
+import { playerHtmlCache } from '../capture/capture-page'
 import { config } from '../config'
 import { createLogger } from '../logger'
 import { createActivities } from './activities'
-import { EncryptionCodec } from './codec'
 
 prometheus.collectDefaultMetrics()
 
@@ -58,7 +59,7 @@ async function buildTLSConfig() {
         )
     }
 
-    let systemCAs = Buffer.alloc(0)
+    let systemCAs: Buffer<ArrayBufferLike> = Buffer.alloc(0)
     try {
         systemCAs = await fs.readFile('/etc/ssl/certs/ca-certificates.crt')
     } catch {
@@ -82,11 +83,11 @@ function startMetricsServer(): http.Server {
     const app = express()
     app.get(['/_health'], (_, res) => res.status(200).send('ok'))
     app.get(['/_ready'], (_, res) => res.status(ready ? 200 : 503).send(ready ? 'ok' : 'not ready'))
-    app.get(['/metrics', '/_metrics'], async (_, res) => {
+    app.get('/_metrics', async (_, res) => {
         try {
             res.set('Content-Type', prometheus.register.contentType)
             res.end(await prometheus.register.metrics())
-        } catch (err) {
+        } catch {
             res.status(500).end()
         }
     })
@@ -116,16 +117,24 @@ async function main(): Promise<void> {
 
     log.info('browser pool launched')
 
-    await playerHtmlCache.load()
+    const playerHtml = await playerHtmlCache.load()
     log.info({ path: config.playerHtmlPath }, 'player html loaded')
 
     const worker = await Worker.create({
         connection,
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
-        activities: createActivities(pool),
+        activities: createActivities(pool, playerHtml),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
-        dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
+        dataConverter: config.secretKey
+            ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
+            : undefined,
+        // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
+        // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
+        // (30s → 24s), which means capture-phase frame progress never reaches the
+        // parent workflow on short recordings. 2s matches the summary polling cadence.
+        defaultHeartbeatThrottleInterval: '2s',
+        maxHeartbeatThrottleInterval: '5s',
     })
 
     metricsServer.setReady()

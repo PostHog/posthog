@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional, cast
 
@@ -13,10 +13,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
@@ -93,12 +94,25 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             return "any(person_id) as person_id,"
         return ""
 
-    def matched_event_select(self):
+    def matched_event_select(self, steps: str, exclusions: str):
         if self._include_matched_events():
-            return """
-                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+            # Pick the latest funnel-step event with a $session_id at-or-before the
+            # converting event's timestamp so mixed client/server funnels still surface
+            # a recording when the converting step is server-side.
+            return f"""
+                groupArray(tuple(
+                    timestamp,
+                    uuid,
+                    $session_id,
+                    $window_id,
+                    arrayFilter((x) -> x != 0, [{steps}{exclusions}])
+                )) as user_events,
                 mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
-                [user_events_map[af_tuple.4]] as matching_events,
+                arrayFilter(
+                    e -> e.3 != '' AND length(e.5) > 0 AND e.1 <= user_events_map[af_tuple.4].1,
+                    arraySort(e -> e.1, user_events)
+                ) as session_events,
+                [if(length(session_events) > 0, session_events[-1], user_events_map[af_tuple.4])] as matching_events,
                 """
         return ""
 
@@ -182,7 +196,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown,
-                {self.matched_event_select()}
+                {self.matched_event_select(steps, exclusions)}
                 {self._person_id_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}
@@ -208,7 +222,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         if self.context.breakdown:
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
+                limit = breakdown_limit * len(self._date_range().all_values())
 
             not_in_cohort_union = ""
             extra_placeholders: dict[str, ast.Expr] = {}
@@ -293,7 +307,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         self,
         extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
-        team, actorsQuery = self.context.team, self.context.actorsQuery
+        team, actorsQuery, breakdownType = self.context.team, self.context.actorsQuery, self.context.breakdownType
 
         if actorsQuery is None:
             raise ValidationError("No actors query present.")
@@ -322,16 +336,28 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
 
-        where = ast.And(
-            exprs=[
-                parse_expr("success_bool != 1") if actorsQuery.funnelTrendsDropOff else parse_expr("success_bool = 1"),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=parse_expr("entrance_period_start"),
-                    right=ast.Constant(value=entrancePeriodStart),
-                ),
-            ]
-        )
+        where_exprs: list[ast.Expr] = [
+            parse_expr("success_bool != 1") if actorsQuery.funnelTrendsDropOff else parse_expr("success_bool = 1"),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=parse_expr("entrance_period_start"),
+                right=ast.Constant(value=entrancePeriodStart),
+            ),
+        ]
+
+        funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+        if funnelStepBreakdown is not None:
+            if isinstance(funnelStepBreakdown, int | float) and breakdownType != "cohort":
+                funnelStepBreakdown = str(int(funnelStepBreakdown))
+
+            where_exprs.append(
+                parse_expr(
+                    "arrayFlatten(array(breakdown)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
+
+        where = ast.And(exprs=where_exprs)
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
 
         return ast.SelectQuery(
@@ -478,6 +504,32 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select=fill_select,
             select_from=fill_select_from,
         )
+
+        if self.context.funnelsFilter.hideIncompleteConversionWindowPeriods:
+            # Drop periods whose conversion window hasn't fully elapsed yet (relative to now), so the
+            # recent tail of the trend isn't dragged down by entrants who still have time to convert.
+            # A period is kept only once its whole interval has cleared the window, i.e. even its last
+            # possible entrant has had the full window: entrance_period_start + interval <= now - window.
+            cutoff = date_range.now_with_timezone - timedelta(seconds=self.conversion_window_limit())
+            cutoff_as_hogql = ast.Call(
+                name="assumeNotNull",
+                args=[ast.Call(name="toDateTime", args=[ast.Constant(value=cutoff.strftime("%Y-%m-%d %H:%M:%S"))])],
+            )
+            period_end = ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                    op=ast.ArithmeticOperationOp.Add,
+                ),
+                right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+            fill_query.where = ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=period_end,
+                right=cutoff_as_hogql,
+            )
+
         return fill_query
 
     def get_step_counts_without_aggregation_query(

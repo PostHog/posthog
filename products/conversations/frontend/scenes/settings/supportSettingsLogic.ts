@@ -9,11 +9,24 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
+export interface EmailConfigStatus {
+    id: string
+    from_email: string
+    from_name: string
+    forwarding_address: string | null
+    domain: string
+    domain_verified: boolean
+    dns_records: Record<string, any> | null
+}
+
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
+        ],
     })),
     actions({
         generateNewToken: true,
@@ -40,42 +53,61 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
         // Slack channel settings (SupportHog)
         connectSlack: (nextPath: string) => ({ nextPath }),
-        setSlackChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
+        setSlackChannels: (channelIds: string[]) => ({ channelIds }),
         loadSlackChannelsWithToken: true,
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
         setSlackBotIconUrlValue: (value: string | null) => ({ value }),
         setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
         saveSlackBotSettings: true,
+        setSlackNotifyOnJoin: (enabled: boolean) => ({ enabled }),
+        setSlackNotifyOnLeave: (enabled: boolean) => ({ enabled }),
+        setSlackAlertChannel: (channelId: string | null) => ({ channelId }),
         disconnectSlack: true,
-        // Email channel settings
-        setEmailFromEmail: (value: string) => ({ value }),
-        setEmailFromName: (value: string) => ({ value }),
+        // Teams channel settings
+        connectTeams: (nextPath: string) => ({ nextPath }),
+        disconnectTeams: true,
+        loadTeamsTeamsWithToken: true,
+        loadTeamsChannelsForTeam: (teamId: string) => ({ teamId }),
+        installTeamsApp: (teamId: string) => ({ teamId }),
+        setTeamsInstallStatus: (
+            status: 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
+            teamId: string | null = null
+        ) => ({ status, teamId }),
+        // Multi-channel Teams actions
+        addTeamsChannelPair: (teamId: string, channelId: string) => ({ teamId, channelId }),
+        removeTeamsChannelPair: (channelId: string) => ({ channelId }),
+        setTeamsChannelPairLoading: (channelId: string | null) => ({ channelId }),
+        cacheTeamsChannelsForTeam: (
+            teamId: string,
+            channels: { id: string; name: string; membership_type?: string | null }[]
+        ) => ({ teamId, channels }),
+        // Email channel settings (multi-config)
+        loadEmailConfigs: true,
+        loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
+        setAddEmailFormVisible: (visible: boolean) => ({ visible }),
+        setNewEmailFromEmail: (value: string) => ({ value }),
+        setNewEmailFromName: (value: string) => ({ value }),
         connectEmail: true,
-        connectEmailDone: (forwardingAddress: string | null, dnsRecords: Record<string, any> | null) => ({
-            forwardingAddress,
-            dnsRecords,
-        }),
-        disconnectEmail: true,
-        loadEmailStatus: true,
-        loadEmailStatusDone: (
-            status: {
-                forwarding_address: string | null
-                from_email: string
-                from_name: string
-                domain_verified: boolean
-                dns_records: Record<string, any> | null
-            } | null
-        ) => ({
-            status,
-        }),
-        verifyEmailDomain: true,
-        verifyEmailDomainDone: (verified: boolean, dnsRecords: Record<string, any> | null) => ({
+        connectEmailDone: (config: EmailConfigStatus | null) => ({ config }),
+        disconnectEmail: (configId: string) => ({ configId }),
+        disconnectEmailDone: (configId: string) => ({ configId }),
+        verifyEmailDomain: (configId: string) => ({ configId }),
+        verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
+            configId,
             verified,
             dnsRecords,
         }),
-        sendTestEmail: true,
-        sendTestEmailDone: (sentTo: string | null) => ({ sentTo }),
+        sendTestEmail: (configId: string) => ({ configId }),
+        sendTestEmailDone: (configId: string) => ({ configId }),
+        // GitHub Issues channel settings
+        connectGithub: (integrationId: number) => ({ integrationId }),
+        disconnectGithub: true,
+        setGithubRepos: (repos: string[]) => ({ repos }),
+        loadGithubRepos: true,
+        // AI suggestions
+        setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
+        setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -143,62 +175,105 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setPlaceholderTextValue: (_, { value }) => value,
             },
         ],
-        emailFromEmail: [
-            '' as string,
+        // Email multi-config state
+        emailConfigs: [
+            [] as EmailConfigStatus[],
             {
-                setEmailFromEmail: (_, { value }) => value,
+                loadEmailConfigsDone: (_, { configs }) => configs,
+                connectEmailDone: (state, { config }) => (config ? [...state, config] : state),
+                disconnectEmailDone: (state, { configId }) => state.filter((c) => c.id !== configId),
+                verifyEmailDomainDone: (state, { configId, verified, dnsRecords }) => {
+                    const targetDomain = state.find((t) => t.id === configId)?.domain
+                    if (!targetDomain) {
+                        return state
+                    }
+                    return state.map((c) =>
+                        c.domain === targetDomain
+                            ? { ...c, domain_verified: verified, dns_records: dnsRecords ?? c.dns_records }
+                            : c
+                    )
+                },
             },
         ],
-        emailFromName: [
-            '' as string,
+        addEmailFormVisible: [
+            false,
             {
-                setEmailFromName: (_, { value }) => value,
+                setAddEmailFormVisible: (_, { visible }) => visible,
+                connectEmailDone: (state, { config }) => (config ? false : state),
+            },
+        ],
+        newEmailFromEmail: [
+            '',
+            {
+                setNewEmailFromEmail: (_, { value }) => value,
+                connectEmailDone: (state, { config }) => (config ? '' : state),
+            },
+        ],
+        newEmailFromName: [
+            '',
+            {
+                setNewEmailFromName: (_, { value }) => value,
+                connectEmailDone: (state, { config }) => (config ? '' : state),
             },
         ],
         emailConnecting: [
-            false as boolean,
+            false,
             {
                 connectEmail: () => true,
                 connectEmailDone: () => false,
             },
         ],
-        emailForwardingAddress: [
+        emailVerifyingConfigId: [
             null as string | null,
             {
-                connectEmailDone: (_, { forwardingAddress }) => forwardingAddress,
-                loadEmailStatusDone: (_, { status }) => status?.forwarding_address ?? null,
-                disconnectEmail: () => null,
+                verifyEmailDomain: (_, { configId }) => configId,
+                verifyEmailDomainDone: () => null,
             },
         ],
-        emailDomainVerified: [
-            false as boolean,
+        emailTestingConfigId: [
+            null as string | null,
             {
-                loadEmailStatusDone: (_, { status }) => status?.domain_verified ?? false,
-                verifyEmailDomainDone: (_, { verified }) => verified,
-                disconnectEmail: () => false,
+                sendTestEmail: (_, { configId }) => configId,
+                sendTestEmailDone: () => null,
             },
         ],
-        emailDnsRecords: [
-            null as Record<string, any> | null,
+        teamsInstallStatus: [
+            'idle' as 'idle' | 'installing' | 'installed' | 'needs_org_catalog' | 'error',
             {
-                connectEmailDone: (_, { dnsRecords }) => dnsRecords,
-                loadEmailStatusDone: (_, { status }) => status?.dns_records ?? null,
-                verifyEmailDomainDone: (_, { dnsRecords }) => dnsRecords,
-                disconnectEmail: () => null,
+                installTeamsApp: () => 'installing' as const,
+                setTeamsInstallStatus: (_, { status }) => status,
+                disconnectTeams: () => 'idle' as const,
             },
         ],
-        emailVerifying: [
-            false as boolean,
+        teamsInstallingForTeamId: [
+            null as string | null,
             {
-                verifyEmailDomain: () => true,
-                verifyEmailDomainDone: () => false,
+                installTeamsApp: (_, { teamId }) => teamId,
+                setTeamsInstallStatus: (_, { teamId }) => teamId,
+                disconnectTeams: () => null,
             },
         ],
-        emailSendingTest: [
-            false as boolean,
+        teamsChannelsCache: [
+            {} as Record<string, { id: string; name: string; membership_type?: string | null }[]>,
             {
-                sendTestEmail: () => true,
-                sendTestEmailDone: () => false,
+                cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({ ...state, [teamId]: channels }),
+                disconnectTeams: () => ({}),
+            },
+        ],
+        teamsChannelPairLoading: [
+            null as string | null,
+            {
+                setTeamsChannelPairLoading: (_, { channelId }) => channelId,
+                addTeamsChannelPair: (_, { channelId }) => channelId,
+                removeTeamsChannelPair: (_, { channelId }) => channelId,
+            },
+        ],
+        aiSuggestionsLoading: [
+            false,
+            {
+                setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
             },
         ],
         slackTicketEmojiValue: [
@@ -220,17 +295,86 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
+        githubIntegrations: [
+            [] as { id: number; name: string }[],
+            {
+                loadGithubIntegrations: async () => {
+                    try {
+                        const response = await api.integrations.list()
+                        return (response.results || [])
+                            .filter((i: any) => i.kind === 'github')
+                            .map((i: any) => ({
+                                id: i.id,
+                                name: i.config?.account?.name || `Installation #${i.id}`,
+                            }))
+                    } catch {
+                        return values.githubIntegrations
+                    }
+                },
+            },
+        ],
+        githubRepos: [
+            [] as { full_name: string; name: string }[],
+            {
+                loadGithubRepos: async () => {
+                    try {
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.create('api/conversations/v1/github/repos', {})
+                        return response.repos || []
+                    } catch {
+                        lemonToast.error('Failed to load GitHub repositories')
+                        return values.githubRepos
+                    }
+                },
+            },
+        ],
         slackChannels: [
             [] as SlackChannelType[],
             {
                 loadSlackChannelsWithToken: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(`api/conversations/v1/slack/channels`, {})
                         return response.channels || []
                     } catch {
                         lemonToast.error('Failed to load Slack channels')
                         return values.slackChannels
+                    }
+                },
+            },
+        ],
+        teamsTeams: [
+            [] as { id: string; name: string }[],
+            {
+                loadTeamsTeamsWithToken: async () => {
+                    try {
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.create('api/conversations/v1/teams/teams', {})
+                        return response.teams || []
+                    } catch {
+                        lemonToast.error('Failed to load Teams groups')
+                        return values.teamsTeams
+                    }
+                },
+            },
+        ],
+        teamsChannels: [
+            [] as { id: string; name: string; membership_type?: string | null }[],
+            {
+                loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
+                    try {
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.create('api/conversations/v1/teams/channels', {
+                            team_id: teamId,
+                        })
+                        const channels = response.channels || []
+                        // Also cache for multi-channel UI
+                        actions.cacheTeamsChannelsForTeam(teamId, channels)
+                        return channels
+                    } catch {
+                        lemonToast.error('Failed to load Teams channels')
+                        return values.teamsChannels
                     }
                 },
             },
@@ -249,13 +393,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
         ],
-        slackChannelId: [
+        slackChannelIds: [
             (s) => [s.currentTeam],
-            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_id ?? null,
-        ],
-        slackChannelName: [
-            (s) => [s.currentTeam],
-            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_name ?? null,
+            (currentTeam): string[] => {
+                const cs = currentTeam?.conversations_settings
+                if (Array.isArray(cs?.slack_channel_ids)) {
+                    return cs.slack_channel_ids
+                }
+                return cs?.slack_channel_id ? [cs.slack_channel_id] : []
+            },
         ],
         slackTicketEmoji: [
             (s) => [s.currentTeam],
@@ -273,14 +419,85 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
-        emailConnected: [
+        slackNotifyOnJoin: [
             (s) => [s.currentTeam],
-            (currentTeam): boolean => !!currentTeam?.conversations_settings?.email_enabled,
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_join,
+        ],
+        slackNotifyOnLeave: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_leave,
+        ],
+        slackAlertChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_alert_channel_id ?? null,
+        ],
+        emailConnected: [(s) => [s.emailConfigs], (emailConfigs): boolean => emailConfigs.length > 0],
+        teamsConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.teams_enabled,
+        ],
+        teamsTeamId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_id ?? null,
+        ],
+        teamsTeamName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_name ?? null,
+        ],
+        teamsChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_id ?? null,
+        ],
+        teamsChannelName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_name ?? null,
+        ],
+        teamsChannelPairs: [
+            (s) => [s.currentTeam],
+            (
+                currentTeam
+            ): {
+                team_id: string
+                team_name?: string | null
+                channel_id: string
+                channel_name?: string | null
+                membership_type?: string | null
+            }[] => {
+                const cs = currentTeam?.conversations_settings
+                if (Array.isArray(cs?.teams_channels) && cs.teams_channels.length > 0) {
+                    return cs.teams_channels
+                }
+                // Fallback to legacy scalar fields
+                if (cs?.teams_team_id && cs?.teams_channel_id) {
+                    return [
+                        {
+                            team_id: cs.teams_team_id,
+                            team_name: cs.teams_team_name,
+                            channel_id: cs.teams_channel_id,
+                            channel_name: cs.teams_channel_name,
+                        },
+                    ]
+                }
+                return []
+            },
+        ],
+        githubConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.github_enabled,
+        ],
+        githubSelectedRepos: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => currentTeam?.conversations_settings?.github_repos || [],
+        ],
+        aiSuggestionsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
+            // nosemgrep: prefer-codegen-api
             const response = await api.get(`api/conversations/v1/slack/authorize?next=${query}`)
             window.location.href = response.url
         },
@@ -378,13 +595,38 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        setSlackChannel: ({ channelId, channelName }) => {
+        setSlackChannels: ({ channelIds }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    slack_enabled: true,
-                    slack_channel_id: channelId,
-                    slack_channel_name: channelName,
+                    slack_channel_ids: channelIds,
+                    // Transitional: keep legacy key for old frontend bundles
+                    slack_channel_id: channelIds[0] ?? null,
+                    slack_channel_name: null,
+                },
+            })
+        },
+        setSlackNotifyOnJoin: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_notify_on_join: enabled,
+                },
+            })
+        },
+        setSlackNotifyOnLeave: ({ enabled }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_notify_on_leave: enabled,
+                },
+            })
+        },
+        setSlackAlertChannel: ({ channelId }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_alert_channel_id: channelId,
                 },
             })
         },
@@ -425,72 +667,69 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Bot settings saved')
             }
         },
-        loadEmailStatus: async () => {
+        // Email multi-config listeners
+        loadEmailConfigs: async () => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.get('api/conversations/v1/email/status')
-                if (response.connected) {
-                    actions.loadEmailStatusDone({
-                        forwarding_address: response.forwarding_address,
-                        from_email: response.from_email,
-                        from_name: response.from_name,
-                        domain_verified: response.domain_verified,
-                        dns_records: response.dns_records,
-                    })
-                    actions.setEmailFromEmail(response.from_email || '')
-                    actions.setEmailFromName(response.from_name || '')
-                } else {
-                    actions.loadEmailStatusDone(null)
-                }
+                actions.loadEmailConfigsDone(response.configs || [])
             } catch {
-                actions.loadEmailStatusDone(null)
+                actions.loadEmailConfigsDone([])
             }
         },
         connectEmail: async () => {
-            const { emailFromEmail, emailFromName } = values
-            if (!emailFromEmail || !emailFromName) {
+            const { newEmailFromEmail, newEmailFromName } = values
+            if (!newEmailFromEmail || !newEmailFromName) {
                 lemonToast.error('Please enter both an email address and display name')
-                actions.connectEmailDone(null, null)
+                actions.connectEmailDone(null)
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create('api/conversations/v1/email/connect', {
-                    from_email: emailFromEmail,
-                    from_name: emailFromName,
+                    from_email: newEmailFromEmail,
+                    from_name: newEmailFromName,
                 })
-                actions.connectEmailDone(response.forwarding_address, response.dns_records || null)
+                actions.connectEmailDone(response.config)
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
                         email_enabled: true,
                     },
                 })
-                lemonToast.success('Email channel connected')
+                lemonToast.success('Email address connected')
             } catch {
                 lemonToast.error('Failed to connect email')
-                actions.connectEmailDone(null, null)
+                actions.connectEmailDone(null)
             }
         },
-        disconnectEmail: async () => {
+        disconnectEmail: async ({ configId }) => {
             try {
-                await api.create('api/conversations/v1/email/disconnect', {})
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/email/disconnect', { config_id: configId })
             } catch {
                 lemonToast.error('Failed to disconnect email')
                 return
             }
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    email_enabled: false,
-                },
-            })
-            actions.setEmailFromEmail('')
-            actions.setEmailFromName('')
-            lemonToast.success('Email channel disconnected')
+            const wasLast = values.emailConfigs.length === 1
+            actions.disconnectEmailDone(configId)
+            if (wasLast) {
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        email_enabled: false,
+                    },
+                })
+            }
+            lemonToast.success('Email address disconnected')
         },
-        verifyEmailDomain: async () => {
+        verifyEmailDomain: async ({ configId }) => {
             try {
-                const response = await api.create('api/conversations/v1/email/verify-domain', {})
-                actions.verifyEmailDomainDone(response.domain_verified, response.dns_records || null)
+                // nosemgrep: prefer-codegen-api
+                const response = await api.create('api/conversations/v1/email/verify-domain', {
+                    config_id: configId,
+                })
+                actions.verifyEmailDomainDone(configId, response.domain_verified, response.dns_records || null)
                 if (response.domain_verified) {
                     lemonToast.success('Domain verified successfully! Outbound email is now active.')
                 } else {
@@ -498,21 +737,25 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 }
             } catch {
                 lemonToast.error('Failed to verify domain')
-                actions.verifyEmailDomainDone(false, null)
+                actions.verifyEmailDomainDone(configId, false, null)
             }
         },
-        sendTestEmail: async () => {
+        sendTestEmail: async ({ configId }) => {
             try {
-                const response = await api.create('api/conversations/v1/email/send-test', {})
-                actions.sendTestEmailDone(response.sent_to)
+                // nosemgrep: prefer-codegen-api
+                const response = await api.create('api/conversations/v1/email/send-test', {
+                    config_id: configId,
+                })
+                actions.sendTestEmailDone(configId)
                 lemonToast.success(`Test email sent to ${response.sent_to}`)
             } catch {
                 lemonToast.error('Failed to send test email. Check SMTP settings.')
-                actions.sendTestEmailDone(null)
+                actions.sendTestEmailDone(configId)
             }
         },
         disconnectSlack: async () => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/slack/disconnect', {})
             } catch {
                 lemonToast.error('Failed to disconnect Slack')
@@ -532,6 +775,135 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             })
             lemonToast.success('Slack disconnected')
         },
+        connectTeams: async ({ nextPath }) => {
+            try {
+                const query = encodeURIComponent(nextPath)
+                // nosemgrep: prefer-codegen-api
+                const response = await api.get(`api/conversations/v1/teams/authorize?next=${query}`)
+                window.location.href = response.url
+            } catch {
+                lemonToast.error('Failed to start Microsoft Teams authorization')
+            }
+        },
+        disconnectTeams: async () => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/teams/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect Microsoft Teams')
+                return
+            }
+
+            actions.loadCurrentTeam()
+            lemonToast.success('Microsoft Teams disconnected')
+        },
+        installTeamsApp: async ({ teamId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                const response = await api.create('api/conversations/v1/teams/install', {
+                    team_id: teamId,
+                })
+                if (response?.ok) {
+                    actions.setTeamsInstallStatus('installed', teamId)
+                    actions.loadTeamsChannelsForTeam(teamId)
+                } else {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error('Failed to install SupportHog in the selected Teams group')
+                }
+            } catch (err: any) {
+                const detail = err?.data?.error ?? err?.detail ?? ''
+                if (detail === 'app_not_found_in_catalog') {
+                    actions.setTeamsInstallStatus('needs_org_catalog', teamId)
+                    return
+                }
+                if (detail === 'catalog_not_configured') {
+                    actions.setTeamsInstallStatus('error', teamId)
+                    lemonToast.error(
+                        'SupportHog Teams app is not configured on this PostHog instance. Contact your administrator.'
+                    )
+                    return
+                }
+                actions.setTeamsInstallStatus('error', teamId)
+                lemonToast.error('Failed to install SupportHog in the selected Teams group')
+            }
+        },
+        addTeamsChannelPair: async ({ teamId, channelId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    action: 'add',
+                    team_id: teamId,
+                    channel_id: channelId,
+                })
+            } catch (err: any) {
+                const detail = err?.data?.error ?? ''
+                if (detail === 'max_channels_exceeded') {
+                    lemonToast.error('Maximum number of Teams channels reached')
+                } else {
+                    lemonToast.error('Failed to add Teams channel')
+                }
+                actions.setTeamsChannelPairLoading(null)
+                return
+            }
+            actions.loadCurrentTeam()
+            actions.setTeamsChannelPairLoading(null)
+            // Install app in the team group if not already installed
+            actions.installTeamsApp(teamId)
+        },
+        removeTeamsChannelPair: async ({ channelId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/teams/select-channel', {
+                    action: 'remove',
+                    channel_id: channelId,
+                })
+            } catch {
+                lemonToast.error('Failed to remove Teams channel')
+                actions.setTeamsChannelPairLoading(null)
+                return
+            }
+            actions.loadCurrentTeam()
+            actions.setTeamsChannelPairLoading(null)
+        },
+        setAiSuggestionsEnabled: ({ enabled }) => {
+            actions.setAiSuggestionsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_suggestions_enabled: enabled,
+                },
+            })
+        },
+        connectGithub: async ({ integrationId }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/github/connect', { integration_id: integrationId })
+                actions.loadCurrentTeam()
+                actions.loadGithubRepos()
+                lemonToast.success('GitHub connected')
+            } catch {
+                lemonToast.error('Failed to connect GitHub')
+            }
+        },
+        disconnectGithub: async () => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/github/disconnect', {})
+                actions.loadCurrentTeam()
+                lemonToast.success('GitHub disconnected')
+            } catch {
+                lemonToast.error('Failed to disconnect GitHub')
+            }
+        },
+        setGithubRepos: async ({ repos }) => {
+            try {
+                // nosemgrep: prefer-codegen-api
+                await api.create('api/conversations/v1/github/select-repos', { repos })
+                actions.loadCurrentTeam()
+            } catch {
+                lemonToast.error('Failed to save repository selection')
+            }
+        },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
@@ -546,8 +918,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
-        if (values.emailConnected) {
-            actions.loadEmailStatus()
+        if (values.teamsConnected) {
+            actions.loadTeamsTeamsWithToken()
+            const teamsTeamId = values.teamsTeamId
+            if (teamsTeamId) {
+                // Already installed on a previous visit — skip the Graph install
+                // call (it's idempotent server-side, but avoids a request per page
+                // load) and jump straight to loading channels.
+                actions.setTeamsInstallStatus('installed', teamsTeamId)
+                actions.loadTeamsChannelsForTeam(teamsTeamId)
+            }
+        }
+        // Always load email configs to populate the list
+        actions.loadEmailConfigs()
+        // Load GitHub integrations for the connect picker
+        actions.loadGithubIntegrations()
+        if (values.githubConnected) {
+            actions.loadGithubRepos()
         }
     }),
 ])

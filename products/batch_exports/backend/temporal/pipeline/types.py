@@ -16,6 +16,8 @@ class BatchExportResult:
     # This is the number of bytes of data exported (i.e. not the number of bytes in ClickHouse or the internal stage)
     # and therefore takes into account things like the file type and compression
     bytes_exported: int | None = None
+    # This is the number of records that failed downstream processing (e.g. hog function execution errors)
+    records_failed: int | None = None
     # This is the error that occurred, if any
     error: BatchExportError | list[BatchExportError] | None = None
 
@@ -27,9 +29,7 @@ class BatchExportResult:
             case None:
                 return None
             case error:
-                # mypy cannot narrow types properly, error can only be BatchExportError
-                # See: https://github.com/python/mypy/issues/19081
-                return f"{error.type}: {error.message}"  # type: ignore[union-attr]
+                return f"{error.type}: {error.message}"
 
     @classmethod
     def from_exception(cls, e: Exception) -> "BatchExportResult":
@@ -39,6 +39,7 @@ class BatchExportResult:
 def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportResult]) -> BatchExportResult:
     records_completed = 0
     bytes_exported = 0
+    records_failed = 0
     error: list[BatchExportError] = []
 
     for result in results:
@@ -47,6 +48,9 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
 
         if result.bytes_exported is not None:
             bytes_exported += result.bytes_exported
+
+        if result.records_failed is not None:
+            records_failed += result.records_failed
 
         if result.error is not None:
             # TODO: Consolidate errors of the same type into one
@@ -57,4 +61,9 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
 
             error.extend(errors)
 
-    return BatchExportResult(records_completed=records_completed, bytes_exported=bytes_exported, error=error or None)
+    return BatchExportResult(
+        records_completed=records_completed,
+        bytes_exported=bytes_exported,
+        records_failed=records_failed,
+        error=error or None,
+    )

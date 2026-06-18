@@ -6,15 +6,16 @@ endpoints.
 
 ## How it works
 
-tool handlers and Zod validation schemas. Operations are discovered by matching URL paths
-against product names (e.g., `error_tracking` matches all paths containing `/error_tracking/`),
-same approach as the frontend type generator.
+tool handlers and Zod validation schemas. Operations are discovered by their `x-product`
+attribution in the OpenAPI spec — auto-derived from the ViewSet module path
+(`products/<name>/backend/` → `<name>`) or declared explicitly via
+`@extend_schema(extensions={"x-product": "<name>"})`.
 
 ```text
 OpenAPI schema (Django)
         │
         ▼
-  scaffold-yaml          ← discovers operations by tag + URL path, writes YAML stubs
+  scaffold-yaml          ← discovers operations by x-product, writes YAML stubs
         │
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
@@ -38,12 +39,11 @@ Run the full pipeline: `hogli build:openapi`
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
-   `--product` is a **substring match** on URL paths:
-   it selects every endpoint whose path contains `/<name>/`
+   `--product` matches endpoints by their **`x-product`** attribution
    (hyphens are normalized to underscores before matching).
-   The value doesn't have to be an exact product name —
-   any string that appears as a path segment will work
-   (e.g. `--product actions` matches `/api/projects/{project_id}/actions/`).
+   ViewSets in `products/<name>/backend/` are attributed automatically;
+   ViewSets elsewhere need `@extend_schema(extensions={"x-product": "<name>"})`.
+   URL paths are never used for discovery.
 
 2. **Configure** — edit the YAML to enable the tools you want. Each enabled tool needs
    `scopes`, `annotations`, and ideally a `description`:
@@ -106,15 +106,23 @@ tools:
     title: Short title
     description: Detailed description for the LLM
     input_schema: ActionCreateSchema # named export from src/schema/tool-inputs.ts
+    response_type: Schemas.Action[] # optional TypeScript return type override for generated handlers
     list: true # marks as a list endpoint
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
+    response: # filter response fields (applied per-item on list endpoints)
+      include: [id, key, name] # keep only these fields (dot-path wildcards supported)
+      exclude: [filters.groups.*.properties] # remove these fields
+      # include and exclude are mutually exclusive
     requires_ai_consent: true # gate behind org AI data processing consent
     param_overrides: # override individual param descriptions or schemas
       name:
         description: Custom description
         input_schema: NameSchema # replace this param's type with a schema from tool-inputs
+    confirmed_action: # typed-confirm two-tool paradigm for destructive actions
+      message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user, supports {param} placeholders
+      action_label: Short action label # optional, defaults to tool title
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
@@ -149,6 +157,7 @@ When `input_schema` is set:
 - Path parameters are extracted from the URL pattern and interpolated from the input
 - Remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE)
 - `enrich_url` and `list` enrichment still apply as normal
+- You can optionally set `response_type` to override the generated TypeScript return type when MCP intentionally differs from the raw OpenAPI response shape
 
 ### Per-param schema overrides
 
@@ -173,3 +182,41 @@ tools:
 
 This keeps the Orval-derived schema for all other fields but replaces `steps` with `ActionStepsSchema`
 from `src/schema/tool-inputs.ts` via `.extend()`.
+
+## Typed-confirm for destructive tools
+
+Tools that perform destructive or security-sensitive actions can declare `confirmed_action`
+to require explicit user confirmation. When this field is present, codegen emits two tools
+instead of one:
+
+- `<name>-prepare` — validates args, returns a signed confirmation hash and a message to surface to the user
+- `<name>-execute` — verifies the hash plus the literal "confirm" string from the user, then executes the action
+
+The model calls them in sequence: prepare → surface message → wait for user to type "confirm" → execute.
+
+```yaml
+tools:
+  project-delete:
+    operation: projects_delete
+    enabled: true
+    scopes: [project:delete]
+    annotations:
+      readOnly: false
+      destructive: true
+      idempotent: false
+    confirmed_action:
+      message: "About to delete project {id}. This cannot be undone. Reply 'confirm' to proceed."
+      action_label: Delete project
+```
+
+`confirmed_action` fields:
+
+| Field          | Required | Description                                                                                              |
+| -------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `message`      | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args. |
+| `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
+
+Requirements:
+
+- The `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) must be set on the MCP Hono server
+- Cannot be combined with `ui_app` (codegen limitation)

@@ -13,10 +13,10 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     'error-tracking': ProductKey.ERROR_TRACKING,
     surveys: ProductKey.SURVEYS,
     'data-warehouse': ProductKey.DATA_WAREHOUSE,
-    'llm-analytics': ProductKey.LLM_ANALYTICS,
+    'llm-analytics': ProductKey.AI_OBSERVABILITY,
     workflows: ProductKey.WORKFLOWS,
     'revenue-analytics': null,
-    logs: null,
+    logs: ProductKey.LOGS,
     endpoints: null,
 }
 
@@ -30,7 +30,7 @@ const PROD_INTEREST_LABELS: Record<WebsiteBrowsingHistoryProdInterest, string> =
     'error-tracking': 'Error tracking',
     surveys: 'Surveys',
     'data-warehouse': 'Data warehouse',
-    'llm-analytics': 'LLM analytics',
+    'llm-analytics': 'AI observability',
     'revenue-analytics': 'Revenue analytics',
     workflows: 'Workflows',
     logs: 'Logs',
@@ -47,16 +47,6 @@ export function mapBrowsingHistoryToProducts(browsingHistory: string[]): Product
         .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 
     return [...new Set(products)]
-}
-
-/**
- * Maps AI product keys (hyphenated format from WebsiteBrowsingHistoryProdInterest) to ProductKey values.
- * Only returns products that are available in onboarding.
- */
-export function mapAIProductsToProductKeys(products: string[]): ProductKey[] {
-    return products
-        .map((p) => PROD_INTEREST_TO_PRODUCT[p as WebsiteBrowsingHistoryProdInterest])
-        .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 }
 
 /** Gets human-readable labels for browsing history items. */

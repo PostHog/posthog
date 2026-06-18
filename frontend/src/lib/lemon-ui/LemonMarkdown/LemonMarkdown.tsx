@@ -27,17 +27,83 @@ export interface LemonMarkdownProps {
     lowKeyHeadings?: boolean
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
+    /**
+     * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
+     * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
+     * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
+     * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
+     * as <img>; every other image is rendered as a plain click-to-open link instead.
+     */
+    disableImages?: boolean
     className?: string
     wrapCode?: boolean
+    /** Whether to generate id attributes on heading elements for anchor linking. */
+    generateHeadingIds?: boolean
+    /**
+     * Optional renderer for ` ```mermaid ` code blocks. When omitted, mermaid fences fall back to a
+     * plain text CodeSnippet — this is the default so the mermaid library only ships in bundles
+     * that opt in (see `LemonMarkdownWithMermaid`).
+     */
+    renderMermaid?: (code: string) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
+
+/** Generate a URL-safe slug from heading text content. */
+export function slugifyHeading(text: string): string {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
+/**
+ * Whether an image source is trusted enough to render inline within untrusted content.
+ * Trusted = served from PostHog itself: same-origin (incl. relative URLs) or any `posthog.com` host.
+ * Anything else (including `data:`/`blob:` URIs) is untrusted and should be rendered as a link.
+ */
+export function isTrustedImageSrc(src: string | undefined): boolean {
+    if (!src) {
+        return false
+    }
+    let url: URL
+    try {
+        url = new URL(src, window.location.origin)
+    } catch {
+        return false
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        return false
+    }
+    return url.hostname === window.location.hostname || /(^|\.)posthog\.com$/i.test(url.hostname)
+}
+
+export function extractTextFromChildren(children: React.ReactNode): string {
+    if (typeof children === 'string') {
+        return children
+    }
+    if (typeof children === 'number') {
+        return String(children)
+    }
+    if (Array.isArray(children)) {
+        return children.map(extractTextFromChildren).join('')
+    }
+    if (children && typeof children === 'object' && 'props' in children) {
+        return extractTextFromChildren((children as React.ReactElement).props.children)
+    }
+    return ''
+}
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
+    generateHeadingIds = false,
+    renderMermaid,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -50,8 +116,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
                 if (isBlock) {
-                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     const value = String(children).replace(/\n$/, '')
+                    if (renderMermaid && languageMatch && languageMatch[1].toLowerCase() === 'mermaid') {
+                        return <>{renderMermaid(value)}</>
+                    }
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {value}
@@ -75,6 +144,18 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 }
                 return <span className={className} {...props} />
             },
+            ...(disableImages
+                ? {
+                      img: ({ src, alt }: any): JSX.Element =>
+                          isTrustedImageSrc(src) ? (
+                              <img src={src} alt={alt} loading="lazy" />
+                          ) : (
+                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                                  {alt || src}
+                              </Link>
+                          ),
+                  }
+                : {}),
             li: ({ children, node }: any): JSX.Element => {
                 const isTaskItem = node?.properties?.className?.includes('task-list-item')
                 if (isTaskItem) {
@@ -106,9 +187,19 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           ),
                       ])
                   )
-                : {}),
+                : generateHeadingIds
+                  ? Object.fromEntries(
+                        HEADING_TAGS.map((tag) => [
+                            tag,
+                            ({ children }: any): JSX.Element => {
+                                const id = slugifyHeading(extractTextFromChildren(children))
+                                return React.createElement(tag, { id }, children)
+                            },
+                        ])
+                    )
+                  : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode]
+        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
     return (
@@ -124,7 +215,10 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
+    generateHeadingIds = false,
+    renderMermaid,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -132,7 +226,10 @@ function LemonMarkdownComponent({
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
+                disableImages={disableImages}
                 wrapCode={wrapCode}
+                generateHeadingIds={generateHeadingIds}
+                renderMermaid={renderMermaid}
             >
                 {children}
             </LemonMarkdownRenderer>

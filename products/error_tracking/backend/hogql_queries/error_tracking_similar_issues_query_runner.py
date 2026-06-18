@@ -216,6 +216,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="ErrorTrackingSimilarIssuesQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -257,6 +258,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             AND model_name = {model_name}
             AND document_id IN {fingerprints}
             AND product = 'error_tracking'
+            AND team_id = {team_id}
             AND timestamp >= {min_target_timestamp}
             AND timestamp <= {max_target_timestamp}
             """,
@@ -264,6 +266,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 "fingerprints": ast.Constant(value=target_fingerprints),
                 "model_name": ast.Constant(value=self.model_name),
                 "rendering": ast.Constant(value=self.rendering),
+                "team_id": ast.Constant(value=self.team.pk),
                 "min_target_timestamp": ast.Constant(value=min_timestamp),
                 "max_target_timestamp": ast.Constant(value=max_timestamp),
             },
@@ -282,6 +285,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 "avg_embedding": ast.Constant(value=avg_embedding),
                 "model_name": ast.Constant(value=self.model_name),
                 "rendering": ast.Constant(value=self.rendering),
+                "team_id": ast.Constant(value=self.team.pk),
                 "max_distance": ast.Constant(value=self.max_distance),
                 "limit": ast.Constant(value=self.query.limit),
             },
@@ -302,6 +306,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             AND model_name = {model_name}
             AND document_id NOT IN {fingerprints}
             AND product = 'error_tracking'
+            AND team_id = {team_id}
             ORDER BY distance ASC
         ) as subquery
         WHERE subquery.distance <= {max_distance}

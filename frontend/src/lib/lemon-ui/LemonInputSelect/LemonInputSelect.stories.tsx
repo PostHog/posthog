@@ -1,10 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProfilePicture } from '../ProfilePicture'
-import { LemonInputSelect } from './LemonInputSelect'
+import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'
 
 const names = [
     'ben',
@@ -25,10 +25,10 @@ const names = [
     'charles',
 ]
 
-type Story = StoryObj<typeof LemonInputSelect>
-const meta: Meta<typeof LemonInputSelect> = {
+type Story = StoryObj<LemonInputSelectProps<string>>
+const meta: Meta<LemonInputSelectProps<string>> = {
     title: 'Lemon UI/Lemon Input Select',
-    component: LemonInputSelect,
+    component: LemonInputSelect as any,
     args: {
         options: names.map((x, i) => ({
             key: `user-${i}`,
@@ -57,6 +57,25 @@ export const Default: Story = {
     args: {
         placeholder: 'Pick one email',
         mode: 'single',
+    },
+}
+
+// Single-select where the option keys are opaque ids (e.g. UUIDs) distinct from their labels.
+// Focusing with a value selected must still show every option — not just the selected one.
+// This is the OAuth organization picker shape, where the bug was first seen.
+export const SingleSelectWithIdKeys: Story = {
+    render: (args) => {
+        const [value, setValue] = useState<string[]>(['019cd764-55e6-0000-67dc-7f9cb756d36e'])
+        return <LemonInputSelect {...args} value={value} onChange={setValue} />
+    },
+    args: {
+        mode: 'single',
+        placeholder: 'Select an organization',
+        options: [
+            { key: '019cd764-55e6-0000-67dc-7f9cb756d36e', label: 'Testbench' },
+            { key: '4dc8564d-bd82-1065-2f40-97f7c50f67cf', label: 'PostHog Inc.' },
+            { key: '018e6669-be95-0000-a135-08054c5d99b4', label: 'Acme Corp' },
+        ],
     },
 }
 

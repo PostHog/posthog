@@ -3,10 +3,81 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Returns failed/disabled data pipeline items for the Pipeline status side panel.
+ * Includes: materializations, syncs, sources, destinations, and transformations.
+ */
+export const DataWarehouseDataHealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const insightVariablesCreateBodyNameMax = 400
+
+export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this insight variable.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const insightVariablesPartialUpdateBodyNameMax = 400
+
+export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(insightVariablesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name for the SQL variable.'),
+    type: zod
+        .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
+        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .optional()
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+        ),
+    default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
+    values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+})
+
+export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this insight variable.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
@@ -37,6 +108,8 @@ export const WarehouseSavedQueriesCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -46,11 +119,18 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .nullish()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -83,6 +163,8 @@ export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.obje
 
 export const warehouseSavedQueriesPartialUpdateBodyNameMax = 128
 
+export const warehouseSavedQueriesPartialUpdateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -93,15 +175,23 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .nullish()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesPartialUpdateBodyQueryKindDefault),
+                query: zod.string(),
+            })
+            .optional()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
             .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -134,6 +224,8 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
 
 export const warehouseSavedQueriesMaterializeCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -144,11 +236,17 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .nullish()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
@@ -157,6 +255,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -165,7 +264,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
 
 /**
  * Undo materialization, revert back to the original view.
-(i.e. delete the materialized table and the schedule)
+ * (i.e. delete the materialized table and the schedule)
  */
 export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
@@ -178,6 +277,8 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE
 
 export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -188,11 +289,19 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .nullish()
+            .object({
+                kind: zod
+                    .enum(['HogQLQuery'])
+                    .default(warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
@@ -201,6 +310,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -221,6 +331,8 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesRunCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRunCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -231,11 +343,17 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .nullish()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesRunCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
@@ -244,6 +362,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
+        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(

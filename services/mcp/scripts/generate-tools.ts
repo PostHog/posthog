@@ -21,7 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions } from './lib/definitions.mjs'
+import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -40,8 +40,7 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
-const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
-const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
+const TOOL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
@@ -51,6 +50,20 @@ interface OpenApiParam {
     required?: boolean
     description?: string
     schema: OpenApiSchema
+    /**
+     * Set by the Django factories in posthog/api/openapi_parameters.py for
+     * params whose wire format is a URL-encoded JSON string but whose semantic
+     * shape is an object (e.g. variables_override / filters_override). The
+     * codegen widens these into z.union([z.string(), z.record(...)]).
+     */
+    'x-accepts-stringified-json'?: boolean
+    /**
+     * OpenAPI serialization hints. drf-spectacular emits `style: form` +
+     * `explode: false` for django-filter comma-separated filters (BaseInFilter),
+     * which expect `?type=a,b` on the wire.
+     */
+    style?: string
+    explode?: boolean
 }
 
 interface OpenApiSchema {
@@ -65,6 +78,8 @@ interface OpenApiSchema {
     required?: string[]
     $ref?: string
     allOf?: Array<OpenApiSchema | { $ref: string }>
+    anyOf?: Array<OpenApiSchema | { $ref: string }>
+    oneOf?: Array<OpenApiSchema | { $ref: string }>
     enum?: string[]
     maxLength?: number
     default?: unknown
@@ -102,6 +117,14 @@ interface ResolvedOperation {
 }
 
 // ------------------------------------------------------------------
+// General helpers
+// ------------------------------------------------------------------
+
+function sortKeys<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b))) as T
+}
+
+// ------------------------------------------------------------------
 // OpenAPI helpers
 // ------------------------------------------------------------------
 
@@ -110,7 +133,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**
@@ -180,6 +236,114 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
     return schemaOrRef as OpenApiSchema
 }
 
+const CSV_SCALAR_ITEM_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
+
+/**
+ * django-filter comma-separated filters (BaseInFilter) are emitted by
+ * drf-spectacular as array query params with `style: form` + `explode: false`,
+ * meaning `?type=a,b` on the wire. ApiClient.request() JSON-stringifies arrays
+ * for json.loads()-style backends, which DRF would read as one literal value
+ * (`type IN ('["a","b"]')`) and silently match nothing — so the handler must
+ * comma-join these before they reach the client. Only scalar-item arrays
+ * qualify; object/$ref-item arrays stay on the JSON path.
+ */
+function isCommaSeparatedQueryParam(p: OpenApiParam): boolean {
+    if (p.explode !== false || (p.style ?? 'form') !== 'form' || p['x-accepts-stringified-json']) {
+        return false
+    }
+    if (p.schema?.type !== 'array' || !p.schema.items) {
+        return false
+    }
+    const items = p.schema.items
+    if ('$ref' in items && items.$ref) {
+        return false
+    }
+    const itemType = (items as OpenApiSchema).type
+    return typeof itemType === 'string' && CSV_SCALAR_ITEM_TYPES.has(itemType)
+}
+
+/**
+ * Flatten body schema properties across the three composition keywords that
+ * can hide fields from a naive ``schema.properties`` read:
+ *
+ *  - ``properties``: own fields on the schema
+ *  - ``allOf``: composition / inheritance — every member must hold, so fields
+ *    are merged and required sets are unioned
+ *  - ``anyOf`` / ``oneOf``: discriminated unions (e.g. polymorphic Python
+ *    serializers) — at least one variant must hold, so fields are merged
+ *    while required is the intersection across variants
+ *
+ * Returns:
+ *  - ``properties``: the union of properties across all branches
+ *  - ``required``: fields that are required on every reachable branch
+ *  - ``variantSpecific``: fields only some union variants declare — the handler
+ *    must guard access with ``'X' in params`` to satisfy TypeScript narrowing
+ *    on the resulting Zod union type
+ *
+ * Without this flattening, the generated handler can silently omit fields and
+ * POST an empty (or partial) body — the same class of bug that exists when
+ * ``anyOf`` / ``oneOf`` is unhandled.
+ */
+function flattenBodySchemaProperties(
+    spec: OpenApiSpec,
+    schema: OpenApiSchema | undefined
+): { properties: Map<string, OpenApiSchema>; required: Set<string>; variantSpecific: Set<string> } {
+    if (!schema) {
+        return { properties: new Map(), required: new Set(), variantSpecific: new Set() }
+    }
+
+    // Start with own properties, then fold every allOf member in. Fields are
+    // merged (first writer wins on collision); required sets are unioned.
+    const baseProperties = new Map<string, OpenApiSchema>(Object.entries(schema.properties ?? {}))
+    const baseRequired = new Set<string>(schema.required ?? [])
+    for (const member of schema.allOf ?? []) {
+        const sub = flattenBodySchemaProperties(spec, resolveSchema(spec, member))
+        for (const [name, prop] of sub.properties) {
+            if (!baseProperties.has(name)) {
+                baseProperties.set(name, prop)
+            }
+        }
+        for (const r of sub.required) {
+            baseRequired.add(r)
+        }
+    }
+
+    const variantRefs = [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]
+    if (variantRefs.length === 0) {
+        return { properties: baseProperties, required: baseRequired, variantSpecific: new Set() }
+    }
+
+    const variants = variantRefs
+        .map((v) => resolveSchema(spec, v))
+        .filter((v): v is OpenApiSchema => !!v)
+        .map((v) => flattenBodySchemaProperties(spec, v))
+    const merged = new Map(baseProperties)
+    for (const v of variants) {
+        for (const [name, prop] of v.properties) {
+            if (!merged.has(name)) {
+                merged.set(name, prop)
+            }
+        }
+    }
+    const required = new Set(baseRequired)
+    const variantSpecific = new Set<string>()
+    for (const name of merged.keys()) {
+        // Locally-declared / allOf-composed fields are always present, so they
+        // are never variant-specific regardless of what each variant says.
+        if (baseProperties.has(name)) {
+            continue
+        }
+        if (variants.every((v) => v.properties.has(name))) {
+            if (variants.every((v) => v.required.has(name))) {
+                required.add(name)
+            }
+        } else {
+            variantSpecific.add(name)
+        }
+    }
+    return { properties: merged, required, variantSpecific }
+}
+
 /**
  * Resolve the response type name from an operation's success response.
  * Returns the Schemas.* type name if the $ref maps to a type that exists
@@ -227,22 +391,47 @@ function toCamelCase(str: string): string {
 }
 
 /**
- * Parse enrich_url template into prefix and field.
- * '{id}' → { prefix: '', field: 'id' }
- * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ * Escape a description string for embedding inside a single-quoted Zod
+ * `.describe('...')` call. Backslashes first, then single quotes, then collapse
+ * line breaks to spaces. Order matters — escape the escape character before
+ * anything else.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
-    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+function escapeForDescribe(desc: string): string {
+    return desc.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n\s*/g, ' ')
+}
+
+/**
+ * Parse enrich_url template into prefix, field, and source.
+ * '{id}' → { prefix: '', field: 'id', source: 'result' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
+ * '{params.id}' → { prefix: '', field: 'id', source: 'params' }
+ *
+ * Use '{params.x}' when the response has no usable identifier (e.g. action endpoints
+ * that return {results: [...]} with no top-level id) — the URL is built from the
+ * request params instead of the response body.
+ */
+function parseEnrichUrl(enrichUrl: string): {
+    prefix: string
+    field: string
+    suffix: string
+    source: 'result' | 'params'
+} {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}(.*)$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[2]! }
+    return {
+        prefix: match[1]!,
+        field: match[3]!,
+        suffix: match[4] ?? '',
+        source: match[2] === 'params' ? 'params' : 'result',
+    }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
 function operationIdToPascal(operationId: string): string {
     return operationId
-        .split('_')
+        .split(/[_.]/)
         .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
         .join('')
 }
@@ -254,21 +443,55 @@ function operationIdToPascal(operationId: string): string {
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
+    /** Names of helpers imported from `@/tools/cast-helpers` (e.g. `castStringToInt`). */
+    castHelperImports: Set<string>
+    /** Inline Zod declarations generated from schema_ref (emitted before the schema declaration) */
+    schemaRefBlocks: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
+    /**
+     * Query params that must be comma-joined on the wire (OpenAPI
+     * `explode: false`, i.e. django-filter comma-separated filters) instead of
+     * JSON-stringified by ApiClient.request().
+     */
+    csvQueryParamNames: Set<string>
     bodyFieldNames: string[]
+    /**
+     * Body fields that only appear in some variants of a union (anyOf/oneOf) body schema.
+     * The handler emits `'X' in params && params.X !== undefined` for these to satisfy
+     * TypeScript's union narrowing — referencing `params.X` directly fails type-checking
+     * because variant types that lack the field have no such property.
+     */
+    variantSpecificBodyFieldNames: Set<string>
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
+    /** Maps param name → fallback key for optional params with state fallbacks */
+    paramFallbacks: Record<string, string>
 }
 
-function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): SchemaComposition {
+function composeToolSchema(
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec,
+    getQuerySchema: () => JsonSchemaRoot
+): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
     const schemaParts: string[] = []
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
+    const csvQueryParamNames = new Set<string>()
     const bodyFieldNames: string[] = []
+    const variantSpecificBodyFieldNames = new Set<string>()
+    /**
+     * Params whose underlying Orval shape is `.optional()` (or `.nullish()`).
+     * Used by the cast branch in `param_overrides`: `z.preprocess(fn, source)`
+     * does not propagate optionality to the JSON Schema output, so we re-apply
+     * `.optional()` after the wrapper for fields that were optional at source.
+     * Path params are omitted (always required).
+     */
+    const optionalParamNames = new Set<string>()
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -332,6 +555,16 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
             }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
+                // param_overrides with input_schema / schema_ref / cast replace or
+                // reshape the param type, so the array-join can't be assumed.
+                const override = config.param_overrides?.[p.name]
+                const schemaReplaced = !!(override && (override.input_schema || override.schema_ref || override.cast))
+                if (!schemaReplaced && isCommaSeparatedQueryParam(p)) {
+                    csvQueryParamNames.add(p.name)
+                }
+                if (!p.required) {
+                    optionalParamNames.add(p.name)
+                }
             }
         }
     }
@@ -345,38 +578,51 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 
             const bodyOmitFields = new Set<string>()
             const bodySchema = resolveSchema(spec, bodySchemaRef)
+            // PATCH bodies are partial — Orval emits every field as `.optional()`.
+            // For POST/PUT, optionality follows the body schema's `required` list.
+            const {
+                properties: bodyProperties,
+                required: bodyRequiredSet,
+                variantSpecific: bodyVariantSpecific,
+            } = flattenBodySchemaProperties(spec, bodySchema)
+            const bodyAllOptional = resolved.method === 'PATCH'
 
-            if (bodySchema?.properties) {
-                for (const [name, prop] of Object.entries(bodySchema.properties)) {
-                    // Orval excludes readOnly fields from Body schemas — skip them
-                    // so we don't try to .omit() keys that don't exist
-                    if (prop.readOnly) {
-                        continue
-                    }
+            for (const [name, prop] of bodyProperties) {
+                // Orval excludes readOnly fields from Body schemas — skip them
+                // so we don't try to .omit() keys that don't exist
+                if (prop.readOnly) {
+                    continue
+                }
 
-                    // exclude_params are removed at the Orval schema level by
-                    // applyNestedExclusions in generate-orval-schemas.mjs, so
-                    // they won't exist in the Zod schema. Skip them here to
-                    // avoid generating .omit() calls for nonexistent fields.
-                    if (excludeSet.has(name)) {
-                        continue
-                    }
+                // exclude_params are removed at the Orval schema level by
+                // applyNestedExclusions in generate-orval-schemas.mjs, so
+                // they won't exist in the Zod schema. Skip them here to
+                // avoid generating .omit() calls for nonexistent fields.
+                if (excludeSet.has(name)) {
+                    continue
+                }
 
-                    // Auto-exclude underscore-prefixed fields
-                    if (name.startsWith('_')) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
-                    if (includeSet && !includeSet.has(name)) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
+                // Auto-exclude underscore-prefixed fields
+                if (name.startsWith('_')) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
+                if (includeSet && !includeSet.has(name)) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
 
-                    // If this field is renamed, store the alias instead so the
-                    // handler references params.<alias>. The original→alias
-                    // mapping is tracked in renamedFields for body-building.
-                    const alias = renameMap.get(name)
-                    bodyFieldNames.push(alias ?? name)
+                // If this field is renamed, store the alias instead so the
+                // handler references params.<alias>. The original→alias
+                // mapping is tracked in renamedFields for body-building.
+                const alias = renameMap.get(name)
+                const fieldKey = alias ?? name
+                bodyFieldNames.push(fieldKey)
+                if (bodyVariantSpecific.has(name)) {
+                    variantSpecificBodyFieldNames.add(fieldKey)
+                }
+                if (bodyAllOptional || !bodyRequiredSet.has(name)) {
+                    optionalParamNames.add(fieldKey)
                 }
             }
 
@@ -402,15 +648,86 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
-    // param_overrides with description tweaks are applied in the tool definitions JSON.
-    // param_overrides with input_schema replace individual fields in the Zod schema.
+    // param_overrides:
+    //   - input_schema  → replace the field with a named import from @/schema/tool-inputs
+    //   - schema_ref    → generate inline Zod from schema.json and use that
+    //   - description   → wrap the existing Orval-derived field with .describe(...)
+    //   - optional+fallback → make param optional and resolve from state when omitted
+    //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
     const toolInputsImports: string[] = []
+    const castHelperImports = new Set<string>()
+    const schemaRefBlocks: string[] = []
+    const paramFallbacks: Record<string, string> = {}
+    // Fields added via param_overrides (input_schema/schema_ref) need to participate in
+    // the body builder for write ops — otherwise the override is in the schema but
+    // the handler never forwards the value to the API. On PATCH (partial update) the
+    // field defaults to optional, mirroring the original Orval body schema.
+    const isWriteOp = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
+    const isPartialUpdate = resolved.method === 'PATCH'
+    const optionalSuffix = isPartialUpdate ? '.optional()' : ''
     if (config.param_overrides) {
         const schemaOverrides: string[] = []
         for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            // Track optional params with state fallbacks
+            if (override.optional && override.fallback) {
+                paramFallbacks[paramName] = override.fallback
+            }
+
+            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            if (castHelper) {
+                castHelperImports.add(castHelper)
+            }
+            // `z.preprocess(fn, source)` does not propagate inner `.optional()` to
+            // the JSON Schema output (zod 4 marks the wrapped field as required).
+            // Re-apply `.optional()` after the preprocess for fields whose source
+            // was optional, so the agent-facing tool schema stays accurate.
+            const wrapWithCast = (inner: string): string => {
+                if (!castHelper) {
+                    return inner
+                }
+                const wrapped = `z.preprocess(${castHelper}, ${inner})`
+                return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.schema_ref) {
+                const excludeProps = override.exclude_properties ?? []
+                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                schemaRefBlocks.push(zodCode)
+                const varName = getEntryVarName(override.schema_ref)
+                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
+                // Locate the Orval source schema this param came from, so we can reference
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
+                let sourceImport: string | null = null
+                if (bodyFieldNames.includes(paramName)) {
+                    sourceImport = `${pascal}Body`
+                } else if (queryParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}QueryParams`
+                } else if (pathParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}Params`
+                }
+                if (sourceImport) {
+                    let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.default !== undefined) {
+                        expr += `.default(${JSON.stringify(override.default)}).optional()`
+                    }
+                    if (override.description) {
+                        expr += `.describe('${escapeForDescribe(override.description)}')`
+                    }
+                    if (override.optional) {
+                        expr += '.optional()'
+                    }
+                    schemaOverrides.push(`${paramName}: ${wrapWithCast(expr)}`)
+                }
             }
         }
         if (schemaOverrides.length > 0) {
@@ -431,14 +748,50 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
+    // Query params marked `x-accepts-stringified-json` (set by Django factories
+    // in posthog/api/openapi_parameters.py) are stringified-JSON-objects on the
+    // wire but conceptually objects. Widen the schema to accept either shape so
+    // LLM agents can pass the object literal they just read from a sibling
+    // tool's response, without a JSON.stringify round-trip that frequently
+    // breaks on escaping. ApiClient.request() in services/mcp/src/api/client.ts
+    // JSON-stringify-s object query params automatically, so the schema-side
+    // union is sufficient — no handler changes required. Skipped when the YAML
+    // config also defines a param_overrides entry for the field, so explicit
+    // YAML always wins.
+    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
+    const stringifiedJsonQueryParams = queryParams.filter(
+        (p) =>
+            p['x-accepts-stringified-json'] === true &&
+            // queryParamNames is the post-include/exclude set, so this drops
+            // params the YAML excluded via include_params / exclude_params.
+            queryParamNames.includes(p.name) &&
+            !explicitOverrideKeys.has(p.name)
+    )
+    if (stringifiedJsonQueryParams.length > 0) {
+        const overrideEntries = stringifiedJsonQueryParams.map((p) => {
+            let expr = 'z.union([z.string(), z.record(z.string(), z.unknown())]).optional()'
+            const desc = p.description ?? p.schema?.description
+            if (desc) {
+                expr += `.describe('${escapeForDescribe(desc)}')`
+            }
+            return `${p.name}: ${expr}`
+        })
+        schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
+    }
+
     return {
         orvalImports,
         toolInputsImports,
+        castHelperImports,
+        schemaRefBlocks,
         schemaExpr,
         pathParamNames,
         queryParamNames,
+        csvQueryParamNames,
         bodyFieldNames,
+        variantSpecificBodyFieldNames,
         renamedFields,
+        paramFallbacks,
     }
 }
 
@@ -453,61 +806,97 @@ function extractPathParams(urlPattern: string): string[] {
     return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
-function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
+ *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
+function buildPathExpr(
+    urlPath: string,
+    pathParamNames: string[],
+    paramAccessPrefix = '',
+    localVarParams: Set<string> = new Set()
+): string {
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${encodeURIComponent(String(projectId))}').replace('{organization_id}', '${encodeURIComponent(String(orgId))}')}\``
     for (const pn of pathParamNames) {
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
+        const prefix = localVarParams.has(pn) ? '' : paramAccessPrefix
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${encodeURIComponent(String(${prefix}${pn}))}`)
     }
     return pathExpr
+}
+
+// ------------------------------------------------------------------
+// Response filtering templates
+// ------------------------------------------------------------------
+
+function buildResponseFilter(config: ToolConfig): {
+    code: string
+    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+} {
+    if (config.response?.include?.length) {
+        const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        if (config.list) {
+            return {
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
+                helperImport: 'pickResponseFields',
+            }
+        }
+        return {
+            code: `        const filtered = pickResponseFields(result, [${paths}]) as typeof result\n`,
+            helperImport: 'pickResponseFields',
+        }
+    }
+    if (config.response?.exclude?.length) {
+        const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
+        if (config.list) {
+            return {
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
+                helperImport: 'omitResponseFields',
+            }
+        }
+        return {
+            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
+            helperImport: 'omitResponseFields',
+        }
+    }
+    return { code: '', helperImport: null }
 }
 
 // ------------------------------------------------------------------
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig, needsProjectId: boolean): string {
-    const projectIdExpr = needsProjectId ? 'projectId' : `'@current'`
-    const baseUrl = `\${context.api.getProjectBaseUrl(${projectIdExpr})}${category.url_prefix}`
+function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
+    const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
+        // For list endpoints, 'params.x' is not meaningful (items come from the response
+        // array, not request params), so force 'result' source here.
+        if (source === 'params') {
+            throw new Error(
+                `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
+            )
+        }
         return [
-            `        const items = (result as any).results ?? result`,
-            `        return {`,
-            `            ...(result as any),`,
-            `            results: (items as any[]).map((item: any) => ({`,
-            `                ...item,`,
-            `                _posthogUrl: \`${baseUrl}/${prefix}\${item.${field}}\`,`,
-            `            })),`,
-            `            _posthogUrl: \`${baseUrl}\`,`,
-            `        }`,
+            `        return await withPostHogUrl(context, {`,
+            `            ...${resultVar},`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
+            `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
     }
 
     if (config.list) {
-        return [
-            `        return {`,
-            `            ...(result as any),`,
-            `            _posthogUrl: \`${baseUrl}\`,`,
-            `        }`,
-            ``,
-        ].join('\n')
+        return `        return await withPostHogUrl(context, ${resultVar}, '${baseUrl}')\n`
     }
 
     if (config.enrich_url) {
-        const { prefix, field } = parseEnrichUrl(config.enrich_url)
-        return [
-            `        return {`,
-            `            ...result as any,`,
-            `            _posthogUrl: \`${baseUrl}/${prefix}\${(result as any).${field}}\`,`,
-            `        }`,
-            ``,
-        ].join('\n')
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
+        const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
+
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)\n`
     }
 
-    return `        return result\n`
+    return `        return ${resultVar}\n`
 }
 
 // ------------------------------------------------------------------
@@ -520,8 +909,19 @@ function generateToolCode(
     resolved: ResolvedOperation,
     category: CategoryConfig,
     spec: OpenApiSpec,
-    knownTypes: Set<string>
-): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
+    knownTypes: Set<string>,
+    getQuerySchema: () => JsonSchemaRoot
+): {
+    code: string
+    orvalImports: string[]
+    toolInputsImports: string[]
+    castHelperImports: Set<string>
+    schemaRefBlocks: string[]
+    responseType: string | undefined
+    needsWithPostHogUrl: boolean
+    hasEnrichment: boolean
+    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+} {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
 
@@ -530,12 +930,35 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
-    const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
+    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
+    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
+    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
 
-    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
+    // For soft-delete tools the original operation is DELETE (typically 204 no-content),
+    // but the actual request is a PATCH to the same URL. Resolve the response type from
+    // the PATCH operation so the generated code gets a real type instead of `unknown`.
+    if (!responseType && isSoftDelete) {
+        const patchOp = (spec.paths[resolved.path] as Record<string, OpenApiOperation> | undefined)?.['patch']
+        if (patchOp) {
+            responseType = resolveResponseType(patchOp, knownTypes)
+        }
+    }
+
+    let schemaExpr = composition.schemaExpr
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            schemaExpr = `(${schemaExpr}).superRefine(${fn})`
+            composition.toolInputsImports.push(fn)
+        }
+    }
+
+    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
+
+    const localVarParams = new Set(Object.keys(composition.paramFallbacks))
+    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
 
     // Determine which auto-resolved IDs this operation needs
     const needsProjectId = resolved.path.includes('{project_id}')
@@ -550,12 +973,27 @@ function generateToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
-    // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    // Resolve optional params with state fallbacks
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    for (const [paramName, fallbackKey] of Object.entries(composition.paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (method) {
+            handlerBody += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+            handlerBody += `        if (!${paramName}) {\n`
+            handlerBody += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${fallbackKey === 'orgId' ? 'organization' : 'project'} first.')\n`
+            handlerBody += `        }\n`
+        }
+    }
+
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -564,7 +1002,17 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            // Variant-specific fields (only in some union variants) need an `in`
+            // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
+            const guard = composition.variantSpecificBodyFieldNames.has(bf)
+                ? `'${bf}' in params && params.${bf} !== undefined`
+                : `params.${bf} !== undefined`
+            handlerBody += `        if (${guard}) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -579,54 +1027,220 @@ function generateToolCode(
     }
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
-            .map((qn) => `                ${qn}: params.${qn},`)
+            .map((qn) => {
+                // explode: false params are comma-joined here because
+                // ApiClient.request() JSON-stringifies raw arrays (the
+                // json.loads()-style contract), which DRF CSV filters can't parse.
+                // Callers may pass either the array shape or a single string, so
+                // only join when it's actually an array; an empty array is omitted.
+                if (composition.csvQueryParamNames.has(qn)) {
+                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                }
+                return `                ${qn}: params.${qn},`
+            })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
     }
     handlerBody += `        })\n`
 
+    // Response filtering — pick/omit fields before enrichment
+    const responseFilter = buildResponseFilter(config)
+    if (responseFilter.code) {
+        // Warn if filtering might break enrich_url
+        if (config.enrich_url) {
+            const { field } = parseEnrichUrl(config.enrich_url)
+            if (config.response?.exclude?.includes(field)) {
+                console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
+            }
+            if (config.response?.include?.length && !config.response?.include.includes(field)) {
+                console.warn(
+                    `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
+                )
+            }
+        }
+    }
+    handlerBody += responseFilter.code
+
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    handlerBody += buildEnrichment(config, category, needsProjectId)
+    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
+    handlerBody += buildEnrichment(config, category, enrichmentVar)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
+    let needsWithPostHogUrl = false
+    const hasEnrichment = !!(config.list || config.enrich_url)
     if (config.list && config.enrich_url) {
-        // List items are mapped/transformed, so the shape is no longer the raw response type
-        resultType = 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else if (config.enrich_url) {
-        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else if (config.list) {
-        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+        needsWithPostHogUrl = !!responseType
+        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else {
         resultType = responseType ?? 'unknown'
     }
 
-    // Build optional _meta block for UI app visualization
-    let metaBlock = ''
-    if (config.ui_resource_uri) {
-        metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
-    }
+    const appKey = config.ui_app ?? null
 
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
-    const code = `
-${schemaDecl}
+    // When `confirmed_action` is declared, emit TWO factories instead of
+    // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
+    // the validated args into a hash; the execute tool verifies the hash,
+    // requires the literal "confirm" arg, and then runs the original
+    // handler body with the verified args. See `src/tools/confirmed-action-runtime.ts`.
+    if (config.confirmed_action) {
+        const wrapped = buildConfirmedActionFactories({
+            toolName,
+            config,
+            schemaName,
+            schemaDecl,
+            originalHandlerBody: handlerBody,
+            resultType,
+        })
+        return {
+            code: wrapped.code,
+            orvalImports: composition.orvalImports,
+            toolInputsImports: composition.toolInputsImports,
+            castHelperImports: composition.castHelperImports,
+            schemaRefBlocks: composition.schemaRefBlocks,
+            responseType,
+            needsWithPostHogUrl,
+            hasEnrichment,
+            responseFilterImport: responseFilter.helperImport,
+        }
+    }
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
+    const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName},
     ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
-${metaBlock}})
+}`
+
+    const factoryBody = appKey ? `withUiApp('${appKey}', ${toolBody})` : `(${toolBody})`
+
+    const code = `
+${schemaDecl}
+
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${factoryBody}
 `
 
     return {
         code,
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
+        castHelperImports: composition.castHelperImports,
+        schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
+        needsWithPostHogUrl,
+        hasEnrichment,
+        responseFilterImport: responseFilter.helperImport,
     }
+}
+
+/**
+ * Emit prepare + execute factories for a tool that declares `confirmed_action`.
+ * Returns the combined `code` block — the two factories plus the extended
+ * schema used by `-execute`. The base schema is emitted exactly as the
+ * non-confirmed path does it, so the prepare variant reuses it directly.
+ */
+function buildConfirmedActionFactories(args: {
+    toolName: string
+    config: ToolConfig
+    schemaName: string
+    schemaDecl: string
+    originalHandlerBody: string
+    resultType: string
+}): { code: string } {
+    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
+    const baseFactory = toCamelCase(toolName)
+    const prepareName = `${toolName}-prepare`
+    const executeName = `${toolName}-execute`
+    const prepareFactory = `${baseFactory}Prepare`
+    const executeFactory = `${baseFactory}Execute`
+    const executeSchemaName = `${schemaName}Execute`
+    const actionLabel = config.confirmed_action?.action_label ?? config.title ?? toolName
+    const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
+
+    // Execute schema = base schema extended with the two framework fields.
+    // `confirmation` is z.string() not z.literal('confirm') on purpose: the
+    // runtime checks the value and refuses with a structured tool-call
+    // result + metric counter. A literal would raise a generic zod parse
+    // error before our guard runs, losing the metric and the
+    // user-targetted refusal text.
+    const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
+    confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})`
+
+    // Prepare handler: validate args via the base schema (already happens
+    // before our handler runs) and call into the runtime. Args are signed
+    // verbatim — bound to user identity + purpose.
+    const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: ${JSON.stringify(toolName)},
+            actionLabel: ${JSON.stringify(actionLabel)},
+            messageTemplate: ${JSON.stringify(messageTemplate)},
+            codec: __runtime.codec,
+        })
+`
+
+    // Execute handler: guard, then re-run the original handler body with
+    // the verified args. `params` is reassigned to the verified payload so
+    // the rest of the original code path (which reads from `params.*`)
+    // works unchanged. The cast pins the type so TS knows the original
+    // shape survives.
+    const executeHandler = `        const __runtime = getConfirmedActionRuntime()
+        const __guard = await executeConfirmedAction(context, {
+            incomingArgs: params,
+            purpose: ${JSON.stringify(toolName)},
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        // Replace, do NOT merge: only signed fields are authorized. Any
+        // base-schema field the model slipped into the execute call
+        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
+        // would otherwise survive into the downstream API body.
+        // eslint-disable-next-line no-param-reassign
+        params = { ...__guard.verifiedArgs } as typeof params
+${originalHandlerBody}`
+
+    const prepareBody = `{
+    name: '${prepareName}',
+    schema: ${schemaName},
+    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+${prepareHandler}    },
+}`
+
+    const executeBody = `{
+    name: '${executeName}',
+    schema: ${executeSchemaName},
+    handler: async (context: Context, params: z.infer<typeof ${executeSchemaName}>) => {
+${executeHandler}    },
+}`
+
+    const code = `
+${schemaDecl}
+
+${executeSchemaDecl}
+
+const ${prepareFactory} = (): ToolBase<typeof ${schemaName}, PrepareConfirmedActionResult> => (${prepareBody})
+
+const ${executeFactory} = (): ToolBase<typeof ${executeSchemaName}, ${resultType}> => (${executeBody})
+`
+    return { code }
 }
 
 function generateCustomSchemaToolCode(
@@ -637,13 +1251,23 @@ function generateCustomSchemaToolCode(
     schemaName: string,
     factoryName: string,
     knownTypes: Set<string>
-): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
+): {
+    code: string
+    orvalImports: string[]
+    toolInputsImports: string[]
+    castHelperImports: Set<string>
+    schemaRefBlocks: string[]
+    responseType: string | undefined
+    needsWithPostHogUrl: boolean
+    hasEnrichment: boolean
+    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+} {
     const pathParamNames = extractPathParams(resolved.path)
 
     const pathExpr = buildPathExpr(resolved.path, pathParamNames)
 
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
-    const responseType = resolveResponseType(resolved.operation, knownTypes)
+    const responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     const needsProjectId = resolved.path.includes('{project_id}')
     const needsOrgId = resolved.path.includes('{organization_id}')
@@ -656,16 +1280,18 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
+    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
         if (useBody) {
-            handlerBody += `        const { ${destructured}...body } = params\n`
+            handlerBody += `        const { ${destructured}...body } = parsedParams\n`
         } else {
-            handlerBody += `        const { ${destructured}...query } = params\n`
+            handlerBody += `        const { ${destructured}...query } = parsedParams\n`
         }
     }
 
-    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${resolved.method}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (pathParamNames.length > 0) {
@@ -675,18 +1301,32 @@ function generateCustomSchemaToolCode(
             handlerBody += `            query,\n`
         }
     } else if (useBody) {
-        handlerBody += `            body: params,\n`
+        handlerBody += `            body: parsedParams,\n`
     } else {
-        handlerBody += `            query: params,\n`
+        handlerBody += `            query: parsedParams,\n`
     }
     handlerBody += `        })\n`
 
-    handlerBody += buildEnrichment(config, category, needsProjectId)
+    // Response filtering — pick/omit fields before enrichment
+    const responseFilter = buildResponseFilter(config)
+    handlerBody += responseFilter.code
+
+    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
+    handlerBody += buildEnrichment(config, category, enrichmentVar)
+
+    let baseSchemaExpr = config.input_schema as string
+    const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`
+            toolInputsImports.push(fn)
+        }
+    }
 
     const code = `
-const ${schemaName} = ${config.input_schema}
+const ${schemaName} = ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
@@ -697,8 +1337,13 @@ ${handlerBody}    },
     return {
         code,
         orvalImports: [],
-        toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        toolInputsImports,
+        castHelperImports: new Set(),
+        schemaRefBlocks: [],
         responseType,
+        needsWithPostHogUrl: false,
+        hasEnrichment: false,
+        responseFilterImport: responseFilter.helperImport,
     }
 }
 
@@ -711,8 +1356,13 @@ function generateCategoryFile(
     fileName: string,
     moduleName: string,
     spec: OpenApiSpec,
-    knownTypes: Set<string>
-): { code: string; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] } {
+    knownTypes: Set<string>,
+    getQuerySchema: () => JsonSchemaRoot
+): {
+    code: string
+    enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+    enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+} {
     const enabledTools: [string, EnabledToolConfig, ResolvedOperation][] = []
 
     for (const [name, config] of Object.entries(category.tools)) {
@@ -737,33 +1387,181 @@ function generateCategoryFile(
         enabledTools.push([name, config as EnabledToolConfig, resolved])
     }
 
-    const allOrvalImports = new Set<string>()
-    const allToolInputsImports = new Set<string>()
-    const toolCodes: string[] = []
-    let hasResponseType = false
-
-    for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports, toolInputsImports, responseType } = generateToolCode(
-            name,
-            config,
-            resolved,
-            category,
-            spec,
-            knownTypes
-        )
-        toolCodes.push(code)
-        for (const imp of orvalImports) {
-            allOrvalImports.add(imp)
-        }
-        for (const imp of toolInputsImports) {
-            allToolInputsImports.add(imp)
-        }
-        if (responseType) {
-            hasResponseType = true
+    // Collect enabled query wrappers from the optional wrappers section
+    const enabledWrappers: [string, EnabledQueryWrapperToolConfig][] = []
+    if (category.wrappers) {
+        const querySchema = getQuerySchema()
+        for (const [name, wrapperConfig] of Object.entries(category.wrappers)) {
+            if (!wrapperConfig.enabled) {
+                continue
+            }
+            if (!wrapperConfig.scopes?.length) {
+                console.error(`Enabled query wrapper "${name}" is missing required "scopes"`)
+                process.exit(1)
+            }
+            if (!wrapperConfig.annotations) {
+                console.error(`Enabled query wrapper "${name}" is missing required "annotations"`)
+                process.exit(1)
+            }
+            if (!querySchema.definitions[wrapperConfig.schema_ref]) {
+                console.error(
+                    `Query wrapper "${name}": schema_ref "${wrapperConfig.schema_ref}" not found in schema.json`
+                )
+                process.exit(1)
+            }
+            enabledWrappers.push([name, wrapperConfig as EnabledQueryWrapperToolConfig])
         }
     }
 
-    const mapEntries = enabledTools.map(([name]) => `    '${name}': ${toCamelCase(name)},`).join('\n')
+    const allOrvalImports = new Set<string>()
+    const allToolInputsImports = new Set<string>()
+    const allCastHelperImports = new Set<string>()
+    const allSchemaRefBlocks: string[] = []
+    const emittedSchemaRefDefs = new Set<string>()
+    const toolCodes: string[] = []
+    let hasResponseType = false
+    let hasWithPostHogUrl = false
+
+    let hasEnrichment = false
+
+    const responseFilterImports = new Set<string>()
+
+    for (const [name, config, resolved] of enabledTools) {
+        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
+        toolCodes.push(result.code)
+        for (const imp of result.orvalImports) {
+            allOrvalImports.add(imp)
+        }
+        for (const imp of result.toolInputsImports) {
+            allToolInputsImports.add(imp)
+        }
+        for (const imp of result.castHelperImports) {
+            allCastHelperImports.add(imp)
+        }
+        // Collect schema_ref blocks, deduplicating by const name
+        for (const block of result.schemaRefBlocks) {
+            for (const decl of block.split('\n\nconst ')) {
+                const line = decl.startsWith('const ') ? decl : `const ${decl}`
+                const match = line.match(/^const (\w+) =/)
+                if (match && !emittedSchemaRefDefs.has(match[1]!)) {
+                    emittedSchemaRefDefs.add(match[1]!)
+                    allSchemaRefBlocks.push(line)
+                }
+            }
+        }
+        if (result.responseType) {
+            hasResponseType = true
+        }
+        if (result.needsWithPostHogUrl) {
+            hasWithPostHogUrl = true
+        }
+        if (result.hasEnrichment) {
+            hasEnrichment = true
+        }
+        if (result.responseFilterImport) {
+            responseFilterImports.add(result.responseFilterImport)
+        }
+    }
+
+    // Generate query wrapper Zod schemas and registrations if wrappers are present
+    let wrapperSchemasCode = ''
+    let wrapperMapEntries = ''
+    if (enabledWrappers.length > 0) {
+        const querySchema = getQuerySchema()
+        const allZodBlocks: string[] = []
+        const emittedDefs = new Set<string>()
+
+        // Track which properties each base schema actually has after deduplication,
+        // so per-tool .omit() calls only reference properties that exist.
+        const baseSchemaProps = new Map<string, Set<string>>()
+
+        for (const [, wrapperConfig] of enabledWrappers) {
+            const excludeProps = [...(wrapperConfig.exclude_properties ?? [])]
+            const zodCode = generateZodFromSchemaRef(querySchema, wrapperConfig.schema_ref, excludeProps)
+            const lines = zodCode.split('\n\nconst ')
+            for (let i = 0; i < lines.length; i++) {
+                const block = i === 0 ? lines[i]! : `const ${lines[i]}`
+                const match = block.match(/^const (\w+) =/)
+                if (match && !emittedDefs.has(match[1]!)) {
+                    emittedDefs.add(match[1]!)
+                    allZodBlocks.push(block)
+                    // Record properties of the emitted base schema
+                    const entryVarName = getEntryVarName(wrapperConfig.schema_ref)
+                    if (match[1] === entryVarName) {
+                        const propNames = new Set<string>()
+                        for (const propMatch of block.matchAll(/^\s{4}(\w+):/gm)) {
+                            propNames.add(propMatch[1]!)
+                        }
+                        baseSchemaProps.set(entryVarName, propNames)
+                    }
+                }
+            }
+        }
+
+        // Generate per-tool schemas when the tool needs to customize the base schema
+        // via property_defaults or omitting exclude_properties that survived deduplication.
+        const perToolSchemaNames = new Map<string, string>()
+        for (const [name, wrapperConfig] of enabledWrappers) {
+            const hasDefaults =
+                wrapperConfig.property_defaults && Object.keys(wrapperConfig.property_defaults).length > 0
+            const baseVarName = getEntryVarName(wrapperConfig.schema_ref)
+            const baseProps = baseSchemaProps.get(baseVarName) ?? new Set()
+            const keysToOmit = new Set<string>()
+            for (const k of wrapperConfig.exclude_properties ?? []) {
+                if (baseProps.has(k)) {
+                    keysToOmit.add(k)
+                }
+            }
+            const hasOmits = keysToOmit.size > 0
+            if (!hasDefaults && !hasOmits) {
+                continue
+            }
+            const toolSchemaName = `${toPascalCase(name)}Schema`
+            const omitExpr = hasOmits ? `.omit({ ${[...keysToOmit].map((k) => `${k}: true`).join(', ')} })` : ''
+            const overrides: string[] = []
+            for (const [prop, defaultValue] of Object.entries(wrapperConfig.property_defaults ?? {})) {
+                overrides.push(
+                    `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+                )
+            }
+            const extendExpr = overrides.length > 0 ? `.extend({\n${overrides.join('\n')}\n})` : ''
+            allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${omitExpr}${extendExpr}`)
+            perToolSchemaNames.set(name, toolSchemaName)
+        }
+
+        wrapperSchemasCode =
+            '\n// --- Query wrapper schemas from schema.json ---\n\n' + allZodBlocks.join('\n\n') + '\n'
+
+        wrapperMapEntries = enabledWrappers
+            .map(([name, wrapperConfig]) => {
+                const schemaVarName = perToolSchemaNames.get(name) ?? getEntryVarName(wrapperConfig.schema_ref)
+                const kind = extractKindFromSchemaRef(querySchema, wrapperConfig.schema_ref)
+                const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
+                if (wrapperConfig.ui_resource_uri) {
+                    configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
+                }
+                if (wrapperConfig.url_prefix) {
+                    configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
+                }
+                return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
+            })
+            .join('\n')
+    }
+
+    const restMapEntries = enabledTools
+        .flatMap(([name, config]) => {
+            if (config.confirmed_action) {
+                return [
+                    `    '${name}-prepare': ${toCamelCase(name)}Prepare,`,
+                    `    '${name}-execute': ${toCamelCase(name)}Execute,`,
+                ]
+            }
+            return [`    '${name}': ${toCamelCase(name)},`]
+        })
+        .join('\n')
+
+    const hasConfirmedAction = enabledTools.some(([, c]) => c.confirmed_action)
+    const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
         allOrvalImports.size > 0
@@ -772,22 +1570,60 @@ function generateCategoryFile(
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
+    const hasUiMeta = enabledTools.some(([, config]) => config.ui_app)
+    const withUiAppImportLine = hasUiMeta ? `import { withUiApp } from '@/resources/ui-apps'\n` : ''
+
     const toolInputsImportLine =
         allToolInputsImports.size > 0
             ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
             : ''
 
+    const castHelpersImportLine =
+        allCastHelperImports.size > 0
+            ? `import { ${[...allCastHelperImports].sort().join(', ')} } from '@/tools/cast-helpers'\n`
+            : ''
+
+    // Build tool-utils import (WithPostHogUrl type + withPostHogUrl runtime helper)
+    const toolUtilsTypeImports: string[] = []
+    const toolUtilsValueImports: string[] = []
+    if (hasWithPostHogUrl) {
+        toolUtilsTypeImports.push('WithPostHogUrl')
+    }
+    if (hasEnrichment) {
+        toolUtilsValueImports.push('withPostHogUrl')
+    }
+    for (const imp of responseFilterImports) {
+        toolUtilsValueImports.push(imp)
+    }
+    let toolUtilsImportLine = ''
+    if (toolUtilsValueImports.length > 0 && toolUtilsTypeImports.length > 0) {
+        toolUtilsImportLine = `import { ${toolUtilsValueImports.join(', ')}, type ${toolUtilsTypeImports.join(', type ')} } from '@/tools/tool-utils'\n`
+    } else if (toolUtilsValueImports.length > 0) {
+        toolUtilsImportLine = `import { ${toolUtilsValueImports.join(', ')} } from '@/tools/tool-utils'\n`
+    } else if (toolUtilsTypeImports.length > 0) {
+        toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
+    }
+
+    const wrapperImportLine =
+        enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
+
+    const confirmedActionImportLine = hasConfirmedAction
+        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
+        : ''
+
+    const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${schemasImportLine}${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
 `
 
-    return { code, enabledTools }
+    return { code, enabledTools, enabledWrappers }
 }
 
 // ------------------------------------------------------------------
@@ -819,28 +1655,119 @@ function generateDefinitionsJson(
     categories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
         yamlDir: string
     }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
-    for (const { config: category, enabledTools, yamlDir } of categories) {
+    for (const { config: category, enabledTools, enabledWrappers, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
+            const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
+            const baseTitle = toolConfig.title || resolved.operation.summary || name
+            const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            // Per-tool feature_flag wins; otherwise inherit the category-level
+            // gate (lets one line gate a whole not-yet-GA product).
+            const featureFlag = toolConfig.feature_flag ?? category.feature_flag
+            const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
+            const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
+
+            if (toolConfig.confirmed_action) {
+                // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
+                // `<name>-execute` entries. Descriptions explicitly guide the
+                // model through the prepare → ask user → execute sequence.
+                const actionLabel = toolConfig.confirmed_action.action_label ?? baseTitle
+                definitions[`${name}-prepare`] = {
+                    description:
+                        `Step 1 of 2 for ${actionLabel}. ` +
+                        `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
+                        `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
+                        `Original action: ${baseDescription}`,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: `${baseSummary} (prepare)`,
+                    title: `${baseTitle} (prepare)`,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: false,
+                        idempotentHint: true,
+                        openWorldHint: true,
+                        readOnlyHint: true,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
+                definitions[`${name}-execute`] = {
+                    description:
+                        `Step 2 of 2 for ${actionLabel}. ` +
+                        `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
+                        `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
+                        `Original action: ${baseDescription}`,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: `${baseSummary} (execute)`,
+                    title: `${baseTitle} (execute)`,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: toolConfig.annotations.destructive,
+                        idempotentHint: toolConfig.annotations.idempotent,
+                        openWorldHint: true,
+                        readOnlyHint: toolConfig.annotations.readOnly,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
+            } else {
+                definitions[name] = {
+                    description: baseDescription,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: baseSummary,
+                    title: baseTitle,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: toolConfig.annotations.destructive,
+                        idempotentHint: toolConfig.annotations.idempotent,
+                        openWorldHint: true,
+                        readOnlyHint: toolConfig.annotations.readOnly,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
+            }
+        }
+        // Include query wrappers defined in the same category file
+        for (const [name, wrapperConfig] of enabledWrappers) {
             definitions[name] = {
-                description: resolveDescription(toolConfig, yamlDir, opDescription),
+                description: resolveDescription(wrapperConfig, yamlDir, ''),
                 category: category.category,
                 feature: category.feature,
-                summary: toolConfig.title || opDescription.split('.')[0] || name,
-                title: toolConfig.title || resolved.operation.summary || name,
-                required_scopes: toolConfig.scopes,
-                new_mcp: toolConfig.mcp_version !== undefined ? toolConfig.mcp_version >= 2 : true,
+                summary: wrapperConfig.title || name,
+                title: wrapperConfig.title || name,
+                required_scopes: wrapperConfig.scopes,
                 annotations: {
-                    destructiveHint: toolConfig.annotations.destructive,
-                    idempotentHint: toolConfig.annotations.idempotent,
+                    destructiveHint: wrapperConfig.annotations.destructive,
+                    idempotentHint: wrapperConfig.annotations.idempotent,
                     openWorldHint: true,
-                    readOnlyHint: toolConfig.annotations.readOnly,
+                    readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
-                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
+                ...(wrapperConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
+                ...(wrapperConfig.feature_flag_variant
+                    ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
+                    : {}),
+                ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
     }
@@ -857,14 +1784,6 @@ function loadQuerySchema(): JsonSchemaRoot {
         process.exit(1)
     }
     return JSON.parse(fs.readFileSync(SCHEMA_JSON_PATH, 'utf-8')) as JsonSchemaRoot
-}
-
-/**
- * Returns true if the parsed YAML has the shape of a query wrapper config
- * (has `wrappers` key instead of `tools`).
- */
-function isQueryWrappersConfig(parsed: unknown): boolean {
-    return typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)
 }
 
 function generateQueryWrapperFile(
@@ -901,11 +1820,8 @@ function generateQueryWrapperFile(
     const emittedDefs = new Set<string>()
 
     for (const [, toolConfig] of enabledWrappers) {
-        const zodCode = generateZodFromSchemaRef(
-            querySchema,
-            toolConfig.schema_ref,
-            toolConfig.exclude_properties ?? []
-        )
+        const excludeProps = [...(toolConfig.exclude_properties ?? [])]
+        const zodCode = generateZodFromSchemaRef(querySchema, toolConfig.schema_ref, excludeProps)
         // Split into individual const declarations and only emit new ones
         const lines = zodCode.split('\n\nconst ')
         for (let i = 0; i < lines.length; i++) {
@@ -918,15 +1834,57 @@ function generateQueryWrapperFile(
         }
     }
 
+    // Generate per-tool schemas when the tool needs to customize the base schema.
+    const perToolSchemaNames = new Map<string, string>()
+    for (const [name, toolConfig] of enabledWrappers) {
+        const hasDefaults = toolConfig.property_defaults && Object.keys(toolConfig.property_defaults).length > 0
+        const useOptimizedOutput = !!toolConfig.use_optimized_output
+        if (!hasDefaults && !useOptimizedOutput) {
+            continue
+        }
+        const baseVarName = getEntryVarName(toolConfig.schema_ref)
+        const toolSchemaName = `${toPascalCase(name)}Schema`
+        const overrides: string[] = []
+        for (const [prop, defaultValue] of Object.entries(toolConfig.property_defaults ?? {})) {
+            overrides.push(
+                `    ${prop}: ${baseVarName}.shape.${prop}.default(${JSON.stringify(defaultValue)}).optional(),`
+            )
+        }
+        if (useOptimizedOutput) {
+            // When the wrapper has a server-side formatter, expose an `output_format` per-call input
+            // so the agent can override the default (`optimized`) and request raw JSON. The factory
+            // strips this field before building the query body so it never leaks to the backend.
+            const outputFormatDescription =
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            overrides.push(
+                `    output_format: z.enum(['optimized', 'json']).default('optimized').optional().describe(${JSON.stringify(outputFormatDescription)}),`
+            )
+        }
+        const extendExpr = `.extend({\n${overrides.join('\n')}\n})`
+        allZodBlocks.push(`const ${toolSchemaName} = ${baseVarName}${extendExpr}`)
+        perToolSchemaNames.set(name, toolSchemaName)
+    }
+
     const schemasCode = allZodBlocks.join('\n\n')
 
     // Generate tool registrations using the factory
     const mapEntries = enabledWrappers
         .map(([name, toolConfig]) => {
-            const entryVarName = getEntryVarName(toolConfig.schema_ref)
+            const schemaVarName = perToolSchemaNames.get(name) ?? getEntryVarName(toolConfig.schema_ref)
             const kind = extractKindFromSchemaRef(querySchema, toolConfig.schema_ref)
-            const uiResourceUri = toolConfig.ui_resource_uri ? `, uiResourceUri: '${toolConfig.ui_resource_uri}'` : ''
-            return `    '${name}': createQueryWrapper({ name: '${name}', schema: ${entryVarName}, kind: '${kind}'${uiResourceUri} }),`
+            const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
+            if (toolConfig.ui_resource_uri) {
+                configParts.push(`uiResourceUri: '${toolConfig.ui_resource_uri}'`)
+            }
+            // The factory's `outputFormat` drives both the default text encoding and whether the
+            // wrapper surfaces `formatted_results`. `use_optimized_output` in YAML maps to `'optimized'`;
+            // everything else falls back to raw JSON.
+            configParts.push(`outputFormat: '${toolConfig.use_optimized_output ? 'optimized' : 'json'}'`)
+
+            if (toolConfig.url_prefix) {
+                configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })
         .join('\n')
 
@@ -974,13 +1932,16 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
-            new_mcp: toolConfig.mcp_version !== undefined ? toolConfig.mcp_version >= 2 : true,
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,
                 openWorldHint: true,
                 readOnlyHint: toolConfig.annotations.readOnly,
             },
+            ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+            ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
     return definitions
@@ -1006,6 +1967,7 @@ function main(): void {
     const allCategories: {
         config: CategoryConfig
         enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+        enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
         yamlDir: string
     }[] = []
     const generatedModules: string[] = []
@@ -1061,11 +2023,24 @@ function main(): void {
         const config = result.data
 
         const label = path.relative(REPO_ROOT, def.filePath)
-        const { code, enabledTools } = generateCategoryFile(config, label, def.moduleName, spec, knownTypes)
+        const getQuerySchemaLazy = (): JsonSchemaRoot => {
+            if (!querySchema) {
+                querySchema = loadQuerySchema()
+            }
+            return querySchema
+        }
+        const { code, enabledTools, enabledWrappers } = generateCategoryFile(
+            config,
+            label,
+            def.moduleName,
+            spec,
+            knownTypes,
+            getQuerySchemaLazy
+        )
 
-        if (enabledTools.length > 0) {
+        if (enabledTools.length > 0 || enabledWrappers.length > 0) {
             generatedModules.push(def.moduleName)
-            allCategories.push({ config, enabledTools, yamlDir: path.dirname(def.filePath) })
+            allCategories.push({ config, enabledTools, enabledWrappers, yamlDir: path.dirname(def.filePath) })
             fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
         }
     }
@@ -1086,13 +2061,13 @@ ${spreads}
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
     // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
-    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
+    // Sort keys so output is stable regardless of upstream OpenAPI iteration order.
+    const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
-    const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
-    const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    const handwrittenDefinitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_PATH, 'utf-8'))
+    const allDefinitions = sortKeys({ ...handwrittenDefinitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
@@ -1117,10 +2092,13 @@ ${spreads}
 
 // Export for testing
 export {
+    buildResponseFilter,
     composeToolSchema,
     extractPathParams,
     generateCategoryFile,
     generateCustomSchemaToolCode,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 }

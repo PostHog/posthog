@@ -2,6 +2,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
+import type { MockResolverInfo } from '~/mocks/utils'
 import {
     AccessControlLevel,
     BehavioralEventType,
@@ -195,6 +196,7 @@ export const mockCohort: CohortType = {
 
 export const mockSubscription: SubscriptionType = {
     id: 1,
+    resource_type: 'insight',
     title: 'My example subscription',
     target_type: 'email',
     target_value: 'ben@posthog.com,geoff@other-company.com',
@@ -204,8 +206,8 @@ export const mockSubscription: SubscriptionType = {
     byweekday: ['wednesday'],
     bysetpos: 1,
     summary: 'sent every month on the first wednesday',
+    next_delivery_date: '2024-01-01T00:00:00Z',
     created_at: '2022-01-01T00:09:00',
-    updated_at: '2022-01-01T00:09:00',
 }
 
 export const createMockSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType => ({
@@ -267,14 +269,19 @@ export const mockSlackChannels: SlackChannelType[] = [
     },
 ]
 
-export const mockGetEventDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
-    const search = req.url.searchParams.get('search') ?? ''
-    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
+export const mockGetEventDefinitions = ({ request }: MockResolverInfo): [number, Record<string, any>] => {
+    const searchParams = new URL(request.url).searchParams
+    const search = searchParams.get('search') ?? ''
+    // The real endpoint filters excluded_properties server-side
+    const excluded: string[] = JSON.parse(searchParams.get('excluded_properties') ?? '[]')
+    const results = mockEventDefinitions.filter(
+        (e) => (!search || e.name.includes(search)) && !excluded.includes(e.name)
+    )
     return [200, { results, count: results.length }]
 }
 
-export const mockGetPropertyDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
-    const search = req.url.searchParams.get('search') ?? ''
+export const mockGetPropertyDefinitions = ({ request }: MockResolverInfo): [number, Record<string, any>] => {
+    const search = new URL(request.url).searchParams.get('search') ?? ''
     const results = search
         ? mockEventPropertyDefinitions.filter((p) => p.name.includes(search))
         : mockEventPropertyDefinitions

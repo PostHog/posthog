@@ -1,8 +1,9 @@
 import './WrappingLoadingSkeleton.scss'
 
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { cn } from 'lib/utils/css-classes'
 
-interface WrappingLoadingSkeletonProps {
+export interface WrappingLoadingSkeletonProps {
     fullWidth?: boolean
     children: React.ReactNode
     className?: string
@@ -12,8 +13,10 @@ export function WrappingLoadingSkeleton({
     fullWidth = false,
     className,
 }: WrappingLoadingSkeletonProps): JSX.Element {
+    const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
     return (
         <div
+            ref={ref}
             className={cn(
                 'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit overflow-hidden',
                 fullWidth && 'w-full',

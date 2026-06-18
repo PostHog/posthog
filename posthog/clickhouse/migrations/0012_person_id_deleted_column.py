@@ -7,7 +7,7 @@ operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS kafka_person_distinct_id"),
     run_sql_with_exceptions(
         f"ALTER TABLE person_distinct_id ADD COLUMN IF NOT EXISTS is_deleted Int8 DEFAULT 0",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),

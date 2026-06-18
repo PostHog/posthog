@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils/strings'
 import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
@@ -152,8 +152,14 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
         if (query.trendsFilter?.formulaNodes) {
-            const formulas = query.trendsFilter?.formulaNodes.map((node) => node.custom_name || node.formula).join(', ')
-            summary = `${formulas} on ${summary}`
+            const formulas = query.trendsFilter.formulaNodes
+                .map((node) => node.custom_name?.trim() || node.formula?.trim())
+                .filter((formula): formula is string => !!formula)
+                .join(', ')
+
+            if (formulas) {
+                summary = `${formulas} on ${summary}`
+            }
         }
 
         return summary

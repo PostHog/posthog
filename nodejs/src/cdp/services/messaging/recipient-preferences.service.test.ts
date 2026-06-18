@@ -107,6 +107,7 @@ describe('RecipientPreferencesService', () => {
                 name: 'Send email',
                 description: 'Send an email to the recipient',
                 type: 'function_email',
+                filters: null,
                 config: {
                     template_id: 'template-email',
                     message_category_id: categoryId,
@@ -117,7 +118,7 @@ describe('RecipientPreferencesService', () => {
                                     email: to,
                                 },
                                 from: {
-                                    email: 'from@example.com',
+                                    integrationId: 1,
                                 },
                                 subject: 'Test Subject',
                                 text: 'Test Text',
@@ -323,6 +324,7 @@ describe('RecipientPreferencesService', () => {
                 name: 'Send SMS',
                 description: 'Send an SMS to the recipient',
                 type: 'function_sms',
+                filters: null,
                 config: {
                     template_id: 'template-twilio',
                     message_category_id: categoryId,
@@ -423,6 +425,7 @@ describe('RecipientPreferencesService', () => {
                     name: 'Execute function',
                     description: 'Execute a custom hog function',
                     type: 'function',
+                    filters: null,
                     config: {
                         template_id: 'template-function',
                         inputs: {},

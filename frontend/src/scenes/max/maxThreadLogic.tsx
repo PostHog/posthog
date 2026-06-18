@@ -24,7 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -66,15 +66,18 @@ import {
 
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { handsFreeLogic } from './handsFreeLogic'
+import { summariseAssistantThread } from './handsFreeUtils'
+import { EnhancedToolCall, MODE_DEFINITIONS, TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -100,17 +103,18 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
-    tabId: string // used to refer back to MaxLogic
+    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
     key((props) => {
-        if (!props.tabId) {
-            throw new Error('Max thread logic must have a tabId prop')
+        if (!props.panelId) {
+            throw new Error('Max thread logic must have a panelId prop')
         }
-        return `${props.conversationId}-${props.tabId}`
+        return `${props.conversationId}-${props.panelId}`
     }),
 
     path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
@@ -118,13 +122,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     props({} as MaxThreadLogicProps),
 
     propsChanged(({ actions, values, props }) => {
-        // Streaming is active, do not update the thread
         if (!props.conversation) {
             return
         }
 
-        // New messages have been added since we last updated the thread
-        if (!values.streamingActive && props.conversation.messages.length > values.threadMessageCount) {
+        // Handle new messages post-mount; initial load in afterMount.
+        if (
+            !values.streamingActive &&
+            props.conversation.messages &&
+            props.conversation.messages.length > values.threadMessageCount
+        ) {
             actions.setThread(updateMessagesWithCompletedStatus(props.conversation.messages))
         }
 
@@ -135,12 +142,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ tabId }: MaxThreadLogicProps) => ({
+    connect(({ panelId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
-            maxLogic({ tabId }),
-            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
+            maxLogic({ panelId }),
+            [
+                'question',
+                'autoRun',
+                'threadLogicKey as activeThreadKey',
+                'activeStreamingThreads',
+                'conversationId as parentConversationId',
+            ],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -151,7 +164,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['sceneId'],
         ],
         actions: [
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'askMax',
                 'setQuestion',
@@ -246,6 +259,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => ({
             formAnswers,
         }),
+        continueAfterFormDismissal: true,
+        continueWithClientToolResult: (result: Record<string, unknown>, toolCallId: string) => ({ result, toolCallId }),
+        executePendingClientToolCall: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
@@ -405,7 +421,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -575,6 +591,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             limit: queue.max_queue_messages,
                         }
                     } catch (error: any) {
+                        posthog.captureException(error)
                         if (error instanceof ApiError && error.status === 404) {
                             return { messages: [], limit: 0 }
                         }
@@ -613,6 +630,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
                 actions.addMessage(message)
             }
+
+            let caughtException = false
 
             try {
                 cache.generationController = new AbortController()
@@ -668,6 +687,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
+                caughtException = true
                 // Cancel any next iteration
                 actions.setForAnotherAgenticIteration(false)
 
@@ -688,16 +708,33 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     )
                 }
 
+                if (e instanceof DOMException && e.name === 'AbortError') {
+                    posthog.capture('max conversation turn completed', {
+                        status: 'cancelled',
+                        conversation_id: values.conversation?.id,
+                        trace_id: traceId,
+                        agent_mode: agentMode,
+                        generation_attempt: generationAttempt,
+                    })
+                }
+
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    posthog.captureException(e)
                     let releaseException = true
                     // Generic message by default
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
                     const offlineMessage = 'You appear to be offline. Please check your internet connection.'
 
-                    // Network exception errors might be overwritten by the API wrapper, so we check for the generic Error type.
-                    if (e instanceof Error && e.message.toLowerCase().includes('failed to fetch')) {
-                        // Failed to fetch -> request failed to connect.
-                        // If the conversation is in progress, we retry up to 15 times.
+                    // Network errors surface differently across browsers and may be wrapped by handleFetch:
+                    //   Chrome/Edge: "Failed to fetch"
+                    //   Firefox:     "NetworkError when attempting to fetch resource."
+                    //   Safari:      "Load failed"
+                    //   handleFetch: ApiError with status === undefined (fetch itself threw)
+                    const isNetworkError =
+                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof ApiError && !e.status)
+
+                    if (isNetworkError) {
                         if (values.conversation?.status === ConversationStatus.InProgress) {
                             if (generationAttempt > 15) {
                                 relevantErrorMessage.content = offlineMessage
@@ -706,16 +743,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 return
                             }
                         } else {
-                            // No started conversation, show the offline message.
                             relevantErrorMessage.content = offlineMessage
-                        }
-                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
-                        // Network error -> request failed in progress.
-                        if (generationAttempt > 15) {
-                            relevantErrorMessage.content = offlineMessage
-                        } else {
-                            await retry()
-                            return
                         }
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
@@ -728,12 +756,31 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (e.data?.attr === 'content') {
                                 relevantErrorMessage.content =
                                     'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                            } else if (e.detail) {
+                                relevantErrorMessage.content = e.detail
                             }
                         }
 
-                        // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                        // 409 means the conversation is already in progress.
+                        // Reconnect to the existing stream instead of resending the message.
                         if (e.status === 409 && generationAttempt <= 5) {
-                            await retry()
+                            // Mark that the next stream replay should clear the thread on the
+                            // first real event. We defer the clear (rather than doing it now)
+                            // so the user keeps seeing the existing thread + loading indicator
+                            // while we reconnect. The stream replays all events from the
+                            // beginning so we must rebuild from scratch to avoid duplicates.
+                            cache.clearThreadOnReplay = true
+                            await breakpoint(1000 * (generationAttempt + 1))
+                            actions.decrActiveStreamingThreads()
+                            actions.streamConversation(
+                                {
+                                    content: null,
+                                    conversation: streamData.conversation,
+                                    agent_mode: agentMode,
+                                    is_sandbox: isSandbox || undefined,
+                                },
+                                generationAttempt + 1
+                            )
                             return
                         }
 
@@ -754,11 +801,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 'Something is wrong with our servers. Please try again later.'
                         }
                     } else {
-                        posthog.captureException(e)
                         console.error(e)
                     }
 
                     if (releaseException) {
+                        posthog.capture('max conversation turn completed', {
+                            status: 'failure',
+                            conversation_id: values.conversation?.id,
+                            trace_id: traceId,
+                            agent_mode: agentMode,
+                            generation_attempt: generationAttempt,
+                            error_status_code: e instanceof ApiError ? e.status : undefined,
+                            error_type: isNetworkError
+                                ? 'network_error'
+                                : e instanceof ApiError
+                                  ? 'api_error'
+                                  : 'unknown_error',
+                        })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
                         actions.addMessage(relevantErrorMessage)
@@ -774,13 +833,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.askMax(null)
             } else {
                 // Otherwise wrap things up
+                if (!caughtException) {
+                    const hasGenerationError = values.threadRaw.some((msg) => msg.status === 'error')
+                    posthog.capture('max conversation turn completed', {
+                        status: hasGenerationError ? 'generation_error' : 'success',
+                        conversation_id: values.conversation?.id,
+                        trace_id: traceId,
+                        agent_mode: agentMode,
+                        generation_attempt: generationAttempt,
+                    })
+                }
                 actions.completeThreadGeneration()
             }
             cache.generationController = undefined
             releaseStreamingLock() // release the lock
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         setConversation: ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
             if (cache.lastConversationId !== nextConversationId) {
@@ -840,6 +909,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 actions.setQueuedMessages(values.queuedMessages)
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
@@ -859,6 +929,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to update the queued message.')
             }
         },
@@ -878,6 +949,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 if (error instanceof ApiError && error.status === 404) {
                     return
                 }
@@ -901,6 +973,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 if (error instanceof ApiError && error.status === 404) {
                     return
                 }
@@ -918,6 +991,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to clear queued messages.')
             }
         },
@@ -932,9 +1006,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
-            const mergedUiContext = uiContext
-                ? { ...values.compiledContext, ...uiContext }
-                : values.compiledContext || undefined
+            // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
+            // not just when active. Otherwise a typed turn following a spoken one inherits
+            // the earlier <voice_mode> system instruction from conversation history and
+            // keeps formatting for speech (no markdown, spelled-out numbers).
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
+            const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
+            const mergedUiContext =
+                uiContext || voiceMode
+                    ? { ...values.compiledContext, ...uiContext, ...voiceMode }
+                    : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext
@@ -959,6 +1040,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     agentMode: values.agentMode,
                 })
                 actions.setQuestion('')
+                if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
+                    sidePanelStateLogic.actions.setSidePanelOptions(null)
+                }
                 return
             }
             if (!values.dataProcessingAccepted) {
@@ -1006,6 +1090,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             // Clear the question
             actions.setQuestion('')
+            // Drop #panel=max:… options so reload doesn't re-run auto-send from the hash
+            if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
+                sidePanelStateLogic.actions.setSidePanelOptions(null)
+            }
             // For a new conversations, set the frontend conversation ID
             if (!values.conversation) {
                 actions.setConversationId(values.conversationId)
@@ -1049,13 +1137,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
                 actions.resetThread()
             } catch (e: any) {
+                posthog.captureException(e)
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
 
-            try {
-                await actions.loadConversation(values.conversation.id)
-            } catch {}
-
+            actions.loadConversation(values.conversation.id)
             actions.setCancelLoading(false)
         },
 
@@ -1091,6 +1177,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
+            actions.executePendingClientToolCall()
+
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
+            if (handsFree?.values.isActive) {
+                handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
+            }
+
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
 
@@ -1136,7 +1229,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1148,13 +1241,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // Sync conversation data
+            // Keep conversation and thread in sync to avoid empty thread after history updates.
             actions.setConversation(conversation)
-
-            if (conversation.status === ConversationStatus.InProgress) {
-                setTimeout(() => {
-                    actions.reconnectToStream()
-                }, 0)
+            if (conversation.messages?.length && !values.threadRaw.length) {
+                actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
             }
         },
         selectCommand: ({ command }) => {
@@ -1189,6 +1279,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     })
                 }
             } catch (error) {
+                posthog.captureException(error)
                 console.error('Failed to navigate to notebook:', error)
             }
         },
@@ -1215,6 +1306,86 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'form', form_answers: formAnswers },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        continueAfterFormDismissal: () => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    resume_payload: { action: 'dismiss_form' },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        executePendingClientToolCall: async () => {
+            // Guard on streamingActive, not threadLoading: conversationLoading is still true here
+            // because completeThreadGeneration resets the status after dispatching this action
+            if (values.conversationId !== values.activeThreadKey || values.streamingActive) {
+                return
+            }
+            // Include statically-marked tools so a deregistered handler refuses instead of stranding the call
+            const clientToolNames = new Set([
+                ...Object.values(values.toolMap)
+                    .filter((tool) => tool.clientExecution)
+                    .map((tool) => tool.identifier as string),
+                ...Object.entries(TOOL_DEFINITIONS)
+                    .filter(([, definition]) => definition.clientExecuted)
+                    .map(([name]) => name),
+            ])
+            const pending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (!pending) {
+                return
+            }
+            // One attempt per call: a failing resume turn re-fires completeThreadGeneration with
+            // the same dangling call, which would re-run the handler's side effects unboundedly
+            cache.resumedClientToolCallIds ??= new Set<string>()
+            if (cache.resumedClientToolCallIds.has(pending.toolCallId)) {
+                return
+            }
+            cache.resumedClientToolCallIds.add(pending.toolCallId)
+            const handler = values.toolMap[pending.toolName]?.clientExecution
+            let result: Record<string, unknown>
+            if (!handler) {
+                result = {
+                    client_execution_error:
+                        'The PostHog view that executes this tool client-side is no longer open, so the call could not be completed.',
+                }
+            } else {
+                try {
+                    result = (await handler(pending.args)) ?? {}
+                } catch (error) {
+                    result = { client_execution_error: String(error) }
+                }
+            }
+            // A user message during the handler abandons the interrupt server-side — drop the
+            // resume unless the same call is still dangling
+            const stillPending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (
+                values.conversationId !== values.activeThreadKey ||
+                values.streamingActive ||
+                stillPending?.toolCallId !== pending.toolCallId
+            ) {
+                return
+            }
+            actions.continueWithClientToolResult(result, pending.toolCallId)
+        },
+        continueWithClientToolResult: ({ result, toolCallId }) => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    // Refresh tool context so the resumed generation sees state the handler just changed
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'client_tool_result', tool_call_id: toolCallId, result },
                 },
                 0,
                 false // Don't add to thread - no human message to show
@@ -1566,7 +1737,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (multiQuestionFormPending) {
-                    return 'Please answer the questions above'
+                    return 'Please answer, skip, or dismiss the form above'
                 }
 
                 // Prevent submission if too many active streaming threads (limit: 10)
@@ -1641,12 +1812,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
     }),
 
-    afterMount((logic) => {
+    afterMount(async (logic) => {
         const { actions, values, props, cache } = logic
         cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
-                // We found a logic with the same conversationId, but a different tabId
+                // We found a logic with the same conversationId, but a different panelId
                 if (l.values.conversation) {
                     actions.setConversation(l.values.conversation)
                 }
@@ -1666,7 +1837,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
         // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
         if (
-            props.tabId === 'sidepanel' &&
+            props.panelId === SIDE_PANEL_PANEL_ID &&
             !values.agentMode &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
@@ -1710,20 +1881,48 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
-        } else if (
-            props.conversation?.status === ConversationStatus.InProgress &&
+            return
+        }
+
+        if (props.skipInitialLoad) {
+            return
+        }
+
+        // Skip for new chats; only proceed for real backend conversations.
+        const parentConversationId = values.parentConversationId
+        if (!parentConversationId) {
+            return
+        }
+
+        // Fetch message history if threadRaw is empty (may already be populated by cross-tab sync)
+        if (values.threadRaw.length === 0) {
+            await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
+        }
+
+        // The await yields to the microtask queue — bail if the user navigated away.
+        if (!(logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
+            return
+        }
+
+        // Grab freshly loaded conversation from cache; if missing, the load failed, so skip reconnect
+        const conversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
+        if (!conversation || conversation.messages === undefined) {
+            return
+        }
+
+        // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
+        if (values.threadRaw.length === 0 && conversation.messages.length > 0) {
+            actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+        }
+
+        // 4. Reconnect to in-progress stream if needed; setThread here is a no-op due to message count guard.
+        if (
+            conversation.status === ConversationStatus.InProgress &&
             !values.streamingActive &&
-            !cache.generationController
+            !cache.generationController &&
+            !values.multiQuestionFormPending
         ) {
-            // Don't auto-reconnect if there's a pending form - the user needs to fill it out first
-            // The form submission will properly resume the conversation with the answers
-            if (values.multiQuestionFormPending) {
-                return
-            }
-            // If the conversation is in progress and we don't have an active stream, reconnect
-            setTimeout(() => {
-                actions.reconnectToStream()
-            }, 0)
+            actions.reconnectToStream()
         }
     }),
 
@@ -1874,6 +2073,14 @@ export async function onEventImplementation(
         agentMode: AgentMode | null
     }
 ): Promise<void> {
+    // On 409 reconnect, the stream replays all events from the beginning.
+    // Clear the thread on the first real event so the replay rebuilds it
+    // from scratch — this avoids duplicates and ordering conflicts.
+    if (cache.clearThreadOnReplay) {
+        cache.clearThreadOnReplay = false
+        actions.setThread([])
+    }
+
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
         const parsedResponse = parseResponse<Conversation>(data)
@@ -2013,7 +2220,7 @@ export async function onEventImplementation(
 
         const entry = parseLogEvent(
             parsedResponse,
-            cache.sandboxEventIndex++,
+            `sandbox-${cache.sandboxEventIndex++}`,
             cache.sandboxToolMap as Map<string, LogEntry>
         )
         if (!entry) {

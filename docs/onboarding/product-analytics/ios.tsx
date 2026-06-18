@@ -13,8 +13,8 @@ export const getIOSSteps = (
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const podVersion = options?.minVersionPod || '3.0'
-    const spmVersion = options?.minVersionSPM || '3.0.0'
+    const podVersion = options?.minVersionPod || '3.56'
+    const spmVersion = options?.minVersionSPM || '3.56.0'
 
     return [
         {
@@ -77,7 +77,7 @@ export const getIOSSteps = (
                                             let POSTHOG_PROJECT_TOKEN = "<ph_project_token>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
 
-                                            let config = PostHogConfig(apiKey: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
+                                            let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
                                             PostHogSDK.shared.setup(config)
 
                                             return true

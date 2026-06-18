@@ -1,0 +1,12 @@
+{% load i18n %}
+{% include "admin/edit_inline/tabular.html" %}
+
+{% if inline_admin_formset.formset.instance.pk %}
+<p style="margin: 8px 0 24px;">
+  <a class="button" href="{% url 'admin:legal_documents_legaldocument_add' %}?organization={{ inline_admin_formset.formset.instance.pk }}">
+    {% translate "Upload signed document" %}
+  </a>
+</p>
+{% endif %}
+
+<style>#{{ inline_admin_formset.formset.prefix }}-group .add-row { display: none; }</style>

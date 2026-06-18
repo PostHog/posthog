@@ -6,8 +6,8 @@ from .trace_attributes import TABLE_NAME as TRACE_ATTRIBUTES_TABLE_NAME
 
 TABLE_NAME = "trace_spans"
 
-TTL = (
-    lambda: "TTL timestamp + toIntervalHour(25) TO DISK 's3'" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else ""
+TTL = lambda: (
+    "TTL timestamp + toIntervalHour(25) TO DISK 's3'" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else ""
 )
 STORAGE_POLICY = lambda: "tiered" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else "default"
 
@@ -115,7 +115,7 @@ def TRACE_SPANS_DISTRIBUTED_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {database}.trace_spans_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
-            data_table=f"{TABLE_NAME}",
+            data_table=TABLE_NAME,
             cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
         ),
         database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,

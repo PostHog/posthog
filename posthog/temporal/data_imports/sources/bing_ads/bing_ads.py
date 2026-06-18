@@ -4,17 +4,18 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.settings import integrations
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 from .client import BingAdsClient
 from .schemas import RESOURCE_SCHEMAS, BingAdsResource
-from .utils import fetch_data_in_yearly_chunks
+from .utils import BingAdsResumeConfig, fetch_data_in_yearly_chunks
 
 logger = structlog.get_logger()
 
@@ -65,12 +66,13 @@ def bing_ads_source(
     resource_name: str,
     access_token: str,
     refresh_token: str,
+    resumable_source_manager: ResumableSourceManager[BingAdsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    name = NamingConvention().normalize_identifier(resource_name)
+    name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
     # Define generator function for lazy evaluation - dlt will call this when ready to fetch data
@@ -78,6 +80,12 @@ def bing_ads_source(
         developer_token = integrations.BING_ADS_DEVELOPER_TOKEN
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
+
+        # Without these the SDK posts a token request omitting client_id, and Microsoft replies with the
+        # opaque AADSTS900144 ("request body must contain client_id") — fail fast so it isn't mis-surfaced
+        # as a customer "reconnect your integration" error when it's really a missing PostHog config.
+        if not integrations.BING_ADS_CLIENT_ID or not integrations.BING_ADS_CLIENT_SECRET:
+            raise ValueError("Bing Ads OAuth application credentials not configured")
 
         client = BingAdsClient(
             access_token=access_token,
@@ -87,6 +95,17 @@ def bing_ads_source(
         resource = BingAdsResource(resource_name)
 
         today = dt.date.today()
+        # Bing Ads Account IDs are numeric. Users sometimes enter their alphanumeric Account
+        # Number (e.g. "F118FDGN") instead, which can't be parsed into the integer the API
+        # expects. Raise a deterministic, actionable error here so it can be flagged
+        # non-retryable rather than crashing on a bare int() and retrying forever.
+        if not account_id.isdigit():
+            raise ValueError(
+                "Bing Ads Account ID must be numeric. "
+                f"The configured Account ID {account_id!r} is not a number — you may have entered "
+                "your alphanumeric Account Number instead. Update the Account ID in the source "
+                "settings and try again."
+            )
         account_id_int = int(account_id)
 
         if schema.is_stats:
@@ -116,6 +135,7 @@ def bing_ads_source(
                     account_id=account_id_int,
                     start_date=start_date,
                     end_date=today,
+                    resumable_source_manager=resumable_source_manager,
                 )
             else:
                 start_date = today - dt.timedelta(days=365 * 5)
@@ -125,6 +145,7 @@ def bing_ads_source(
                     account_id=account_id_int,
                     start_date=start_date,
                     end_date=today,
+                    resumable_source_manager=resumable_source_manager,
                 )
         else:
             data_pages = client.get_data_by_resource(

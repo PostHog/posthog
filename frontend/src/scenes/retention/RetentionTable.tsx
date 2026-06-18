@@ -7,7 +7,8 @@ import React from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor, humanFriendlyNumber } from 'lib/utils'
+import { gradateColor } from 'lib/utils/colors'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -43,7 +44,7 @@ export function RetentionTable({
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
-    const allowSelectingColumns = !insightProps.dashboardId && !inSharedMode && !embedded
+    const allowSelectingColumns = !inSharedMode && !embedded
 
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
@@ -198,6 +199,20 @@ export function RetentionTable({
                                             return (
                                                 <td
                                                     key={columnIndex}
+                                                    onClick={(e) => {
+                                                        // Open the modal for this cohort and tell it which
+                                                        // interval column was clicked so it can highlight it.
+                                                        e.stopPropagation()
+                                                        if (!inSharedMode) {
+                                                            openModal(
+                                                                rowIndex,
+                                                                breakdownValue === NO_BREAKDOWN_VALUE
+                                                                    ? null
+                                                                    : breakdownValue,
+                                                                columnIndex
+                                                            )
+                                                        }
+                                                    }}
                                                     className={clsx({
                                                         'RetentionTable__SelectedColumn--cell':
                                                             columnIndex === selectedInterval,

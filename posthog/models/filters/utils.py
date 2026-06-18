@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -56,7 +56,7 @@ def get_filter(team, data: Optional[dict] = None, request: Optional[Request] = N
     return Filter(data=data, request=request, team=team)
 
 
-def validate_group_type_index(param_name: str, value: Any, required=False) -> Optional[GroupTypeIndex]:
+def validate_group_type_index(param_name: str, value: Any, required=False) -> GroupTypeIndex | None:
     error = ValidationError(
         f"{param_name} is required to be at least 0 and less than {GROUP_TYPES_LIMIT}",
         code="invalid",
@@ -73,4 +73,4 @@ def validate_group_type_index(param_name: str, value: Any, required=False) -> Op
         if not (0 <= value < GROUP_TYPES_LIMIT):
             raise error
 
-    return value
+    return cast(GroupTypeIndex | None, value)

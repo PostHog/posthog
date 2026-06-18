@@ -19,7 +19,7 @@ export interface ActionLogicProps {
 
 export const actionLogic = kea<actionLogicType>([
     props({} as ActionLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => `${props.id || 'new'}`),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
@@ -87,8 +87,7 @@ export const actionLogic = kea<actionLogicType>([
         breadcrumbs: [
             (s) => [
                 s.action,
-                (state, props) =>
-                    actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
+                (state, props) => actionEditLogic.findMounted({ id: props?.id })?.selectors.action(state).name || null,
             ],
             (action, inProgressName): Breadcrumb[] => [
                 {

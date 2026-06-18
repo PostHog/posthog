@@ -27,7 +27,14 @@ Controls whether INSERTs into a Distributed table are synchronous or asynchronou
 
 Previously named `insert_distributed_sync`.
 
-**Already enabled globally**: PostHog's ClickHouse config sets `insert_distributed_sync=1` in `docker/clickhouse/users.xml`. This means layer 1 (distributed table routing) is already solved for all queries. The `posthog/dags/sessions.py` DAG explicitly overrides this to `0` for large INSERTs to avoid OOM, confirming the global default is `1`.
+**Set per-query by the executor** (`_get_insert_settings`), under the legacy `insert_distributed_sync` name for ClickHouse-version compatibility. Do not rely on server profiles for this guarantee:
+
+- Dev's `docker/clickhouse/users.xml` sets `insert_distributed_sync=1` on the `default` profile, so dev and CI always behave synchronously — which also makes the async failure mode invisible in every test environment.
+- Production profiles are not the dev config. At least one production cluster explicitly sets `distributed_foreground_insert=0` (async) on the `default` profile used for writes, while carrying the legacy `insert_distributed_sync=1` only on the `readonly` profile — where it is inert, since readonly users cannot INSERT.
+- The dev config and the `posthog/dags/sessions.py` override comment both observe intent, not deployed behavior — do not read them as proof the setting is global. With async forwarding, an INSERT returns after merely enqueueing to the initiator's distribution queue, so a job marked READY immediately exposes rows that only become visible to readers over the following minutes — producing badly undercounted funnel results right after every window recompute.
+- To verify actual behavior, check `Settings['insert_distributed_sync']` on real INSERT rows in `system.query_log`, or per-host profile contents in `system.settings_profile_elements`. Unit tests on `_get_insert_settings` pin our side; only production telemetry pins the environment's.
+
+Large synchronous distributed inserts buffer per-shard splits on the initiator — the reason `posthog/dags/sessions.py` sets `0` for its bulk INSERTs. Lazy computation inserts are bounded by daily windows; if a very large recompute ever hits memory limits, chunk the windows instead of reverting to async.
 
 Sources:
 
@@ -240,7 +247,7 @@ Write to `sharded_preaggregation_results` directly on a specific node, run the S
 ### Approach E: Deterministic replica routing (Sentry's approach)
 
 ```text
-INSERT: (distributed_foreground_insert=1 is already global)
+INSERT: distributed_foreground_insert=1 (set per-query by the executor — see above)
 SELECT: optimize_skip_unused_shards=1, load_balancing='in_order'
 ```
 
@@ -248,7 +255,7 @@ Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-
 
 **Pros**: zero ZK overhead on reads, no per-table serialization, per-query settings only
 **Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates lazy computation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when lazy computation is a small fraction of total query volume, but worth monitoring as it grows.
-**INSERT latency**: none extra (already global)
+**INSERT latency**: the synchronous forward to the target shard
 **SELECT latency**: none extra (may be slightly faster with shard pruning)
 
 **Optional hardening: add quorum writes.** Adding `insert_quorum='auto'` ensures the INSERT is acknowledged by a majority of replicas before returning. This covers the failover edge case: if replica 1 goes down between INSERT and SELECT, `in_order` falls back to replica 2, which has the data thanks to quorum. Importantly, since we're using `load_balancing='in_order'` instead of `select_sequential_consistency`, we do NOT need `insert_quorum_parallel=0` — parallel quorum (the default) works fine, so there's no per-table lock and no throughput limit. The cost is +20-100ms INSERT latency for the quorum wait.
@@ -276,7 +283,7 @@ The choice of sharding key depends on which consistency approach is used:
 ## Other approaches investigated but not applicable
 
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.
-- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but `distributed_foreground_insert=1` already solves this and is already enabled globally.
+- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but the executor sets `distributed_foreground_insert=1` per-query, which solves this directly. (Also, with pooled connections there is no guarantee the FLUSH would run on the node holding the queue.)
 - **`distributed_group_by_no_merge`**: performance optimization that skips coordinator-level re-aggregation for single-shard queries — not a consistency mechanism.
 - **Kafka coordination layer**: Sentry also built a `SynchronizedConsumer` that uses Kafka commit log topics as a write confirmation barrier. Not applicable to the lazy computation system's `INSERT...SELECT` workload.
 - **ClickHouse transactions**: experimental `BEGIN TRANSACTION` / `COMMIT` support exists but is limited to single-table operations on ReplicatedMergeTree, not production-ready, and doesn't directly address read-after-write consistency.
@@ -296,7 +303,7 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 
 | Setting                           | Scope                         | ZK ops added | Latency          | Contention               | Impact on other queries                               |
 | --------------------------------- | ----------------------------- | ------------ | ---------------- | ------------------------ | ----------------------------------------------------- |
-| `distributed_foreground_insert=1` | Global (already set)          | None         | +1-10ms          | None                     | None                                                  |
+| `distributed_foreground_insert=1` | Per-query (set by executor)   | None         | +1-10ms          | None                     | None                                                  |
 | `insert_quorum='auto'`            | Per-query                     | 2-3 writes   | +20-100ms        | None                     | None                                                  |
 | `insert_quorum_parallel=0`        | Per-query (lock is per-table) | None extra   | None extra       | ~100ms window per INSERT | None (lock only affects quorum INSERTs to same table) |
 | `select_sequential_consistency=1` | Per-query                     | 1 read       | +1-10ms          | None                     | None                                                  |
@@ -311,3 +318,35 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 | D: Write to sharded tables               | Inherent                    | None            | None                | High (architectural change)                           |
 | E: `in_order` load balancing             | Practical (not formal)      | None            | None                | Low (per-query settings)                              |
 | E + quorum: `in_order` + `insert_quorum` | Practical (covers failover) | +20-100ms       | None                | Low (per-query settings, no serialization)            |
+
+## Concurrent first-readers: redundant INSERTs (by design)
+
+The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer raises `IntegrityError`. This is intentional: a stale READY job past its TTL should be replaceable.
+
+Combined with the executor's `for range in ttl_ranges` loop, this produces a wasted-INSERT pattern under concurrent first-readers on the **shortest-TTL** ranges (today / yesterday in `LAZY_TTL_SECONDS`):
+
+```text
+T=0.000  N threads enter executor. All call find_existing_jobs → []. All compute
+         the same stale ttl_ranges = [today, yesterday, 7-day].
+
+T=0.005  3 threads each WIN a different range (one PENDING per range via the
+         partial unique index). The other (N-3) threads hit IntegrityError on
+         all 3 ranges and loop back to wait on pubsub.
+
+T~0.5    The 3 winners each finish their CH INSERT (~470ms) and mark READY
+         within a few ms of each other.
+
+T~0.5+   Each winner *continues its for-loop* to iter 2 and iter 3. Because
+         the other winners just transitioned their rows out of the partial
+         unique index (`status='pending'` → `status='ready'`), the CREATE for
+         the other ranges no longer collides. Each winner runs a *second*
+         INSERT for a range already covered by a fresh READY job.
+```
+
+Observed in a 10-concurrent-first-readers stress test of the `web_overview_query` lazy path: **6 jobs in PG for 3 unique ranges** (2-3 duplicate READY rows on the short-TTL today/yesterday ranges). The 7-day range, with its longer INSERT span and only one race participant per iter slot, produced exactly 1 job.
+
+**Why this isn't a correctness bug:** the read path calls `filter_overlapping_jobs()` ([executor:383](lazy_computation_executor.py)) which deterministically keeps only the most-recently-created READY job per range. All concurrent callers therefore receive byte-identical results. The duplicate rows expire on their normal TTL or get compacted away by the ReplacingMergeTree.
+
+**Cost:** ~2× redundant INSERTs on the shortest-TTL ranges under cold-cache load. At low concurrency this is invisible. At high concurrency (e.g. dashboard-load fan-out across multiple browser tabs) it doubles CH write load for those ranges only. Mitigated naturally once the cache is primed — a second wave against the same range produces zero new INSERTs.
+
+**Possible fix (not applied):** `break` out of the for-loop after a successful CREATE+INSERT, returning control to the while-loop so `find_existing_jobs` re-runs and `ttl_ranges` gets recomputed against current state. Trade-off: each thread does at most one INSERT per round-trip (slower wall time when one thread legitimately owns multiple ranges), but eliminates the race. See `test_for_loop_creates_duplicate_after_peer_completes_mid_loop` in `tests/test_lazy_computation_executor.py` for the deterministic reproduction.

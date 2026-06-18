@@ -4,13 +4,12 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
-import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
@@ -21,9 +20,8 @@ import {
     serializeEvent,
 } from './emit-event-step'
 
-// Mock the utils module
-jest.mock('../../worker/ingestion/utils', () => ({
-    captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
+jest.mock('../common/ingestion-warnings', () => ({
+    emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
 // Mock the metrics module
@@ -33,28 +31,11 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
     },
 }))
 
-// Mock the ingestion lag metrics
-jest.mock('~/common/metrics', () => ({
-    ingestionLagGauge: {
-        labels: jest.fn().mockReturnValue({
-            set: jest.fn(),
-        }),
-    },
-    ingestionLagHistogram: {
-        labels: jest.fn().mockReturnValue({
-            observe: jest.fn(),
-        }),
-    },
-}))
-
-const mockCaptureIngestionWarning = jest.mocked(captureIngestionWarning)
+const mockEmitIngestionWarning = jest.mocked(emitIngestionWarning)
 const mockEventProcessedAndIngestedCounter = jest.mocked(eventProcessedAndIngestedCounter)
-const mockIngestionLagGauge = jest.mocked(ingestionLagGauge)
-const mockIngestionLagHistogram = jest.mocked(ingestionLagHistogram)
 
 describe('emit-event-step', () => {
-    let mockOutputs: jest.Mocked<IngestionOutputs<EventOutput>>
-    let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: jest.Mocked<IngestionOutputs<EventOutput | IngestionWarningsOutput>>
     let config: EmitEventStepConfig<EventOutput>
     let mockProcessedEvent: ProcessedEvent
     let mockHeaders: EventHeaders
@@ -65,13 +46,10 @@ describe('emit-event-step', () => {
         mockMessage = createTestMessage()
         jest.clearAllMocks()
 
-        mockOutputs = createMockIngestionOutputs<EventOutput>()
-        mockKafkaProducer = {} as any
+        mockOutputs = createMockIngestionOutputs<EventOutput | IngestionWarningsOutput>()
 
         config = {
             outputs: mockOutputs,
-            kafkaProducer: mockKafkaProducer,
-            groupId: 'test-group-id',
         }
 
         mockProcessedEvent = {
@@ -112,17 +90,23 @@ describe('emit-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value).toBeUndefined()
+                    expect(result.value.ingested).toHaveLength(1)
+                    expect(result.value.ingested).toEqual(result.sideEffects)
                 }
                 expect(result.sideEffects).toHaveLength(1)
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
+                    teamId: mockProcessedEvent.team_id,
                 })
 
-                // Execute the side effect to test metric increment
-                await result.sideEffects[0]
+                // The ingested promise resolves with the event info once acked
+                await expect(result.sideEffects[0]).resolves.toEqual({
+                    capturedAt: mockHeaders.now,
+                    topic: mockMessage.topic,
+                    partition: mockMessage.partition,
+                })
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
             } finally {
                 jest.useRealTimers()
@@ -139,15 +123,12 @@ describe('emit-event-step', () => {
             const result = await step(input)
 
             expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
             expect(result.sideEffects).toHaveLength(1)
 
-            // Execute the side effect to test error handling
-            await result.sideEffects[0]
+            // The event was not ingested, so the promise resolves with null
+            await expect(result.sideEffects[0]).resolves.toBeNull()
 
-            expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(mockKafkaProducer, 1, 'message_size_too_large', {
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
                 eventUuid: 'test-uuid',
                 distinctId: 'test-distinct-id',
             })
@@ -169,7 +150,7 @@ describe('emit-event-step', () => {
 
             // Execute the side effect to test error handling
             await expect(result.sideEffects[0]).rejects.toThrow('Generic Kafka error')
-            expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+            expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
             // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
@@ -186,6 +167,7 @@ describe('emit-event-step', () => {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
                     headers: { productTrack: 'general' },
+                    teamId: mockProcessedEvent.team_id,
                 })
             } finally {
                 jest.useRealTimers()
@@ -315,234 +297,6 @@ describe('emit-event-step', () => {
         it('should return "general" for custom events', () => {
             const customEvent = { ...mockProcessedEvent, event: 'user_signed_up' }
             expect(productTrackHeader(customEvent)).toBe('general')
-        })
-    })
-
-    describe('ingestion lag metric', () => {
-        const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
-        let mockSetFn: jest.Mock
-        let mockObserveFn: jest.Mock
-
-        const createMessage = (overrides: Partial<Message> = {}): Message => ({
-            value: Buffer.from('test-value'),
-            key: Buffer.from('test-key'),
-            offset: 100,
-            partition: 5,
-            topic: 'test-topic',
-            size: 10,
-            ...overrides,
-        })
-
-        const createHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
-            force_disable_person_processing: false,
-            historical_migration: false,
-            ...overrides,
-        })
-
-        beforeEach(() => {
-            jest.useFakeTimers()
-            jest.setSystemTime(FAKE_NOW_MS)
-
-            mockSetFn = jest.fn()
-            mockObserveFn = jest.fn()
-            mockIngestionLagGauge.labels.mockReturnValue({ set: mockSetFn } as any)
-            mockIngestionLagHistogram.labels.mockReturnValue({ observe: mockObserveFn } as any)
-        })
-
-        afterEach(() => {
-            jest.useRealTimers()
-        })
-
-        it('should record ingestion lag when headers.now and message are present', async () => {
-            const captureTime = new Date(FAKE_NOW_MS - 5432) // 5.432 seconds before fake now
-            const step = createEmitEventStep(config)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders({ now: captureTime }),
-                message: createMessage(),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
-                topic: 'test-topic',
-                partition: '5',
-                groupId: 'test-group-id',
-            })
-            expect(mockSetFn).toHaveBeenCalledTimes(1)
-            expect(mockSetFn).toHaveBeenCalledWith(5432)
-        })
-
-        it('should not record ingestion lag when headers.now is missing', async () => {
-            const step = createEmitEventStep(config)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders(),
-                message: createMessage(),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
-        })
-
-        it('should not record ingestion lag when message.topic is undefined', async () => {
-            const step = createEmitEventStep(config)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ topic: undefined as unknown as string }),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
-        })
-
-        it('should not record ingestion lag when message.partition is undefined', async () => {
-            const step = createEmitEventStep(config)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: undefined as unknown as number }),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
-        })
-
-        it('should use groupId from config in metric labels', async () => {
-            const customConfig = { ...config, groupId: 'custom-consumer-group' }
-            const step = createEmitEventStep(customConfig)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage(),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
-                topic: 'test-topic',
-                partition: '5',
-                groupId: 'custom-consumer-group',
-            })
-        })
-
-        it('should handle partition 0 correctly', async () => {
-            const step = createEmitEventStep(config)
-            const input: EmitEventStepInput<EventOutput> = {
-                eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                teamId: 1,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: 0 }),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).toHaveBeenCalledWith({
-                topic: 'test-topic',
-                partition: '0',
-                groupId: 'test-group-id',
-            })
-        })
-
-        describe('histogram', () => {
-            it('should observe lag in histogram with correct labels', async () => {
-                const captureTime = new Date(FAKE_NOW_MS - 5432)
-                const step = createEmitEventStep(config)
-                const input: EmitEventStepInput<EventOutput> = {
-                    eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                    teamId: 1,
-                    headers: createHeaders({ now: captureTime }),
-                    message: createMessage(),
-                }
-
-                await step(input)
-
-                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
-                    groupId: 'test-group-id',
-                    partition: '5',
-                })
-                expect(mockObserveFn).toHaveBeenCalledTimes(1)
-                expect(mockObserveFn).toHaveBeenCalledWith(5432)
-            })
-
-            it('should use custom groupId in histogram labels', async () => {
-                const customConfig = { ...config, groupId: 'custom-consumer-group' }
-                const step = createEmitEventStep(customConfig)
-                const input: EmitEventStepInput<EventOutput> = {
-                    eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                    teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    message: createMessage({ partition: 3 }),
-                }
-
-                await step(input)
-
-                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
-                    groupId: 'custom-consumer-group',
-                    partition: '3',
-                })
-                expect(mockObserveFn).toHaveBeenCalledWith(1000)
-            })
-
-            it('should not observe histogram when headers.now is missing', async () => {
-                const step = createEmitEventStep(config)
-                const input: EmitEventStepInput<EventOutput> = {
-                    eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                    teamId: 1,
-                    headers: createHeaders(),
-                    message: createMessage(),
-                }
-
-                await step(input)
-
-                expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
-                expect(mockObserveFn).not.toHaveBeenCalled()
-            })
-
-            it('should not observe histogram when message.partition is undefined', async () => {
-                const step = createEmitEventStep(config)
-                const input: EmitEventStepInput<EventOutput> = {
-                    eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                    teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                    message: createMessage({ partition: undefined as unknown as number }),
-                }
-
-                await step(input)
-
-                expect(mockIngestionLagHistogram.labels).not.toHaveBeenCalled()
-                expect(mockObserveFn).not.toHaveBeenCalled()
-            })
-
-            it('should handle partition 0 correctly in histogram', async () => {
-                const step = createEmitEventStep(config)
-                const input: EmitEventStepInput<EventOutput> = {
-                    eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
-                    teamId: 1,
-                    headers: createHeaders({ now: new Date(FAKE_NOW_MS - 2500) }),
-                    message: createMessage({ partition: 0 }),
-                }
-
-                await step(input)
-
-                expect(mockIngestionLagHistogram.labels).toHaveBeenCalledWith({
-                    groupId: 'test-group-id',
-                    partition: '0',
-                })
-                expect(mockObserveFn).toHaveBeenCalledWith(2500)
-            })
         })
     })
 })

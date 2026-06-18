@@ -89,8 +89,8 @@ export interface ErrorTrackingSymbolSet {
     team_id: number
     last_used: string
     created_at: string
-    storage_ptr: string | null
     failure_reason: string | null
+    has_uploaded_file: boolean
     release: ErrorTrackingRelease | null
 }
 
@@ -153,6 +153,13 @@ export interface ErrorTrackingSpikeDetectionConfig {
     snooze_duration_minutes: number
     multiplier: number
     threshold: number
+}
+
+export interface ErrorTrackingSettings {
+    project_rate_limit_value: number | null
+    project_rate_limit_bucket_size_minutes: number | null
+    per_issue_rate_limit_value: number | null
+    per_issue_rate_limit_bucket_size_minutes: number | null
 }
 
 export interface ErrorTrackingSpikeEventIssue {

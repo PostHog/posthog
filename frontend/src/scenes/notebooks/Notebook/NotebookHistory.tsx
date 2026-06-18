@@ -27,6 +27,7 @@ const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
 
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
     const { shortId, notebook, previewContent } = useValues(notebookLogic)
+    const { clearPreviewContent } = useActions(notebookLogic)
 
     const logic = activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: shortId })
     const { activity, pagination, activityLoading } = useValues(logic)
@@ -46,11 +47,24 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         <LemonSkeleton className="w-full h-10" repeat={10} />
                     </div>
                 ) : (
-                    activityWithChangedContent?.map((logItem: ActivityLogItem) => {
+                    activityWithChangedContent?.map((logItem: ActivityLogItem, idx: number) => {
                         const name = userNameForLogItem(logItem)
-                        const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
+                        const isRejected = logItem.activity.startsWith('save_rejected_')
+                        const isLastSaved = !isRejected && getFieldChange(logItem, 'version') === notebook?.version
+                        // Top of page 1 = most recent attempt (what the editor is showing)
+                        const isCurrent = idx === 0 && pagination.currentPage === 1
                         const changedContent = getFieldChange(logItem, 'content')
-                        const isButton = changedContent && !isCurrent
+                        // Current entry is also clickable
+                        const isButton = !!changedContent
+
+                        let actionLabel: string
+                        if (isRejected) {
+                            actionLabel = 'unsaved changes'
+                        } else if (changedContent) {
+                            actionLabel = 'made changes'
+                        } else {
+                            actionLabel = 'created this'
+                        }
 
                         const buttonContent = (
                             <span className="flex flex-1 gap-2 items-center p-2">
@@ -63,13 +77,18 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b className="ph-no-capture">{name}</b>{' '}
-                                    {changedContent ? 'made changes' : 'created this'}
+                                    <b className="ph-no-capture">{name}</b> {actionLabel}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                                {isCurrent ? <span className="text-secondary">(Current)</span> : null}
+                                {isCurrent && isLastSaved ? (
+                                    <span className="text-secondary">(Current, saved)</span>
+                                ) : isCurrent ? (
+                                    <span className="text-secondary">(Current)</span>
+                                ) : isLastSaved ? (
+                                    <span className="text-secondary">(Last saved)</span>
+                                ) : null}
                             </span>
                         )
 
@@ -79,8 +98,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     <LemonButton
                                         fullWidth
                                         size="small"
-                                        active={previewContent === changedContent}
-                                        onClick={() => onItemClick(logItem)}
+                                        active={isCurrent ? !previewContent : previewContent === changedContent}
+                                        onClick={() => (isCurrent ? clearPreviewContent() : onItemClick(logItem))}
                                         noPadding
                                     >
                                         {buttonContent}
@@ -139,8 +158,12 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
+        // updateEditor=true puts the historical doc into the editor so prosemirror-collab
+        // produces real steps for the delta. Without it, sendableSteps stays empty and the
+        // collab save is a no-op — revert would silently do nothing.
+        const content = previewContent
         clearPreviewContent()
-        setLocalContent(previewContent)
+        setLocalContent(content, true)
         setShowHistory(false)
     }
 

@@ -140,7 +140,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     const HogfettiComponent: React.FC = () =>
         particleSets.length === 0 ? null : (
             // eslint-disable-next-line react/forbid-dom-props
-            <div className="fixed top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 9999 }}>
+            <div className="Hogfetti fixed top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 9999 }}>
                 {particleSets.flatMap((set, setIndex) =>
                     set.map((particle, particleIndex) => {
                         const HogComponent = images[particle.imageIndex]

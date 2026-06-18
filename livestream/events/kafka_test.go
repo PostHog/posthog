@@ -109,7 +109,7 @@ func TestParse(t *testing.T) {
 		Return(geo.GeoLookupResult{Latitude: 10., Longitude: 20., CountryCode: "US"}, nil).Once()
 	data, err := os.ReadFile("testdata/event.json")
 	assert.NoError(t, err)
-	got := parse(mockGeoLocator, data)
+	got := parse(mockGeoLocator, nil, data)
 	assert.Equal(t, PostHogEvent{
 		Token:     "this is token",
 		Timestamp: 1738073128810.,
@@ -219,7 +219,7 @@ func TestParse_NumericDistinctId(t *testing.T) {
 	// The wrapper has distinct_id at the top level, and the data field contains the inner event JSON
 	input := `{"distinct_id":21,"uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{\"$lib\":\"posthog-ruby\"}}","token":"test-token"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got := parse(mockGeoLocator, nil, []byte(input))
 
 	assert.Equal(t, "21", got.DistinctId)
 	assert.Equal(t, "$pageview", got.Event)
@@ -231,7 +231,7 @@ func TestParse_WrapperTimestampFallback(t *testing.T) {
 
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"test-token","timestamp":"2026-01-09T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got := parse(mockGeoLocator, nil, []byte(input))
 
 	assert.Equal(t, "2026-01-09T21:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
@@ -242,8 +242,48 @@ func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
 
 	input := `{"distinct_id":"user-123","uuid":"test-uuid","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{},\"timestamp\":\"2026-01-09T02:00:00.000Z\"}","token":"test-token","timestamp":"2026-01-10T21:00:00.000Z"}`
 
-	got := parse(mockGeoLocator, []byte(input))
+	got := parse(mockGeoLocator, nil, []byte(input))
 
 	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
+}
+
+func TestSplitTopics(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "single topic",
+			input:    "events_topic",
+			expected: []string{"events_topic"},
+		},
+		{
+			name:     "two topics",
+			input:    "topic-1,topic-2",
+			expected: []string{"topic-1", "topic-2"},
+		},
+		{
+			name:     "surrounding whitespace",
+			input:    " a , b ",
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "empty and trailing segments",
+			input:    "a,,b,",
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, splitTopics(tt.input))
+		})
+	}
 }

@@ -3,14 +3,19 @@ import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { activityLogTransforms, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import {
+    activityLogTransforms,
+    describerFor,
+    ensureActivityDescribersLoaded,
+} from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
+import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 // ActivityScope values that should not appear in dropdowns
@@ -31,12 +36,33 @@ export type ActivityFilters = {
     user?: UserBasicType['id']
 }
 
+export interface ChangesResponse {
+    results: ActivityLogItem[]
+    next: string | null
+    last_read: string
+}
+
+export enum SidePanelActivityTab {
+    Unread = 'unread',
+    All = 'all',
+    Metalytics = 'metalytics',
+}
+
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            projectLogic,
+            ['currentProjectId'],
+            sidePanelStateLogic,
+            ['selectedTabOptions'],
+        ],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
+        setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
@@ -44,6 +70,13 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         setContextFromPage: (filters: ActivityFilters | null) => ({ filters }),
     }),
     reducers({
+        activeTab: [
+            SidePanelActivityTab.All as SidePanelActivityTab,
+            { persist: true },
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         activeFilters: [
             null as ActivityFilters | null,
             {
@@ -64,7 +97,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                 loadAllActivity: async (_, breakpoint) => {
                     const filters = values.activeFilters ?? {}
                     const expandedFilters = activityLogTransforms.expandListScopes(filters)
-                    const response = await api.activity.list(expandedFilters)
+                    const [response] = await Promise.all([
+                        api.activity.list(expandedFilters),
+                        ensureActivityDescribersLoaded(),
+                    ])
 
                     breakpoint()
                     return response
@@ -87,9 +123,19 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
+        setActiveTab: ({ tab }) => {
+            if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
+                actions.loadAllActivity()
+            }
+        },
         maybeLoadOlderActivity: () => {
             if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
                 actions.loadOlderActivity()
+            }
+        },
+        openSidePanel: ({ options }) => {
+            if (options) {
+                actions.setActiveTab(options as SidePanelActivityTab)
             }
         },
     })),
@@ -109,7 +155,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
             const newFilters = sceneSidePanelContext
                 ? {
@@ -122,7 +168,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             actions.setActiveFilters(newFilters)
         },
         activeFilters: () => {
-            actions.loadAllActivity()
+            if (values.activeTab === SidePanelActivityTab.All) {
+                actions.loadAllActivity()
+            }
         },
     })),
 
@@ -137,5 +185,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
         actions.setContextFromPage(newFilters)
         actions.setActiveFilters(newFilters)
+        if (values.selectedTabOptions) {
+            actions.setActiveTab(values.selectedTabOptions as SidePanelActivityTab)
+        }
     }),
 ])

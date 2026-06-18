@@ -3,7 +3,13 @@ from typing import Any, Literal
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.schema import FormResumePayload, MultiQuestionForm, MultiQuestionFormField, MultiQuestionFormQuestion
+from posthog.schema import (
+    FormDismissPayload,
+    FormResumePayload,
+    MultiQuestionForm,
+    MultiQuestionFormField,
+    MultiQuestionFormQuestion,
+)
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -22,6 +28,8 @@ Use this tool to gather structured information from users through an interactive
 
 Always use the full capacity of the form (up to 4 questions). Each form is a single chance to gather context — maximize the information captured. Focus on parameters that materially affect the outcome: configuration values, thresholds, ratios, targeting criteria, metric choices. Skip superficial questions like names or descriptions that you can generate yourself. Every question should directly change what you build or how you build it. Use optional fields to capture nice-to-have context without blocking submission. Default to being thorough — the user should not have to ask for detail.
 
+Users can skip individual questions or dismiss the form entirely, so only ask questions whose answers materially change the outcome.
+
 Never ask for confirmation of something you can infer from the conversation. If the user said "create an experiment for the checkout flow", you already know the target area — don't ask again. Only ask about parameters that are genuinely ambiguous or have multiple valid choices.
 
 Every select option must be a concrete, actionable value — never a vague category that requires follow-up. If an option would just lead to another question (e.g., "Specific user segment"), it's useless. Either provide the actual specific choices (e.g., list real cohorts or properties) or use a `multi_field` text input instead.
@@ -34,13 +42,14 @@ There are three question types:
 
 ### `select` (default) — single-select radio buttons
 - Requires `options`: 2-4 choices with `value` and optional `description`
-- `allow_custom_answer`: Set to false only when custom answers don't make sense
+- `allow_custom_answer` (default: true): Always leave enabled unless the values are truly constrained (e.g. fixed time ranges, system-defined enums). Be generous — the user may have context the agent doesn't. Only set to false for closed sets where a custom value would be meaningless (e.g. "Last 7 days" / "Last 30 days").
 - Include descriptions when options need clarification or are domain-specific
 - Omit descriptions when options are self-explanatory (e.g., "7 days", "30 days")
 
 ### `multi_select` — checkboxes for multiple selections
 - Requires `options`: 2-4 choices with `value` and optional `description`
-- Returns an array of selected values
+- `allow_custom_answer` (default: true): Same rule as select — always leave enabled unless the value set is closed. The user can type additional options beyond the predefined choices.
+- Returns an array of selected values (including any custom entries the user typed)
 
 ### `multi_field` — multiple compact fields grouped on one page
 - Set `type` to `multi_field` and provide a `fields` array
@@ -86,6 +95,7 @@ All field types support `optional: true` to let the user skip the field.
 - Do not write "(optional)" in the label — the UI adds it automatically for optional fields
 - Use sentence casing for all text
 - Maximum 4 questions per form, maximum 1 `multi_field` question per form
+- Default to `allow_custom_answer: true` for both `select` and `multi_select`. Only set it to `false` when values are constrained to a known closed set.
 
 ## Examples
 
@@ -233,14 +243,27 @@ class CreateFormTool(MaxTool):
         response = interrupt(value=MultiQuestionForm(questions=questions))
         try:
             form_payload = FormResumePayload.model_validate(response)
-        except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+        except ValidationError:
+            try:
+                FormDismissPayload.model_validate(response)
+            except ValidationError as e:
+                raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+
+            return (
+                "The user dismissed the form and chose not to answer these questions. "
+                "Continue without these answers if possible. If the missing information is required, "
+                "briefly explain what is blocked and offer the user a lower-friction alternative.",
+                {
+                    "status": "dismiss_form",
+                },
+            )
 
         def format_answer(answer: str | list[str] | None) -> str:
             if answer is None:
-                return ""
+                return "(skipped)"
             if isinstance(answer, list):
-                return ", ".join(answer)
+                formatted = [f'"{v}"' if "," in v else v for v in answer]
+                return ", ".join(formatted)
             return answer
 
         lines: list[str] = []
@@ -253,6 +276,7 @@ class CreateFormTool(MaxTool):
                 lines.append(f"{q.question}: {format_answer(form_payload.form_answers.get(q.id))}")
 
         return "\n".join(lines), {
+            "status": "form",
             "answers": form_payload.form_answers,
         }
 

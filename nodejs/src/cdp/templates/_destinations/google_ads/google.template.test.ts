@@ -22,7 +22,7 @@ describe('google template', () => {
 
     it('works with single product event', async () => {
         const response = await tester.invokeMapping(
-            'Signed Up',
+            'Conversion',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -82,7 +82,7 @@ describe('google template', () => {
 
     it('works with empty properties', async () => {
         const response = await tester.invokeMapping(
-            'Signed Up',
+            'Conversion',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -120,7 +120,7 @@ describe('google template', () => {
 
     it('handles error responses', async () => {
         const response = await tester.invokeMapping(
-            'Signed Up',
+            'Conversion',
             {
                 oauth: {
                     access_token: 'access-token',
@@ -161,7 +161,7 @@ describe('google template', () => {
 
     it('handles missing gclid', async () => {
         const response = await tester.invokeMapping(
-            'Signed Up',
+            'Conversion',
             {
                 oauth: {
                     access_token: 'access-token',

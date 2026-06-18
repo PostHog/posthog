@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
@@ -7,11 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
@@ -51,11 +53,17 @@ NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+# We need to restrict this for HogQL access control which uses `NOT IN (...)`
+ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
+
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "customer_analytics",
     "dashboard",
+    "endpoint",
     "experiment",
     "external_data_source",
+    "warehouse_objects",
     "feature_flag",
     "insight",
     "llm_analytics",
@@ -74,12 +82,26 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "warehouse_table": "warehouse_objects",
+    "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
+    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "llm_skill": "llm_analytics",
+    "account": "customer_analytics",
+    "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "dashboard_template": "dashboard",
+    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
+    # web_analytics so the existing per-team controls actually gate it (matches
+    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
+    # AccessControlResourceType.WebAnalytics).
+    "marketing_analytics": "web_analytics",
 }
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserAccessControlError(Exception):
@@ -119,6 +141,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "warehouse_objects":
+        # Umbrella label for both warehouse tables and views (both children inherit from this)
+        return "data warehouse tables & views"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -259,6 +284,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "earlyaccessfeature":
+        return "early_access_feature"
     if name == "plugin_config":
         return "plugin"
     if name == "sessionrecording":
@@ -267,12 +294,24 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "endpointversion":
+        return "endpoint"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":
         return "external_data_schema"
+    if name == "datawarehousesavedquery":
+        return "warehouse_view"
+    if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehousetable":
+        return "warehouse_table"
+    if name == "customerjourney":
+        return "customer_journey"
+    if name in ("replayscanner", "replayobservation"):
+        return "replay_scanner"
 
-    if name not in API_SCOPE_OBJECTS:
+    if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
 
     return cast(APIScopeObject, name)
@@ -296,12 +335,13 @@ class UserAccessControl:
 
     def _clear_cache(self):
         self._cache = {}
-        if hasattr(self, "_cached_access_controls"):
-            delattr(self, "_cached_access_controls")
-        if hasattr(self, "_organization_membership"):
-            delattr(self, "_organization_membership")
-        if hasattr(self, "_user_role_ids"):
-            delattr(self, "_user_role_ids")
+        # Pop from __dict__ rather than hasattr/delattr
+        # hasattr on an un-computed cached_property would re-populate the value we're clearing
+        self.__dict__.pop("_cached_access_controls", None)
+        self.__dict__.pop("blocked_resource_ids_by_scope", None)
+        self.__dict__.pop("blocked_resources", None)
+        self.__dict__.pop("_organization_membership", None)
+        self.__dict__.pop("_user_role_ids", None)
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -330,6 +370,20 @@ class UserAccessControl:
         role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
         return [membership.role.id for membership in role_memberships]
 
+    @cached_property
+    def _cached_access_controls(self) -> list[_AccessControl]:
+        """Single bulk fetch of every access control row this user is subject to for the team.
+
+        Covers both resource-level (resource_id IS NULL) and object-level (resource_id set)
+        rows, so all resolvers (object, resource, queryset) share one query instead of N narrow ones.
+
+        Only team-scoped: org-scoped rows (e.g. `plugin` matched via `team__organization_id`)
+        are not in this set, so `_get_access_controls` falls back to a targeted query for those.
+        """
+        if not EE_AVAILABLE or not self._team:
+            return []
+        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
+
     @property
     def rbac_supported(self) -> bool:
         if not self._organization:
@@ -342,7 +396,13 @@ class UserAccessControl:
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+
+    @property
+    def is_organization_admin(self) -> bool:
+        """Org owners/admins bypass object- and resource-level access control."""
+        org_membership = self._organization_membership
+        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
 
     # ------------------------------------------------------------
     # Access control helpers
@@ -364,12 +424,44 @@ class UserAccessControl:
             )
         )
 
+    def _can_serve_from_preload(self, filters: dict) -> bool:
+        """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it
+        can only answer team-scoped lookups. Org-scoped filters (e.g. `plugin` via
+        `team__organization_id`, or the project queryset) must hit the DB directly."""
+        return self._team is not None and filters.get("team_id") == self._team.id
+
+    def _row_matches(self, ac: _AccessControl, filters: dict) -> bool:
+        """In-memory equivalent of the targeted DB query's WHERE clause, applied to an already
+        precedence-filtered pool. Mirrors the matching the targeted queryset would perform."""
+        for filter_key, value in filters.items():
+            if filter_key == "resource_id__isnull":
+                if (ac.resource_id is None) != value:
+                    return False
+            elif filter_key == "team__organization_id":
+                if ac.team.organization_id != value:
+                    return False
+            elif getattr(ac, filter_key) != value:
+                return False
+        return True
+
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
-        if not EE_AVAILABLE:
+        if not EE_AVAILABLE or not self.access_controls_supported:
             return []
+
+        # Team-scoped lookups are served from the single bulk preload (filtered in memory);
+        # org-scoped lookups fall through to a targeted query.
+        if self._can_serve_from_preload(filters):
+            return [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
+
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
-            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+            with tracer.start_as_current_span("rbac.access_controls.db") as span:
+                resource = filters.get("resource")
+                if isinstance(resource, str):
+                    span.set_attribute("rbac.resource", resource)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -410,28 +502,8 @@ class UserAccessControl:
     def _fill_filters_cache(self, filter_groups: list[dict], access_controls: list[_AccessControl]) -> None:
         for filters in filter_groups:
             key = json.dumps(filters, sort_keys=True)
-
             # TRICKY: We have to simulate the entire DB query here:
-            matching_access_controls = []
-
-            for ac in access_controls:
-                matches = True
-                for key, value in filters.items():
-                    if key == "resource_id__isnull":
-                        if (ac.resource_id is None) != value:
-                            matches = False
-                            break
-                    elif key == "team__organization_id":
-                        if ac.team.organization_id != value:
-                            matches = False
-                            break
-                    elif getattr(ac, key) != value:
-                        matches = False
-                        break
-                if matches:
-                    matching_access_controls.append(ac)
-
-            self._cache[key] = matching_access_controls
+            self._cache[key] = [ac for ac in access_controls if self._row_matches(ac, filters)]
 
     # ------------------------------------------------------------
     # Preloading access controls
@@ -453,12 +525,23 @@ class UserAccessControl:
 
             filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
 
+        self._preload_filter_groups(filter_groups)
+
+    def _preload_filter_groups(self, filter_groups: list[dict]) -> None:
+        """Fill self._cache for these filter groups. When every group is team-scoped they're served
+        from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
+        a targeted OR-combined query is issued for them."""
+        if not filter_groups:
+            return
+
+        if all(self._can_serve_from_preload(filters) for filters in filter_groups):
+            self._fill_filters_cache(filter_groups, self._cached_access_controls)
+            return
+
         q = Q()
         for filters in filter_groups:
             q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._fill_filters_cache(filter_groups, list(AccessControl.objects.filter(q)))
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """
@@ -481,12 +564,7 @@ class UserAccessControl:
         else:
             filter_groups.append(self._access_controls_filters_for_queryset(resource))
 
-        q = Q()
-        for filters in filter_groups:
-            q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._preload_filter_groups(filter_groups)
 
     # ------------------------------------------------------------
     # Object level - checking conditions for specific items
@@ -517,7 +595,7 @@ class UserAccessControl:
             return highest_access_level(resource)
 
         # Org admins always have highest access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if resource == "organization":
@@ -536,7 +614,7 @@ class UserAccessControl:
         # Filter to specific access controls if requested
         if specific_only:
             access_controls = [
-                ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
+                ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
             ]
             # If we're looking for specific access controls and there are none we don't want to return the default access level
             if not access_controls:
@@ -620,7 +698,7 @@ class UserAccessControl:
             return AccessSource.CREATOR
 
         # Check if user is org admin
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return AccessSource.ORGANIZATION_ADMIN
 
         # If access controls aren't supported, return default
@@ -692,7 +770,7 @@ class UserAccessControl:
             return None
 
         # Org admins always have resource level access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if not self.access_controls_supported:
@@ -714,6 +792,16 @@ class UserAccessControl:
         if not self._team:
             # If there is no team, then there can't be any access controls on this resource
             return False
+
+        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
+        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
+        # This keeps the AC picker simple — admins configure one umbrella scope instead
+        # of N child scopes — at the cost of ignoring any standalone resource-level row
+        # written against a child. Object-level rows on the child are still honored via
+        # specific_access_level_for_object, which queries the child resource directly.
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.has_access_levels_for_resource(parent_resource)
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
@@ -758,7 +846,7 @@ class UserAccessControl:
             return False
 
         # Org admins always have access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return True
 
         # If access controls aren't supported, return False since we're looking for specific grants
@@ -769,8 +857,11 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        # These are already pre-loaded so filter what's in memory
-        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
+        # These are already pre-loaded so filter what's in memory - read the FK id columns, not the
+        # .role / .organization_member accessors, which would lazy-load one query per row.
+        access_controls = [
+            ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
+        ]
 
         # Check if any access control meets the required level
         for access_control in access_controls:
@@ -792,26 +883,34 @@ class UserAccessControl:
         - "viewer" if user has specific object access (allows page access but not creation)
         - None or "none" if user has no access at all
         """
-        # First check resource-level access
-        resource_access = self.access_level_for_resource(resource)
+        with tracer.start_as_current_span("rbac.effective_access_level_for_resource") as span:
+            span.set_attribute("rbac.resource", str(resource))
+            # First check resource-level access
+            with tracer.start_as_current_span("rbac.resource_level_check"):
+                resource_access = self.access_level_for_resource(resource)
 
-        # If resource access is not "none", return it directly
-        if resource_access and resource_access != NO_ACCESS_LEVEL:
-            return resource_access
+            # If resource access is not "none", return it directly
+            if resource_access and resource_access != NO_ACCESS_LEVEL:
+                span.set_attribute("rbac.path", "resource_level")
+                return resource_access
 
-        # If resource access is "none" or None, check for specific object access
-        # For navigation purposes, if they have specific access to any objects,
-        # grant them "viewer" level to see the resource page but NOT create new items
-        if self.has_any_specific_access_for_resource(resource, required_level="viewer"):
-            return "viewer"
+            # If resource access is "none" or None, check for specific object access
+            # For navigation purposes, if they have specific access to any objects,
+            # grant them "viewer" level to see the resource page but NOT create new items
+            with tracer.start_as_current_span("rbac.specific_access_fallback"):
+                has_specific = self.has_any_specific_access_for_resource(resource, required_level="viewer")
+            if has_specific:
+                span.set_attribute("rbac.path", "specific_access")
+                return "viewer"
 
-        return resource_access  # This will be "none" or None
+            span.set_attribute("rbac.path", "no_access")
+            return resource_access  # This will be "none" or None
 
     # ------------------------------------------------------------
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 
@@ -821,27 +920,51 @@ class UserAccessControl:
         if not resource:
             return queryset
 
-        if include_all_if_admin:
-            org_membership = self._organization_membership
-
-            if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-                return queryset
-
-        # Check if user has "none" access at resource level
-        resource_access_level = self.access_level_for_resource(resource)
-        has_resource_access = resource_access_level and resource_access_level != NO_ACCESS_LEVEL
+        if include_all_if_admin and self.is_organization_admin:
+            return queryset
 
         model_has_creator = hasattr(model, "created_by")
 
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        blocked_resource_ids: set[str] = set()
-        allowed_resource_ids: set[str] = set()
-        resource_id_access_levels: dict[str, list[str]] = {}
+        blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
 
+        # Apply filtering logic based on resource-level access
+        if not self.has_resource_access(resource) and allowed_resource_ids:
+            # User has "none" resource access but specific object access
+            # Only show objects they have explicit access to (plus created objects)
+            if model_has_creator:
+                queryset = queryset.filter(Q(id__in=allowed_resource_ids) | Q(created_by=self._user))
+            else:
+                queryset = queryset.filter(id__in=allowed_resource_ids)
+        elif blocked_resource_ids:
+            # Standard case: exclude explicitly blocked objects
+            if model_has_creator:
+                queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
+            else:
+                queryset = queryset.exclude(id__in=blocked_resource_ids)
+
+        return queryset
+
+    def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> tuple[set[str], set[str]]:
+        """Canonical object-level decision over a pool of object access controls (rows with
+        `resource_id` set), returning (blocked_ids, allowed_ids).
+
+        Explicit-wins: if a resource_id has any explicit (role/member) rule, the object is
+        allowed when any explicit rule grants non-"none", otherwise blocked. With no explicit
+        rule, the object is blocked only when every default rule is "none".
+
+        Reads the `role_id` / `organization_member_id` columns rather than the `.role` /
+        `.organization_member` FK accessors — equivalent result (id is None iff the relation is
+        None) without firing a query per row.
+        """
+        resource_id_access_levels: dict[str, list[str]] = {}
         for access_control in access_controls:
             resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
+
+        blocked_resource_ids: set[str] = set()
+        allowed_resource_ids: set[str] = set()
 
         for resource_id, access_levels in resource_id_access_levels.items():
             # Get the access controls for this specific resource_id to check role/member
@@ -849,7 +972,7 @@ class UserAccessControl:
 
             # Only consider access controls that have explicit role or member (not defaults)
             explicit_access_controls = [
-                ac for ac in resource_access_controls if ac.role is not None or ac.organization_member is not None
+                ac for ac in resource_access_controls if ac.role_id is not None or ac.organization_member_id is not None
             ]
 
             if not explicit_access_controls:
@@ -867,22 +990,48 @@ class UserAccessControl:
                 # All explicit access levels are "none" - block this object
                 blocked_resource_ids.add(resource_id)
 
-        # Apply filtering logic based on resource-level access
-        if not has_resource_access and allowed_resource_ids:
-            # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
-            if model_has_creator:
-                queryset = queryset.filter(Q(id__in=allowed_resource_ids) | Q(created_by=self._user))
-            else:
-                queryset = queryset.filter(id__in=allowed_resource_ids)
-        elif blocked_resource_ids:
-            # Standard case: exclude explicitly blocked objects
-            if model_has_creator:
-                queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
-            else:
-                queryset = queryset.exclude(id__in=blocked_resource_ids)
+        return blocked_resource_ids, allowed_resource_ids
 
-        return queryset
+    @cached_property
+    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+        """Per-resource set of object IDs the user is denied (effective access resolves to
+        "none"), built from the single preload via the canonical object resolver.
+
+        Consumed by HogQL object-level access control (schema filtering / printer guard) and by
+        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there
+        is no team / EE. FF-agnostic: callers decide whether to enforce it.
+        """
+        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
+            return {}
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return {}
+
+        object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
+        for ac in self._cached_access_controls:
+            if ac.resource_id is not None:
+                object_rows_by_resource[cast(APIScopeObject, ac.resource)].append(ac)
+
+        result: dict[APIScopeObject, set[str]] = {}
+        for resource, acs in object_rows_by_resource.items():
+            blocked, _allowed = self._blocked_and_allowed_object_ids(acs)
+            if blocked:
+                result[resource] = blocked
+        return result
+
+    def has_resource_access(self, resource: APIScopeObject) -> bool:
+        """Whether the user has any resource-level access (level is set and not "none")"""
+        level = self.access_level_for_resource(resource)
+        return bool(level and level != NO_ACCESS_LEVEL)
+
+    @cached_property
+    def blocked_resources(self) -> list[str]:
+        """Sorted list of resources the user has no access to at the resource level."""
+        if self.is_organization_admin:
+            return []
+        candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
+        return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
     def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
         """
@@ -890,13 +1039,16 @@ class UserAccessControl:
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
         """
         user = self._user
-        org_membership = self._organization_membership
 
         # 1) If the user is staff or org-admin, they can see everything
-        if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+        if user.is_staff or self.is_organization_admin:
             return queryset
 
         if not EE_AVAILABLE:
+            return queryset
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
             return queryset
 
         # Subquery to check if user has "admin" on the FileSystem's team/project

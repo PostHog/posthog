@@ -40,7 +40,8 @@ from posthog.temporal.data_imports.sources.hubspot.hubspot import (
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -233,7 +234,10 @@ def test_get_rows_with_selected_properties_backfills_missing_columns():
 
     with (
         patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+        patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
+        ),
     ):
         mock_get_props.return_value = ["email", "firstname"]
 
@@ -277,7 +281,10 @@ def test_get_rows_with_selected_properties_filters_invalid():
 
     with (
         patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+        patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
+        ),
         patch.object(logger, "warning") as mock_warning,
     ):
         # Only "email" exists, "nonexistent_prop" does not
@@ -323,7 +330,10 @@ def test_get_rows_all_invalid_properties_falls_back_to_defaults():
 
     with (
         patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+        patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
+        ),
     ):
         # None of the selected properties exist
         mock_get_props.return_value = ["email", "firstname", "lastname"]
@@ -365,7 +375,10 @@ def test_get_rows_without_selected_properties_uses_defaults():
 
     with (
         patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_get_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get", return_value=mock_response),
+        patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            return_value=type("_S", (), {"get": staticmethod(lambda *a, **k: mock_response)})(),
+        ),
     ):
         mock_get_props.return_value = ["email", "custom_field"]
 
@@ -492,10 +505,10 @@ def test_get_rows_backfills_missing_properties():
 
     with (
         patch("posthog.temporal.data_imports.sources.hubspot.hubspot._get_property_names") as mock_props,
-        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.requests.get") as mock_get,
+        patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session") as mock_get,
     ):
         mock_props.return_value = ["createdate", "domain", "name", "custom_field"]
-        mock_get.return_value = mock_response
+        mock_get.return_value.get.return_value = mock_response
 
         tables = list(
             get_rows(

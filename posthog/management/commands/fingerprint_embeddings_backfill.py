@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS
 
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
@@ -56,24 +56,23 @@ class Command(BaseCommand):
         )
 
         # Iterate through the fingerprints in batches of 100 at a time
-        batch: list[ErrorTrackingIssueFingerprintV2] = []
-        for fingerprint in fingerprints:
-            batch.append(fingerprint)
-            if len(batch) == 100:
+        with producer_scope(topic=KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, flush_timeout=5 * 60) as producer:
+            batch: list[ErrorTrackingIssueFingerprintV2] = []
+            for fingerprint in fingerprints:
+                batch.append(fingerprint)
+                if len(batch) == 100:
+                    events = create_embedding_events(batch)
+                    for event in events:
+                        producer.produce(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, event)
+                    logger.info(f"Processed {len(batch)} fingerprints, last created_at: {batch[-1].created_at}")
+                    batch.clear()
+
+            if len(batch) > 0:
                 events = create_embedding_events(batch)
                 for event in events:
-                    KafkaProducer().produce(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, event)
+                    producer.produce(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, event)
                 logger.info(f"Processed {len(batch)} fingerprints, last created_at: {batch[-1].created_at}")
                 batch.clear()
-
-        if len(batch) > 0:
-            events = create_embedding_events(batch)
-            for event in events:
-                KafkaProducer().produce(KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS, event)
-            logger.info(f"Processed {len(batch)} fingerprints, last created_at: {batch[-1].created_at}")
-            batch.clear()
-
-        KafkaProducer().flush(5 * 60)
 
 
 def create_embedding_events(batch: list[ErrorTrackingIssueFingerprintV2]):

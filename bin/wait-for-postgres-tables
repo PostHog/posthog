@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+#
+# Block until specified tables exist in Postgres. Used by phrocs processes
+# that depend on Django migrations (Postgres) having run -- phrocs has no
+# depends_on field, so dependency ordering lives in the shell command.
+#
+# Usage: bin/wait-for-postgres-tables <table_name> [<table_name>...]
+
+TIMEOUT="${WAIT_FOR_POSTGRES_TIMEOUT:-300}"
+PGHOST="${PGHOST:-db}"
+PGPORT="${PGPORT:-5432}"
+PGUSER="${PGUSER:-posthog}"
+PGPASSWORD="${PGPASSWORD:-posthog}"
+PGDATABASE="${PGDATABASE:-posthog}"
+export PGPASSWORD
+
+if [ "$#" -eq 0 ]; then
+  echo "Usage: $0 <table_name> [<table_name>...]" >&2
+  exit 2
+fi
+
+for table in "$@"; do
+  # Basic name validation to prevent sql injection
+  if ! [[ "$table" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    echo "[wait-for-postgres-tables] invalid table name: '$table'" >&2
+    exit 2
+  fi
+  # Per-table deadline so the second arg doesn't inherit time spent waiting
+  # for the first.
+  DEADLINE=$(($(date +%s) + TIMEOUT))
+  echo "[wait-for-postgres-tables] waiting for $table at $PGHOST:$PGPORT/$PGDATABASE..."
+  while ! psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -tAc \
+      "SELECT 1 FROM information_schema.tables WHERE table_name='$table' LIMIT 1" \
+      2>/dev/null | grep -q '^1$'; do
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+      echo "[wait-for-postgres-tables] timed out after ${TIMEOUT}s waiting for $table" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "[wait-for-postgres-tables] $table exists"
+done

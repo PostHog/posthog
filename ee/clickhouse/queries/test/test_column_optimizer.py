@@ -1,7 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
-from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
@@ -34,9 +35,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         cleanup_materialized_columns()
 
     def test_properties_used_in_filter(self):
-        properties_used_in_filter = lambda filter: EnterpriseColumnOptimizer(
-            filter, self.team.id
-        ).properties_used_in_filter
+        properties_used_in_filter = lambda filter: (
+            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter
+        )
 
         self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(

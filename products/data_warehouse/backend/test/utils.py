@@ -14,11 +14,11 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 
-from products.data_warehouse.backend.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
 
 def create_data_warehouse_table_from_csv(
@@ -82,15 +82,16 @@ def create_data_warehouse_table_from_csv(
             access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
 
-    if any(isinstance(value, str) for value in table_columns.values()):
-        table_columns = {
-            str(key): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(value))].__name__,
+    if all(isinstance(value, str) for value in table_columns.values()):
+        normalized_columns: dict[str, dict[str, str | bool]] = {}
+        for key, value in table_columns.items():
+            assert isinstance(value, str)
+            normalized_columns[str(key)] = {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(value)].__name__,
                 "clickhouse": value,
                 "valid": True,
             }
-            for key, value in table_columns.items()
-        }
+        table_columns = normalized_columns
 
     table = DataWarehouseTable.objects.create(
         name=table_name,

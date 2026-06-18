@@ -28,7 +28,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -94,7 +95,7 @@ def postgres_config() -> dict[str, Any]:
 @pytest_asyncio.fixture
 async def postgres_connection(
     postgres_config: dict[str, Any], setup_postgres_test_db: None
-) -> AsyncGenerator[AsyncConnection, None]:
+) -> AsyncGenerator[AsyncConnection]:
     connection = await psycopg.AsyncConnection.connect(
         host=postgres_config["host"],
         port=postgres_config["port"],
@@ -112,7 +113,7 @@ async def postgres_connection(
 @pytest_asyncio.fixture
 async def postgres_source_table(
     postgres_connection: AsyncConnection, postgres_config: dict[str, Any]
-) -> AsyncGenerator[AsyncCursor[TupleRow], None]:
+) -> AsyncGenerator[AsyncCursor[TupleRow]]:
     """Create a Postgres table with test data and clean it up after the test."""
     async with postgres_connection.cursor() as cursor:
         full_table_name = sql.Identifier(postgres_config["schema"], POSTGRES_TABLE_NAME)
@@ -195,6 +196,70 @@ async def test_postgres_source_full_refresh(
         expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "num_range", "tstz_range"],
     )
 
+    assert res.results == TEST_DATA
+
+
+@pytest.fixture
+def external_data_schema_incremental(external_data_source: ExternalDataSource, team) -> ExternalDataSchema:
+    schema = ExternalDataSchema.objects.create(
+        name=POSTGRES_TABLE_NAME,
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "id",
+            "incremental_field_type": "integer",
+            "incremental_field_last_value": None,
+        },
+    )
+    return schema
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_source_recovers_from_dropped_connection_via_offset_chunking(
+    team,
+    postgres_source_table: AsyncCursor[TupleRow],
+    external_data_source: ExternalDataSource,
+    external_data_schema_incremental: ExternalDataSchema,
+):
+    """A non-read-replica source streams rows through a named ServerCursor. When the
+    upstream connection is culled mid-stream it surfaces as a "server conn crashed?"
+    ProtocolViolation, and the sync recovers by resuming through offset chunking.
+
+    Regression: offset chunking opened its cursor with connection.cursor(), which
+    inherited the ServerCursor cursor_factory and raised "ServerCursor.__init__()
+    missing 1 required positional argument: 'name'", so the recovery itself crashed
+    instead of completing the sync.
+    """
+    table_name = f"postgres_{POSTGRES_TABLE_NAME}"
+    expected_num_rows = len(TEST_DATA)
+
+    real_fetchmany = psycopg.ServerCursor.fetchmany
+    state = {"tripped": False}
+
+    def flaky_fetchmany(self, *args, **kwargs):
+        # Trip once on the initial server-cursor stream to mimic the source culling the
+        # backend mid-fetch, then let the offset-chunking fallback (a plain Cursor) read
+        # normally. ServerCursor is only used by the streaming read path, so this targets
+        # exactly the fetch that triggers the connection-dropped recovery.
+        if not state["tripped"]:
+            state["tripped"] = True
+            raise psycopg.errors.ProtocolViolation("server conn crashed?")
+        return real_fetchmany(self, *args, **kwargs)
+
+    with mock.patch.object(psycopg.ServerCursor, "fetchmany", flaky_fetchmany):
+        res = await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_incremental,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+            expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "num_range", "tstz_range"],
+        )
+
+    assert state["tripped"], "expected the streaming server cursor to hit the simulated connection drop"
     assert res.results == TEST_DATA
 
 
@@ -384,7 +449,19 @@ class TestSSLRequirement:
         assert str(error) == "Test error message"
 
     @pytest.mark.django_db(transaction=True)
-    def test_source_requires_ssl_for_new_sources(self, team, postgres_config):
+    @pytest.mark.parametrize(
+        "is_new_source,ssh_tunnel_enabled,require_tls,expected_require_ssl",
+        [
+            pytest.param(True, False, True, True, id="new_source_no_tunnel"),
+            pytest.param(True, True, True, True, id="new_source_tunnel_tls_on"),
+            pytest.param(True, True, False, False, id="new_source_tunnel_tls_off"),
+            pytest.param(True, False, False, True, id="new_source_no_tunnel_tls_off_ignored"),
+            pytest.param(False, False, True, False, id="old_source"),
+        ],
+    )
+    def test_source_ssl_requirement(
+        self, team, postgres_config, is_new_source, ssh_tunnel_enabled, require_tls, expected_require_ssl
+    ):
         from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         source = ExternalDataSource.objects.create(
@@ -395,10 +472,12 @@ class TestSSLRequirement:
             source_type="Postgres",
             job_inputs=postgres_config,
         )
-        # Force created_at to be after the cutoff date
-        ExternalDataSource.objects.filter(pk=source.pk).update(
-            created_at=SSL_REQUIRED_AFTER_DATE + dt.timedelta(days=1)
+        created_at = (
+            SSL_REQUIRED_AFTER_DATE + dt.timedelta(days=1)
+            if is_new_source
+            else SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
         )
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_at=created_at)
         source.refresh_from_db()
 
         schema = ExternalDataSchema.objects.create(
@@ -411,6 +490,10 @@ class TestSSLRequirement:
 
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
+        if ssh_tunnel_enabled:
+            config.ssh_tunnel = mock.MagicMock(enabled=True, require_tls=mock.MagicMock(enabled=require_tls))
+        elif not require_tls:
+            config.ssh_tunnel = mock.MagicMock(enabled=False, require_tls=mock.MagicMock(enabled=require_tls))
 
         mock_inputs = mock.MagicMock()
         mock_inputs.schema_id = str(schema.id)
@@ -429,55 +512,7 @@ class TestSSLRequirement:
             postgres_source.source_for_pipeline(config, mock_inputs)
             mock_postgres_source.assert_called_once()
             call_kwargs = mock_postgres_source.call_args.kwargs
-            assert call_kwargs["require_ssl"] is True
-
-    @pytest.mark.django_db(transaction=True)
-    def test_source_does_not_require_ssl_for_old_sources(self, team, postgres_config):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-
-        source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Postgres",
-            job_inputs=postgres_config,
-        )
-        # Force created_at to be before the cutoff date
-        ExternalDataSource.objects.filter(pk=source.pk).update(
-            created_at=SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
-        )
-        source.refresh_from_db()
-
-        schema = ExternalDataSchema.objects.create(
-            name="test_table",
-            team_id=team.pk,
-            source_id=source.pk,
-            sync_type="full_refresh",
-            sync_type_config={},
-        )
-
-        postgres_source = PostgresSource()
-        config = postgres_source.parse_config(postgres_config)
-
-        mock_inputs = mock.MagicMock()
-        mock_inputs.schema_id = str(schema.id)
-        mock_inputs.schema_name = "test_table"
-        mock_inputs.should_use_incremental_field = False
-        mock_inputs.incremental_field = None
-        mock_inputs.incremental_field_type = None
-        mock_inputs.db_incremental_field_last_value = None
-        mock_inputs.team_id = team.id
-        mock_inputs.logger = mock.MagicMock()
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
-        ) as mock_postgres_source:
-            assert isinstance(postgres_source, SimpleSource)
-            postgres_source.source_for_pipeline(config, mock_inputs)
-            mock_postgres_source.assert_called_once()
-            call_kwargs = mock_postgres_source.call_args.kwargs
-            assert call_kwargs["require_ssl"] is False
+            assert call_kwargs["require_ssl"] is expected_require_ssl
 
     @pytest.mark.django_db(transaction=True)
     def test_validate_credentials_returns_error_on_ssl_failure(self, team, postgres_config):

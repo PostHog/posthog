@@ -29,14 +29,15 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -45,6 +46,7 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+import { InsightType } from '~/types'
 
 import { AccessControlAction } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -54,7 +56,8 @@ import { sharingLogic } from './sharingLogic'
 function getResourceType(
     dashboardId?: number,
     insightShortId?: InsightShortId,
-    recordingId?: string
+    recordingId?: string,
+    notebookShortId?: string
 ): AccessControlResourceType {
     if (dashboardId) {
         return AccessControlResourceType.Dashboard
@@ -64,6 +67,9 @@ function getResourceType(
     }
     if (recordingId) {
         return AccessControlResourceType.SessionRecording
+    }
+    if (notebookShortId) {
+        return AccessControlResourceType.Notebook
     }
     return AccessControlResourceType.Project
 }
@@ -76,6 +82,7 @@ export interface SharingModalBaseProps {
     insight?: Partial<QueryBasedInsightModel>
     cachedResults?: AnyResponseType
     recordingId?: string
+    notebookShortId?: string
 
     title?: string
     previewIframe?: boolean
@@ -85,6 +92,7 @@ export interface SharingModalBaseProps {
      */
     recordingLinkTimeForm?: ReactNode
     userAccessLevel?: AccessControlLevel
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -100,20 +108,24 @@ export function SharingModalContent({
     insight,
     cachedResults,
     recordingId,
+    notebookShortId,
     additionalParams,
     previewIframe = false,
     recordingLinkTimeForm = undefined,
     userAccessLevel,
+    onSharingEnabledChange,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
         insightShortId,
         recordingId,
+        notebookShortId,
         additionalParams,
+        onSharingEnabledChange,
     }
     const {
         whitelabelAvailable,
-        advancedPermissionsAvailable,
+        accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -163,7 +175,15 @@ export function SharingModalContent({
           })
         : null
 
-    const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
+    const resource = dashboardId
+        ? 'dashboard'
+        : insightShortId
+          ? 'insight'
+          : recordingId
+            ? 'recording'
+            : notebookShortId
+              ? 'notebook'
+              : 'this'
     const hasEditAccess = userAccessLevel
         ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
         : true
@@ -210,7 +230,12 @@ export function SharingModalContent({
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
                             <AccessControlAction
-                                resourceType={getResourceType(dashboardId, insightShortId, recordingId)}
+                                resourceType={getResourceType(
+                                    dashboardId,
+                                    insightShortId,
+                                    recordingId,
+                                    notebookShortId
+                                )}
                                 minAccessLevel={AccessControlLevel.Editor}
                                 userAccessLevel={userAccessLevel}
                             >
@@ -238,7 +263,7 @@ export function SharingModalContent({
                                                 label={
                                                     <div className="flex items-center">
                                                         Password protect
-                                                        {!advancedPermissionsAvailable && (
+                                                        {!accessControlAvailable && (
                                                             <Tooltip title="This is a premium feature, click to learn more.">
                                                                 <IconLock className="ml-1.5 text-muted text-lg" />
                                                             </Tooltip>
@@ -247,9 +272,8 @@ export function SharingModalContent({
                                                 }
                                                 onChange={(passwordRequired: boolean) => {
                                                     if (passwordRequired) {
-                                                        guardAvailableFeature(
-                                                            AvailableFeature.ADVANCED_PERMISSIONS,
-                                                            () => setPasswordRequired(passwordRequired)
+                                                        guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () =>
+                                                            setPasswordRequired(passwordRequired)
                                                         )
                                                     } else {
                                                         setPasswordRequired(passwordRequired)
@@ -263,6 +287,7 @@ export function SharingModalContent({
                                                         dashboardId={dashboardId}
                                                         insightId={insight?.id}
                                                         recordingId={recordingId}
+                                                        notebookShortId={notebookShortId}
                                                     />
                                                 </div>
                                             )}
@@ -710,4 +735,41 @@ SharingModal.open = (props: SharingModalBaseProps) => {
             type: 'secondary',
         },
     })
+}
+
+/**
+ * Build a canonical definition-based insight link ("template link").
+ * The link always points to `/insights/new` on the provided baseUrl and includes:
+ *   #insight=<InsightType>&q=<URL-encoded JSON definition>
+ *
+ * It works for both saved insights (where `query` is persisted on the model)
+ * and unsaved/draft insights (pass the raw query object).
+ */
+export function getInsightDefinitionUrl(
+    insight: Pick<QueryBasedInsightModel, 'query'> | { query: Node<Record<string, any>> },
+    baseUrl: string
+): string {
+    if (!insight?.query) {
+        throw new Error('getInsightDefinitionUrl: insight.query is required')
+    }
+
+    // Derive InsightType from the query where possible so the #insight=<TYPE> hash param is present
+    let insightType: InsightType | undefined
+    type InsightVizNode = { kind: NodeKind.InsightVizNode; source?: { kind?: string } }
+    const kind = (
+        insight.query.kind === NodeKind.InsightVizNode
+            ? (insight.query as InsightVizNode).source?.kind
+            : insight.query.kind
+    ) as keyof typeof nodeKindToInsightType | undefined
+
+    if (kind && kind in nodeKindToInsightType) {
+        insightType = nodeKindToInsightType[kind as keyof typeof nodeKindToInsightType]
+    }
+
+    const relativeUrl = urls.insightNew({ query: insight.query, type: insightType })
+
+    // Ensure the link is project-agnostic (`/project/<id>` may get injected elsewhere)
+    const cleanedPath = relativeUrl.replace(/^\/project\/[^/]+/, '')
+
+    return `${baseUrl}${cleanedPath}`
 }

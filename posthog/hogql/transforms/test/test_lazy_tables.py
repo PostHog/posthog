@@ -12,7 +12,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
 
 class TestLazyJoins(BaseTest):
@@ -156,5 +156,49 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select(
             "select person_id, person.properties from events",
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_timestamp_filter(self):
+        # Documents SQL generation for events with session access and a timestamp filter.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_sessions_join_with_alias(self):
+        # Documents that events table alias is propagated.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events AS e "
+            "WHERE e.timestamp >= '2024-01-01' AND event = 'my-event'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_multiple_predicates(self):
+        # Documents events query with session access and multiple event-level predicates.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' "
+            "AND timestamp < '2024-01-08' "
+            "AND event = '$pageview' "
+            "AND $session_id IS NOT NULL"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_session_duration_filter(self):
+        # Documents that session duration filters remain in outer WHERE (can't be pushed down).
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' "
+            "AND session.$session_duration > 0"
         )
         assert printed == self.snapshot

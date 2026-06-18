@@ -1,4 +1,13 @@
-# Storybook visual regression tests
+# Storybook
+
+## Adding new Tailwind classes
+
+Tailwind is compiled by `@tailwindcss/postcss` on the initial build. Webpack's
+HMR does not re-run PostCSS when story content changes, so a **newly used**
+Tailwind utility (e.g. `bg-[rebeccapurple]`) won't appear until you restart
+Storybook. Classes already present in the codebase hot-reload fine.
+
+## Storybook visual regression tests
 
 In CI we use playwright to load our storybooks scenes and take snapshots of them
 
@@ -17,14 +26,14 @@ before you do this... 🤷
 in one terminal
 
 ```bash
-pnpm --filter=@posthog/frontend storybook
+hogli storybook
 ```
 
 in another
 
 ```bash
 pnpm exec playwright install
-pnpm --filter=@posthog/storybook test:visual:debug
+hogli storybook:test
 ```
 
 ## Viewport width variants

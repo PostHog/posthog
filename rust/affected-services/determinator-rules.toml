@@ -1,0 +1,91 @@
+# Rules for the determinator crate.
+#
+# Custom rules are processed before default rules. Default rules already handle:
+#   - .cargo/config, .cargo/config.toml → mark-changed = "all"
+#   - Cargo.toml (workspace root) → mark-changed = "all"
+#   - Cargo.lock → mark-changed = [] (ignored — we override below)
+#   - README, LICENSE, .gitignore, etc. → mark-changed = []
+#
+# Paths are workspace-relative (strip the `rust/` repo prefix before passing).
+
+use-default-rules = true
+
+# Cargo.lock: the determinator diffs resolved package graphs but does NOT
+# detect per-crate feature narrowing as a change — a crate whose enabled
+# feature set shrinks (or grows) only shows up in Cargo.lock, not in the
+# determinator's affected set. Force rebuild-all whenever Cargo.lock changes.
+# This overrides the default determinator rule (mark-changed = []).
+[[path-rule]]
+globs = ["Cargo.lock"]
+mark-changed = "all"
+
+# Dockerfiles and CI image config — cross-cutting build changes.
+[[path-rule]]
+globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml"]
+mark-changed = "all"
+
+# sqlx offline query metadata — affects all sqlx-using crates.
+[[path-rule]]
+globs = [".sqlx/**"]
+mark-changed = "all"
+
+# Proto files trigger the two build-script crates that read them.
+[[path-rule]]
+globs = ["../proto/**"]
+mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+
+# Hypercache contract: Python serializer changes may break Rust deserialization.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = [
+    "../posthog/api/feature_flag.py",
+    "../posthog/models/feature_flag/flags_cache.py",
+    "../posthog/models/feature_flag/feature_flag.py",
+]
+mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
+
+# Django migrations and test environment setup — needed for Rust integration tests.
+[[path-rule]]
+globs = [
+    "../posthog/migrations/**",
+    "../ee/migrations/**",
+    "../posthog/management/commands/setup_test_environment.py",
+    "../docker-compose.dev.yml",
+]
+mark-changed = "all"
+
+# CI harness inputs that the rust test/build jobs depend on — a change here
+# should run all rust CI to catch regressions.
+[[path-rule]]
+globs = [
+    "../manage.py",
+    "../posthog/settings/**",
+    "../bin/download-mmdb",
+    "../.github/workflows/ci-rust.yml",
+    "../.github/actions/setup-protoc/**",
+    "../.github/actions/setup-sccache/**",
+    "../.github/actions/setup-sqlx-cli/**",
+    "../.github/actions/rust-compute-affected/**",
+]
+mark-changed = "all"
+
+# Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
+# etc.) — these are not crate source and should not trigger rust rebuilds.
+# Must come AFTER all specific rules for files outside the workspace.
+[[path-rule]]
+globs = ["../**"]
+mark-changed = []
+
+# Migration directories are not cargo crates. Tell the determinator to
+# ignore them (don't try ancestor-walk package matching). The sqlx-migrate
+# image trigger is handled in custom code outside the determinator.
+[[path-rule]]
+globs = [
+    "persons_migrations/**",
+    "behavioral_cohorts_migrations/**",
+    "cyclotron-core/migrations/**",
+    "cyclotron-node-migrations/**",
+    "flags_read_store_migrations/**",
+    "bin/migrate-*",
+]
+mark-changed = []

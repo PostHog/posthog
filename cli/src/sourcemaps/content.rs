@@ -22,6 +22,46 @@ pub struct SourceMapContent {
     pub fields: BTreeMap<String, Value>,
 }
 
+impl SourceMapContent {
+    /// True when the sourcemap carries no symbolication payload — empty `mappings`,
+    /// no `sources`, and no `names`. Such maps upload successfully but are useless
+    /// for stack trace resolution, and usually indicate a bundler misconfiguration.
+    ///
+    /// Handles both source map flavors:
+    /// - Plain maps: checks `mappings`, `sources`, `names` directly.
+    /// - Indexed maps (Source Map Revision 3 "Index Map"): walks `sections[].map`
+    ///   and reports empty only if every nested section is itself empty. Turbopack,
+    ///   Metro, and webpack's ConcatSource all emit this format, and a shallow check
+    ///   would skip large, valid maps that happen to have empty top-level fields.
+    pub fn is_empty(&self) -> bool {
+        let get = |k: &str| self.fields.get(k);
+        is_map_empty(get)
+    }
+}
+
+fn is_map_empty<'a>(get: impl Fn(&str) -> Option<&'a Value>) -> bool {
+    let mappings_empty = get("mappings")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty);
+    let sources_empty = get("sources")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let names_empty = get("names")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let sections_empty = get("sections")
+        .and_then(Value::as_array)
+        .is_none_or(|s| s.iter().all(is_section_empty));
+    mappings_empty && sources_empty && names_empty && sections_empty
+}
+
+fn is_section_empty(section: &Value) -> bool {
+    let Some(map) = section.get("map").and_then(Value::as_object) else {
+        return true;
+    };
+    is_map_empty(|k| map.get(k))
+}
+
 #[derive(Debug)]
 pub struct SourceMapFile {
     pub inner: SourceFile<SourceMapContent>,
@@ -113,6 +153,10 @@ impl SourceMapFile {
 
     pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.inner.content.release_id = release_id;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.content.is_empty()
     }
 }
 
@@ -310,5 +354,137 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
             release_id,
             data,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn content_from(value: Value) -> SourceMapContent {
+        serde_json::from_value(value).expect("Failed to build SourceMapContent")
+    }
+
+    #[test]
+    fn is_empty_true_for_all_empty_fields() {
+        let sm = content_from(json!({
+            "version": 3,
+            "file": "index-abc.js",
+            "mappings": "",
+            "names": [],
+            "sources": [],
+            "sourcesContent": [],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_when_fields_missing() {
+        let sm = content_from(json!({
+            "version": 3,
+            "file": "index-abc.js",
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_mappings_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "AAAA",
+            "names": [],
+            "sources": [],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_sources_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "",
+            "names": [],
+            "sources": ["foo.ts"],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_with_names_only() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "",
+            "names": ["x"],
+            "sources": [],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_for_indexed_map_with_empty_sections_array() {
+        // Turbopack emits this shape for thin App Router page wrappers.
+        let sm = content_from(json!({
+            "version": 3,
+            "sources": [],
+            "sections": [],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_for_indexed_map_with_non_empty_section() {
+        // Turbopack's `[turbopack]_runtime.js.map` shape: top-level fields are
+        // empty/absent but real mappings live under `sections[].map`.
+        let sm = content_from(json!({
+            "version": 3,
+            "sources": [],
+            "sections": [
+                {
+                    "offset": { "line": 17, "column": 0 },
+                    "map": {
+                        "version": 3,
+                        "sources": ["turbopack:///[turbopack]/runtime-utils.ts"],
+                        "mappings": "AAAA,SAAS",
+                        "names": [],
+                    }
+                }
+            ],
+        }));
+        assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_true_when_every_section_is_empty() {
+        let sm = content_from(json!({
+            "version": 3,
+            "sections": [
+                { "offset": { "line": 0, "column": 0 }, "map": { "version": 3, "sources": [], "mappings": "", "names": [] } },
+                { "offset": { "line": 5, "column": 0 }, "map": { "version": 3, "sources": [], "mappings": "", "names": [] } },
+            ],
+        }));
+        assert!(sm.is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_for_nested_indexed_map() {
+        // Indexed maps can technically contain indexed maps. Rare but legal.
+        let sm = content_from(json!({
+            "version": 3,
+            "sections": [
+                {
+                    "offset": { "line": 0, "column": 0 },
+                    "map": {
+                        "version": 3,
+                        "sections": [
+                            { "offset": { "line": 0, "column": 0 }, "map": {
+                                "version": 3, "sources": ["a.ts"], "mappings": "AAAA", "names": []
+                            }}
+                        ]
+                    }
+                }
+            ],
+        }));
+        assert!(!sm.is_empty());
     }
 }

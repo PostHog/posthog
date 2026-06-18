@@ -6,7 +6,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -21,11 +22,34 @@ import type { featureFlagsLogicType } from './featureFlagsLogicType'
 export const FLAGS_PER_PAGE = 100
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
-    if (!search) {
+    if (!search?.trim()) {
         return true
     }
-    const s = search.toLowerCase()
-    return flag.key.toLowerCase().includes(s) || !!flag.name?.toLowerCase().includes(s)
+
+    const searchValue = search.trim().toLowerCase()
+    const keyLower = flag.key.toLowerCase()
+    const nameLower = flag.name?.toLowerCase() || ''
+
+    // Get experiment names from experiment_set_metadata, filtering out null/undefined names
+    const experimentNames =
+        flag.experiment_set_metadata
+            ?.map((exp) => exp.name?.toLowerCase())
+            .filter(Boolean)
+            .join(' ') || ''
+
+    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
+    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
+
+    try {
+        const regex = new RegExp(regexPattern, 'i')
+        return regex.test(keyLower) || regex.test(nameLower) || regex.test(experimentNames)
+    } catch {
+        // Fallback to simple case-insensitive substring search if regex fails
+        return (
+            keyLower.includes(searchValue) || nameLower.includes(searchValue) || experimentNames.includes(searchValue)
+        )
+    }
 }
 
 export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boolean {
@@ -72,7 +96,8 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         flagMatchesSearch(flag, filters.search) &&
         flagMatchesStatus(flag, filters.active) &&
         flagMatchesType(flag, filters.type) &&
-        (!filters.created_by_id || flag.created_by?.id === filters.created_by_id) &&
+        (!filters.created_by_id?.length ||
+            (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
         (!filters.evaluation_runtime || flag.evaluation_runtime === filters.evaluation_runtime)
     )
@@ -81,6 +106,7 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+    NOTIFICATIONS = 'notifications',
     EXPOSURE = 'exposure',
     Analysis = 'analysis',
     USAGE = 'usage',
@@ -89,6 +115,7 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
     FEEDBACK = 'feedback',
     EXPERIMENTS = 'experiments',
+    TESTING = 'testing',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
@@ -99,7 +126,7 @@ export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlag
 
 export interface FeatureFlagsFilters {
     active?: string
-    created_by_id?: number
+    created_by_id?: number[]
     type?: string
     search?: string
     order?: string
@@ -131,6 +158,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        updateFlagFromPartial: (flag: Partial<FeatureFlagType> & { id: number }) => ({ flag }),
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
@@ -186,6 +214,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 ...state,
                 results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),
             }),
+            updateFlagFromPartial: (state, { flag }) => ({
+                ...state,
+                results: state.results.map((stateFlag) =>
+                    stateFlag.id === flag.id ? { ...stateFlag, ...flag } : stateFlag
+                ),
+            }),
             deleteFlag: (state, { id }) => ({
                 ...state,
                 count: state.count - 1,
@@ -202,6 +236,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
+                updateFlagFromPartial: (state, { flag }) =>
+                    state.map((f) => (f.id === flag.id ? { ...f, ...flag } : f)),
                 deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
             },
         ],
@@ -346,7 +382,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | string[]> = {
+            const searchParams: Record<string, string | number | string[] | number[]> = {
                 ...values.filters,
             }
 
@@ -356,6 +392,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 replace = true
             }
             searchParams['tab'] = values.activeTab
+
+            // Preserve the activity deep-link param only when on the history tab
+            const currentActivity = router.values.searchParams['activity']
+            if (currentActivity && values.activeTab === FeatureFlagsTab.HISTORY) {
+                searchParams['activity'] = currentActivity
+            }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         }
@@ -379,7 +421,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             const { page, created_by_id, active, type, search, order, evaluation_runtime, tags } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id,
+                created_by_id: parseNumericArrayFilter(created_by_id),
                 type,
                 order,
                 evaluation_runtime,

@@ -1,18 +1,16 @@
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 from django.db.models import Prefetch
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -28,15 +26,21 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.sql.predicates import (
+    RowFilterValidationError,
+    validate_and_coerce_row_filters,
+)
+from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
-
-WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -91,6 +95,14 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
 
+        bind_job_context(
+            team_id=inputs.team_id,
+            source_type=str(source_type),
+            external_data_source_id=inputs.source_id,
+            external_data_schema_id=inputs.schema_id,
+            external_data_job_id=inputs.run_id,
+        )
+
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
             schema_id=inputs.schema_id,
@@ -134,6 +146,16 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
+        # Re-validate against current metadata so a stale filter (dropped column, changed type)
+        # fails here with an actionable message rather than emitting a broken query downstream.
+        try:
+            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+        except RowFilterValidationError as e:
+            raise RowFilterValidationError(
+                f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
+                f"Fix or remove the row filter in the schema's configuration to resume syncing."
+            ) from e
+
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -152,25 +174,62 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
+                enabled_columns=schema.enabled_columns,
+                row_filters=row_filters,
+                schema_metadata=schema.schema_metadata,
+                s3_folder_name=schema.resolved_s3_folder_name,
             )
 
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
 
             resumable_source_manager: ResumableSourceManager | None = None
-            if isinstance(new_source, ResumableSource):
-                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, resumable_source_manager, source_inputs
+            try:
+                if isinstance(new_source, ResumableSource):
+                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, resumable_source_manager, source_inputs
+                    )
+                elif isinstance(new_source, SimpleSource):
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, source_inputs
+                    )
+                else:
+                    raise TypeError(
+                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                    )
+            except CDCHandledExternally:
+                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
+                from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
+                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
                 )
-            elif isinstance(new_source, SimpleSource):
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, source_inputs
+
+                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
+                # schema now. The schedule is unpaused if the schema transitions back
+                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
+                try:
+                    from products.data_warehouse.backend.data_load.service import pause_external_data_schedule
+
+                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
+                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
+                except Exception:
+                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
+
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                    skip_post_import_activities=True,
                 )
-            else:
-                raise TypeError(
-                    f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
-                )
+            except Exception as e:
+                # Some sources connect to the remote during setup rather than lazily during
+                # the run — e.g. for a `mongodb+srv://` URI pymongo resolves the SRV DNS
+                # record inside the MongoClient constructor. A non-retryable error raised
+                # here (deleted/misconfigured cluster hostname, revoked credentials) would
+                # otherwise bypass the guard in `_run` and be retried up to the activity's
+                # maximum on every scheduled sync. Route it through the same policy.
+                await _handle_import_error(job_inputs, logger, e)
 
             return await _run(
                 job_inputs=job_inputs,
@@ -182,37 +241,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
-
-
-async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
-    try:
-        team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
-            WAREHOUSE_PIPELINES_V3_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id), "source_type": source_type},
-                "project": {"id": str(team.id), "source_type": source_type},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if enabled:
-            logger.debug(
-                f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
-            )
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @database_sync_to_async_pool
@@ -231,6 +259,33 @@ def _get_models(
     return job, schema, source, table
 
 
+async def _handle_import_error(
+    job_inputs: PipelineInputs,
+    logger: FilteringBoundLogger,
+    error: Exception,
+) -> NoReturn:
+    """Route an import error through the source's non-retryable error policy.
+
+    Errors the source classifies as non-retryable (bad credentials, a deleted or
+    misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
+    longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
+    a few attempts instead of retrying up to the activity's maximum. Everything else is
+    re-raised so Temporal retries it as usual.
+    """
+    source_cls = SourceRegistry.get_source(job_inputs.job_type)
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    error_msg = str(error)
+    is_non_retryable_error = any(
+        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
+    )
+    if is_non_retryable_error:
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+    else:
+        await logger.aexception(error_msg)
+        await logger.adebug("Error encountered during import_data_activity - re-raising")
+        raise error
+
+
 async def _run(
     job_inputs: PipelineInputs,
     source_response: SourceResponse,
@@ -242,7 +297,7 @@ async def _run(
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
 
-        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
+        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
@@ -279,15 +334,4 @@ async def _run(
         await logger.adebug("Finished running pipeline")
         return result
     except Exception as e:
-        source_cls = SourceRegistry.get_source(job_inputs.job_type)
-        non_retryable_errors = source_cls.get_non_retryable_errors()
-        error_msg = str(e)
-        is_non_retryable_error = any(
-            non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-        )
-        if is_non_retryable_error:
-            await handle_non_retryable_error(job_inputs, error_msg, logger, e)
-        else:
-            await logger.aexception(error_msg)
-            await logger.adebug("Error encountered during import_data_activity - re-raising")
-            raise
+        await _handle_import_error(job_inputs, logger, e)

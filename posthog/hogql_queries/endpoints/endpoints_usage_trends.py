@@ -6,6 +6,7 @@ from posthog.schema import (
     EndpointsUsageTrendsQuery,
     EndpointsUsageTrendsQueryResponse,
     IntervalType,
+    ProductKey,
 )
 
 from posthog.hogql import ast
@@ -118,13 +119,14 @@ class EndpointsUsageTrendsQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTr
             return self._get_requests_count_expression()
 
     def _calculate(self) -> EndpointsUsageTrendsQueryResponse:
-        from posthog.clickhouse.query_tagging import tag_queries
+        from posthog.clickhouse.query_tagging import Feature, tag_queries
 
-        tag_queries(name="endpoints_usage_trends")
+        tag_queries(name="endpoints_usage_trends", product=ProductKey.ENDPOINTS, feature=Feature.USAGE_REPORT)
         response = execute_hogql_query(
             query_type="endpoints_usage_trends_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

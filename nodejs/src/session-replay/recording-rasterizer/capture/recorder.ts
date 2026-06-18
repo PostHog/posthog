@@ -1,145 +1,107 @@
-import * as fs from 'fs/promises'
-import { Page } from 'puppeteer'
+import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
 
 import { config as defaultConfig } from '../config'
-import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { RasterizeRecordingInput, RecordingResult } from '../types'
+import { RasterizationProgress, RasterizeRecordingInput, RecordingResult } from '../types'
 import { elapsed } from '../utils'
+import { BlockProxy } from './block-proxy'
 import { BrowserPool } from './browser-pool'
-import { buildCaptureConfig, capturePlayback } from './capture'
-import { PlayerController, buildPlayerConfig } from './player'
+import { capturePlayback } from './capture'
+import { CapturePage } from './capture-page'
+import { buildCaptureConfig, buildPlayerConfig, validateInput } from './config'
+import { PlayerController } from './player'
 
-export const playerHtmlCache = {
-    _html: null as string | null,
-
-    async load(path?: string): Promise<string> {
-        const htmlPath = path || defaultConfig.playerHtmlPath
-        this._html = await fs.readFile(htmlPath, 'utf-8')
-        return this._html
-    },
-
-    get(): string {
-        if (!this._html) {
-            throw new Error('Player HTML not loaded — call playerHtmlCache.load() before recording')
-        }
-        return this._html
-    },
-
-    reset(): void {
-        this._html = null
-    },
-}
-
-export function validateInput(input: RasterizeRecordingInput): void {
-    if (!input.session_id) {
-        throw new RasterizationError('session_id is required', false, 'INVALID_INPUT')
-    }
-    if (!input.team_id || input.team_id <= 0) {
-        throw new RasterizationError('team_id must be a positive integer', false, 'INVALID_INPUT')
-    }
-    if (input.playback_speed !== undefined && input.playback_speed <= 0) {
-        throw new RasterizationError(
-            `playback_speed must be positive, got: ${input.playback_speed}`,
-            false,
-            'INVALID_INPUT'
-        )
-    }
-    if (input.capture_timeout != null && input.capture_timeout <= 0) {
-        throw new RasterizationError(
-            `capture_timeout must be positive, got: ${input.capture_timeout}`,
-            false,
-            'INVALID_INPUT'
-        )
-    }
-    if (input.recording_fps !== undefined && input.recording_fps <= 0) {
-        throw new RasterizationError(
-            `recording_fps must be positive, got: ${input.recording_fps}`,
-            false,
-            'INVALID_INPUT'
-        )
-    }
-    if (input.trim != null && input.trim <= 0) {
-        throw new RasterizationError(`trim must be positive, got: ${input.trim}`, false, 'INVALID_INPUT')
-    }
-}
-
-/**
- * Prepare a browser page for capture: disable iframe sandboxing,
- * set the viewport, and optionally wire up browser log forwarding.
- */
-async function preparePage(
-    page: Page,
-    viewport: { width: number; height: number },
-    captureLogs: boolean,
-    log: Logger
-): Promise<void> {
-    if (captureLogs) {
-        const browserLog = log.child({ source: 'browser' })
-        page.on('console', (msg) => {
-            const level = msg.type() === 'error' ? 'error' : msg.type() === 'warn' ? 'warn' : 'info'
-            browserLog[level](msg.text())
-        })
-        page.on('pageerror', (err) => browserLog.error({ type: 'pageerror' }, (err as Error).message))
-        page.on('requestfailed', (req) =>
-            browserLog.error({ type: 'requestfailed', url: req.url() }, req.failure()?.errorText || 'unknown')
-        )
+// Matches the raw frameCaptured count from puppeteer-capture (pre-ffmpeg).
+function estimateTotalFrames(
+    periods: InactivityPeriod[],
+    input: RasterizeRecordingInput,
+    playbackSpeed: number,
+    captureFps: number
+): number {
+    const skipInactivity = input.skip_inactivity !== false
+    let sessionS: number
+    if (skipInactivity) {
+        sessionS = periods.filter((p) => p.active).reduce((sum, p) => sum + ((p.ts_to_s ?? 0) - p.ts_from_s), 0)
+    } else if (periods.length > 0) {
+        sessionS = periods[periods.length - 1].ts_to_s ?? 0
+    } else {
+        return 0
     }
 
-    // Prevent rrweb's replay iframe from being sandboxed.
-    // rrweb sets sandbox="allow-same-origin" which blocks script execution.
-    // puppeteer-capture needs to evaluate() in all frames to inject virtual
-    // time shims — without this, frame.evaluate() hangs on sandboxed iframes.
-    await page.evaluateOnNewDocument(() => {
-        const origSetAttribute = Element.prototype.setAttribute
-        Element.prototype.setAttribute = function (name: string, value: string) {
-            if (this.tagName === 'IFRAME' && name === 'sandbox') {
-                return
-            }
-            return origSetAttribute.call(this, name, value)
-        }
-    })
+    if (input.max_virtual_time != null) {
+        sessionS = Math.min(sessionS, input.max_virtual_time)
+    }
 
-    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 })
+    let videoS = sessionS / playbackSpeed
+    if (input.trim != null) {
+        videoS = Math.min(videoS, input.trim)
+    }
+
+    return Math.max(0, Math.ceil(videoS * captureFps))
 }
 
 export async function rasterizeRecording(
     pool: BrowserPool,
     input: RasterizeRecordingInput,
     outputPath: string,
+    playerHtml: string,
+    onProgress: () => void,
+    progress: RasterizationProgress | null = null,
     cfg: typeof defaultConfig = defaultConfig,
-    log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id }),
-    onProgress?: () => void
+    log: Logger = createLogger({ session_id: input.session_id, team_id: input.team_id })
 ): Promise<RecordingResult> {
     validateInput(input)
 
     const setupStart = process.hrtime()
-    const baseHtml = playerHtmlCache.get()
     const captureConfig = buildCaptureConfig(input)
 
-    const page = await pool.getPage()
+    const rawPage = await pool.getPage()
     let player: PlayerController | null = null
     try {
         const viewport = {
             width: input.viewport_width || 1280,
             height: input.viewport_height || 720,
         }
-        await preparePage(page, viewport, cfg.captureBrowserLogs, log)
+        const playerUrl = `${cfg.siteUrl}/player`
+        const capturePage = await CapturePage.prepare(
+            rawPage,
+            viewport,
+            playerUrl,
+            playerHtml,
+            cfg.captureBrowserLogs,
+            log
+        )
 
-        player = new PlayerController(page, log)
-        const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, cfg)
+        const blockProxy = new BlockProxy(cfg, log)
+        const blockCount = await blockProxy.fetchBlocks(input)
+        log.info({ blockCount }, 'block listing fetched')
+
+        const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
+        player = new PlayerController(capturePage, blockProxy, onProgress, log)
 
         log.info('loading player')
-        await player.load(baseHtml, cfg.siteUrl, playerConfig)
+        await player.load(playerConfig)
         log.info('player loaded, waiting for recording data')
 
         await player.waitForStart(playerConfig)
         log.info('recording started')
-        onProgress?.()
+        onProgress()
 
         const setupS = elapsed(setupStart)
 
-        const captureResult = await capturePlayback(page, player, captureConfig, outputPath, log, onProgress)
+        if (progress) {
+            progress.estimatedTotalFrames = estimateTotalFrames(
+                player.getInactivityPeriods(),
+                input,
+                captureConfig.playbackSpeed,
+                captureConfig.captureFps
+            )
+            progress.phase = 'capture'
+            onProgress()
+            log.info({ estimated_total_frames: progress.estimatedTotalFrames }, 'estimated capture workload')
+        }
+
+        const captureResult = await capturePlayback(player, captureConfig, outputPath, onProgress, progress, log)
 
         return {
             video_path: outputPath,
@@ -153,6 +115,6 @@ export async function rasterizeRecording(
         }
     } finally {
         player?.dispose()
-        await pool.releasePage(page)
+        await pool.releasePage(rawPage)
     }
 }

@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils'
+import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -28,16 +28,17 @@ const meta: Meta = {
                 [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_RATIO_METRIC.feature_flag.id}/`]: {},
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_RATIO_METRIC.feature_flag.id}/status/`]: {},
+                [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return res(ctx.json(EXPOSURE_QUERY_RESULT))
+                        return [200, EXPOSURE_QUERY_RESULT]
                     }
 
-                    return res(ctx.json(RATIO_METRIC_RESULT))
+                    return [200, RATIO_METRIC_RESULT]
                 },
             },
         }),
@@ -45,7 +46,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 
 // Small delay to ensure charts render completely
 export const ExperimentWithRatioMetric: Story = { play: makeDelay(500) }

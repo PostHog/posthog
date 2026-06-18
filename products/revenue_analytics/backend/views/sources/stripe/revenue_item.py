@@ -9,7 +9,6 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
@@ -19,6 +18,7 @@ from products.revenue_analytics.backend.views.sources.helpers import (
     extract_json_uint,
     is_zero_decimal_in_stripe,
 )
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 AVERAGE_DAYS_PER_MONTH = 30.44
 AVERAGE_DAYS_PER_MONTH_AST_CONSTANT = ast.Constant(value=AVERAGE_DAYS_PER_MONTH)

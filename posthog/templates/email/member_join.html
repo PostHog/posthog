@@ -1,9 +1,9 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}
+{% block heading %}{{ invitee_first_name }} accepted their PostHog invitation{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->
 <p>
-    {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization.name }}.
+    {{ invitee_first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization_name }}.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri %}">View PostHog insights</a>

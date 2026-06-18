@@ -14,7 +14,7 @@ from llm_gateway.auth.service import AuthService, extract_token
 
 
 @pytest.fixture(autouse=True)
-def reset_cache() -> Generator[None, None, None]:
+def reset_cache() -> Generator[None]:
     reset_auth_cache()
     yield
     reset_auth_cache()
@@ -106,6 +106,7 @@ class TestAuthService:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -131,6 +132,7 @@ class TestAuthService:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -206,6 +208,7 @@ class TestPersonalApiKeyAuthenticator:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -216,6 +219,7 @@ class TestPersonalApiKeyAuthenticator:
         assert result.user_id == 123
         assert result.team_id == 456
         assert result.auth_method == "personal_api_key"
+        assert result.is_staff is False
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -233,6 +237,10 @@ class TestPersonalApiKeyAuthenticator:
             pytest.param(
                 {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200},
                 id="empty_scopes",
+            ),
+            pytest.param(
+                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
+                id="wildcard_scope_rejected",
             ),
         ],
     )
@@ -303,6 +311,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -372,6 +381,7 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param(
                 "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
             ),
+            pytest.param("*", ["*"], id="wildcard_scope_accepted_for_oauth"),
         ],
     )
     async def test_scope_parsing(
@@ -387,6 +397,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -410,6 +421,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": True,
             }
         )
 
@@ -421,6 +433,7 @@ class TestOAuthAccessTokenAuthenticator:
         assert result.team_id == 456
         assert result.auth_method == "oauth_access_token"
         assert result.scopes == ["llm_gateway:read"]
+        assert result.is_staff is True
 
     @pytest.mark.asyncio
     async def test_valid_token_with_null_team_id(
@@ -436,6 +449,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "current_team_id": None,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 

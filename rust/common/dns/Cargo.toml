@@ -6,7 +6,11 @@ edition = "2021"
 [lints]
 workspace = true
 
+[features]
+smithy = ["aws-smithy-runtime-api"]
+
 [dependencies]
+aws-smithy-runtime-api = { workspace = true, optional = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }

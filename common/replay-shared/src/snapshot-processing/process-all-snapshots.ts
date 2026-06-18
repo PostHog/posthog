@@ -1,4 +1,4 @@
-import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
+import { EventType, eventWithTime, fullSnapshotEvent } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
@@ -275,7 +275,7 @@ function processSnapshot(
     const currentTimestamp = snapshot.timestamp
 
     if (currentTimestamp === context.previousTimestamp) {
-        if (context.seenHashes.size === 0) {
+        if (context.seenHashes.size === 0 && snapshotIndex > 0) {
             context.seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
         }
         const snapshotHash = hashSnapshot(snapshot)

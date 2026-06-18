@@ -1,25 +1,28 @@
 import re
-from collections.abc import Iterable, Iterator
+import dataclasses
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote, urljoin
 
-import requests
 import structlog
 from dateutil import parser as dateutil_parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
+from requests.exceptions import HTTPError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
     IncrementalConfig,
 )
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
@@ -31,7 +34,36 @@ _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# Safety bound for how many issues the issue_tag_values fan-out will skip while
+# fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
+# deleted between runs, we'd otherwise skip every remaining issue and yield
+# nothing. Once this bound is exceeded we treat the checkpoint as stale and
+# fall through to fresh processing of the current and remaining issues.
+_RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass
+class SentryResumeConfig:
+    """Resume state for Sentry endpoints.
+
+    Flat org-level endpoints (projects/teams/members/...) checkpoint the
+    ``next_url`` returned by ``SentryPaginator``.
+
+    ``issue_tag_values`` is a three-level hand-rolled fan-out
+    (issues -> tags-per-issue -> values-per-tag); its checkpoint is the
+    ``(issue_id, tag_key, values_next_url)`` triple pointing at the next
+    values page to fetch for that specific (issue, tag) combination.
+
+    Parent/child fan-out endpoints driven by ``build_dependent_resource``
+    don't currently checkpoint — the framework does not expose a resume
+    hook for dependent resources, so those paths remain non-resumable.
+    """
+
+    next_url: Optional[str] = None
+    issue_id: Optional[str] = None
+    tag_key: Optional[str] = None
+    values_next_url: Optional[str] = None
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:
@@ -117,6 +149,14 @@ class SentryPaginator(BasePaginator):
         super().__init__()
         self._next_url: str | None = None
 
+    def init_request(self, request: Request) -> None:
+        # When seeded via ``set_resume_state``, the paginator already holds the
+        # URL of the next page to fetch; redirect the first request to it so we
+        # don't re-issue the initial page before resuming.
+        if self._next_url:
+            request.url = self._next_url
+            request.params = {}
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         link_header = response.headers.get("Link", "")
         self._next_url = _parse_next_link(link_header)
@@ -127,13 +167,24 @@ class SentryPaginator(BasePaginator):
             request.url = self._next_url
             request.params = {}
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_url and self._has_next_page:
+            return {"next_url": self._next_url}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
+
 
 # ---------------------------------------------------------------------------
 # Low-level HTTP helpers (used only by issue_tag_values custom fan-out)
 # ---------------------------------------------------------------------------
 
 
-def _is_retryable_response(response: requests.Response) -> bool:
+def _is_retryable_response(response: Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
 
@@ -162,7 +213,7 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
     return float(wait_until_reset)
 
 
-def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
+def _raise_on_failed_retry(state: RetryCallState) -> Response:
     if state.outcome is None:
         raise RuntimeError("Unexpected request retry state")
     if state.outcome.failed:
@@ -176,7 +227,7 @@ def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
 @retry(
     stop=stop_after_attempt(_MAX_RETRIES + 1),
     wait=_retry_wait_seconds,
-    retry=retry_if_exception_type(requests.exceptions.RequestException) | retry_if_result(_is_retryable_response),
+    retry=retry_if_exception_type(RequestException) | retry_if_result(_is_retryable_response),
     retry_error_callback=_raise_on_failed_retry,
 )
 def _request_with_retry(
@@ -184,8 +235,8 @@ def _request_with_retry(
     headers: dict[str, str],
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
-) -> requests.Response:
-    return requests.get(url, headers=headers, params=params, timeout=timeout)
+) -> Response:
+    return make_tracked_session().get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(
@@ -245,15 +296,34 @@ def _iter_issue_tag_values_rows(
     base_api_url: str,
     headers: dict[str, str],
     organization_slug: str,
+    resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     incremental_last_seen_max: Any = None,
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
+
+    # Resume state only honours the fan-out fields; the flat-endpoint
+    # ``next_url`` is meaningless here. We require the full (issue_id, tag_key,
+    # values_next_url) triple to be present — anything partial is treated as
+    # absent and falls through to a fresh run so we don't apply a stale URL to
+    # the wrong (issue, tag) pair.
+    resume_issue_id: str | None = None
+    resume_tag_key: str | None = None
+    resume_values_next_url: str | None = None
+    if resumable_source_manager is not None and resumable_source_manager.can_resume():
+        loaded = resumable_source_manager.load_state()
+        if loaded is not None and loaded.issue_id and loaded.tag_key and loaded.values_next_url:
+            resume_issue_id = loaded.issue_id
+            resume_tag_key = loaded.tag_key
+            resume_values_next_url = loaded.values_next_url
+
     issues = _iter_endpoint_rows(
         base_api_url=base_api_url,
         path=f"/organizations/{organization_slug}/issues/",
         headers=headers,
         params={"limit": 100, "query": "", "sort": "date"},
     )
+
+    skipped_for_resume = 0
 
     for issue in issues:
         if cutoff_last_seen is not None:
@@ -262,6 +332,31 @@ def _iter_issue_tag_values_rows(
                 break
 
         issue_id = str(issue["id"])
+
+        # Fast-forward until we reach the saved checkpoint issue. We rely on
+        # the deterministic sort=date ordering to land back on the same issue.
+        # If the checkpoint issue has been deleted we could skip forever, so
+        # bound the skip count and fall through to a fresh run when exceeded.
+        if resume_issue_id is not None and issue_id != resume_issue_id:
+            skipped_for_resume += 1
+            if skipped_for_resume > _RESUME_ISSUE_SKIP_LIMIT:
+                logger.info(
+                    "sentry_source.stale_resume_checkpoint",
+                    resume_issue_id=resume_issue_id,
+                    skipped=skipped_for_resume,
+                )
+                resume_issue_id = None
+                resume_tag_key = None
+                resume_values_next_url = None
+                # Fall through: process the current issue and subsequent ones fresh.
+            else:
+                continue
+
+        # Mark that we've found the checkpoint issue. If the checkpoint tag has
+        # since disappeared, we still exit the middle loop with no match — clear
+        # outer fast-forward state at the end of this iteration so subsequent
+        # issues run fresh instead of being skipped forever.
+        matched_checkpoint_issue = resume_issue_id is not None
 
         tags = _iter_endpoint_rows(
             base_api_url=base_api_url,
@@ -275,10 +370,22 @@ def _iter_issue_tag_values_rows(
             if not isinstance(tag_key, str) or not tag_key:
                 continue
 
+            if resume_issue_id is not None and resume_tag_key is not None and tag_key != resume_tag_key:
+                continue
+
             values_path = f"/organizations/{organization_slug}/issues/{issue_id}/tags/{quote(tag_key, safe='')}/values/"
-            values_url = urljoin(f"{base_api_url}/", values_path.lstrip("/"))
-            values_params: dict[str, Any] | None = {"limit": 100, "sort": "-date"}
+            if resume_issue_id is not None and resume_values_next_url:
+                values_url: str = resume_values_next_url
+                values_params: dict[str, Any] | None = None
+            else:
+                values_url = urljoin(f"{base_api_url}/", values_path.lstrip("/"))
+                values_params = {"limit": 100, "sort": "-date"}
             pages_read = 0
+
+            # Clear resume markers so the NEXT (issue, tag) pair runs fresh.
+            resume_issue_id = None
+            resume_tag_key = None
+            resume_values_next_url = None
 
             while values_url:
                 if pages_read >= _MAX_PAGES_PER_PARENT:
@@ -293,7 +400,25 @@ def _iter_issue_tag_values_rows(
                     break
 
                 response = _request_with_retry(url=values_url, headers=headers, params=values_params)
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except HTTPError:
+                    # Sentry intermittently returns a persistent 5xx for a single
+                    # (issue, tag) values endpoint — seen on tags with unusual
+                    # keys/values. Retries are already exhausted by
+                    # _request_with_retry, so skip this tag's remaining values
+                    # rather than failing the whole sync. Non-server errors
+                    # (auth, etc.) still propagate to the job-level handler.
+                    if response.status_code >= 500:
+                        logger.warning(
+                            "sentry_source.issue_tag_values_server_error_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            status_code=response.status_code,
+                        )
+                        break
+                    raise
                 rows = response.json()
 
                 should_stop = False
@@ -313,10 +438,28 @@ def _iter_issue_tag_values_rows(
                     break
 
                 next_url = _parse_next_link(response.headers.get("Link", ""))
+
+                # Checkpoint the URL of the NEXT values page — it has not been
+                # fetched yet, so resume can pick it up directly without
+                # re-processing any rows that were already yielded.
+                if next_url and resumable_source_manager is not None:
+                    resumable_source_manager.save_state(
+                        SentryResumeConfig(
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            values_next_url=urljoin(f"{base_api_url}/", next_url),
+                        )
+                    )
+
                 if not next_url:
                     break
                 values_url = urljoin(f"{base_api_url}/", next_url)
                 values_params = None
+
+        if matched_checkpoint_issue:
+            resume_issue_id = None
+            resume_tag_key = None
+            resume_values_next_url = None
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +481,7 @@ def validate_credentials(
     headers = _auth_headers(auth_token)
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:
@@ -352,7 +495,7 @@ def validate_credentials(
             return False, response.json().get("detail", response.text)
         except Exception:
             return False, response.text
-    except requests.exceptions.RequestException as exc:
+    except RequestException as exc:
         return False, str(exc)
 
 
@@ -389,7 +532,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -404,6 +546,33 @@ def get_resource(
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _skip_endpoint_on_forbidden(resource: Iterable[Any], endpoint: str) -> Iterator[Any]:
+    """Yield pages from a fan-out resource, treating a 403 as "endpoint not
+    available for this organization" and stopping gracefully.
+
+    Sentry's project service hooks API is gated at the organization level, so it
+    returns 403 Forbidden even for tokens that already hold full project/admin
+    scopes. Letting that 403 propagate marks the whole schema as a non-retryable
+    failure (see ``SentrySource.get_non_retryable_errors``), permanently erroring
+    a source whose credentials are otherwise valid. Skipping the endpoint instead
+    lets the sync complete with an empty table — the same graceful-skip approach
+    used for persistent server errors in ``_iter_issue_tag_values_rows``. Genuine
+    scope problems still surface on the other (non-skipped) endpoints.
+    """
+    try:
+        yield from resource
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 403:
+            logger.warning(
+                "sentry_source.endpoint_forbidden_skipped",
+                endpoint=endpoint,
+                status_code=response.status_code,
+            )
+            return
+        raise
 
 
 def _make_source_response(endpoint_config: SentryEndpointConfig, items_fn) -> SourceResponse:
@@ -434,6 +603,7 @@ def sentry_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -452,11 +622,14 @@ def sentry_source(
                 base_api_url=base_api_url,
                 headers=headers,
                 organization_slug=organization_slug,
+                resumable_source_manager=resumable_source_manager,
                 incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
             ),
         )
 
     # --- Generic parent->child fan-out ---
+    # Dependent resources don't currently support resume in the rest_source
+    # framework; the manager is intentionally not threaded into this path.
     if endpoint_config.fanout:
         dependent_resource = cast(
             Iterable[Any],
@@ -474,13 +647,19 @@ def sentry_source(
                 incremental_config_factory=_sentry_incremental_window,
             ),
         )
+        # Sentry gates the service hooks API at the org level, so it 403s even
+        # for fully-scoped tokens. Skip it gracefully rather than permanently
+        # erroring the schema (which the non-retryable 403 handling would do).
+        if endpoint == "project_service_hooks":
+            return _make_source_response(
+                endpoint_config, lambda: _skip_endpoint_on_forbidden(dependent_resource, endpoint)
+            )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     # --- Flat org-level endpoints (via rest_api_resources) ---
     config: RESTAPIConfig = {
         "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {
-            "primary_key": endpoint_config.primary_key,
             "write_disposition": "replace",
             "endpoint": {"params": {"limit": endpoint_config.page_size}},
         },
@@ -494,7 +673,28 @@ def sentry_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    if len(resources) != 1:
-        raise ValueError(f"Expected 1 resource for endpoint '{endpoint}', got {len(resources)}")
-    return _make_source_response(endpoint_config, lambda: resources[0])
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
+    if resumable_source_manager is not None:
+        if resumable_source_manager.can_resume():
+            resume_config = resumable_source_manager.load_state()
+            if resume_config is not None and resume_config.next_url:
+                initial_paginator_state = {"next_url": resume_config.next_url}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Match klaviyo/reddit_ads: persist only while there is another
+            # page to resume to. Redis TTL cleans up on completion.
+            if state and state.get("next_url") and resumable_source_manager is not None:
+                resumable_source_manager.save_state(SentryResumeConfig(next_url=state["next_url"]))
+
+        resume_hook = save_checkpoint
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return _make_source_response(endpoint_config, lambda: resource)

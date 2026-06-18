@@ -5,7 +5,7 @@ import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } 
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { timeZoneLabel } from 'lib/utils'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,6 +15,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { stepWaitUntilTimeWindowLogic } from './stepWaitUntilTimeWindowLogic'
+import { TIME_RANGE_OPTIONS, WEEKDAY_OPTIONS } from './timeWindowConstants'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -35,22 +36,6 @@ const TIME_OPTIONS = [
     { value: 'any', label: 'Any time' },
     { value: 'custom', label: 'Specific time range' },
 ]
-
-const WEEKDAY_OPTIONS = [
-    { key: 'monday', label: 'Monday' },
-    { key: 'tuesday', label: 'Tuesday' },
-    { key: 'wednesday', label: 'Wednesday' },
-    { key: 'thursday', label: 'Thursday' },
-    { key: 'friday', label: 'Friday' },
-    { key: 'saturday', label: 'Saturday' },
-    { key: 'sunday', label: 'Sunday' },
-]
-
-// Generate time range options (00:00 to 23:00)
-const TIME_RANGE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-    value: `${i.toString().padStart(2, '0')}:00`,
-    label: `${i.toString().padStart(2, '0')}:00`,
-}))
 
 // Configuration utility functions
 const isCustomDay = (day: DayConfig): day is WeekdayType[] => {

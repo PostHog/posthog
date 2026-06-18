@@ -1,0 +1,32 @@
+[package]
+name = "property-vals-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+axum = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-kafka = { path = "../common/kafka" }
+common-liveness = { path = "../common/liveness" }
+envconfig = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+metrics = { workspace = true }
+quick_cache = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
+siphasher = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true

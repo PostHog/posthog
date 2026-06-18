@@ -19,6 +19,7 @@ import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardFiltersLogic } from './dashboardFiltersLogic'
+import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardQuickFiltersButton } from './DashboardQuickFiltersButton'
 import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'
@@ -31,7 +32,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
 
     return (
         <>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
                 <AppShortcut
                     name="DashboardDateFilter"
                     keybind={[keyBinds.dateFilter]}
@@ -148,11 +149,46 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
         return null
     }
 
+    return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
+}
+
+/**
+ * Edit-mode actions for the filter bar.
+ *
+ * One Cancel discards everything. On large dashboards that don't auto-preview, an
+ * "Apply filters" button appears so the user can preview pending filter changes before
+ * committing — Save applies any still-unapplied filters as part of persisting, so it's
+ * always safe to skip Apply and go straight to Save.
+ */
+function DashboardEditActions(): JSX.Element | null {
+    const { dashboardMode, layoutEditMode, canEditDashboard, showApplyFiltersBanner, loadingPreview } =
+        useValues(dashboardLogic)
+    const { applyFilters } = useActions(dashboardLogic)
+
+    if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
+        return null
+    }
+
     return (
-        <DashboardEditBar
-            showDateFilter={false}
-            className="flex gap-2 items-end flex-wrap border rounded p-2 md:[&>*]:grow-0 [&>*]:grow"
-        />
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <DashboardEditSaveCancelButtons
+                withShortcuts
+                applyFiltersButton={
+                    showApplyFiltersBanner ? (
+                        <LemonButton
+                            data-attr="dashboard-apply-filters"
+                            type="secondary"
+                            size="small"
+                            loading={loadingPreview}
+                            onClick={applyFilters}
+                            tooltip="Preview these filters. Large dashboards don't auto-apply — Save will apply and persist them too."
+                        >
+                            Apply filters
+                        </LemonButton>
+                    ) : null
+                }
+            />
+        </div>
     )
 }
 
@@ -164,24 +200,28 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
     const { placement, dashboard, dashboardMode, hasVariables, dashboardFiltersEnabled } = useValues(dashboardLogic)
 
     return (
-        <div className="flex flex-col gap-2 w-full">
-            <div className="flex gap-2 justify-between">
-                <div className="flex flex-col md:flex-row gap-2 justify-between shrink-0 items-start lg:items-center">
-                    {![
-                        DashboardPlacement.Public,
-                        DashboardPlacement.Export,
-                        DashboardPlacement.FeatureFlag,
-                        DashboardPlacement.Group,
-                        DashboardPlacement.DataOps,
-                        DashboardPlacement.Builtin,
-                    ].includes(placement) &&
-                        dashboard &&
-                        (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+        <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 @2xl/dashboard-filters:flex-row @2xl/dashboard-filters:justify-between items-start @4xl/dashboard-filters:items-center">
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-x-2 gap-y-2 items-center">
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.FeatureFlag,
+                            DashboardPlacement.Group,
+                            DashboardPlacement.DataOps,
+                            DashboardPlacement.Builtin,
+                        ].includes(placement) &&
+                            dashboard &&
+                            (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+                        <DashboardEditActions />
+                    </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
                         className={clsx(
-                            'flex flex-col lg:flex-row items-end lg:items-center shrink-0 gap-4 dashoard-items-actions ml-auto',
+                            'flex flex-col @4xl/dashboard-filters:flex-row items-end @4xl/dashboard-filters:items-center gap-4 dashoard-items-actions',
+                            'min-w-0 @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 shrink-0 @4xl/dashboard-filters:ml-auto',
                             {
                                 'mt-7': hasVariables,
                             }

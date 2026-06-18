@@ -29,7 +29,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
-from posthog.hogql.resolver_utils import extract_base_table_types
+from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
@@ -127,6 +127,43 @@ class TestResolver(BaseTest):
 
     @parameterized.expand(
         [
+            ("current_date",),
+            ("current_time",),
+            ("current_timestamp",),
+            ("localtime",),
+            ("localtimestamp",),
+        ]
+    )
+    def test_postgres_current_date_keyword_resolves_to_keyword(self, keyword: str):
+        expr = self._select(f"SELECT {keyword}")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert len(resolved.select) == 1
+        select_expr = resolved.select[0]
+        assert isinstance(select_expr, ast.Keyword)
+        assert select_expr.name == keyword
+
+    def test_postgres_current_date_alias_not_treated_as_keyword(self):
+        expr = self._select(
+            """
+            SELECT
+                distinct_id as current_date
+            FROM
+                events
+            WHERE
+                current_date is not null
+            """
+        )
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert isinstance(resolved.where, ast.CompareOperation)
+        left = resolved.where.left
+        if isinstance(left, ast.Alias):
+            left = left.expr
+        assert isinstance(left, ast.Field)
+
+    @parameterized.expand(
+        [
             ("events.created_at", None),
             ("created_at", None),
             ("e.created_at", "e"),
@@ -171,6 +208,76 @@ class TestResolver(BaseTest):
         assert "a" not in selected_names
         assert "b" not in selected_names
         assert "c" not in selected_names
+
+    def test_column_aliases_create_column_aliased_table_type(self):
+        expr = self._select("SELECT e.a FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.select_from is not None
+        assert isinstance(resolved.select_from.type, ast.ColumnAliasedTableType)
+        assert resolved.select_from.type.alias == "e"
+        assert resolved.select_from.type.alias_to_original["a"] == "uuid"
+        assert resolved.select_from.type.alias_to_original["b"] == "event"
+        assert resolved.select_from.type.alias_to_original["c"] == "properties"
+
+    def test_column_aliases_remaining_columns_keep_original_names(self):
+        expr = self._select("SELECT e.timestamp FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert resolved.select_from is not None
+        assert isinstance(resolved.select_from.type, ast.ColumnAliasedTableType)
+        # timestamp was not aliased, so it maps to itself
+        assert resolved.select_from.type.alias_to_original["timestamp"] == "timestamp"
+
+    def test_column_aliases_original_name_not_resolvable(self):
+        expr = self._select("SELECT e.uuid FROM events AS e (a, b, c)")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Field not found: uuid" in str(ctx.exception)
+
+    def test_column_aliases_star_expands_to_aliased_names(self):
+        expr = self._select("SELECT * FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        selected_names = []
+        for item in resolved.select:
+            if isinstance(item, ast.Field):
+                selected_names.append(str(item.chain[-1]))
+            elif isinstance(item, ast.Alias):
+                selected_names.append(item.alias)
+        assert "a" in selected_names
+        assert "b" in selected_names
+        assert "c" in selected_names
+
+    def test_column_aliases_unqualified_field_resolves(self):
+        expr = self._select("SELECT a FROM events AS e (a, b, c)")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        assert len(resolved.select) > 0
+        node = resolved.select[0]
+        # Fields get wrapped in a hidden Alias during resolution
+        assert isinstance(node, ast.Alias)
+        assert isinstance(node.type, ast.FieldAliasType)
+        assert node.type.alias == "a"
+        field_type = node.type.type
+        assert isinstance(field_type, ast.FieldType)
+        assert field_type.name == "a"
+        assert isinstance(field_type.table_type, ast.ColumnAliasedTableType)
+
+    def test_column_aliases_too_many_aliases_error(self):
+        expr = ast.SelectQuery(
+            select=[ast.Field(chain=["a"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="e",
+                column_aliases=["c" + str(i) for i in range(100)],
+            ),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "alias(es) were provided" in str(ctx.exception)
+
+    def test_column_aliases_duplicate_alias_error(self):
+        expr = self._select("SELECT e.a FROM events AS e (a, a, c)")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Duplicate column alias 'a'" in str(ctx.exception)
 
     def test_resolve_replace_columns(self):
         expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
@@ -373,6 +480,35 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unknown_table_suggests_close_matches(self):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT 1 FROM event"),  # typo: 'event' singular
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unknown table `event`", message)
+        self.assertIn("Did you mean:", message)
+        self.assertIn("events", message)
+
+    def test_unresolved_field_suggests_close_matches(self):
+        # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT user_id FROM events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: user_id", message)
+        self.assertIn("Did you mean:", message)
+        # At least one of the obvious suggestions should show up
+        self.assertTrue(
+            "distinct_id" in message or "person_id" in message,
+            f"expected a plausible suggestion in: {message}",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
@@ -456,6 +592,40 @@ class TestResolver(BaseTest):
         table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(select_set_type)]
 
         self.assertEqual(table_names, ["events", "persons"])
+
+    @parameterized.expand(
+        [
+            (
+                "table_names",
+                {
+                    "events": ast.TableType(table=EventsTable()),
+                    "persons": ast.TableType(table=PersonsTable()),
+                },
+                "events.properties, persons.properties",
+            ),
+            (
+                "table_aliases",
+                {
+                    "e": ast.TableAliasType(alias="e", table_type=ast.TableType(table=EventsTable())),
+                    "p": ast.TableAliasType(alias="p", table_type=ast.TableType(table=PersonsTable())),
+                },
+                "e.properties, p.properties",
+            ),
+        ]
+    )
+    def test_lookup_field_by_name_lists_ambiguous_field_sources(
+        self, _label: str, tables: dict[str, ast.TableOrSelectType], expected_sources: str
+    ):
+        scope = ast.SelectQueryType(tables=tables)
+
+        with self.assertRaises(ResolutionError) as context:
+            lookup_field_by_name(scope, "properties", self.context)
+
+        self.assertEqual(
+            str(context.exception),
+            f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
+            "Use a qualified field name.",
+        )
 
     def test_select_set_order_by_prints(self):
         printed = self._print_hogql("select 1 union all select 2 order by 1")
@@ -1204,6 +1374,30 @@ class TestResolver(BaseTest):
         assert isinstance(selected.type, ast.CallType)
         assert selected.type.return_type == ast.DateTimeType(nullable=False)
 
+    def test_assume_not_null_with_unknown_arg_type(self):
+        # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
+        node = self._select("SELECT assumeNotNull(formatReadableSize(1024))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is False
+
+    @parameterized.expand(
+        [
+            ("toNullable('hello')", ""),
+            ("toNullable(event)", "FROM events"),
+            ("nullIf(event, '')", "FROM events"),
+        ],
+    )
+    def test_nullable_functions_force_nullable_true(self, expr, from_clause):
+        node = self._select(f"SELECT {expr} {from_clause}".strip())
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        [selected] = node.select
+        assert isinstance(selected.type, ast.CallType)
+        assert selected.type.return_type.nullable is True
+
     def test_interval_type_arithmetic(self):
         operators = ["+", "-"]
         granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
@@ -1638,9 +1832,14 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_limit_with_ties_postgres_error(self):
+        # WITH TIES is rejected by the Postgres printer's ``_assert_with_ties_supported`` hook
+        # rather than by the resolver, so we need to run the full print pipeline to observe it.
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
-            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
-            resolve_types(expr, self.context, dialect="postgres")
+            prepare_and_print_ast(
+                self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES"),
+                self.context,
+                "postgres",
+            )
 
     def test_positional_refs_postgres(self):
         expr = self._select("SELECT #1, #2 FROM events")

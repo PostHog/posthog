@@ -1,0 +1,57 @@
+@layer components {
+    .quill-input {
+        width: 100%;
+        min-width: 0;
+        height: 2rem;
+        padding-block: 0.125rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+        border: 1px solid var(--input);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    :is(.dark, [theme='dark']) .quill-input {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    .quill-input::file-selector-button {
+        display: inline-flex;
+        height: 1.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        color: var(--foreground);
+        background-color: transparent;
+        border: 0;
+    }
+
+    .quill-input::placeholder {
+        color: var(--muted-foreground);
+    }
+
+    .quill-input:focus-visible {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-input:disabled {
+        pointer-events: none;
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .quill-input[aria-invalid='true'] {
+        background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        border-color: color-mix(in oklab, var(--destructive-foreground) 30%, transparent);
+    }
+
+    .quill-input:focus-visible[aria-invalid='true'] {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive-foreground) 50%, transparent);
+    }
+}

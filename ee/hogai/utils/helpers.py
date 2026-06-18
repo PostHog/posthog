@@ -1,3 +1,4 @@
+import re
 import json
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
@@ -49,6 +50,20 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+
+
+def sanitize_for_system_reminder(text: str) -> str:
+    """Neutralize system_reminder tags to prevent framing spoofs in user-provided content."""
+    return re.sub(r"<(\s*/?\s*system_reminder\b[^>]*)>", r"&lt;\1&gt;", text, flags=re.IGNORECASE)
+
+
+BK_DRILLDOWN_HANDLE_RE = re.compile(r"`?\[bk-doc=[^\]]*\]`?")
+
+
+def strip_bk_drilldown_handles(text: str) -> str:
+    """Remove BK drill-down handles from text. No-op when absent."""
+    result = BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    return re.sub(r"  +", " ", result)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -178,11 +193,9 @@ def _process_events_data(
         "All events",
     ]
     for item in response.results:
-        if len(response.results) > 25 and item.count <= 3:
-            continue
-        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
-            if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                continue  # Skip system or ignored events (safety net, already filtered in SQL)
+        event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
+        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+            continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}
@@ -357,6 +370,10 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
     if isinstance(message, AIMessageChunk):
         for i, final_message in enumerate(messages):
             final_message.id = f"temp-{i}"  # Assign each ephemeral message an index-based temp ID
+
+    for msg in messages:
+        if msg.content:
+            msg.content = strip_bk_drilldown_handles(msg.content)
 
     return messages
 

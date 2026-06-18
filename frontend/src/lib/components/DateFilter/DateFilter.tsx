@@ -17,8 +17,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
-import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { formatResolvedDateRange } from 'lib/utils/datetime'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -28,13 +29,14 @@ import { PropertyFilterDatePicker } from '../PropertyFilters/components/Property
 import { dateFilterLogic } from './dateFilterLogic'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { JumpToTimestampPicker } from './JumpToTimestampPicker'
+import { RelativeDateRangeSelector } from './RelativeDateRangeSelector'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { DateOption } from './rollingDateRangeFilterLogic'
 
 export interface DateFilterProps {
     showCustom?: boolean
     showRollingRangePicker?: boolean
-    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
+    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode, endOfRange?: React.ReactNode) => React.ReactNode
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null, explicitDate?: boolean) => void
     disabled?: boolean
@@ -50,6 +52,14 @@ export interface DateFilterProps {
     fullWidth?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
+    showCustomRelativeRange?: boolean
+    /**
+     * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
+     * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
+     * in to let the user freely pick either a single value or a range. `isFixedDateMode` and
+     * `showCustomRelativeRange` are ignored when this is set.
+     */
+    allowSingleAndRange?: boolean
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -99,9 +109,12 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showExplicitDateToggle = false,
         resolvedDateRange,
         showJumpToTimestamp = false,
+        showCustomRelativeRange = false,
+        allowSingleAndRange = false,
     },
     ref
 ) {
+    const effectiveShowCustomRelativeRange = allowSingleAndRange ? true : showCustomRelativeRange
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
         key,
@@ -114,6 +127,8 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         placeholder,
         allowTimePrecision,
         explicitDate,
+        showCustomRelativeRange: effectiveShowCustomRelativeRange,
+        allowSingleAndRange,
     }
     const {
         open,
@@ -121,6 +136,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         openDateToNow,
         openFixedDate,
         openJumpToTimestamp,
+        openCustomRelativeRange,
         close,
         setRangeDateFrom,
         setExplicitDate,
@@ -139,6 +155,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         isDateToNow,
         isFixedDate,
         isRollingDateRange,
+        isCustomRelativeRange,
         dateFromHasTimePrecision,
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
@@ -154,7 +171,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
-            fixedRangeGranularity === 'minute' ? (
+            showFixedRangeTimeToggle && fixedRangeGranularity === 'minute' ? (
                 <FixedRangeWithTimePicker
                     rangeDateFrom={rangeDateFrom}
                     rangeDateTo={rangeDateTo}
@@ -207,14 +224,24 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker
                 autoFocus
-                operator={PropertyOperator.Exact}
+                // IsDateExact (rather than Exact) so PropertyFilterDatePicker's auto-open gate
+                // — `operator && isOperatorDate(operator) && autoFocus` — opens the calendar
+                // immediately instead of waiting for a click on the input.
+                operator={PropertyOperator.IsDateExact}
                 value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
                 setValue={(date) => {
-                    setDate(String(date), '')
+                    setDate(String(date), null)
                 }}
             />
         ) : view === DateFilterView.JumpToTimestamp ? (
             <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
+        ) : view === DateFilterView.CustomRelativeRange ? (
+            <RelativeDateRangeSelector
+                onApply={(from, to) => setDate(from, to)}
+                onClose={open}
+                initialFrom={typeof dateFrom === 'string' ? dateFrom : null}
+                initialTo={typeof dateTo === 'string' ? dateTo : null}
+            />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
@@ -247,9 +274,17 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         'MMMM D, YYYY',
                         true
                     )
+                    const endOfRangeDateValue = values[1]
+                        ? dateFilterToText(values[1], undefined, '', [], false, 'MMMM D, YYYY', true)
+                        : undefined
 
                     return (
-                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue, startOfRangeDateValue) : undefined}>
+                        <Tooltip
+                            key={key}
+                            title={
+                                makeLabel ? makeLabel(dateValue, startOfRangeDateValue, endOfRangeDateValue) : undefined
+                            }
+                        >
                             <LemonButton
                                 key={key}
                                 data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
@@ -285,18 +320,26 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                     />
                 )}
                 <LemonDivider />
-                {isFixedDateMode ? (
+                {(isFixedDateMode || allowSingleAndRange) && (
                     <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
                         Custom date...
                     </LemonButton>
-                ) : (
+                )}
+                {(!isFixedDateMode || allowSingleAndRange) && (
                     <>
-                        <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
-                            From custom date until now…
-                        </LemonButton>
+                        {!allowSingleAndRange && (
+                            <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
+                                From custom date until now…
+                            </LemonButton>
+                        )}
                         <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
                             Custom fixed date range…
                         </LemonButton>
+                        {effectiveShowCustomRelativeRange && (
+                            <LemonButton onClick={openCustomRelativeRange} active={isCustomRelativeRange} fullWidth>
+                                Custom relative range…
+                            </LemonButton>
+                        )}
                     </>
                 )}
                 {showExplicitDateToggle && (

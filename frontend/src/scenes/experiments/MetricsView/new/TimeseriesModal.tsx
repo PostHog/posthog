@@ -12,9 +12,10 @@ import { urls } from 'scenes/urls'
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from '../../constants'
 import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
-import { VariantTag } from '../../ExperimentView/components'
+import { VariantTag } from '../../ExperimentView/VariantTag'
 import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
 import { ElapsedTime } from './ElapsedTime'
@@ -46,7 +47,7 @@ export function TimeseriesModal({
 
     const isStaleExperiment =
         isLaunched(experiment) && !hasEnded(experiment)
-            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
+            ? dayjs(experiment.start_date).isBefore(dayjs().subtract(EXPERIMENT_RECALCULATION_MAX_AGE_DAYS, 'days'))
             : false
 
     const handleRecalculate = (): void => {
@@ -77,16 +78,16 @@ export function TimeseriesModal({
             onClose={onClose}
             width={1000}
             title={
-                <div className="flex items-center gap-2 text-sm">
-                    <div className="flex items-center">
+                <div className="flex items-center gap-2 text-sm min-w-0">
+                    <div className="flex items-center shrink-0">
                         <span>Time series</span>
                     </div>
-                    <LemonDivider vertical className="h-4 self-stretch" />
-                    <div className="flex items-center">
+                    <LemonDivider vertical className="h-4 self-stretch shrink-0" />
+                    <div className="min-w-0 [&_span]:!line-clamp-1">
                         <MetricTitle metric={metric} />
                     </div>
-                    <LemonDivider vertical className="h-4 self-stretch" />
-                    <div className="flex items-center">
+                    <LemonDivider vertical className="h-4 self-stretch shrink-0" />
+                    <div className="flex items-center shrink-0">
                         <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
@@ -114,9 +115,9 @@ export function TimeseriesModal({
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
                                             <div className="text-sm">
-                                                This experiment has been running for more than 30 days. Automatic
-                                                timeseries updates are disabled. You can still manually recalculate the
-                                                data.
+                                                This experiment has been running for more than{' '}
+                                                {EXPERIMENT_RECALCULATION_MAX_AGE_DAYS} days. Automatic timeseries
+                                                updates are disabled. You can still manually recalculate the data.
                                             </div>
                                         </div>
                                         <LemonButton

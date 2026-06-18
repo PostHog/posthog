@@ -54,6 +54,7 @@ message GetPersonResponse {
 
 message GetPersonsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated int64 person_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -71,6 +72,7 @@ message GetPersonByUuidRequest {
 
 message GetPersonsByUuidsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string uuids = 2;
   ReadOptions read_options = 3;
 }
@@ -83,6 +85,7 @@ message GetPersonByDistinctIdRequest {
 
 message GetPersonsByDistinctIdsInTeamRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string distinct_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -92,6 +95,7 @@ message PersonsByDistinctIdsInTeamResponse {
 }
 
 message GetPersonsByDistinctIdsRequest {
+  // Max 250 per request.
   repeated TeamDistinctId team_distinct_ids = 1;
   ReadOptions read_options = 2;
 }
@@ -120,4 +124,92 @@ message GetDistinctIdsForPersonsRequest {
 
 message GetDistinctIdsForPersonsResponse {
   repeated PersonDistinctIds person_distinct_ids = 1;
+}
+
+// UpdatePersonPropertiesRequest describes a property update for a person
+// identified by team_id + person_id. The caller resolves distinct_id → person_id
+// before sending. The leader merges property diffs ($set, $set_once, $unset)
+// into the cached state.
+message UpdatePersonPropertiesRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
+  // Used to determine filtering behavior (person events bypass property filtering).
+  string event_name = 3;
+  // JSON-encoded map of properties to set (overwrites existing values).
+  bytes set_properties = 4;
+  // JSON-encoded map of properties to set only if not already present.
+  bytes set_once_properties = 5;
+  // Property keys to remove from the person.
+  repeated string unset_properties = 6;
+  // The partition this person belongs to, computed by the router via
+  // murmur2(team_id:person_id) % num_partitions. The leader uses this
+  // to look up the correct per-partition cache.
+  uint32 partition = 7;
+}
+
+message UpdatePersonPropertiesResponse {
+  // The person after applying the update (if the person was found).
+  optional Person person = 1;
+  // Whether any properties were actually changed.
+  bool updated = 2;
+}
+
+// DeletePersonsRequest deletes persons from Postgres by UUID.
+// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
+// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+message DeletePersonsRequest {
+  int64 team_id = 1;
+  // Person UUIDs to delete. Max 1000 per request.
+  repeated string person_uuids = 2;
+}
+
+message DeletePersonsResponse {
+  int64 deleted_count = 1;
+}
+
+// DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
+// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
+// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+// Callers should loop until deleted_count is 0.
+message DeletePersonsBatchForTeamRequest {
+  int64 team_id = 1;
+  // Max persons to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
+}
+
+message DeletePersonsBatchForTeamResponse {
+  // Number of persons deleted. 0 means no more persons to delete.
+  int64 deleted_count = 1;
+}
+
+// SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
+// Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
+// The operation is atomic per request: all splits succeed or none do.
+// Python resolves which distinct IDs to split before calling this RPC.
+// Limited to 250 distinct_ids per request (server-enforced) to bound row-lock
+// hold time and message size — callers batch larger splits across requests,
+// which is safe because the deterministic UUIDs make each request idempotent.
+message SplitPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // Distinct IDs to split off. Must all belong to the specified person; duplicates are rejected.
+  repeated string distinct_ids_to_split = 3;
+}
+
+// SplitResult describes a single distinct_id that was split onto a new person.
+message SplitResult {
+  string distinct_id = 1;
+  string new_person_uuid = 2;
+  int64 new_person_version = 3;
+  int64 pdi_version = 4;
+  // Epoch millis. For pre-existing persons (idempotent re-split) this is the
+  // original created_at, not the time of this request — callers publish it
+  // downstream (e.g. to ClickHouse) so it must match the Postgres row.
+  int64 new_person_created_at_ms = 5;
+}
+
+message SplitPersonResponse {
+  // Results are in the same order as distinct_ids_to_split in the request.
+  repeated SplitResult splits = 1;
 }

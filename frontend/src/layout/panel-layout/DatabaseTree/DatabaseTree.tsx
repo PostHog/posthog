@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { memo } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
@@ -20,21 +18,20 @@ import { SyncMoreNotice } from './SyncMoreNotice'
 
 export const DatabaseTree = memo(function DatabaseTree({
     databaseTreeRef,
+    tabId,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
+    tabId: string
 }): JSX.Element | null {
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic({ tabId }))
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
-    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
 
-    const searchPlaceholder = isDirectQueryEnabled
-        ? selectedConnectionId
-            ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix : 'database'}`
-            : 'Search PostHog Warehouse'
-        : 'Search warehouse'
+    const searchPlaceholder = selectedConnectionId
+        ? `Search ${selectedDirectSource?.prefix ? selectedDirectSource.prefix : 'database'}`
+        : 'Search PostHog Warehouse'
 
     if (isDatabaseTreeCollapsed) {
         return null
@@ -64,22 +61,19 @@ export const DatabaseTree = memo(function DatabaseTree({
                     >
                         <IconSidebarClose className="size-4 text-tertiary rotate-180" />
                     </ButtonPrimitive>
-                    {isDirectQueryEnabled ? (
-                        <ConnectionSelector />
-                    ) : (
-                        <DatabaseSearchField placeholder={searchPlaceholder} />
-                    )}
+                    <ConnectionSelector tabId={tabId} />
                 </div>
-                {isDirectQueryEnabled ? <DatabaseSearchField placeholder={searchPlaceholder} /> : null}
+                <DatabaseSearchField placeholder={searchPlaceholder} />
             </div>
             <ScrollableShadows
+                scrollRef={scrollContainerRef}
                 direction="vertical"
                 className="flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto"
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars
             >
                 <div className="grow w-full">
-                    <QueryDatabase />
+                    <QueryDatabase virtualizationScrollContainerRef={scrollContainerRef} />
                 </div>
                 <SyncMoreNotice />
                 <ViewLinkModal />

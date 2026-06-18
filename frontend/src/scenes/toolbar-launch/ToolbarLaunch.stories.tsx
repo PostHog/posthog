@@ -1,8 +1,7 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -12,6 +11,7 @@ import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
 
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',
     parameters: {
@@ -19,14 +19,13 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
-        featureFlags: [FEATURE_FLAGS.WEB_EXPERIMENTS],
         viewMode: 'story',
         mockDate: '2024-01-01',
     },
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:environment_id/query/': () => [
+                '/api/environments/:environment_id/query/:kind/': () => [
                     200,
                     {
                         results: [
@@ -39,49 +38,62 @@ const meta: Meta = {
             },
         }),
     ],
+    render: () => {
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+        return <ToolbarLaunch />
+    },
 }
 export default meta
 
-const Template: StoryFn = () => {
-    useOnMountEffect(() => router.actions.push(urls.dashboards()))
-
-    return <ToolbarLaunch />
+export const Default: Story = {
+    args: {},
 }
 
-export const Default = Template.bind({})
+export const NoUrlsTemplate: Story = {
+    render: () => {
+        const { currentTeam } = useValues(teamLogic)
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-export const NoUrlsTemplate: StoryFn = () => {
-    const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+        useOnMountEffect(() => {
+            const team = { ...currentTeam, app_urls: [] }
+            loadCurrentTeamSuccess(team as TeamPublicType)
+        })
 
-    useOnMountEffect(() => {
-        const team = { ...currentTeam, app_urls: [] }
-        loadCurrentTeamSuccess(team as TeamPublicType)
-    })
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
 
-    return <Template />
+        return <ToolbarLaunch />
+    },
 }
 
-export const NoSuggestionsTemplate: StoryFn = () => {
-    useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
-    })
+export const NoSuggestionsTemplate: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: { '/api/environments/:environment_id/query/:kind/': () => [200, { results: [] }] },
+        })
 
-    return <Template />
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+        return <ToolbarLaunch />
+    },
 }
 
-export const EmptyStateTemplate: StoryFn = () => {
-    const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+export const EmptyStateTemplate: Story = {
+    render: () => {
+        const { currentTeam } = useValues(teamLogic)
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
-        const team = { ...currentTeam, app_urls: [] }
-        loadCurrentTeamSuccess(team as TeamPublicType)
-    })
+        useOnMountEffect(() => {
+            const team = { ...currentTeam, app_urls: [] }
+            loadCurrentTeamSuccess(team as TeamPublicType)
+        })
 
-    useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
-    })
+        useStorybookMocks({
+            post: { '/api/environments/:environment_id/query/:kind/': () => [200, { results: [] }] },
+        })
 
-    return <Template />
+        useOnMountEffect(() => router.actions.push(urls.dashboards()))
+
+        return <ToolbarLaunch />
+    },
 }

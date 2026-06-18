@@ -6,13 +6,13 @@ import {
     personActivityResponseJson,
     teamActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLog, ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { ActivityScope } from '~/types'
 
-const meta: Meta<typeof ActivityLog> = {
+const meta: Meta<ActivityLogProps> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
     decorators: [
@@ -35,26 +35,14 @@ const meta: Meta<typeof ActivityLog> = {
                         },
                     },
                 ],
-                '/api/projects/:team/feature_flags/6/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: [] }),
+                '/api/projects/:team/feature_flags/6/activity': () => [200, { results: [] }],
+                '/api/projects/:team/feature_flags/7/activity': () => [
+                    200,
+                    { results: featureFlagsActivityResponseJson },
                 ],
-                '/api/projects/:team/feature_flags/7/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: featureFlagsActivityResponseJson }),
-                ],
-                '/api/environments/:team_id/insights/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: insightsActivityResponseJson }),
-                ],
-                '/api/person/:id/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: personActivityResponseJson }),
-                ],
-                '/api/projects/:id/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: teamActivityResponseJson }),
-                ],
+                '/api/environments/:team_id/insights/activity': () => [200, { results: insightsActivityResponseJson }],
+                '/api/person/:id/activity': () => [200, { results: personActivityResponseJson }],
+                '/api/projects/:id/activity': () => [200, { results: teamActivityResponseJson }],
             },
         }),
     ],

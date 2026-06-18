@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 allow print statements
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from types import ModuleType
 import duckdb
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+MAX_RETRIES = 30
 
 
 def _load_ducklake_common() -> ModuleType:
@@ -28,25 +30,44 @@ ducklake_common = _load_ducklake_common()
 HEALTHCHECK_ALIAS = "ducklake_dev_health"
 
 
-def check_once(config: dict[str, str]) -> None:
+def check_once(config: dict[str, str]) -> bool:
+    reset_performed = False
     conn = duckdb.connect()
     try:
         conn.execute("LOAD ducklake")
         ducklake_common.attach_catalog(conn, config, alias=HEALTHCHECK_ALIAS)
         ducklake_common.run_smoke_check(conn, alias=HEALTHCHECK_ALIAS)
+    except (duckdb.NotImplementedException, duckdb.InvalidInputException) as exc:
+        if ducklake_common.is_version_mismatch(exc):
+            print(f"DuckLake version mismatch detected, resetting local catalog: {exc}")
+            conn.close()
+            ducklake_common.reset_ducklake_catalog(config)
+            print("DuckLake catalog reset complete, retrying health check...")
+            conn = duckdb.connect()
+            conn.execute("LOAD ducklake")
+            ducklake_common.attach_catalog(conn, config, alias=HEALTHCHECK_ALIAS)
+            ducklake_common.run_smoke_check(conn, alias=HEALTHCHECK_ALIAS)
+            reset_performed = True
+        else:
+            raise
     finally:
         conn.close()
 
+    return reset_performed
+
 
 def main() -> int:
-    while True:
+    for attempt in range(1, MAX_RETRIES + 1):
         config = ducklake_common.get_config()
         try:
-            check_once(config)
+            reset_performed = check_once(config)
         except KeyboardInterrupt:
             raise
         except Exception as exc:  # noqa: BLE001 - any failure should trigger a retry
             print(f"Awaiting DuckLake warmup... ({exc})")
+            if attempt >= MAX_RETRIES:
+                print(f"DuckLake failed to start after {MAX_RETRIES} attempts, giving up.")
+                return 1
             try:
                 initialized = ducklake_common.initialize_ducklake(config, alias="ducklake_dev")
                 if initialized:
@@ -56,8 +77,13 @@ def main() -> int:
             time.sleep(1)
             continue
 
-        print("DuckLake is up!")
+        if reset_performed:
+            print("DuckLake is up after catalog reset.")
+        else:
+            print("DuckLake is up!")
         return 0
+
+    return 1
 
 
 if __name__ == "__main__":

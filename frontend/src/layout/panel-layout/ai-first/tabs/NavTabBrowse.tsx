@@ -10,6 +10,8 @@ import {
     IconFolderOpen,
     IconHome,
     IconNotification,
+    IconCheck,
+    IconPencil,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -20,16 +22,17 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
+import { PromotedProductNavItem } from '~/layout/panel-layout/ai-first/PromotedProductNavItem'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -40,6 +43,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
+import { inlineEditAppsLogic } from './inlineEditAppsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -114,30 +118,6 @@ function useStarredState(item: FileSystemEntry): {
     return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
 }
 
-function AddToStarredContextAction({ item }: { item: FileSystemEntry }): JSX.Element {
-    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
-
-    if (isAlreadyStarred) {
-        return (
-            <ContextMenuItem asChild disabled>
-                <ButtonPrimitive menuItem disabled>
-                    <IconStar className="size-4 text-tertiary" />
-                    Already starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-
-    return (
-        <ContextMenuItem asChild>
-            <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
-                <IconStar className="size-4 text-tertiary" />
-                Add to starred
-            </ButtonPrimitive>
-        </ContextMenuItem>
-    )
-}
-
 function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
     const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
 
@@ -185,7 +165,9 @@ export function NavTabBrowse(): JSX.Element {
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { loadRecentItems } = useActions(navRecentsLogic)
+    const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -231,7 +213,14 @@ export function NavTabBrowse(): JSX.Element {
                         isCollapsed={isLayoutNavCollapsed}
                         data-attr="nav-item-home"
                         onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
+                        sideAction={{
+                            onClick: () => showConfigureHomeModal(),
+                            tooltip: 'Configure home',
+                            'data-attr': 'nav-configure-home',
+                        }}
                     />
+
+                    <PromotedProductNavItem isCollapsed={isLayoutNavCollapsed} />
 
                     {isProductAutonomyEnabled && (
                         <NavLink
@@ -321,9 +310,6 @@ export function NavTabBrowse(): JSX.Element {
                             section: 'recents',
                             is_open: !expandedNavSections.recents,
                         })
-                        if (!expandedNavSections.recents) {
-                            loadRecentItems({})
-                        }
                         toggleNavSection('recents')
                     }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
@@ -353,7 +339,6 @@ export function NavTabBrowse(): JSX.Element {
                                                         className: 'group -outline-offset-2 pr-0',
                                                     }}
                                                     data-attr={`nav-recent-item-${item.id}`}
-                                                    extraContextMenuItems={<AddToStarredContextAction item={item} />}
                                                 >
                                                     <LinkListItem.Content
                                                         icon={iconForType(item.type as FileSystemIconType)}
@@ -394,13 +379,51 @@ export function NavTabBrowse(): JSX.Element {
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                     data-attr="nav-section-apps"
                 >
-                    <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
+                    <div className="relative">
+                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
+                        {expandedNavSections.apps && (
+                            <ButtonPrimitive
+                                iconOnly
+                                size="xs"
+                                tooltip={isEditMode ? 'Save' : 'Choose which apps to show in the sidebar'}
+                                tooltipPlacement="top"
+                                onClick={() => {
+                                    if (isEditMode) {
+                                        posthog.capture('nav apps edit saved')
+                                        saveAndExitEditMode()
+                                    } else {
+                                        posthog.capture('nav apps edit toggled', { is_editing: true })
+                                        enterEditMode()
+                                    }
+                                }}
+                                data-attr="nav-apps-edit-button"
+                                className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
+                            >
+                                {isEditMode ? (
+                                    <IconCheck className="size-3 text-primary" />
+                                ) : (
+                                    <IconPencil className="size-3 text-secondary" />
+                                )}
+                            </ButtonPrimitive>
+                        )}
+                    </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
                         {(expandedNavSections.apps ?? false) && (
                             <ProjectTree
-                                root="products://"
+                                root={isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                                selectModeOverride={isEditMode ? 'multi' : undefined}
+                                checkedItemsOverride={isEditMode ? checkedItems : undefined}
+                                onItemCheckedOverride={
+                                    isEditMode
+                                        ? (id) => {
+                                              // Tree item IDs for products:// are "products/{path}"
+                                              const productPath = id.replace(/^products\//, '')
+                                              toggleProduct(productPath)
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </Collapsible.Panel>

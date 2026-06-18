@@ -5,7 +5,7 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { average, percentage, sum } from 'lib/utils'
+import { average, percentage, sum } from 'lib/utils/numbers'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
@@ -15,7 +15,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
@@ -36,6 +37,7 @@ import {
     InsightType,
     StepOrderValue,
     TrendResult,
+    FilterType,
 } from '~/types'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
@@ -49,10 +51,43 @@ import {
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
+
+/** A time-to-convert bins payload tagged with its compare period (present only when comparing). */
+type TimeToConvertCompareBins = FunnelsTimeConversionBins & { compare_label?: 'current' | 'previous' }
+
+/** Maps a time-to-convert bins payload onto histogram data. Returns null for too-few bins, [] when
+ * nobody converted. Shared between the current and previous (compare) periods. */
+function timeConversionBinsToHistogramData(
+    timeConversionResults: FunnelsTimeConversionBins | null
+): HistogramGraphDatum[] | null {
+    if ((timeConversionResults?.bins?.length ?? 0) < 2) {
+        return null // There are no results
+    }
+
+    const totalCount = sum(timeConversionResults!.bins.map(([, count]) => count))
+    if (totalCount === 0) {
+        return [] // Nobody has converted in the time period
+    }
+
+    const binSize = timeConversionResults!.bins[1][0] - timeConversionResults!.bins[0][0]
+    return timeConversionResults!.bins.map(([id, count]: [id: number, count: number]) => {
+        const value = Math.max(0, id)
+        const percent = count / totalCount
+        return {
+            id: value,
+            bin0: value,
+            bin1: value + binSize,
+            count,
+            label: percent === 0 ? '' : percentage(percent, 1, true),
+        }
+    })
+}
 
 function getStepMetric(step: FunnelStepWithConversionMetrics | undefined, metric: string): number {
     if (!step) {
@@ -132,11 +167,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'funnelsFilter',
                 'breakdownFilter',
                 'goalLines',
-                'series',
+                'series as vizSeries',
                 'interval',
                 'insightData',
                 'insightDataError',
                 'getTheme',
+                'showLegend',
                 'showValuesOnSeries',
                 'hasDataWarehouseSeries',
                 'labelGroupType',
@@ -197,6 +233,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
+        series: [
+            (s) => [s.vizQuerySource, s.vizSeries],
+            (vizQuerySource, series) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
         ],
 
         isStepsFunnel: [
@@ -463,36 +504,42 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         timeConversionResults: [
             (s) => [s.results, s.funnelsFilter],
             (results, funnelsFilter): FunnelsTimeConversionBins | null => {
-                return funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert
-                    ? (results as FunnelsTimeConversionBins)
-                    : null
+                if (funnelsFilter?.funnelVizType !== FunnelVizType.TimeToConvert) {
+                    return null
+                }
+                // Compare returns a two-element list tagged with compare_label; take the current period.
+                if (Array.isArray(results)) {
+                    return (
+                        (results as unknown as TimeToConvertCompareBins[]).find(
+                            (row) => row.compare_label === 'current'
+                        ) ?? null
+                    )
+                }
+                return results as FunnelsTimeConversionBins
+            },
+        ],
+        timeConversionResultsPrevious: [
+            (s) => [s.results, s.funnelsFilter],
+            (results, funnelsFilter): FunnelsTimeConversionBins | null => {
+                if (funnelsFilter?.funnelVizType !== FunnelVizType.TimeToConvert || !Array.isArray(results)) {
+                    return null
+                }
+                return (
+                    (results as unknown as TimeToConvertCompareBins[]).find(
+                        (row) => row.compare_label === 'previous'
+                    ) ?? null
+                )
             },
         ],
         histogramGraphData: [
             (s) => [s.timeConversionResults],
-            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
-                if ((timeConversionResults?.bins?.length ?? 0) < 2) {
-                    return null // There are no results
-                }
-
-                const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
-                if (totalCount === 0) {
-                    return [] // Nobody has converted in the time period
-                }
-
-                const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
-                return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
-                    const value = Math.max(0, id)
-                    const percent = totalCount === 0 ? 0 : count / totalCount
-                    return {
-                        id: value,
-                        bin0: value,
-                        bin1: value + binSize,
-                        count,
-                        label: percent === 0 ? '' : percentage(percent, 1, true),
-                    }
-                })
-            },
+            (timeConversionResults): HistogramGraphDatum[] | null =>
+                timeConversionBinsToHistogramData(timeConversionResults),
+        ],
+        histogramGraphDataPrevious: [
+            (s) => [s.timeConversionResultsPrevious],
+            (timeConversionResultsPrevious): HistogramGraphDatum[] | null =>
+                timeConversionBinsToHistogramData(timeConversionResultsPrevious),
         ],
         hasFunnelResults: [
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
@@ -627,8 +674,38 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         indexedSteps: [
             (s) => [s.steps],
-            (steps) =>
-                Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+            (steps) => {
+                if (!Array.isArray(steps)) {
+                    return []
+                }
+                // Pair rows on `breakdown_value` (no `compare_label`) so current/previous of the
+                // same series share the same base color. The downstream color resolver prefers
+                // `colorIndex` over `seriesIndex` (see `getTrendResultCustomizationColorToken`),
+                // and `LineGraph.processDataset` then dims the previous-period series to 50% alpha.
+                const colorIndexMap = new Map<string, number>()
+                for (const step of steps) {
+                    const key = getFunnelDatasetKey(step)
+                    if (!colorIndexMap.has(key)) {
+                        colorIndexMap.set(key, colorIndexMap.size)
+                    }
+                }
+                return steps.map((step, index) => {
+                    // The funnels runner tags compare rows with `compare_label` but doesn't set
+                    // `compare: true`. `LineGraph.processDataset` requires both to dim the previous
+                    // line — normalize here so the previous-period series renders at 50% alpha.
+                    const stepWithCompare = step as typeof step & {
+                        compare_label?: 'current' | 'previous'
+                        compare?: boolean
+                    }
+                    return {
+                        ...step,
+                        seriesIndex: index,
+                        colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
+                        id: index,
+                        compare: stepWithCompare.compare_label != null ? true : stepWithCompare.compare,
+                    }
+                })
+            },
         ],
         getFunnelsColorToken: [
             (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
@@ -694,6 +771,33 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return false
                 }
             },
+        ],
+
+        // Validations
+        isFunnelWithEnoughSteps: [(s) => [s.series], (series) => isFunnelWithEnoughSteps(series)],
+        isFunnelWithIncompleteDataWarehouseStep: [
+            (s) => [s.series],
+            (series) => isFunnelWithIncompleteDataWarehouseStep(series),
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
+                funnelFromStep: 0,
+                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FilterType => ({
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
+            }),
         ],
     })),
 

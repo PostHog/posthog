@@ -15,6 +15,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
+import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -28,7 +29,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsLoading } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount, isFiltering } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
 
@@ -69,8 +70,16 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_checked_at',
-            render: function renderLastChecked(last_checked_at: any) {
-                return <div className="whitespace-nowrap">{last_checked_at && <TZLabel time={last_checked_at} />}</div>
+            render: function renderLastChecked(_, alert: AlertType) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {alert.last_checked_at ? (
+                            <TZLabel time={alert.last_checked_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
+                )
             },
         },
         {
@@ -78,9 +87,15 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             sorter: true,
             defaultSortOrder: -1,
             dataIndex: 'last_notified_at',
-            render: function renderLastModified(last_notified_at: any) {
+            render: function renderLastModified(_, alert: AlertType) {
                 return (
-                    <div className="whitespace-nowrap">{last_notified_at && <TZLabel time={last_notified_at} />}</div>
+                    <div className="whitespace-nowrap">
+                        {alert.last_notified_at ? (
+                            <TZLabel time={alert.last_notified_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
                 )
             },
         },
@@ -111,7 +126,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsSortedByState.length === 0 && !alertsLoading
+    const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
     // TODO: add info here to sign up for alerts early access
     return (
         <>
@@ -129,6 +144,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                             'Actions' in the sidebar and click 'Alerts'
                         </span>
                     }
+                    mcpSurfaceKey="alerts.create"
                 />
             )}
 
@@ -148,16 +164,25 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             )}
 
             {isEmpty ? null : (
-                <LemonTable
-                    loading={alertsLoading}
-                    columns={columns}
-                    dataSource={alertsSortedByState}
-                    noSortingCancellation
-                    rowKey="id"
-                    loadingSkeletonRows={5}
-                    nouns={['alert', 'alerts']}
-                    rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-                />
+                <>
+                    <AlertsFiltersBar />
+                    <LemonTable
+                        loading={alertsResponseLoading}
+                        columns={columns}
+                        dataSource={alertsSortedByState}
+                        noSortingCancellation
+                        rowKey="id"
+                        loadingSkeletonRows={5}
+                        nouns={['alert', 'alerts']}
+                        pagination={pagination}
+                        rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+                        emptyState={
+                            isFiltering ? (
+                                <div className="py-8 text-center text-secondary">No alerts match your filters</div>
+                            ) : undefined
+                        }
+                    />
+                </>
             )}
         </>
     )

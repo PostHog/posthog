@@ -5,8 +5,8 @@ import { IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { sharePasswordsLogic } from './sharePasswordsLogic'
 
@@ -14,6 +14,7 @@ interface SharePasswordsTableProps {
     dashboardId?: number
     insightId?: number
     recordingId?: string
+    notebookShortId?: string
 }
 
 // Export a hook to get password count for the parent component
@@ -23,8 +24,13 @@ export function useSharePasswordCount(props: SharePasswordsTableProps): number {
     return sharePasswords.length
 }
 
-export function SharePasswordsTable({ dashboardId, insightId, recordingId }: SharePasswordsTableProps): JSX.Element {
-    const logicProps = { dashboardId, insightId, recordingId }
+export function SharePasswordsTable({
+    dashboardId,
+    insightId,
+    recordingId,
+    notebookShortId,
+}: SharePasswordsTableProps): JSX.Element {
+    const logicProps = { dashboardId, insightId, recordingId, notebookShortId }
     const logic = sharePasswordsLogic(logicProps)
 
     const values = useValues(logic)

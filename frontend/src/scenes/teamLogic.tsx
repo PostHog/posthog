@@ -8,9 +8,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
+import { DEFAULT_CURRENCY } from 'lib/utils/currency'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
     type ProductCrossSellProperties,
@@ -18,6 +18,7 @@ import {
     addProductIntent,
     addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
@@ -29,9 +30,6 @@ import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
 const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
-    if (attr === 'slack_incoming_webhook') {
-        return 'Webhook'
-    }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
     }
@@ -134,13 +132,7 @@ export const teamLogic = kea<teamLogicType>([
                         Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
                     let message: string
-                    if (updatedAttribute === 'slack_incoming_webhook') {
-                        message = payload.slack_incoming_webhook
-                            ? `Webhook integration enabled – you should be seeing a message on ${resolveWebhookService(
-                                  payload.slack_incoming_webhook
-                              )}`
-                            : 'Webhook integration disabled'
-                    } else if (updatedAttribute === 'feature_flag_confirmation_enabled') {
+                    if (updatedAttribute === 'feature_flag_confirmation_enabled') {
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'

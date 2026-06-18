@@ -1,4 +1,10 @@
-"""URL routes for visual_review."""
+"""URL routes for visual_review.
+
+Real wiring lives in `posthog/api/__init__.py` (nested router). This flat
+DefaultRouter is kept as a documentation/reference of the registered viewsets
+and isn't imported anywhere; the snapshot endpoint requires nested routing
+(`/repos/{repo_id}/snapshots/...`) so it's omitted here.
+"""
 
 from rest_framework.routers import DefaultRouter
 

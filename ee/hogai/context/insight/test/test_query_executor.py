@@ -16,12 +16,17 @@ from posthog.schema import (
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    ChartDisplayType,
+    DataVisualizationNode,
     DateRange,
+    EventsNode,
     FunnelsQuery,
     HogQLQuery,
     IntervalType,
+    LifecycleQuery,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
@@ -33,15 +38,23 @@ from posthog.schema import (
     RevenueAnalyticsMRRQueryResultItem,
     RevenueAnalyticsTopCustomersGroupBy,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
+    TrendsFilter,
     TrendsQuery,
 )
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, execute_and_format_query
+from ee.hogai.context.insight.query_executor import (
+    AssistantQueryExecutor,
+    execute_and_format_query,
+    get_example_prompt,
+    is_supported_query,
+)
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
@@ -102,8 +115,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="event"),
-                returningEntity=AssistantRetentionEventsNode(name="event"),
+                targetEntity=AssistantRetentionEventsNode(id="event"),
+                returningEntity=AssistantRetentionEventsNode(id="event"),
             )
         )
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
@@ -119,6 +132,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
 
         query = AssistantHogQLQuery(query="SELECT count() FROM events")
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(result, str)
+        self.assertFalse(used_fallback)
+        self.assertIn("count\n100\n200", result)
+        mock_process_query.assert_called_once()
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
+        mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
+
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
         self.assertIsInstance(result, str)
@@ -362,6 +387,136 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         result = await self.query_runner._compress_results(hogql_query, hogql_response)
         self.assertIn("count\n100", result)
 
+    async def test_compress_results_stickiness_query(self):
+        query = StickinessQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "count": 500,
+                    "data": [200, 150, 100],
+                    "days": [1, 2, 3],
+                    "labels": ["1 day", "2 days", "3 days"],
+                    "label": "$pageview",
+                    "action": {
+                        "order": 0,
+                        "type": "events",
+                        "name": "$pageview",
+                        "id": "$pageview",
+                        "custom_name": None,
+                    },
+                }
+            ]
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Interval|$pageview", result)
+        self.assertIn("1 day|200", result)
+
+    async def test_compress_results_lifecycle_query(self):
+        query = LifecycleQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "data": [46.0, 38.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - new",
+                    "status": "new",
+                    "action": {},
+                },
+                {
+                    "data": [120.0, 105.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - returning",
+                    "status": "returning",
+                    "action": {},
+                },
+                {
+                    "data": [15.0, 22.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - resurrecting",
+                    "status": "resurrecting",
+                    "action": {},
+                },
+                {
+                    "data": [-30.0, -45.0],
+                    "days": ["2025-01-20", "2025-01-21"],
+                    "labels": ["20-Jan", "21-Jan"],
+                    "label": "$pageview - dormant",
+                    "status": "dormant",
+                    "action": {},
+                },
+            ]
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|New|Returning|Resurrecting|Dormant", result)
+        self.assertIn("2025-01-20|46|120|15|-30", result)
+
+    async def test_compress_results_boxplot_data(self):
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
+        )
+        response: dict[str, Any] = {
+            "results": [
+                {
+                    "day": "2025-01-20",
+                    "label": "Day 1",
+                    "min": 1.2,
+                    "p25": 5.5,
+                    "median": 12.3,
+                    "p75": 25.8,
+                    "max": 100.4,
+                    "mean": 18.7,
+                    "series_label": "$pageview",
+                    "series_index": 0,
+                },
+            ],
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|Min|P25|Median|P75|Max|Mean", result)
+        self.assertIn("2025-01-20|1.2|5.5|12.3|25.8|100.4|18.7", result)
+        self.assertNotIn("No data recorded", result)
+
+    async def test_compress_results_boxplot_data_none_falls_back_to_trends(self):
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        response: dict[str, Any] = {
+            "results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}],
+        }
+        result = await self.query_runner._compress_results(query, response)
+        self.assertIn("Date|test", result)
+
+    def test_is_supported_query_includes_new_types(self):
+        self.assertTrue(is_supported_query(StickinessQuery(series=[])))
+        self.assertTrue(is_supported_query(AssistantStickinessQuery(series=[])))
+        self.assertTrue(is_supported_query(LifecycleQuery(series=[EventsNode(event="$pageview")])))
+
+    def test_get_example_prompt_stickiness(self):
+        from ee.hogai.context.insight.prompts import STICKINESS_EXAMPLE_PROMPT
+
+        self.assertEqual(get_example_prompt(StickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
+        self.assertEqual(get_example_prompt(AssistantStickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
+
+    def test_get_example_prompt_lifecycle(self):
+        from ee.hogai.context.insight.prompts import LIFECYCLE_EXAMPLE_PROMPT
+
+        self.assertEqual(
+            get_example_prompt(LifecycleQuery(series=[EventsNode(event="$pageview")])), LIFECYCLE_EXAMPLE_PROMPT
+        )
+
+    def test_get_example_prompt_boxplot(self):
+        from ee.hogai.context.insight.prompts import BOX_PLOT_EXAMPLE_PROMPT
+
+        query = TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT))
+        self.assertEqual(get_example_prompt(query), BOX_PLOT_EXAMPLE_PROMPT)
+
+    def test_get_example_prompt_regular_trends_not_boxplot(self):
+        from ee.hogai.context.insight.prompts import TRENDS_EXAMPLE_PROMPT
+
+        query = TrendsQuery(series=[])
+        self.assertEqual(get_example_prompt(query), TRENDS_EXAMPLE_PROMPT)
+
     async def test_compress_results_revenue_analytics_gross_revenue_query(self):
         revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(
             dateRange=DateRange(date_from="2024-11-01", date_to="2025-02-01"),
@@ -555,6 +710,50 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
         self.assertIn("Date|test2", result)
 
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_outer_tags_propagate_across_sync_boundary(self, mock_process_query):
+        """Outer-context query tags must survive the database_sync_to_async thread switch."""
+        captured_tags: dict[str, Any] = {}
+
+        def fake_process_query_dict(*args, **kwargs):
+            # Captured from inside the threaded sync function — i.e. across the async-to-sync boundary
+            captured_tags.update(get_query_tags().model_dump(exclude_none=True))
+            return {"results": []}
+
+        mock_process_query.side_effect = fake_process_query_dict
+
+        query = AssistantTrendsQuery(series=[])
+
+        # Tags set in the outer async context — these would be lost without the snapshot/replay logic
+        with tags_context(feature=Feature.MCP, scene="my-scene"):
+            await self.query_runner.arun_and_format_query(query, insight_id=42)
+
+        # Outer-context tags propagated through the sync boundary
+        self.assertEqual(captured_tags.get("scene"), "my-scene")
+        # Outer feature wins over the default POSTHOG_AI fallback in arun_and_format_query
+        self.assertEqual(captured_tags.get("feature"), Feature.MCP.value)
+        # Tags applied by arun_and_format_query also propagate
+        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
+        self.assertEqual(captured_tags.get("team_id"), self.team.pk)
+        self.assertEqual(captured_tags.get("insight_id"), 42)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_default_feature_when_no_outer_feature(self, mock_process_query):
+        """When no outer feature is set, arun_and_format_query falls back to POSTHOG_AI."""
+        captured_tags: dict[str, Any] = {}
+
+        def fake_process_query_dict(*args, **kwargs):
+            captured_tags.update(get_query_tags().model_dump(exclude_none=True))
+            return {"results": []}
+
+        mock_process_query.side_effect = fake_process_query_dict
+
+        query = AssistantTrendsQuery(series=[])
+        await self.query_runner.arun_and_format_query(query)
+
+        self.assertEqual(captured_tags.get("feature"), Feature.POSTHOG_AI.value)
+        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
+
 
 class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -641,15 +840,18 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)
 
-    async def test_compress_results_raises_for_unsupported_paths_query(self):
-        """Test that _compress_results raises NotImplementedError for PathsQuery."""
+    async def test_compress_results_formats_paths_query(self):
         paths_query = PathsQuery(pathsFilter=PathsFilter(includeEventTypes=["$pageview"]))
-        response = {"results": [{"path": "data"}]}
+        response = {
+            "results": [
+                {"source": "1_/home", "target": "2_/pricing", "value": 150, "average_conversion_time": 150.0},
+                {"source": "1_/home", "target": "2_/docs", "value": 80, "average_conversion_time": 75.5},
+            ]
+        }
 
-        with self.assertRaises(NotImplementedError) as context:
-            await self.query_runner._compress_results(paths_query, response)
-
-        self.assertIn("PathsQuery", str(context.exception))
+        result = await self.query_runner._compress_results(paths_query, response)
+        self.assertIn("Source|Target|Users|Avg. conversion time", result)
+        self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
 class TestValidateAssistantQuery(NonAtomicBaseTest):

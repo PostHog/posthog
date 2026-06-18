@@ -7,12 +7,15 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@posthog/products-error-tracking": "workspace:*",
         "@types/react": "*",
         "clsx": "*",
-        "react": "*"
+        "react": "*",
+        "react-window": "*"
     }
 }

@@ -4,18 +4,20 @@ Tests for HyperCache management operations.
 Covers:
 - Django key prefix extraction for Redis patterns
 - Redis URL routing for dedicated caches
-- Cache invalidation and stats operations
+- Cache stats operations
 """
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from prometheus_client import CollectorRegistry
+
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats,
-    invalidate_all_caches,
     push_hypercache_stats_metrics,
+    push_hypercache_teams_processed_metrics,
     warm_caches,
 )
 
@@ -227,106 +229,6 @@ class TestRedisUrlRouting(BaseTest):
         call_args = mock_get_client.call_args[0]
         assert call_args[0] is not None  # Should have a URL from settings
 
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_invalidate_all_caches_uses_config_redis_url(self, mock_get_client):
-        """Test that invalidate_all_caches uses the Redis URL from config.
-
-        Regression test: Previously this function used get_client() without
-        the redis_url, causing it to scan the wrong Redis instance.
-        """
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        # Mock the hypercache's redis_url to simulate a dedicated Redis
-        with patch.object(config.hypercache, "redis_url", "redis://dedicated:6379/1"):
-            invalidate_all_caches(config)
-
-        mock_get_client.assert_called_once_with("redis://dedicated:6379/1")
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_invalidate_all_caches_uses_default_redis_url(self, mock_get_client):
-        """Test that invalidate_all_caches uses the default Redis URL from settings."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        invalidate_all_caches(config)
-
-        # Should be called with whatever redis_url the hypercache has
-        mock_get_client.assert_called_once()
-        call_args = mock_get_client.call_args[0]
-        assert call_args[0] is not None  # Should have a URL from settings
-
-
-class TestInvalidateAllCaches(BaseTest):
-    """Test invalidate_all_caches functionality."""
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_deletes_matching_keys(self, mock_get_client):
-        """Test that invalidate_all_caches deletes all keys matching the pattern."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([b"key1", b"key2", b"key3"])
-
-        deleted_count = invalidate_all_caches(config)
-
-        assert deleted_count == 3
-        # 3 cache keys + 1 expiry sorted set = 4 total deletes
-        assert mock_redis.delete.call_count == 4
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_clears_expiry_sorted_set(self, mock_get_client):
-        """Test that invalidate_all_caches also clears the expiry tracking set."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        invalidate_all_caches(config)
-
-        # Should delete the expiry sorted set
-        mock_redis.delete.assert_called_with(config.hypercache.expiry_sorted_set_key)
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_returns_zero_on_error(self, mock_get_client):
-        """Test that invalidate_all_caches returns 0 on error."""
-        config = create_test_config()
-
-        mock_get_client.side_effect = Exception("Redis connection failed")
-
-        deleted_count = invalidate_all_caches(config)
-
-        assert deleted_count == 0
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_uses_correct_pattern_with_django_prefix(self, mock_get_client):
-        """Test that scan uses the pattern with Django prefix."""
-        config = create_test_config(namespace="feature_flags", value="flags.json")
-
-        mock_cache_client = MagicMock()
-        mock_cache_client.key_prefix = "posthog"
-        mock_cache_client.version = 1
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        with patch.object(config.hypercache, "cache_client", mock_cache_client):
-            invalidate_all_caches(config)
-
-        # Verify scan was called with the correct pattern
-        mock_redis.scan_iter.assert_called_once()
-        call_kwargs = mock_redis.scan_iter.call_args[1]
-        assert call_kwargs["match"] == "posthog:1:cache/teams/*/feature_flags/*"
-
 
 class TestGetCacheStats(BaseTest):
     """Test get_cache_stats functionality."""
@@ -434,21 +336,27 @@ class TestPushHypercacheStatsMetrics(BaseTest):
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_pushes_metrics_to_pushgateway(self, mock_registry_cm):
-        """Test that metrics are pushed to Pushgateway when configured."""
-        mock_registry = MagicMock()
-        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        """Metrics are pushed to the namespace+cache_name group, labeled by both."""
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
         mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
 
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
                 size_bytes=1024000,
             )
 
-        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags")
+        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags_flags")
+        labels = {"namespace": "feature_flags", "cache_name": "flags"}
+        assert registry.get_sample_value("posthog_hypercache_coverage_percent", labels) == 85.5
+        assert registry.get_sample_value("posthog_hypercache_entries_total", labels) == 1000
+        assert registry.get_sample_value("posthog_hypercache_expiry_tracked_total", labels) == 950
+        assert registry.get_sample_value("posthog_hypercache_size_bytes", labels) == 1024000
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
@@ -456,6 +364,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS=None):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
@@ -467,20 +376,26 @@ class TestPushHypercacheStatsMetrics(BaseTest):
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_size_gauge_when_size_bytes_is_none(self, mock_registry_cm):
         """Test that size gauge is not created when size_bytes is None."""
-        mock_registry = MagicMock()
-        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
         mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
 
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="team_metadata",
+                cache_name="team_metadata",
                 coverage_percent=90.0,
                 entries_total=500,
                 expiry_tracked_total=500,
                 size_bytes=None,
             )
 
-        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata")
+        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata_team_metadata")
+        labels = {"namespace": "team_metadata", "cache_name": "team_metadata"}
+        assert registry.get_sample_value("posthog_hypercache_size_bytes", labels) is None
+        assert registry.get_sample_value("posthog_hypercache_coverage_percent", labels) == 90.0
+        assert registry.get_sample_value("posthog_hypercache_entries_total", labels) == 500
+        assert registry.get_sample_value("posthog_hypercache_expiry_tracked_total", labels) == 500
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     @patch("posthog.storage.hypercache_manager.logger")
@@ -492,6 +407,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
@@ -500,6 +416,115 @@ class TestPushHypercacheStatsMetrics(BaseTest):
 
         mock_logger.warning.assert_called_once()
         assert "Failed to push hypercache stats" in str(mock_logger.warning.call_args)
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_caches_sharing_namespace_use_distinct_groups(self, mock_registry_cm):
+        """Caches sharing a namespace must push to distinct Pushgateway groups.
+
+        team_metadata and llm_gateway_policy both use namespace="team_metadata";
+        without cache_name in the group key they would overwrite each other.
+        """
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_stats_metrics(
+                namespace="team_metadata",
+                cache_name="team_metadata",
+                coverage_percent=100.0,
+                entries_total=409000,
+                expiry_tracked_total=409000,
+                size_bytes=378_000_000,
+            )
+            push_hypercache_stats_metrics(
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                coverage_percent=2.6,
+                entries_total=10900,
+                expiry_tracked_total=10900,
+                size_bytes=1_000_000,
+            )
+
+        group_names = [call.args[0] for call in mock_registry_cm.call_args_list]
+        assert group_names == [
+            "hypercache_stats_team_metadata_team_metadata",
+            "hypercache_stats_team_metadata_llm_gateway_policy",
+        ]
+
+
+class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
+    """Test push_hypercache_teams_processed_metrics functionality."""
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_pushes_metrics_to_pushgateway(self, mock_registry_cm):
+        """Teams-processed counts are pushed to the namespace+cache_name group, labeled by both."""
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+            )
+
+        mock_registry_cm.assert_called_once_with("hypercache_teams_processed_feature_flags_flags")
+        base = {"namespace": "feature_flags", "cache_name": "flags"}
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
+            == 900
+        )
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "failure"})
+            == 100
+        )
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
+        """No push happens when PROM_PUSHGATEWAY_ADDRESS is not set."""
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS=None):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+            )
+
+        mock_registry_cm.assert_not_called()
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_caches_sharing_namespace_use_distinct_groups(self, mock_registry_cm):
+        """Caches sharing a namespace must push to distinct Pushgateway groups.
+
+        team_metadata and llm_gateway_policy both use namespace="team_metadata";
+        without cache_name in the group key they would overwrite each other.
+        """
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="team_metadata",
+                cache_name="team_metadata",
+                successful=409000,
+                failed=0,
+            )
+            push_hypercache_teams_processed_metrics(
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                successful=10900,
+                failed=0,
+            )
+
+        group_names = [call.args[0] for call in mock_registry_cm.call_args_list]
+        assert group_names == [
+            "hypercache_teams_processed_team_metadata_team_metadata",
+            "hypercache_teams_processed_team_metadata_llm_gateway_policy",
+        ]
 
 
 class TestConfigGetTeamsQuerysetFn(BaseTest):

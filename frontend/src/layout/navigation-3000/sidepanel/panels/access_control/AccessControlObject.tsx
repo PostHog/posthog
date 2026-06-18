@@ -20,8 +20,8 @@ import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
+import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -56,7 +56,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     )}
                 </h2>
                 <p>{props.description}</p>
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
                     <div className="deprecated-space-y-6">
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
@@ -97,7 +97,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             placeholder="Loading..."
             value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
-                guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => {
+                guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
                     updateAccessControlDefault(newValue as AccessControlLevel)
                 })
             }}
@@ -243,7 +243,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for team members to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
+                    if (guardAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
                         await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
                         setModelOpen(false)
                     }
@@ -356,7 +356,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for roles to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
+                    if (guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
                         await updateAccessControlRoles(newValues.map((role) => ({ role, level })))
                         setModelOpen(false)
                     }

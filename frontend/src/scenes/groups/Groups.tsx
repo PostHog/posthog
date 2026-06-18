@@ -7,7 +7,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,7 +21,7 @@ import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
@@ -32,10 +32,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.GROUP_ANALYTICS,
 }
 
-export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupsScene rendered with no tabId')
-    }
+export function GroupsScene(): JSX.Element {
     const { groupTypeIndex, groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
 
     const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
@@ -85,26 +82,25 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: 'cohort',
                 }}
                 actions={
-                    hasCustomerAnalyticsEnabled ? (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr={`new-group-${groupTypeIndex}`}
-                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                        >
-                            New {aggregationLabel(groupTypeIndex).singular}
-                        </LemonButton>
-                    ) : undefined
+                    <>
+                        <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
+                        {hasCustomerAnalyticsEnabled && (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr={`new-group-${groupTypeIndex}`}
+                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                            >
+                                New {aggregationLabel(groupTypeIndex).singular}
+                            </LemonButton>
+                        )}
+                    </>
                 }
-            />
-            <FeedbackBanner
-                feedbackButtonId="groups-list"
-                message="We're improving the groups experience. Send us your feedback!"
             />
 
             <Query
-                uniqueKey={`groups-query-${tabId}`}
-                attachTo={groupsSceneLogic({ tabId })}
+                uniqueKey="groups-query"
+                attachTo={groupsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{

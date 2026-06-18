@@ -10,7 +10,7 @@ import {
     ProfilePicture,
 } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
@@ -55,6 +55,8 @@ export function MemberSelect({
     useEffect(() => {
         if (showPopover) {
             ensureAllMembersLoaded()
+        } else {
+            setSearch('')
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 

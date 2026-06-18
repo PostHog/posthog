@@ -5,8 +5,17 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 
@@ -19,7 +28,7 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
         workflow,
-        workflowChanged,
+        hasUnsavedChanges,
         isWorkflowSubmitting,
         workflowLoading,
         workflowHasErrors,
@@ -35,7 +44,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
-    const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
+    const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
@@ -59,6 +70,36 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     return (
         <>
             <SaveAsTemplateModal {...props} editTemplateId={editTemplateId} />
+            {sceneMenuBarEnabled && isSavedWorkflow && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="workflow-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="workflow" />
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            onClick={() => archiveWorkflow(workflow)}
+                            data-attr="workflow-menubar-archive"
+                        >
+                            <IconArchive />
+                            Archive
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                    <SceneMenuBarMenu label="Edit" dataAttr="workflow-menubar-edit">
+                        <SceneMenuBarItem onClick={() => duplicate()} data-attr="workflow-menubar-duplicate">
+                            <IconCopy />
+                            Duplicate
+                        </SceneMenuBarItem>
+                        <SceneMenuBarItem
+                            opensFloatingUi
+                            onClick={showSaveAsTemplateModal}
+                            data-attr="workflow-menubar-save-as-template"
+                        >
+                            <IconScreen />
+                            Save as template
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             <SceneTitleSection
                 name={workflow?.name}
                 description={workflow?.description}
@@ -82,7 +123,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     }
                                     size="small"
                                     disabledReason={
-                                        workflowChanged
+                                        hasUnsavedChanges
                                             ? 'Save changes first'
                                             : workflow?.status === 'draft' && workflowHasActionErrors
                                               ? 'Fix all errors before enabling'
@@ -134,7 +175,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 </ScenePanel>
                             </>
                         )}
-                        {workflowChanged && (
+                        {hasUnsavedChanges && (
                             <LemonButton
                                 data-attr="discard-workflow-changes"
                                 type="secondary"
@@ -167,7 +208,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         ? 'Some fields still need work'
                                         : isCreatedFromTemplate
                                           ? undefined
-                                          : workflowChanged
+                                          : hasUnsavedChanges
                                             ? undefined
                                             : 'No changes to save'
                                 }

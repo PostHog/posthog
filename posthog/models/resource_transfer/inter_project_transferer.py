@@ -21,6 +21,7 @@ from posthog.models.resource_transfer.types import (
     RewriteRelationFn,
 )
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
+from posthog.models.scoping import team_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +55,8 @@ def duplicate_resource_to_new_team(
         substitution_count=len(substitutions) if substitutions else 0,
     )
     with transaction.atomic():
-        graph = list(build_resource_duplication_graph(resource, set()))
+        with team_scope(source_team.id):
+            graph = list(build_resource_duplication_graph(resource, set()))
         logger.info(
             "resource_transfer.graph_built",
             vertex_count=len(graph),
@@ -208,7 +210,7 @@ def dag_sort_duplication_graph(graph: Iterable[ResourceTransferVertex]) -> tuple
 
 def build_resource_duplication_graph(
     resource: Any, exclude_set: set[ResourceTransferKey], depth: int = 1
-) -> Generator[ResourceTransferVertex, None, None]:
+) -> Generator[ResourceTransferVertex]:
     """
     This function builds a graph representing the relations in the connected component that `resource` is a member of.
 
@@ -280,7 +282,14 @@ def build_resource_duplication_graph(
 
     for edge in edges:
         try:
-            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
+            related_resource = cast(Any, edge.target_model).objects.get(pk=edge.target_primary_key)
+
+            related_visitor = ResourceTransferVisitor.get_visitor(related_resource)
+
+            if related_visitor is None:
+                raise ValueError(f"No configured visitor for {type(related_resource)}")
+
+            _validate_common_org_access(resource.team, related_visitor, related_resource)
             yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
         except ObjectDoesNotExist:
             logger.exception(
@@ -398,29 +407,30 @@ def get_suggested_substitutions(
     """
     recommendations: list[tuple[ResourceTransferKey, ResourceTransferKey]] = []
 
-    for vertex in dag:
-        visitor = ResourceTransferVisitor.get_visitor(vertex.model)
+    with team_scope(new_team.id):
+        for vertex in dag:
+            visitor = ResourceTransferVisitor.get_visitor(vertex.model)
 
-        if visitor is None:
-            raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
+            if visitor is None:
+                raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
 
-        if visitor.is_immutable():
-            continue
+            if visitor.is_immutable():
+                continue
 
-        suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
+            suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
+            if suggested_resource is None:
+                suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            continue
+            if suggested_resource is None:
+                continue
 
-        source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
-        dest_key: ResourceTransferKey = (
-            cast(ResourceKind, visitor.kind),
-            suggested_resource.pk,
-        )
-        recommendations.append((source_key, dest_key))
+            source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
+            dest_key: ResourceTransferKey = (
+                cast(ResourceKind, visitor.kind),
+                suggested_resource.pk,
+            )
+            recommendations.append((source_key, dest_key))
 
     return recommendations
 
@@ -443,7 +453,7 @@ def _find_resource_with_transfer_record(
 
     model = visitor.get_model()
     try:
-        previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+        previously_duplicated_resource = cast(Any, model).objects.get(pk=transfer_record.duplicated_resource_id)
 
         return previously_duplicated_resource
     except ObjectDoesNotExist:
@@ -460,7 +470,7 @@ def _find_resource_with_same_name(
     if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
         return None
 
-    matching_resource = model.objects.filter(name=resource.name, team=new_team).first()
+    matching_resource = cast(Any, model).objects.filter(name=resource.name, team=new_team).first()
 
     return matching_resource
 
@@ -478,10 +488,12 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
     ``"<name> (Copy 3)"`` … until a free slot is found.
     """
     taken_names: set[str] = set(
-        model.objects.filter(
+        cast(Any, model)
+        .objects.filter(
             Q(name=name) | Q(name=f"{name} (Copy)") | Q(name__regex=rf"^{re.escape(name)} \(Copy \d+\)$"),
             team=team,
-        ).values_list("name", flat=True)
+        )
+        .values_list("name", flat=True)
     )
 
     if name not in taken_names:
@@ -496,6 +508,19 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
         counter += 1
 
     return f"{name} (Copy {counter})"
+
+
+def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Team) -> str:
+    """Return a unique ``key`` for a feature flag being copied into *team*."""
+    if not cast(Any, model).objects.filter(team=team, key=key).exists():
+        return key
+    candidate = f"{key}-copy"
+    if not cast(Any, model).objects.filter(team=team, key=candidate).exists():
+        return candidate
+    counter = 2
+    while cast(Any, model).objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
+        counter += 1
+    return f"{key}-copy-{counter}"
 
 
 def _get_mapped_substitutions(
@@ -540,7 +565,7 @@ def _get_mapped_substitutions(
 
         source_model = source_visitor.get_model()
         try:
-            source_resource = source_model.objects.get(pk=source_pk)
+            source_resource = cast(Any, source_model).objects.get(pk=source_pk)
         except ObjectDoesNotExist:
             logger.exception(
                 "resource_transfer.map_substitutions.source_not_found",
@@ -551,7 +576,11 @@ def _get_mapped_substitutions(
 
         dest_model = dest_visitor.get_model()
         try:
-            dest_resource = dest_model.objects.get(pk=dest_pk)
+            if target_team is not None:
+                dest_resource = cast(Any, dest_model).objects.get(pk=dest_pk)
+                _validate_common_org_access(target_team, dest_visitor, dest_resource)
+            else:
+                dest_resource = cast(Any, dest_model).objects.get(pk=dest_pk)
         except ObjectDoesNotExist:
             logger.exception(
                 "resource_transfer.map_substitutions.dest_not_found",
@@ -559,21 +588,6 @@ def _get_mapped_substitutions(
                 dest_pk=str(dest_pk),
             )
             raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
-
-        if target_team is not None:
-            resource_team = dest_visitor.get_resource_team(dest_resource)
-            if resource_team.pk != target_team.pk:
-                logger.warning(
-                    "resource_transfer.map_substitutions.team_mismatch",
-                    dest_kind=dest_kind,
-                    dest_pk=str(dest_pk),
-                    resource_team_id=resource_team.pk,
-                    target_team_id=target_team.pk,
-                )
-                raise ValueError(
-                    f"Substitution resource {dest_kind} {dest_pk} belongs to team {resource_team.pk}, "
-                    f"not destination team {target_team.pk}"
-                )
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
         mapped_substitutions[normalized_key] = dest_resource
@@ -642,10 +656,16 @@ def _duplicate_vertex(
                 target_pk=str(edge.target_primary_key),
             )
 
-    if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
-        payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+    payload = visitor.adjust_duplicate_payload(payload, vertex, new_team)
 
-    new_resource = visitor.get_model().objects.create(**payload)
+    with team_scope(new_team.id):
+        if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
+            payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+
+        if visitor.kind == "FeatureFlag" and payload.get("key"):
+            payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
+
+        new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
     logger.info(
         "resource_transfer.duplicate_vertex.created",
         kind=visitor.kind,
@@ -654,3 +674,21 @@ def _duplicate_vertex(
         model=visitor.get_model().__name__,
     )
     return new_resource
+
+
+def _validate_common_org_access(
+    target_team: Team, other_visitor: type[ResourceTransferVisitor], other_resource: Any
+) -> None:
+    other_team = other_visitor.get_resource_team(other_resource)
+    if other_team.pk != target_team.pk:
+        logger.warning(
+            "resource_transfer.map_substitutions.team_mismatch",
+            dest_kind=other_visitor.kind,
+            dest_pk=str(other_resource.pk),
+            resource_team_id=other_team.pk,
+            target_team_id=target_team.pk,
+        )
+        raise ValueError(
+            f"Substitution resource {other_visitor.kind} {other_resource.pk} belongs to another team that is "
+            f"not destination team {target_team.pk}"
+        )

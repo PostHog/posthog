@@ -4,9 +4,11 @@ procs:
         shell: 'pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/playwright exec playwright test --ui'
         env:
             BASE_URL: 'http://localhost:8010'
+            EMAIL_HOST: 'email.test.posthog.net'
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
+        ready_pattern: 'Listening at'
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'
@@ -16,9 +18,13 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
+            PERSON_ON_EVENTS_OVERRIDE: '1'
+            PERSONHOG_ENABLED: '0'
+            PERSONHOG_ADDR: ''
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
+        ready_pattern: 'celery@'
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_e2e_test'
             CLICKHOUSE_DATABASE: 'posthog_test'
@@ -28,9 +34,12 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
+            PERSONHOG_ENABLED: '0'
+            PERSONHOG_ADDR: ''
 
     frontend:
         shell: './bin/start-frontend'
+        ready_pattern: 'VITE.*ready in'
         env:
             E2E_TESTING: '1'
 
@@ -47,6 +56,11 @@ procs:
             createdb posthog_e2e_test && \
             echo "DROP DATABASE IF EXISTS posthog_test SYNC" | curl 'http://localhost:8123/' --data-binary @- && \
             echo "CREATE DATABASE posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
+            echo "=== Detaching conflicting Kafka-engine tables from posthog DB (shared consumer group 'group1') ===" && \
+            for tbl in $(echo "SELECT name FROM system.tables WHERE database='posthog' AND engine='Kafka' FORMAT TabSeparated" | curl -s 'http://localhost:8123/' --data-binary @-); do \
+                echo "  detaching posthog.$tbl"; \
+                echo "DETACH TABLE IF EXISTS posthog.\`$tbl\` PERMANENTLY" | curl -s 'http://localhost:8123/' --data-binary @- || true; \
+            done && \
             echo "=== Running migrations ===" && \
             bin/wait-for-docker && \
             python manage.py migrate && \
@@ -55,6 +69,7 @@ procs:
             python manage.py setup_dev && \
             echo "=== Done ==="
         autostart: false
+        ready_pattern: '=== Done ==='
         env:
             PGHOST: 'localhost'
             PGPORT: '5432'

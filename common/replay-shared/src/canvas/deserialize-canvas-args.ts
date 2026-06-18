@@ -1,11 +1,11 @@
-import { Replayer } from '@posthog/rrweb'
-import { CanvasArg } from '@posthog/rrweb-types'
+import { Replayer } from 'posthog-js/rrweb'
+import { CanvasArg } from 'posthog-js/rrweb-types'
 
 import { base64ArrayBuffer } from '../utils'
 
 type GLVarMap = Map<string, any[]>
 type CanvasContexts = CanvasRenderingContext2D | WebGLRenderingContext | WebGL2RenderingContext
-const webGLVarMap: Map<CanvasContexts, GLVarMap> = new Map()
+const webGLVarMap: WeakMap<CanvasContexts, GLVarMap> = new WeakMap()
 
 const variableListFor = (ctx: CanvasContexts, ctor: string): any[] => {
     let contextMap = webGLVarMap.get(ctx)

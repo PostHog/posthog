@@ -41,7 +41,7 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
             group_properties: Record<string, any>
         }[]
     > {
-        return await this.repository.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, this.tx)
+        return await this.repository.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, undefined, this.tx)
     }
 
     async insertGroup(
@@ -91,21 +91,22 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
     async fetchGroupTypesByProjectIds(
         projectIds: ProjectId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        return await this.repository.fetchGroupTypesByProjectIds(projectIds, this.tx)
+        return await this.repository.fetchGroupTypesByProjectIds(projectIds, undefined, this.tx)
     }
 
     async fetchGroupTypesByTeamIds(
         teamIds: TeamId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        return await this.repository.fetchGroupTypesByTeamIds(teamIds, this.tx)
+        return await this.repository.fetchGroupTypesByTeamIds(teamIds, undefined, this.tx)
     }
 
     async insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
-        index: number
+        index: number,
+        createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]> {
-        return await this.repository.insertGroupType(teamId, projectId, groupType, index, this.tx)
+        return await this.repository.insertGroupType(teamId, projectId, groupType, index, createdAt, this.tx)
     }
 }

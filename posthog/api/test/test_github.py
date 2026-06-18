@@ -22,8 +22,8 @@ from posthog.api.github import (
 )
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 
 
 class TestGitHubSignatureVerification(TestCase):
@@ -391,7 +391,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
 
         # Create a key with legacy PBKDF2 hash (260000 iterations)
         token = generate_random_token_personal()
-        legacy_hash = hash_key_value(token, mode="pbkdf2", iterations=260000)
+        legacy_hash = hash_key_value(token, mode="pbkdf2", legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=260000)
         key = PersonalAPIKey.objects.create(
             user=self.user,
             label="Legacy Key",
@@ -869,26 +869,16 @@ class TestSecretAlertRegionTracking(APIBaseTest):
 
 class TestOAuthTokenSecretAlert(APIBaseTest):
     def _create_oauth_app(self):
-        from django.conf import settings
-
-        from posthog.models.test.test_oauth import generate_rsa_key
-
-        with self.settings(
-            OAUTH2_PROVIDER={
-                **settings.OAUTH2_PROVIDER,
-                "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-            }
-        ):
-            return OAuthApplication.objects.create(
-                name="Test OAuth App",
-                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://example.com/callback",
-                algorithm="RS256",
-                skip_authorization=False,
-                organization=self.organization,
-                user=self.user,
-            )
+        return OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")

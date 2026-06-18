@@ -14,7 +14,7 @@ import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySens
 import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -120,7 +120,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 </div>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -226,7 +226,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         {
                             title: 'Completed',
                             tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                querySource?.aggregation_group_type_index != null ? 'that' : 'who'
                             } have this property and completed the entire funnel.`,
                             key: 'success_count',
                             render: (_, record) => renderSuccessCount(record),
@@ -236,7 +236,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         {
                             title: 'Dropped off',
                             tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                querySource?.aggregation_group_type_index != null ? 'that' : 'who'
                             } have this property and did not complete the entire funnel.`,
                             key: 'failure_count',
                             render: (_, record) => renderFailureCount(record),

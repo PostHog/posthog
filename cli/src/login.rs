@@ -35,11 +35,16 @@ struct PollResponse {
     project_id: Option<String>,
 }
 
+// The `agent-cli` use case grants the full MCP / `posthog-cli api` scope set
+// (a superset of schema + error_tracking + endpoints), so a freshly logged-in
+// CLI can run the agent interface without re-authorizing.
+const DEFAULT_LOGIN_USE_CASES: &[&str] = &["agent-cli"];
+
 pub fn login(host_override: Option<String>) -> Result<()> {
     if !io::stdout().is_terminal() {
         bail!("Failed to login. If you are running on a CI, skip this step and use POSTHOG_CLI_HOST, POSTHOG_CLI_PROJECT_ID, POSTHOG_CLI_API_KEY env variables when running commands")
     }
-    login_with_use_cases(host_override, vec!["schema", "error_tracking", "endpoints"])
+    login_with_use_cases(host_override, DEFAULT_LOGIN_USE_CASES.to_vec())
 }
 
 pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>) -> Result<()> {
@@ -249,7 +254,7 @@ fn poll_for_authorization(
 
 fn complete_login(provider: &HomeDirProvider, command_name: &str) -> Result<(), Error> {
     // Login is the only command that doesn't have a context coming in - because it modifies the context
-    init_context(None, false, None)?;
+    init_context(None, false, None, None)?;
     context().capture_command_invoked(command_name);
 
     println!();
@@ -275,12 +280,10 @@ fn manual_login() -> Result<(), Error> {
         .with_validator(env_id_validator)
         .prompt()?;
 
-    let token = Text::new(
-        "Enter your personal API token",
-    )
-    .with_validator(token_validator)
-    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
-    .prompt()?;
+    let token = Text::new("Enter your personal API token")
+        .with_validator(token_validator)
+        .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope. To enable tooling, select the 'Agent CLI' preset.")
+        .prompt()?;
 
     let token = Token {
         host: Some(host.trim_end_matches('/').to_string()),
@@ -293,4 +296,16 @@ fn manual_login() -> Result<(), Error> {
     info!("Token saved to: {}", provider.report_location());
 
     complete_login(&provider, "manual_login")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_login_requests_the_agent_cli_use_case() {
+        // The agent-cli use case is what grants the CLI the full `posthog-cli api`
+        // scope set; narrowing it here would silently break agent commands.
+        assert_eq!(DEFAULT_LOGIN_USE_CASES, &["agent-cli"]);
+    }
 }

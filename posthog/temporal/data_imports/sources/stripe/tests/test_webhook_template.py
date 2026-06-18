@@ -99,6 +99,25 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
     @parameterized.expand(
         [
+            ("null", None),
+            ("empty_string", ""),
+        ]
+    )
+    def test_missing_signing_secret_returns_400(self, _name, signing_secret):
+        globals = {
+            "request": {
+                "method": "POST",
+                "headers": {},
+                "body": {"type": "test"},
+                "stringBody": '{"type": "test"}',
+                "query": {},
+            }
+        }
+        res = self.run_function({"signing_secret": signing_secret, "bypass_signature_check": False}, globals=globals)
+        assert res.result == {"httpResponse": {"status": 400, "body": "Signing secret not configured"}}
+
+    @parameterized.expand(
+        [
             ("no_parts", "garbage"),
             ("missing_v1", "t=12345"),
             ("missing_timestamp", "v1=abcdef"),

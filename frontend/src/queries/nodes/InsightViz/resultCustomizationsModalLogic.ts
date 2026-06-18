@@ -4,7 +4,12 @@ import { DataColorToken } from 'lib/colors'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelDatasetKey, getTrendResultCustomization, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import {
+    getFunnelDatasetKey,
+    getFunnelResultCustomization,
+    getTrendResultCustomization,
+    getTrendResultCustomizationKey,
+} from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -35,6 +40,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
         closeModal: true,
 
         setColorToken: (token: DataColorToken) => ({ token }),
+        clearColorToken: true,
 
         save: true,
     }),
@@ -51,7 +57,16 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             null as DataColorToken | null,
             {
                 setColorToken: (_, { token }) => token,
+                clearColorToken: () => null,
                 closeModal: () => null,
+            },
+        ],
+        localColorTokenTouched: [
+            false,
+            {
+                setColorToken: () => true,
+                clearColorToken: () => true,
+                closeModal: () => false,
             },
         ],
     }),
@@ -59,8 +74,9 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     selectors({
         modalVisible: [(s) => [s.dataset], (dataset): boolean => dataset !== null],
         colorToken: [
-            (s) => [s.localColorToken, s.colorTokenFromQuery],
-            (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
+            (s) => [s.localColorToken, s.localColorTokenTouched, s.colorTokenFromQuery],
+            (localColorToken, localColorTokenTouched, colorTokenFromQuery): DataColorToken | null =>
+                localColorTokenTouched ? localColorToken : colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
             (s) => [s.isTrends, s.isStickiness, s.isFunnels, s.getTrendsColorToken, s.getFunnelsColorToken, s.dataset],
@@ -107,10 +123,12 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     listeners(({ actions, values }) => ({
         save: () => {
-            if (values.localColorToken == null || values.dataset == null) {
+            if (!values.localColorTokenTouched || values.dataset == null) {
                 actions.closeModal()
                 return
             }
+
+            const color = values.localColorToken ?? undefined
 
             if (values.isTrends || values.isStickiness) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(
@@ -128,7 +146,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                         [resultCustomizationKey]: {
                             ...resultCustomization,
                             assignmentBy: values.resultCustomizationBy,
-                            color: values.localColorToken,
+                            color,
                         },
                     },
                 } as Partial<TrendsFilter>)
@@ -136,12 +154,17 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
             if (values.isFunnels) {
                 const resultCustomizationKey = getFunnelDatasetKey(values.dataset as FlattenedFunnelStepByBreakdown)
+                const resultCustomization = getFunnelResultCustomization(
+                    values.dataset as FlattenedFunnelStepByBreakdown,
+                    values.funnelsResultCustomizations
+                )
                 actions.updateInsightFilter({
                     resultCustomizations: {
                         ...values.funnelsResultCustomizations,
                         [resultCustomizationKey]: {
+                            ...resultCustomization,
                             assignmentBy: ResultCustomizationBy.Value,
-                            color: values.localColorToken,
+                            color,
                         },
                     },
                 })

@@ -1,5 +1,5 @@
-import { Attributes, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
-import { Histogram, Summary, exponentialBuckets } from 'prom-client'
+import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/config/config'
 import { timeoutGuard } from '~/utils/db/utils'
@@ -22,6 +22,12 @@ const instrumentedFunctionDuration = new Histogram({
     buckets: exponentialBuckets(0.025, 4, 7),
 })
 
+const instrumentedFunctionTimeout = new Counter({
+    name: 'instrumented_function_timeout_total',
+    help: 'Number of times an instrumented function exceeded its timeout threshold',
+    labelNames: ['function'],
+})
+
 const logTime = (startTime: number, statsKey: string, error?: any): void => {
     logger.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
         error,
@@ -30,6 +36,14 @@ const logTime = (startTime: number, statsKey: string, error?: any): void => {
     })
 }
 
+function getHighResTimestamp(): HrTime {
+    // performance.timeOrigin: absolute start time of the process
+    // performance.now(): high-res relative time since process start
+    const epochMillis = performance.timeOrigin + performance.now()
+    const seconds = Math.floor(epochMillis / 1000)
+    const nanos = Math.round((epochMillis % 1000) * 1_000_000)
+    return [seconds, nanos]
+}
 /**
  * Wraps a function in an OpenTelemetry tracing span.
  */
@@ -40,19 +54,24 @@ export function withTracingSpan<T>(
     fn: () => Promise<T>
 ): Promise<T> {
     const _tracer = typeof tracer === 'string' ? trace.getTracer(tracer) : tracer
-    return _tracer.startActiveSpan(name, { kind: SpanKind.CLIENT, attributes: attrs }, async (span) => {
-        try {
-            const out = await fn()
-            span.setStatus({ code: SpanStatusCode.OK })
-            return out
-        } catch (e: any) {
-            span.recordException(e)
-            span.setStatus({ code: SpanStatusCode.ERROR, message: e?.message })
-            throw e
-        } finally {
-            span.end()
+    const startHrTime = getHighResTimestamp()
+    return _tracer.startActiveSpan(
+        name,
+        { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime },
+        async (span) => {
+            try {
+                const out = await fn()
+                span.setStatus({ code: SpanStatusCode.OK })
+                return out
+            } catch (e: any) {
+                span.recordException(e)
+                span.setStatus({ code: SpanStatusCode.ERROR, message: e?.message })
+                throw e
+            } finally {
+                span.end(getHighResTimestamp())
+            }
         }
-    })
+    )
 }
 
 /**
@@ -105,7 +124,9 @@ export async function instrumentFn<T>(
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
-    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException)
+    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
+        instrumentedFunctionTimeout.labels({ function: key }).inc()
+    })
     const startTime = performance.now()
     const end = measureTime ? instrumentedFunctionDuration.startTimer({ function: key }) : undefined
 

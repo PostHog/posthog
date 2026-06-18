@@ -27,8 +27,9 @@ def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, 
 
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
-    if bounds is not None:
-        config["bounds"] = bounds
+    if bounds is None:
+        bounds = {"upper": 1.0}
+    config["bounds"] = bounds
     return config
 
 
@@ -41,6 +42,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 _base_threshold(),
+                "daily",
                 None,
             ),
             (
@@ -49,6 +51,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 _base_config(),
                 _base_threshold(),
+                "daily",
                 None,
             ),
             (
@@ -57,6 +60,7 @@ class TestValidateAlertConfig:
                 None,
                 _base_config(),
                 None,
+                "daily",
                 "Alert has invalid condition: None",
             ),
             (
@@ -65,6 +69,7 @@ class TestValidateAlertConfig:
                 {},
                 _base_config(),
                 None,
+                "daily",
                 "Alert has invalid condition",
             ),
             (
@@ -73,6 +78,7 @@ class TestValidateAlertConfig:
                 {"type": "bogus"},
                 _base_config(),
                 None,
+                "daily",
                 "Alert has invalid condition",
             ),
             (
@@ -81,6 +87,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 None,
                 None,
+                "daily",
                 "Unsupported alert config type: None",
             ),
             (
@@ -89,6 +96,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"series_index": 0},
                 None,
+                "daily",
                 "Unsupported alert config type",
             ),
             (
@@ -97,6 +105,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 {"type": "TrendsAlertConfig"},
                 None,
+                "daily",
                 "Alert has invalid TrendsAlertConfig",
             ),
             (
@@ -105,6 +114,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 None,
+                "daily",
                 "query kind 'FunnelsQuery' is not supported",
             ),
             (
@@ -113,6 +123,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(),
                 _base_threshold(),
+                "daily",
                 None,
             ),
             (
@@ -121,6 +132,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 _base_config(),
                 None,
+                "daily",
                 "not compatible with non time series",
             ),
             (
@@ -129,6 +141,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_decrease"),
                 _base_config(),
                 None,
+                "daily",
                 "not compatible with non time series",
             ),
             (
@@ -137,6 +150,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 _base_config(),
                 _base_threshold("percentage"),
+                "daily",
                 "Absolute value alerts require an absolute threshold, but a percentage threshold was configured",
             ),
             (
@@ -145,6 +159,7 @@ class TestValidateAlertConfig:
                 _base_condition("absolute_value"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
+                "daily",
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -153,6 +168,7 @@ class TestValidateAlertConfig:
                 _base_condition("relative_increase"),
                 {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
                 _base_threshold("absolute", {"lower": 0}),
+                "daily",
                 "check_ongoing_interval is only supported .* when upper threshold is specified",
             ),
             (
@@ -161,6 +177,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=5),
                 None,
+                "daily",
                 r"series_index 5 is out of range \(query has 1 series\)",
             ),
             (
@@ -179,6 +196,7 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=1),
                 _base_threshold(),
+                "daily",
                 None,
             ),
             (
@@ -197,7 +215,35 @@ class TestValidateAlertConfig:
                 _base_condition(),
                 _base_config(series_index=2),
                 None,
+                "daily",
                 r"series_index 2 is out of range \(query has 2 series\)",
+            ),
+            (
+                "valid_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "invalid_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "every_5_minutes",
+                "Invalid calculation interval: every_5_minutes",
+            ),
+            (
+                "none_calculation_interval",
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                None,
+                "Invalid calculation interval: None",
             ),
         ]
     )
@@ -208,10 +254,41 @@ class TestValidateAlertConfig:
         condition: dict[str, Any] | None,
         config: dict[str, Any] | None,
         threshold_config: dict[str, Any] | None,
+        calculation_interval: str | None,
         expected_error_fragment: str | None,
     ) -> None:
         if expected_error_fragment is None:
-            validate_alert_config(query, condition, config, threshold_config)
+            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         else:
             with pytest.raises(ValueError, match=expected_error_fragment):
-                validate_alert_config(query, condition, config, threshold_config)
+                validate_alert_config(query, condition, config, threshold_config, calculation_interval)
+
+    def test_threshold_alert_requires_at_least_one_bound(self) -> None:
+        with pytest.raises(ValueError, match="At least one threshold bound"):
+            validate_alert_config(
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(bounds={}),
+                "daily",
+            )
+
+    def test_detector_alert_allows_empty_threshold_bounds(self) -> None:
+        validate_alert_config(
+            _base_query(),
+            _base_condition(),
+            _base_config(),
+            _base_threshold(bounds={}),
+            "daily",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+        )
+
+    def test_skips_threshold_bounds_when_not_required(self) -> None:
+        validate_alert_config(
+            _base_query(),
+            _base_condition(),
+            _base_config(),
+            _base_threshold(bounds={}),
+            "daily",
+            require_threshold_bounds=False,
+        )

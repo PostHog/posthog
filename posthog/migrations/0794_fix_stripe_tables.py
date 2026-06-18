@@ -2,7 +2,7 @@
 
 from django.db import connection, migrations
 
-from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as ExternalDataSchemaModel
 
 
 def forwards(apps, schema_editor):

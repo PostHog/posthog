@@ -1,9 +1,13 @@
+import json
 import typing
-from abc import ABC, abstractmethod
 
 
-class PostHogWorkflow(ABC):
+class PostHogWorkflow:
     """Base class for Temporal Workflows that can be executed in PostHog."""
+
+    # Set on subclasses to enable the default JSON-decoding parse_inputs.
+    inputs_cls: typing.ClassVar[type | None] = None
+    inputs_optional: typing.ClassVar[bool] = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -21,12 +25,13 @@ class PostHogWorkflow(ABC):
         """
         return cls.get_name() == name
 
-    @staticmethod
-    @abstractmethod
-    def parse_inputs(inputs: list[str]) -> typing.Any:
-        """Parse inputs from the management command CLI.
-
-        If a workflow is to be executed via the CLI it must know how to parse its
-        own inputs.
-        """
-        return NotImplemented
+    @classmethod
+    def parse_inputs(cls, inputs: list[str]) -> typing.Any:
+        """Default parse_inputs uses `cls.inputs_cls`; override for custom logic."""
+        if cls.inputs_cls is None:
+            return None
+        if not inputs:
+            if cls.inputs_optional:
+                return cls.inputs_cls()
+            raise ValueError(f"Workflow {cls.__name__} requires inputs")
+        return cls.inputs_cls(**json.loads(inputs[0]))

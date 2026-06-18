@@ -12,6 +12,7 @@ interface ModelCost {
     image?: number
     image_output?: number
     audio?: number
+    audio_output?: number
     input_audio_cache?: number
     internal_reasoning?: number
 }
@@ -79,6 +80,7 @@ const buildModelCost = (pricing: Record<string, unknown> | undefined): ModelCost
         ['image', 'image'],
         ['image_output', 'image_output'],
         ['audio', 'audio'],
+        ['audio_output', 'audio_output'],
         ['input_audio_cache', 'input_audio_cache'],
         ['internal_reasoning', 'internal_reasoning'],
     ]
@@ -111,7 +113,7 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     let data
     try {
         data = await res.json()
-    } catch (e) {
+    } catch {
         throw new Error('Failed to parse OpenRouter API response as JSON')
     }
 

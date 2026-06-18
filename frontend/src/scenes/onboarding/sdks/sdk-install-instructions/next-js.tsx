@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
+import { ReactInstallSnippet } from './js-web'
 import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
@@ -37,7 +37,7 @@ function NextPagesRouterPageViewSnippet(): JSX.Element {
 import { useEffect } from 'react'
 import { Router } from 'next/router'
 import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
+import { PostHogProvider } from '@posthog/react'
 import type { AppProps } from 'next/app'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -101,10 +101,10 @@ function NextAppRouterPageViewProviderSnippet(): JSX.Element {
 
 import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
-import { usePostHog } from 'posthog-js/react'
+import { usePostHog } from '@posthog/react'
 
 import posthog from 'posthog-js'
-import { PostHogProvider as PHProvider } from 'posthog-js/react'
+import { PostHogProvider as PHProvider } from '@posthog/react'
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -152,8 +152,8 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     return (
         <>
             <SetupWizardBanner integrationName="Next.js" hide={hideWizard} />
-            <h3>Install posthog-js using your package manager</h3>
-            <JSInstallSnippet />
+            <h3>Install posthog-js and @posthog/react using your package manager</h3>
+            <ReactInstallSnippet />
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,

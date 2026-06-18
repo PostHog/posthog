@@ -2,9 +2,8 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { performQuery } from '~/queries/query'
@@ -23,8 +22,9 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     props({} as NotebookNodePersonFeedLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
+
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [preflightLogic, ['isCloudOrDev']],
     })),
 
     actions({
@@ -33,7 +33,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
         setSummarizingState: (state: 'idle' | 'loading' | 'completed') => ({ state }),
     }),
 
-    loaders(({ values, props }) => ({
+    loaders(({ props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -49,14 +49,16 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 },
             },
         ],
-        summaries: [
-            {} as Record<string, SessionSummaryContent>,
+        // Loader drives the per-session request and the summarizeSession{,Success,Failure} actions.
+        // Accumulation lives in the `summaries` reducer below so concurrent requests can't race on a
+        // read-modify-write of the shared map (the last response would otherwise clobber the others).
+        sessionSummary: [
+            null as Record<string, SessionSummaryContent> | null,
             {
                 summarizeSession: async ({ sessionId }) => {
-                    const response = await api.sessionSummaries.createIndividual({
+                    return await api.sessionSummaries.createIndividual({
                         session_ids: [sessionId],
                     })
-                    return { ...values.summaries, ...response }
                 },
             },
         ],
@@ -79,6 +81,12 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     })),
 
     reducers(() => ({
+        summaries: [
+            {} as Record<string, SessionSummaryContent>,
+            {
+                summarizeSessionSuccess: (state, { sessionSummary }) => ({ ...state, ...sessionSummary }),
+            },
+        ],
         summarizingState: [
             'idle' as 'idle' | 'loading' | 'completed',
             {
@@ -95,12 +103,14 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     })),
 
     selectors({
-        canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
+        // AI session summaries are PostHog Cloud only, so hide the whole block on self-hosted.
+        canSummarize: [(s) => [s.isCloudOrDev], (isCloudOrDev): boolean => !!isCloudOrDev],
         numSessionsWithRecording: [
             (s) => [s.sessionIdsWithRecording],
             (sessionIdsWithRecording) => sessionIdsWithRecording.length,
         ],
         numSummaries: [(s) => [s.summaries], (summaries) => Object.keys(summaries).length],
+        summariesLoading: [(s) => [s.sessionSummaryLoading], (sessionSummaryLoading) => sessionSummaryLoading],
         numFailedSummaries: [(s) => [s.summaryErrors], (summaryErrors) => summaryErrors.length],
         numProcessedSessions: [
             (s) => [s.numSummaries, s.numFailedSummaries],

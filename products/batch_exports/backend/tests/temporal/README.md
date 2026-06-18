@@ -193,3 +193,34 @@ DEBUG=1 AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;AccountN
     AZURE_TEST_CONTAINER='<CONTAINER_NAME>' \
     pytest products/batch_exports/backend/tests/temporal/destinations/azure_blob/test_workflow_with_azure_account.py -v
 ```
+
+## Testing File Download batch exports
+
+File download batch exports are tested against a real AWS account. A real account is required as the batch export is essentially a wrapper around an S3 batch export, and we already have tests for S3 batch exports to ensure they work with and without an AWS account. The only parts that are left outside of the S3 batch export interact with AWS directly: Generating temporary credentials and checking S3 bucket status.
+
+PostHog has AWS playground accounts that we can leverage for our tests:
+
+1. Obtain an AWS playground account by following [this runbook](https://runbooks.posthog.com/aws/aws-playground)
+2. Configure your environment with the AWS playground's admin credentials. I recommend setting up SSO in your `~/.aws/config` so that credentials are automatically refreshed, logging in with SSO using `aws sso login --profile {profile_name}`, and then setting `AWS_PROFILE={profile_name}` in your environment before running the tests. Here is an example on how to configure this using `playground` as the `{profile_name}`), replace the variables with the details in the playground login page:
+
+   ```ini
+   [sso-session sso-playground]
+   sso_start_url = {SSO URL from playground account}
+   sso_region = {SSO region from playground account}
+   sso_registration_scopes = sso:account:access
+
+   [profile playground]
+   sso_session = sso-playground
+   sso_account_id = {Playground account ID}
+   sso_role_name = {PostHog Admin role}
+   region = us-east-1
+   ```
+
+3. Verify you did everything correctly by calling `aws sts get-caller-identity --profile {profile_name}`
+4. Run the tests:
+
+   ```bash
+   AWS_PROFILE={profile_name} DEBUG=1 pytest products/batch_exports/backend/tests/temporal/destinations/file_download/ -v
+   ```
+
+The tests fixtures will setup the necessary role and bucket for the tests to run, and also clean it up after the test is done.

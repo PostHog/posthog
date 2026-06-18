@@ -1,18 +1,18 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
+import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LogLevel } from '@posthog/rrweb-plugin-console-record'
-import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
-import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -32,10 +32,11 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
@@ -55,14 +56,15 @@ import type {
     ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
+    EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -78,7 +80,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
 import { InferredSelector } from './toolbar/product-tours/elementInference'
@@ -147,6 +149,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
+    XAA_AUTHENTICATION = 'xaa_authentication',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
     DEDICATED_SUPPORT = 'dedicated_support',
@@ -184,6 +187,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = 'access_control',
+    PROPERTY_ACCESS_CONTROL = 'property_access_control',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -193,7 +197,6 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
-    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     APPROVALS = 'approvals',
@@ -205,6 +208,7 @@ export enum AvailableFeature {
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
+    HIGH_FREQUENCY_ALERTS = 'high_frequency_alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
@@ -243,6 +247,7 @@ export enum Realm {
 export enum Region {
     US = 'US',
     EU = 'EU',
+    DEV = 'DEV',
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -269,22 +274,28 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
+    DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
     ExternalDataSource = 'external_data_source',
+    WarehouseObjects = 'warehouse_objects',
+    WarehouseTable = 'warehouse_table',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -314,11 +325,17 @@ export interface SceneDashboardChoice {
 
 export type UserTheme = 'light' | 'dark' | 'system'
 export type UserShortcutPosition = 'above' | 'below' | 'hidden'
+// Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
+// hard dependency on generated types; when adopting generated `UserApi`, switch to
+// `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -341,12 +358,29 @@ export interface UserType extends UserBaseType {
     has_sso_enforcement: boolean
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
+    hide_mcp_hints?: boolean
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
+    onboarding_skipped_at?: string | null
+    onboarding_skipped_reason?: OnboardingSkippedReason
+    onboarding_skipped_organization_id?: string | null
+    onboarding_delegated_to_invite?: string | null
+    onboarding_delegated_to_organization_id?: string | null
+    onboarding_delegation_accepted_at?: string | null
+    is_organization_first_user?: boolean
+    pending_invites?: PendingInviteForCurrentUser[]
+}
+
+export interface PendingInviteForCurrentUser {
+    id: string
+    target_email: string
+    organization_id: string
+    organization_name: string
+    created_at: string
 }
 
 export type HedgehogColorOptions =
@@ -387,6 +421,58 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    web_analytics_weekly_digest: boolean
+    web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
+    organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
+    pipeline_notifications_disabled?: Record<string, boolean>
+}
+
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
+export interface InAppNotification {
+    id: string
+    team_id: number | null
+    notification_type: string
+    priority: string
+    title: string
+    body: string
+    read: boolean
+    read_at: string | null
+    resource_type: string | null
+    resource_id: string
+    target_type: string
+    target_id: string
+    source_url: string
+    source_type: string | null
+    source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
+    created_at: string
 }
 
 export interface PluginAccess {
@@ -411,6 +497,11 @@ export interface PersonalAPIKeyType {
     scoped_teams?: TeamType['id'][] | null
 }
 
+export interface ProjectSecretAPIKeyRequest {
+    label: string
+    scopes: ProjectSecretAPIKeyAllowedScope[]
+}
+
 export interface OrganizationBasicType {
     id: string
     name: string
@@ -421,6 +512,7 @@ export interface OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     is_active: boolean | null
     is_not_active_reason: string | null
+    is_pending_deletion: boolean
 }
 
 interface OrganizationMetadata {
@@ -438,7 +530,12 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_training_opted_in?: boolean
+    is_ai_training_locked?: boolean
+    is_ai_training_cta_shown?: boolean
+    is_hipaa?: boolean
     members_can_invite?: boolean
+    members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
@@ -463,6 +560,10 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+    has_id_jag?: boolean
+    id_jag_issuer_url?: string | null
+    id_jag_jwks_url?: string | null
+    id_jag_allowed_clients?: string[]
 }
 
 export interface SCIMRequestLogType {
@@ -531,6 +632,7 @@ export interface ListOrganizationMembersParams {
     offset?: number
     limit?: number
     updated_after?: string
+    search?: string
 }
 
 export interface APIErrorType {
@@ -583,6 +685,7 @@ export interface CorrelationConfigType {
 
 export interface ProjectType extends ProjectBasicType {
     created_at: string
+    is_pending_deletion: boolean
 }
 
 export interface TeamSurveyConfigType {
@@ -621,15 +724,37 @@ export interface ConversationsSettings {
     slack_team_id?: string | null
     slack_channel_id?: string | null
     slack_channel_name?: string | null
+    slack_channel_ids?: string[] | null
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
+    slack_notify_on_join?: boolean
+    slack_notify_on_leave?: boolean
+    slack_alert_channel_id?: string | null
     email_enabled?: boolean
+    teams_enabled?: boolean
+    teams_team_id?: string | null
+    teams_team_name?: string | null
+    teams_channel_id?: string | null
+    teams_channel_name?: string | null
+    teams_channels?:
+        | {
+              team_id: string
+              team_name?: string | null
+              channel_id: string
+              channel_name?: string | null
+          }[]
+        | null
+    github_enabled?: boolean
+    github_integration_id?: number | null
+    github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -640,7 +765,6 @@ export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
     recording_domains: string[]
-    slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
@@ -667,6 +791,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_blocklist_config?: UrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
+    session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     conversations_enabled?: boolean
@@ -717,12 +842,14 @@ export interface TeamType extends TeamBasicType {
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
-    experiment_recalculation_time?: string | null
-    default_experiment_confidence_level?: number | null
-    default_experiment_stats_method?: ExperimentStatsMethod | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    workflows_config: WorkflowsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
+}
+
+export interface WorkflowsConfig {
+    capture_workflows_engagement_events: boolean
 }
 
 export interface ProductIntentType {
@@ -757,6 +884,7 @@ export interface ActionType extends WithAccessControl {
     bytecode_error?: string
     pinned_at: string | null
     _create_in_folder?: string | null
+    reference_count?: number
 }
 
 /** Sync with nodejs/src/types.ts */
@@ -792,6 +920,8 @@ export interface ElementType {
     text?: string
 }
 
+// Keep the union literal so kea-typegen can inline its members; the runtime allowlist below
+// is asserted to satisfy the same members so TypeScript fails the build if either side drifts.
 export type ToolbarUserIntent =
     | 'add-action'
     | 'edit-action'
@@ -801,6 +931,17 @@ export type ToolbarUserIntent =
     | 'add-product-tour'
     | 'edit-product-tour'
     | 'preview-product-tour'
+
+export const TOOLBAR_USER_INTENTS = [
+    'add-action',
+    'edit-action',
+    'heatmaps',
+    'add-experiment',
+    'edit-experiment',
+    'add-product-tour',
+    'edit-product-tour',
+    'preview-product-tour',
+] as const satisfies readonly ToolbarUserIntent[]
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -883,8 +1024,8 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
-    Home = 'home',
     All = 'all',
+    Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -927,6 +1068,7 @@ export enum ProgressStatus {
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
+    Paused = 'paused',
     Stopped = 'stopped',
 }
 
@@ -957,6 +1099,9 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     WorkflowVariable = 'workflow_variable',
     Empty = 'empty',
 }
@@ -1047,6 +1192,16 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type SpanPropertyFilterType =
+    | PropertyFilterType.Span
+    | PropertyFilterType.SpanAttribute
+    | PropertyFilterType.SpanResourceAttribute
+
+export interface SpanPropertyFilter extends BasePropertyFilter {
+    type: SpanPropertyFilterType
+    operator: PropertyOperator
+}
+
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
@@ -1065,6 +1220,11 @@ export interface FlagPropertyFilter extends BasePropertyFilter {
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
+}
+
+export interface WorkflowVariablePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.WorkflowVariable
+    operator: PropertyOperator
 }
 
 export interface EmptyPropertyFilter {
@@ -1092,7 +1252,9 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | WorkflowVariablePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1144,8 +1306,8 @@ export type RecordingConsoleLogV2 = {
 }
 
 import type {
-    RecordingSegment as _RecordingSegment,
     EncodedRecordingSnapshot as _EncodedRecordingSnapshot,
+    RecordingSegment as _RecordingSegment,
     RecordingSnapshot as _RecordingSnapshot,
     SessionRecordingSnapshotSource as _SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse as _SessionRecordingSnapshotSourceResponse,
@@ -1205,7 +1367,6 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
-    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
@@ -1480,8 +1641,15 @@ export interface PersonActorType extends CommonActorType {
     type: 'person'
     id: string
     name?: string
-    distinct_ids: string[]
-    is_identified: boolean
+    // distinct_ids and is_identified are required for resolved persons but absent on
+    // stubs returned when the ClickHouse actor_id couldn't be hydrated from Postgres
+    // (see is_unresolved). Callers must guard for the stub case.
+    distinct_ids?: string[]
+    is_identified?: boolean
+    // Set when the person's actor_id from ClickHouse couldn't be hydrated from Postgres
+    // (typically because the person was merged into another or deleted). When true,
+    // distinct_ids/is_identified/properties/created_at may all be missing.
+    is_unresolved?: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
@@ -1527,6 +1695,7 @@ export interface CohortCriteriaType {
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
     explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -1534,7 +1703,7 @@ export interface CohortCriteriaType {
     seq_time_value?: number | string | null
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
-    value_property?: string | null // Transformed into 'value' for api calls
+    value_property?: PropertyFilterValue // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
     sort_key?: string // Client-side only stable id for sorting.
 }
@@ -1602,6 +1771,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -1719,7 +1889,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -1793,8 +1963,11 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
+    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** False when the recording was included in list results via a direct link despite not matching the filters. */
+    matches_filters?: boolean
 }
 
 export interface SessionRecordingUpdateType {
@@ -2041,6 +2214,7 @@ export interface BillingProductV2AddonType {
     display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
     display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
+    default_unit_amount_usd?: string | null // Product's default (undiscounted) unit price
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
@@ -2101,7 +2275,7 @@ export interface BillingType {
     trial?: {
         type: 'autosubscribe' | 'standard'
         status: 'active' | 'expired' | 'cancelled' | 'converted'
-        target: 'paid' | 'teams' | 'enterprise'
+        target: 'paid' | 'teams' | 'enterprise' | 'boost' | 'scale'
         expires_at: string
     }
     billing_plan: BillingPlan | null
@@ -2201,6 +2375,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     insight?: T
     text?: TextModel
     button_tile?: ButtonTileModel
+    widget?: DashboardWidgetModel
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2213,7 +2388,20 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
-export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
+
+export interface DashboardWidgetModel {
+    id: string
+    widget_type: string
+    name?: string | null
+    description?: string
+    config: Record<string, unknown>
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at?: string
+    team?: number
+    dashboard_tiles?: DashboardTileBasicType[] | null
+}
 
 export interface DashboardTileBasicType {
     id: number
@@ -2284,8 +2472,11 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     _create_in_folder?: string | null
 }
 
-export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
-    query: Node | null
+export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>> extends Omit<
+    InsightModel,
+    'filters'
+> {
+    query: R | null
 }
 
 export interface EndpointType extends WithAccessControl {
@@ -2293,15 +2484,16 @@ export interface EndpointType extends WithAccessControl {
     name: string
     description: string
     derived_from_insight?: string | null
-    query: HogQLQuery | InsightQueryNode
+    query: HogQLQuery | EndpointQueryNode
     is_active: boolean
     endpoint_path: string
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
-    cache_age_seconds: number | null
+    data_freshness_seconds: number
     is_materialized: boolean
     current_version: number
+    current_version_id: string
     versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2310,6 +2502,7 @@ export interface EndpointType extends WithAccessControl {
     materialization?: EndpointVersionMaterializationType
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
+    tags?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2327,7 +2520,8 @@ export interface EndpointVersionMaterializationType {
     status?: string
     error?: string
     last_materialized_at?: string
-    sync_frequency?: DataWarehouseSyncInterval
+    saved_query_id?: string
+    sync_frequency?: DataModelingSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2343,6 +2537,8 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
+    /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
+    folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -2356,6 +2552,10 @@ export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags
     search?: string
+    /** When set, sort (not searching). Omit for server default order. Ignored when `search` is set. */
+    ordering?: 'template_name' | '-template_name' | 'created_at' | '-created_at'
+    /** When true, only curated featured templates. When false, only non-featured. */
+    is_featured?: boolean
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
@@ -2376,28 +2576,80 @@ export enum TemplateAvailabilityContext {
     ONBOARDING = 'onboarding',
 }
 
-export interface DashboardTemplateType<T = InsightModel> {
+/**
+ * One row in `DashboardTemplate.tiles` / save-as-template JSON — matches `dashboardToSaveableTemplate` and backend seed templates,
+ * not the live dashboard `DashboardTile` shape (nested `insight` / `text` / `id`).
+ */
+export type DashboardTemplateStoredInsightTile = {
+    type: 'INSIGHT'
+    name?: string
+    description?: string
+    /** Serialized HogQL / insight node tree from the API; often plain JSON with string `kind` literals, not only `Node`/`NodeKind`. */
+    query?: Node | Record<string, unknown> | null
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+    filters?: Record<string, unknown>
+}
+
+export type DashboardTemplateStoredTextTile = {
+    type: 'TEXT'
+    body: string
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredButtonTile = {
+    button_tile: {
+        url: string
+        text: string
+        placement: 'left' | 'right'
+        style: 'primary' | 'secondary'
+    }
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredWidgetTile = {
+    type: 'WIDGET'
+    widget_type: string
+    config?: Record<string, unknown>
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredTile =
+    | DashboardTemplateStoredInsightTile
+    | DashboardTemplateStoredTextTile
+    | DashboardTemplateStoredButtonTile
+    | DashboardTemplateStoredWidgetTile
+
+export interface DashboardTemplateType {
     id: string
     team_id?: number
     created_at?: string
+    created_by?: UserBasicType | null
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile<T>[]
+    tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
     availability_contexts?: TemplateAvailabilityContext[]
+    /** Manually curated highlight flag. */
+    is_featured?: boolean
+    /** Soft delete; API allows PATCH for staff undo (restore). */
+    deleted?: boolean
 }
 
 export interface MonacoMarker {
     message: string
 }
 
-// makes the DashboardTemplateType properties optional and the tiles properties optional
+// makes the DashboardTemplateType properties optional; tiles stay API/wire JSON shape
 export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
-    tiles: Partial<DashboardTile>[]
+    tiles: DashboardTemplateStoredTile[]
 }
 
 export interface DashboardTemplateVariableType {
@@ -2506,7 +2758,6 @@ export interface PluginConfigType {
 
     config: Record<string, any>
     error?: PluginErrorType
-    delivery_rate_24h?: number | null
     created_at?: string
 }
 
@@ -2526,7 +2777,6 @@ export interface PluginConfigTypeNew {
     name: string
     description?: string
     updated_at: string
-    delivery_rate_24h?: number | null
     config: Record<string, any>
 }
 
@@ -2600,6 +2850,8 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    /** Optional emoji shown in place of the default badge when surfacing the annotation. */
+    emoji?: string | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -2630,6 +2882,7 @@ export enum ChartDisplayType {
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
+    SlopeGraph = 'SlopeGraph',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -2803,6 +3056,8 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
     min_decimal_places?: number
+    x_axis_label?: string
+    y_axis_label?: string
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2894,6 +3149,12 @@ export interface RetentionEntity {
     custom_name?: string
     /** filters on the event */
     properties?: AnyPropertyFilter[]
+    /** Data warehouse table name */
+    table_name?: string
+    /** Data warehouse timestamp field */
+    timestamp_field?: string
+    /** Data warehouse field used as the actor identifier */
+    aggregation_target_field?: string
 }
 
 export enum RetentionDashboardDisplayType {
@@ -2988,6 +3249,11 @@ export type InsightEditorFilterGroup = {
     title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
+    show?: boolean
+    /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
+    collapsedSummary?: string | null
+    /** Extra content rendered in the tile header next to the title */
+    headerExtra?: ReactNode
 }
 
 export interface SystemStatusSubrows {
@@ -3056,6 +3322,13 @@ export interface TrendResult {
     persons_urls?: { url: string }[]
     persons?: Person
     filter?: TrendsFilterType
+    /** Series order set by the query runner: the action order for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows).
+     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    order?: number
+    /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
+     * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
+    incomplete_end?: boolean
 }
 
 interface Person {
@@ -3350,6 +3623,7 @@ export interface OpenQuestionResponseData {
     /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
     personDisplayName?: string
     timestamp?: string
+    sessionId?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -3665,6 +3939,18 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
+    base_language?: string | null
+    translations?: Record<
+        string,
+        {
+            name?: string
+            thankYouMessageHeader?: string
+            thankYouMessageDescription?: string
+            thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
+        }
+    > | null
 }
 
 export enum SurveyMatchType {
@@ -3738,6 +4024,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -3770,6 +4058,18 @@ export interface SurveyQuestionBase {
         | ConfirmationMessageBranching
         | ResponseBasedBranching
         | SpecificQuestionBranching
+    translations?: Record<
+        string,
+        {
+            question?: string
+            description?: string
+            buttonText?: string
+            lowerBoundLabel?: string
+            upperBoundLabel?: string
+            choices?: string[]
+            link?: string
+        }
+    > | null
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -3892,7 +4192,8 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    early_exit?: boolean
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -3916,11 +4217,11 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    features: EarlyAccessFeatureType[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
+    features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
-    evaluation_tags: string[]
     evaluation_contexts: string[]
     usage_dashboard?: number
     has_enriched_analytics?: boolean
@@ -3942,6 +4243,7 @@ export interface OrganizationFeatureFlag {
     created_at: string | null
     filters: FeatureFlagFilters
     active: boolean
+    evaluations_7d?: number | null
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -3949,6 +4251,7 @@ export interface OrganizationFeatureFlagsCopyBody {
     from_project: TeamType['id']
     target_project_ids: TeamType['id'][]
     copy_schedule?: boolean
+    disable_copied_flag?: boolean
 }
 
 export type OrganizationFeatureFlags = {
@@ -4012,9 +4315,20 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
     feature_flag_id: number | undefined
 }
 
+/** Shape served by MinimalEarlyAccessFeatureSerializer (camelCase keys), e.g. as `FeatureFlagType.features`. */
+export interface MinimalEarlyAccessFeatureType {
+    id: string
+    name: string
+    description: string
+    stage: EarlyAccessFeatureStage
+    documentationUrl: string
+    flagKey: string | null
+    payload?: Record<string, any>
+}
+
 export interface UserBlastRadiusType {
-    users_affected: number
-    total_users: number
+    affected: number
+    total: number
 }
 
 export enum ScheduledChangeModels {
@@ -4062,6 +4376,7 @@ export interface ScheduledChangeType {
     created_by: UserBasicType
     is_recurring: boolean
     recurrence_interval: RecurrenceInterval | null
+    cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
 }
@@ -4109,10 +4424,6 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
-    posthog_code_slack_service: {
-        available: boolean
-        client_id?: string
-    }
     data_warehouse_integrations: {
         hubspot: {
             client_id?: string
@@ -4123,10 +4434,13 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
     is_debug?: boolean
+    /** Whether one-click dev login is enabled (DEBUG and ALLOW_DEV_LOGIN). */
+    allow_dev_login?: boolean
     /** Whether PostHog is running with settings.TEST. */
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -4172,6 +4486,7 @@ export type HotKey =
     | 'd'
     | 'e'
     | 'f'
+    | 'g'
     | 'h'
     | 'i'
     | 'j'
@@ -4229,6 +4544,8 @@ export interface EventDefinition {
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
+    /** Name of a single property on this event to display alongside it in PostHog UI surfaces. */
+    primary_property?: string | null
 }
 
 export interface EventDefinitionMetrics {
@@ -4271,6 +4588,9 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    Span = 'span',
+    SpanAttribute = 'span_attribute',
+    SpanResourceAttribute = 'span_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }
@@ -4354,6 +4674,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4366,6 +4687,20 @@ export interface ExperimentHoldoutType {
 export enum ExperimentStatsMethod {
     Bayesian = 'bayesian',
     Frequentist = 'frequentist',
+}
+
+export interface ExperimentExposureEstimateConfig {
+    conversionRateInputType: ConversionRateInputType
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    manualBaselineValue?: number
+    manualExposureRate?: number
+}
+
+export interface ExperimentRunningTimeCalculationConfig {
+    minimum_detectable_effect?: number
+    recommended_running_time?: number
+    recommended_sample_size?: number
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
 }
 
 export interface Experiment {
@@ -4388,21 +4723,20 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        exposure_estimate_config?: {
-            conversionRateInputType: ConversionRateInputType
-            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-            manualBaselineValue?: number
-            manualExposureRate?: number
-        } | null
-        minimum_detectable_effect?: number
-        recommended_running_time?: number
-        recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
+        /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
+        prompt_metadata?: {
+            name: string
+            templates: string[]
+            versions: number[]
+        }
     }
+    running_time_calculation?: ExperimentRunningTimeCalculationConfig
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -4416,17 +4750,21 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
+        }
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
         }
     }
-    scheduling_config?: {
-        timeseries?: boolean
-    }
-    exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
@@ -4503,6 +4841,8 @@ export interface CoreFilterDefinition {
     virtual?: boolean
     /** whether this is a property PostHog adds to aid with debugging */
     used_for_debug?: boolean
+    /** Name of a single property on events of this name that UIs should display alongside the event. */
+    primary_property?: string
 }
 
 export interface TileParams {
@@ -4531,18 +4871,26 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    persisted_feature_flags?: string[]
+    /**
+     * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
+     * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
+     */
+    persisted_feature_flags?: string[] | Record<string, string | boolean>
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
+    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
+    oauth_application?: OAuthApplicationPublicMetadata
+    /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
+    homepage?: SceneTab | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -4714,8 +5062,8 @@ export enum CompareLabelType {
 
 export interface InstanceSetting {
     key: string
-    value: boolean | string | number | null
-    value_type: 'bool' | 'str' | 'int'
+    value: boolean | string | number | number[] | null
+    value_type: 'bool' | 'str' | 'int' | 'list[int]'
     description?: string
     editable: boolean
     is_secret: boolean
@@ -4849,12 +5197,28 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
+// Value map for the above — kept a distinct name from the type so kea-typegen still imports
+// the type correctly (a const+type sharing a name drops it from generated `import type` lines).
+export const SubscriptionResourceTypes = {
+    Insight: 'insight',
+    Dashboard: 'dashboard',
+    AiPrompt: 'ai_prompt',
+} as const satisfies Record<string, SubscriptionResourceType>
+
+// TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
+    resource_type: SubscriptionResourceType
     insight?: number
     dashboard?: number
+    insight_short_id?: string | null
+    resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
+    prompt?: string | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -4865,10 +5229,13 @@ export interface SubscriptionType {
     until_date?: string
     title: string
     summary: string
+    next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
-    updated_at: string
     deleted?: boolean
+    enabled?: boolean
+    summary_enabled?: boolean
+    summary_prompt_guide?: string
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -4887,16 +5254,18 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
-    'slack-posthog-code',
     'salesforce',
     'hubspot',
     'google-pubsub',
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
+    'google-search-console',
     'google-sheets',
     'linkedin-ads',
     'snapchat',
+    'stripe',
     'intercom',
     'email',
     'twilio',
@@ -4914,9 +5283,54 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
+
+// Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
+// truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// Widening this list will surface the "Required scopes are missing" banner for any workspace
+// authorized before the change.
+//
+// Declared as an enum (not `as const` + derived type) because ts-json-schema-generator prunes
+// type-alias-only re-exports that aren't referenced as a property type — see ChartDisplayCategory
+// in schema-general.ts for the equivalent value+type re-export pattern that flows cleanly to
+// `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
+export enum SlackIntegrationScope {
+    APP_MENTIONS_READ = 'app_mentions:read',
+    CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_READ = 'channels:read',
+    CHAT_WRITE = 'chat:write',
+    CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    GROUPS_HISTORY = 'groups:history',
+    GROUPS_READ = 'groups:read',
+    LINKS_READ = 'links:read',
+    LINKS_WRITE = 'links:write',
+    REACTIONS_READ = 'reactions:read',
+    REACTIONS_WRITE = 'reactions:write',
+    TEAM_READ = 'team:read',
+    USERS_READ = 'users:read',
+    USERS_READ_EMAIL = 'users:read.email',
+}
+
+export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
+// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
+// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
+// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
+// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
+    IM_HISTORY = 'im:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number
@@ -4987,6 +5401,7 @@ export enum ExporterFormat {
     MP4 = 'video/mp4',
     GIF = 'image/gif',
     HCL = 'text/hcl',
+    MARKDOWN = 'text/markdown',
 }
 
 /** Exporting directly from the browser to a file */
@@ -5018,6 +5433,7 @@ export interface ReplayExportContext {
     filename?: string
     duration?: number
     mode?: SessionRecordingPlayerMode
+    skip_inactivity?: boolean
 }
 
 export interface HeatmapExportContext {
@@ -5029,6 +5445,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5040,6 +5457,7 @@ export type ExportContext = (
 ) & {
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
+    variables_override?: Record<string, any>
 }
 
 export interface ExportedAssetType {
@@ -5090,11 +5508,20 @@ export interface RoleMemberType {
 export type APIScopeObject =
     | 'action'
     | 'access_control'
+    | 'account'
     | 'activity_log'
+    | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
+    | 'approvals'
     | 'batch_export'
+    | 'business_knowledge'
+    | 'clickhouse_test_cluster_perf'
     | 'cohort'
+    | 'comment'
+    | 'customer_analytics'
+    | 'customer_journey'
     | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
@@ -5103,6 +5530,7 @@ export type APIScopeObject =
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
+    | 'engineering_analytics'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -5111,6 +5539,8 @@ export type APIScopeObject =
     | 'external_data_source'
     | 'export'
     | 'feature_flag'
+    | 'file_system'
+    | 'file_system_shortcut'
     | 'group'
     | 'health_issue'
     | 'heatmap'
@@ -5119,38 +5549,52 @@ export type APIScopeObject =
     | 'insight'
     | 'insight_variable'
     | 'integration'
+    | 'legal_document'
     | 'live_debugger'
     | 'llm_analytics'
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
+    | 'llm_skill'
     | 'logs'
+    | 'marketing_analytics'
+    | 'mcp_analytics'
+    | 'metrics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'query_performance'
+    | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'signal_scout'
     | 'subscription'
     | 'survey'
+    | 'tagger'
     | 'task'
     | 'ticket'
     | 'uploaded_media'
+    | 'usage_metric'
     | 'user'
+    | 'user_interview'
     | 'visual_review'
+    | 'warehouse_objects'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5295,9 +5739,11 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
+    PROJECT_SECRET_API_KEY = 'ProjectSecretAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
@@ -5321,11 +5767,15 @@ export enum ActivityScope {
     ORGANIZATION = 'Organization',
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
+    ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
+    LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EVALUATION = 'Evaluation',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
@@ -5337,6 +5787,8 @@ export enum ActivityScope {
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    INSTANCE_SETTING = 'InstanceSetting',
+    SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
 }
 
 export type CommentType = {
@@ -5352,6 +5804,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
@@ -5370,6 +5825,7 @@ export interface DataWarehouseTable {
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
+    user_access_level?: AccessControlLevel
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5394,7 +5850,10 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
-    dag_id: string
+    /** UUID of the DAG this node belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     saved_query_id?: string
     created_at: string
     updated_at: string
@@ -5403,7 +5862,7 @@ export interface DataModelingNode {
     user_tag?: string
     last_run_at?: string
     last_run_status?: DataModelingJobStatus
-    sync_interval?: DataWarehouseSyncInterval
+    sync_interval?: DataModelingSyncInterval
 }
 
 export interface DataModelingEdge {
@@ -5411,8 +5870,23 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    dag_id: string
+    /** UUID of the DAG this edge belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
+export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+
+export interface DataModelingDAG {
+    id: string
+    name: string
+    description: string
+    sync_frequency: DataModelingSyncInterval | null
+    node_count: number
     created_at: string
     updated_at: string
 }
@@ -5428,6 +5902,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
+    folder_id?: string | null
+    folder_name?: string | null
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
@@ -5438,6 +5914,15 @@ export interface DataWarehouseSavedQuery {
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
     expires_at?: string
+    user_access_level?: AccessControlLevel
+}
+
+export interface DataWarehouseSavedQueryFolder {
+    /** UUID */
+    id: string
+    name: string
+    created_at?: string
+    view_count?: number
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5492,13 +5977,14 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
 
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     function_source?: string | null
     available_functions?: string[]
 }
@@ -5506,7 +5992,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
 }
 
 export interface ExternalDataSource {
@@ -5518,7 +6004,8 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
-    engine?: 'duckdb' | 'postgres' | null
+    created_via: 'web' | 'api' | 'mcp' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -5526,6 +6013,38 @@ export interface ExternalDataSource {
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
+    supports_webhooks?: boolean
+    supports_column_selection?: boolean
+}
+
+export interface WebhookExternalStatus {
+    exists: boolean
+    url?: string
+    enabled_events?: string[]
+    status?: string
+    description?: string
+    created_at?: string
+    error?: string
+}
+
+export type WebhookInputValue = { secret: true } | { value: unknown }
+
+export interface WebhookInfo {
+    supports_webhooks: boolean
+    exists: boolean
+    hog_function?: {
+        id: string
+        name: string
+        enabled: boolean
+        created_at: string
+        status: { state: number; tokens: number }
+    }
+    webhook_url?: string
+    schema_mapping?: Record<string, string>
+    inputs?: Record<string, WebhookInputValue>
+    external_status?: WebhookExternalStatus | null
+    // Desired provider events not yet on the webhook (manual setup, or created before a new table).
+    missing_events?: string[]
 }
 
 export interface DataModelingJob {
@@ -5544,8 +6063,27 @@ export interface DataModelingJob {
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
+    label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
+    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+}
+
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
+}
+
+/** The comparison operators a row filter may use. Mirrors the backend allowlist. */
+export type RowFilterOperator = '>' | '>=' | '<' | '<=' | '=' | '!=' | 'IN' | 'NOT IN'
+
+/** A `{column, operator, value}` predicate ANDed onto a schema's source query. For `IN` / `NOT IN`, `value` is a comma-separated string. */
+export interface RowFilter {
+    column: string
+    operator: RowFilterOperator
+    value: string | number | boolean
 }
 
 export type SchemaIncrementalFieldsResponse = {
@@ -5554,6 +6092,9 @@ export type SchemaIncrementalFieldsResponse = {
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
+    cdc_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -5565,28 +6106,60 @@ export interface IncrementalField {
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
+    is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
 }
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    label?: string | null
     rows?: number | null
     should_sync: boolean
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | 'append' | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    cdc_available?: boolean
+    cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
+    /** True when the resource has no API list endpoint and can only be populated via webhooks
+     *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
+    webhook_only?: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
+    /**
+     * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
+     * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
+     * available. The UI should disable selection and surface this string when set.
+     */
+    permission_error?: string | null
+    /**
+     * Advisory warning when row-level security is active for the sync role on this table:
+     * the sync may read fewer rows than the table contains, and the gap can't be measured.
+     * `null`/undefined = no warning. Unlike `permission_error` this does NOT block selection.
+     */
+    rls_warning?: string | null
+    /**
+     * User-selected source columns to sync. `null`/undefined = sync all columns.
+     * PK columns and the active incremental field are always retained server-side.
+     */
+    enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null`/undefined/empty = sync all rows.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | 'append' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
@@ -5595,6 +6168,32 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
+    cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * User-selected source columns to sync. `null` means "sync all columns".
+     * Primary-key + active incremental columns are always retained even if not listed.
+     */
+    enabled_columns?: string[] | null
+    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null` means "sync all rows". Applied on the next sync — not retroactive.
+     */
+    row_filters?: RowFilter[] | null
+}
+
+/** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
+export interface ExternalDataSchemaSourceSummary {
+    id: string
+    source_type: ExternalDataSourceType
+    supports_column_selection?: boolean
+    user_access_level: AccessControlLevel | null
+}
+
+export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
+    /** Populated only on the single-schema retrieve endpoint; `null` when serialized elsewhere. */
+    source: ExternalDataSchemaSourceSummary | null
 }
 
 export enum ExternalDataSchemaStatus {
@@ -5622,11 +6221,19 @@ export interface ExternalDataJob {
     rows_synced: number
     latest_error: string
     workflow_run_id?: string
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows
+     * produced for the same schema: `incremental_merge` (consolidated table) vs `scd2_append`
+     * (cdc-only history table). `null` for non-CDC syncs.
+     */
+    cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
 }
 
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices`). */
+    hogql_name?: string
     columns: DatabaseSchemaField[]
     row_count: number
 }
@@ -5648,6 +6255,42 @@ export type BatchExportServiceS3 = {
         file_format: string
         max_file_size_mb: number | null
         use_virtual_style_addressing: boolean
+    }
+}
+
+export type BatchExportServiceAwsS3 = {
+    type: 'AwsS3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
+export type BatchExportServiceS3Compatible = {
+    type: 'S3Compatible'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        endpoint_url: string
+        use_virtual_style_addressing: boolean
+        file_format: string
+        max_file_size_mb: number | null
     }
 }
 
@@ -5690,11 +6333,6 @@ export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     integration?: number
     config: {
-        project_id: string
-        private_key: string
-        private_key_id: string
-        client_email: string
-        token_uri: string
         dataset_id: string
         table_id: string
         exclude_events: string[]
@@ -5777,7 +6415,11 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
+    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
     'S3',
+    'AwsS3',
+    'S3Compatible',
     'Snowflake',
     'Postgres',
     'BigQuery',
@@ -5788,6 +6430,8 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
 ]
 export type BatchExportService =
     | BatchExportServiceS3
+    | BatchExportServiceAwsS3
+    | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
     | BatchExportServicePostgres
     | BatchExportServiceBigQuery
@@ -5799,6 +6443,7 @@ export type BatchExportService =
 export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes' | 'every 15 minutes'
 
 export type DataWarehouseSyncInterval =
+    | '1min'
     | '5min'
     | '15min'
     | '30min'
@@ -5864,7 +6509,9 @@ export type RawBatchExportRun = {
     data_interval_end: string
     last_updated_at?: string
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
@@ -5884,7 +6531,9 @@ export type BatchExportRun = {
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type GroupedBatchExportRuns = {
@@ -5947,6 +6596,7 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: SDKTag[]
+    searchTerms?: string[]
     image:
         | string
         | JSX.Element
@@ -5968,10 +6618,12 @@ export enum SDKKey {
     API = 'api',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
+    CLOUDFLARE_AI_GATEWAY = 'cloudflare_ai_gateway',
     COHERE = 'cohere',
     CONVEX = 'convex',
     CREWAI = 'crewai',
     DJANGO = 'django',
+    DEDALUS = 'dedalus',
     DEEPSEEK = 'deepseek',
     DOCUSAURUS = 'docusaurus',
     DOTNET = 'dotnet',
@@ -6011,6 +6663,7 @@ export enum SDKKey {
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
     OPENROUTER = 'openrouter',
+    OPENTELEMETRY = 'opentelemetry',
     PERPLEXITY = 'perplexity',
     PHP = 'php',
     PORTKEY = 'portkey',
@@ -6018,6 +6671,7 @@ export enum SDKKey {
     PYTHON = 'python',
     REACT = 'react',
     REACT_NATIVE = 'react_native',
+    REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
@@ -6060,39 +6714,14 @@ export enum SDKTag {
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ComposeWebhook = 'composeWebhook',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
-
-/*
-    WARNING: Everything below 'Notebooks' is to be removed in future releases
-*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
-    Docs = 'docs',
-    Changelog = 'changelog',
-    Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
-    Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
-    Health = 'health',
     Info = 'info',
 }
 
@@ -6135,8 +6764,9 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
-    | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.AI_OBSERVABILITY
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 
@@ -6152,6 +6782,10 @@ export type OnboardingProduct = {
     socialProof?: string
     userCentricDescription?: string
     capabilities?: string[]
+    /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
+    valueProps?: { title: string; problem: string }[]
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    hedgehog?: React.ComponentType<{ className?: string }>
 }
 
 export type CyclotronJobInputSchemaType = {
@@ -6168,9 +6802,13 @@ export type CyclotronJobInputSchemaType = {
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -6244,6 +6882,7 @@ export interface HogFunctionMappingType {
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
+    use_all_events_by_default?: boolean
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
     name: string
@@ -6295,11 +6934,13 @@ export type HogFunctionConfigurationContextId =
     | 'insight-alerts'
     | 'experiment-alerts'
     | 'logs-alerting'
+    | 'health-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
+    | 'feature-flag-change'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
@@ -6307,6 +6948,11 @@ export type HogFunctionSubTemplateIdType =
     | 'insight-alert-firing'
     | 'experiment-significant'
     | 'logs-alert-firing'
+    | 'logs-alert-resolved'
+    | 'logs-alert-auto-disabled'
+    | 'logs-alert-errored'
+    | 'health-check-firing'
+    | 'health-check-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6344,6 +6990,8 @@ export type HogFunctionTemplateType = Pick<
     flag?: string
     /** Whether this is a featured/recommended source */
     featured?: boolean
+    /** Release status, only populated for `type: 'source'` templates */
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -6568,11 +7216,24 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+export type ConversationTopic =
+    | 'web_analytics'
+    | 'product_analytics'
+    | 'session_replay'
+    | 'surveys'
+    | 'feature_flags'
+    | 'experiments'
+    | 'error_tracking'
+    | 'data_warehouse'
+    | 'other'
+
 export interface Conversation {
     id: string
     user: UserBasicType
     status: ConversationStatus
     title: string | null
+    /** Product domain classified from the first question; drives contextual nudges. */
+    topic?: ConversationTopic | null
     created_at: string | null
     updated_at: string | null
     type: ConversationType
@@ -6586,7 +7247,8 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: RootAssistantMessage[]
+    /** undefined = not yet fetched, [] = fetched but empty, [...] = fetched with content */
+    messages?: RootAssistantMessage[]
 }
 
 export enum UserRole {
@@ -6621,6 +7283,13 @@ export interface FileSystemType {
     iconColor?: FileSystemIconColor
 }
 
+export interface FeaturePreviewGateConfig {
+    flag: string
+    title: string
+    description: string
+    docsURL?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -6629,7 +7298,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }
@@ -6653,6 +7322,7 @@ export type OAuthApplicationPublicMetadata = {
     name: string
     client_id: string
     is_verified: boolean
+    logo_uri: string | null
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7084,6 +7754,8 @@ export interface WebAnalyticsFiltersConfig {
     compareFilter?: { compare?: boolean; compare_to?: string | null }
     domainFilter?: string | null
     deviceTypeFilter?: string | null
+    countryFilter?: string | null
+    referrerFilter?: string | null
     conversionGoal?: { actionId?: number; customEventName?: string } | null
     isPathCleaningEnabled?: boolean
     shouldFilterTestAccounts?: boolean

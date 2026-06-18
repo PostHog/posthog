@@ -26,7 +26,7 @@ npx @posthog/wizard@latest mcp add
       "args": [
         "-y",
         "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+        "https://mcp.posthog.com/mcp",
         "--header",
         "Authorization:${POSTHOG_AUTH_HEADER}"
       ],
@@ -98,60 +98,6 @@ await client.close()
 - After `initialize`, the client must send `notifications/initialized`; the SDK does this for you in `connect()`.
 
 See also the main PostHog MCP docs for available tools and setup flows: [https://posthog.com/docs/model-context-protocol](https://posthog.com/docs/model-context-protocol)
-
-### Docker install
-
-If you prefer to use Docker instead of running npx directly:
-
-1. Build the Docker image:
-
-```bash
-pnpm docker:build
-# or
-docker build -t posthog-mcp .
-```
-
-2. Configure your MCP client with Docker:
-
-```json
-{
-  "mcpServers": {
-    "posthog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env",
-        "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
-        "--env",
-        "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
-        "posthog-mcp"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
-        "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
-      }
-    }
-  }
-}
-```
-
-3. Test Docker with MCP Inspector:
-
-```bash
-pnpm docker:inspector
-# or
-npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} posthog-mcp
-```
-
-**Environment Variables:**
-
-- `POSTHOG_AUTH_HEADER`: Your PostHog API token (required)
-- `POSTHOG_REMOTE_MCP_URL`: The MCP server URL (optional, defaults to `https://mcp.posthog.com/mcp`)
-
-This approach allows you to use the PostHog MCP server without needing Node.js or npm installed locally.
 
 ### Example Prompts
 
@@ -227,7 +173,7 @@ Created experiment 'Pricing page test':
 
 **What happens:**
 
-1. The `list-errors` tool fetches error groups sorted by occurrence count
+1. The `query-error-tracking-issues-list` tool fetches error groups sorted by occurrence count
 2. Returns error details including affected user counts
 
 **Expected output:**
@@ -287,7 +233,7 @@ Available features:
 | `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
 | `hog_function_templates` | CDP function template browsing                                                                            |
 | `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
 | `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
 | `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
 | `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
@@ -301,6 +247,59 @@ Available features:
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
 To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+
+### Tool filtering
+
+For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
+
+```text
+https://mcp.posthog.com/mcp?tools=dashboard-get,feature-flag-get-all,execute-sql
+```
+
+When `features` and `tools` are both provided they are combined as a **union** — a tool is included if it matches a feature category **or** is in the tools list. This lets you select a feature group and add a handful of individual tools on top:
+
+```text
+https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
+```
+
+The example above exposes all flag tools plus `dashboard-get`.
+
+### Server mode (tools vs cli)
+
+The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
+
+You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
+
+```text
+https://mcp.posthog.com/mcp?mode=cli
+https://mcp.posthog.com/mcp?mode=tools
+```
+
+```http
+x-posthog-mcp-mode: cli
+x-posthog-mcp-mode: tools
+```
+
+| Value   | Behavior                                                |
+| ------- | ------------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
+| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+
+The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+
+### Consumer attribution
+
+Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
+
+```text
+https://mcp.posthog.com/mcp?consumer=plugin
+```
+
+```http
+x-posthog-mcp-consumer: plugin
+```
+
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 
@@ -319,6 +318,18 @@ pnpm run dev
 ```
 
 And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+
+### Hono runtime (Node)
+
+Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+
+```bash
+pnpm run dev:hono
+```
+
+Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
+
+`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 
 ### Developing with local resources
 
@@ -405,6 +416,6 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code 
 
 ### Data handling
 
-The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily using Cloudflare Durable Objects tied to your API key hash.
+The MCP server acts as a proxy to your PostHog instance. It does not store your analytics data - all queries are executed against your PostHog project and results are returned directly to your AI client. Session state (active project/organization) is cached temporarily, keyed by your API key hash.
 
 For EU users, use the `mcp-eu.posthog.com` endpoint to ensure OAuth flows route to the EU PostHog instance.

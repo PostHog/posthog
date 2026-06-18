@@ -2,7 +2,10 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.models import OrganizationDomain
 
+
+@admin.register(OrganizationDomain)
 class OrganizationDomainAdmin(admin.ModelAdmin):
     list_display = (
         "domain",
@@ -25,9 +28,9 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
         "verification_challenge",
         "last_verification_retry",
     )
-    autocomplete_fields = ["organization"]
+    autocomplete_fields = ["organization", "identity_provider_config"]
     fieldsets = (
-        (None, {"fields": ("id", "organization", "domain")}),
+        (None, {"fields": ("id", "organization", "domain", "identity_provider_config")}),
         ("Verification", {"fields": ("verification_challenge", "verified_at", "last_verification_retry")}),
         ("Access Control", {"fields": ("jit_provisioning_enabled", "sso_enforcement")}),
         ("SAML Configuration", {"fields": ("saml_entity_id", "saml_acs_url", "saml_x509_cert")}),

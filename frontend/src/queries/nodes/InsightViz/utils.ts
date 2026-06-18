@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 
 import { ApiError } from 'lib/api'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils/events'
 
 import { examples } from '~/queries/examples'
 import {
@@ -102,18 +102,16 @@ export function getQueryFromInsightLike(insight: {
     if (insight.query) {
         query = insight.query
     } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
-        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
+        } as InsightVizNode
     } else {
         query = null
     }
 
     return query
 }
-
-export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: filtersToQueryNode(filters),
-})
 
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
@@ -166,7 +164,7 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null
@@ -191,6 +189,16 @@ export const extractValidationError = (error: Error | Record<string, any> | null
         return error?.status === 400 || error?.status === 512
             ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
             : null
+    }
+
+    return null
+}
+
+export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        if (error?.status === 400 || error?.status === 512) {
+            return error.code ?? error.data?.code ?? null
+        }
     }
 
     return null

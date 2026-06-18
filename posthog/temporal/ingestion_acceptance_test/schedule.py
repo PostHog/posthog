@@ -30,7 +30,7 @@ async def create_ingestion_acceptance_test_schedule(client: Client) -> None:
                 maximum_attempts=1,  # Don't retry - we want to know immediately if it fails
             ),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=10))]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=15))]),
     )
 
     if await a_schedule_exists(client, SCHEDULE_ID):

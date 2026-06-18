@@ -36,6 +36,14 @@ export const HogFlowSchema = z.object({
         .object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any().optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             bytecode: z.array(z.union([z.string(), z.number()])).optional(), // Bytecode only present after save
         })
         .optional(),
@@ -62,10 +70,9 @@ export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend
 export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     hog_flow: z.string(),
-    variables: z.record(z.any()),
+    variables: z.record(z.string(), z.any()),
     status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
     filters: z.any(),
-    scheduled_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
 })
@@ -93,4 +100,16 @@ export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
 
 export interface HogFlowBatchJob extends z.infer<typeof HogFlowBatchJobSchema> {
     created_by?: UserBasicType | null
+}
+
+export interface HogFlowSchedule {
+    id: string
+    rrule: string
+    starts_at: string
+    timezone?: string
+    variables?: Record<string, unknown>
+    status?: string
+    next_run_at?: string | null
+    created_at?: string
+    updated_at?: string
 }

@@ -571,7 +571,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
 
-        # Date is before the capture range
+        # Date is before the capture range but overlaps (last event at window start)
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace3",
@@ -588,8 +588,119 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        # trace3 overlaps the window (last_timestamp=00:00 >= date_from=00:00)
+        self.assertEqual(len(response.results), 2)
+        result_ids = {t.id for t in response.results}
+        self.assertIn("trace1", result_ids)
+        self.assertIn("trace3", result_ids)
+
+    def test_trailing_buffer_does_not_swallow_window_traces(self):
+        # Regression: when more traces exist in the +10 min trailing capture
+        # buffer than the page size, the trace_ids subquery's `ORDER BY
+        # min(timestamp) DESC LIMIT N` used to pick exclusively buffer traces,
+        # which were then dropped by the overlap post-filter — producing an
+        # empty page even though the user window contained valid traces.
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"in_window_{i}",
+                timestamp=datetime(2024, 12, 1, 10, 10 * i),
+            )
+
+        # 6 traces in (date_to, date_to + 10 min] — all newer than the in-window
+        # ones, so a naive `ORDER BY min(timestamp) DESC LIMIT 5` would pick them.
+        for i in range(6):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"buffer_{i}",
+                timestamp=datetime(2024, 12, 1, 11, 1 + i),
+            )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                limit=4,  # pagination_limit = 4 + 0 + 1 = 5; smaller than the buffer count
+                dateRange=DateRange(
+                    date_from="2024-12-01T10:00:00Z",
+                    date_to="2024-12-01T11:00:00Z",
+                ),
+            ),
+        ).calculate()
+
+        result_ids = [t.id for t in response.results]
+        self.assertEqual(
+            len(response.results),
+            5,
+            f"expected 5 in-window traces; got {len(response.results)}: {result_ids}",
+        )
+        for rid in result_ids:
+            self.assertTrue(rid.startswith("in_window_"), f"unexpected trace id {rid} in results")
+
+    def test_overlap_semantics_trace_started_before_window(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Trace A: first event within capture range but before date_from
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_a",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 10, 55),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_a",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 30),
+        )
+
+        # Trace B: fully within window
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_b",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 15),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_b",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 11, 40),
+        )
+
+        # Trace C: entirely before the window and capture range
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_c",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 9, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_c",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 9, 30),
+        )
+
+        # Window: 11:00 to 12:00
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(
+                    date_from="2024-12-01T11:00:00Z",
+                    date_to="2024-12-01T12:00:00Z",
+                )
+            ),
+        ).calculate()
+
+        result_ids = {t.id for t in response.results}
+        self.assertEqual(len(response.results), 2)
+        self.assertIn("trace_a", result_ids)
+        self.assertIn("trace_b", result_ids)
+        self.assertNotIn("trace_c", result_ids)
 
     def test_event_property_filters(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -1764,3 +1875,54 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace_num = int(trace_id.split("_")[1])
             self.assertGreaterEqual(trace_num, 0)
             self.assertLess(trace_num, 10)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_request_and_web_search_cost_aggregation(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_cost_components"
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            team=self.team,
+            trace_id=trace_id,
+            input="first generation",
+            output="first response",
+            timestamp=datetime(2025, 1, 15, 0, 0),
+            properties={
+                "$ai_input_cost_usd": 0.01,
+                "$ai_output_cost_usd": 0.02,
+                "$ai_request_cost_usd": 0.003,
+                "$ai_web_search_cost_usd": 0.015,
+                "$ai_total_cost_usd": 0.048,
+            },
+        )
+        # Second event omits web_search_cost — verify partial presence sums correctly
+        _create_ai_generation_event(
+            distinct_id="person1",
+            team=self.team,
+            trace_id=trace_id,
+            input="second generation",
+            output="second response",
+            timestamp=datetime(2025, 1, 15, 0, 1),
+            properties={
+                "$ai_input_cost_usd": 0.005,
+                "$ai_output_cost_usd": 0.01,
+                "$ai_request_cost_usd": 0.002,
+                "$ai_total_cost_usd": 0.017,
+            },
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+
+        # Values chosen to be exact in IEEE 754 after ClickHouse round(..., 10)
+        self.assertEqual(trace.inputCost, 0.015)
+        self.assertEqual(trace.outputCost, 0.03)
+        self.assertEqual(trace.requestCost, 0.005)
+        self.assertEqual(trace.webSearchCost, 0.015)
+        self.assertEqual(trace.totalCost, 0.065)

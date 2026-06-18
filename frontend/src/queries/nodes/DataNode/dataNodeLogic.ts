@@ -19,8 +19,9 @@ import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
+import { uuid } from 'lib/utils/dom'
+import { shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -116,18 +117,23 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
-const webAnalyticsConcurrencyController = new ConcurrencyController(3)
-const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
+const webAnalyticsConcurrencyController = new ConcurrencyController(6)
+const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
+const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
+
+    if (activeScene === Scene.MarketingAnalytics) {
+        return marketingAnalyticsConcurrencyController
+    }
+
     if (
         [
             Scene.WebAnalytics,
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
-            Scene.WebAnalyticsMarketing,
             Scene.WebAnalyticsHealth,
             Scene.WebAnalyticsLive,
         ].includes(activeScene as Scene) &&
@@ -869,9 +875,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(
-                                    100,
-                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                limit: Math.min(
+                                    effectivePaginationLimit,
+                                    Math.max(100, 2 * (typedResults?.length || 100))
                                 ),
                             } as
                                 | EventsQuery

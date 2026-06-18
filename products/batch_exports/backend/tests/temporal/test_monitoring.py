@@ -12,9 +12,9 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,
@@ -370,7 +370,7 @@ def test_log_warning_for_missing_events():
         _log_warning_for_missing_events(batch_export_id, missing_events)
 
         mock_logger.warning.assert_called_once_with(
-            f"Batch Exports Monitoring: Found missing events:\n"
+            "Batch Exports Monitoring: Found missing events:\n"
             "- 100 events missing in interval 2024-01-01 10:00:00 to 2024-01-01 10:05:00\n"
             "- 200 events missing in interval 2024-01-01 10:05:00 to 2024-01-01 10:10:00\n"
         )

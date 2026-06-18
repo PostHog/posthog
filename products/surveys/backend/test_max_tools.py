@@ -9,9 +9,10 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
-from posthog.models import FeatureFlag, Insight
-
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
@@ -84,6 +85,21 @@ class TestSurveyCreatorTool(BaseTest):
         assert "Survey must have at least one question" in content
         assert artifact["error"] == "validation_failed"
         assert "No questions provided" in artifact["error_message"]
+
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Test Survey",
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
+        )
+
+        assert "Survey validation failed" in content
+        assert artifact["error"] == "validation_failed"
+        assert "choices" in artifact["error_message"]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -328,6 +344,57 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.conditions["url"] == "/pricing"
         assert survey.conditions["urlMatchType"] == "icontains"
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Sanitized Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="<b>Click here</b><script>alert('xss')</script>",
+                    description="<i>Learn more</i><script>evil()</script>",
+                    button_text="<strong>Open</strong><script>bad()</script>",
+                    link="https://example.com",
+                )
+            ],
+        )
+
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.questions is not None
+
+        question = survey.questions[0]
+        assert "<b>Click here</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Learn more</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Open</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Unsafe Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="Open this link",
+                    link="javascript:alert('xss')",
+                )
+            ],
+        )
+
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
+        assert not await sync_to_async(Survey.objects.filter(name="Unsafe Survey").exists)()
+
 
 class TestSurveyAnalysisTool(BaseTest):
     def setUp(self):
@@ -569,6 +636,22 @@ class TestEditSurveyTool(BaseTest):
         assert updated_survey.questions[0]["type"] == "rating"
         assert updated_survey.questions[0]["scale"] == 5
 
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
+        )
+
+        assert "Survey validation failed" in content
+        assert artifact["error"] == "validation_failed"
+        assert "choices" in artifact["error_message"]
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_edit_survey_questions_preserves_ids_with_numeric_labels(self):
@@ -682,21 +765,124 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_edit_survey_targeting_clears_stale_keys(self):
+    @parameterized.expand(
+        [
+            (
+                "flag_variant_preserves_url",
+                False,
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                },
+                {"linked_flag_variant": "control"},
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+            (
+                "url_preserves_flag_variant",
+                True,
+                {
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+                {
+                    "target_url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "target_url_match": "regex",
+                },
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+        ]
+    )
+    async def test_edit_survey_targeting_updates_preserve_existing_conditions(
+        self,
+        _case_name,
+        initial_linked_flag,
+        initial_conditions,
+        tool_kwargs,
+        expected_conditions,
+    ):
         tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if "linked_flag_variant" in tool_kwargs:
+            tool_kwargs = {**tool_kwargs, "linked_flag_id": flag.id}
+
         survey = await self._create_test_survey(
-            conditions={"url": "/old-page", "urlMatchType": "icontains", "seenSurveyWaitPeriodInDays": 7}
+            linked_flag=flag if initial_linked_flag else None,
+            conditions=initial_conditions,
         )
 
-        content, artifact = await tool._arun_impl(survey_id=str(survey.id), linked_flag_variant="control")
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), **tool_kwargs)
 
         assert "updated successfully" in content
+        assert "conditions" in artifact["updated_fields"]
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
-        assert updated_survey.conditions is not None
-        assert "url" not in updated_survey.conditions
-        assert "urlMatchType" not in updated_survey.conditions
-        assert "seenSurveyWaitPeriodInDays" not in updated_survey.conditions
-        assert updated_survey.conditions["linkedFlagVariant"] == "control"
+        if "linked_flag_id" in tool_kwargs or initial_linked_flag:
+            assert updated_survey.linked_flag_id == flag.id
+        assert updated_survey.conditions == expected_conditions
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_can_explicitly_remove_targeting(self):
+        tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        survey = await self._create_test_survey(
+            linked_flag=flag,
+            conditions={
+                "url": "/old-page",
+                "urlMatchType": "icontains",
+                "seenSurveyWaitPeriodInDays": 7,
+                "linkedFlagVariant": "control",
+            },
+        )
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            remove_url_targeting=True,
+            remove_linked_flag=True,
+            remove_wait_period=True,
+        )
+
+        assert "updated successfully" in content
+        assert "linked_flag_id" in artifact["updated_fields"]
+        assert "conditions" in artifact["updated_fields"]
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.linked_flag_id is None
+        assert updated_survey.conditions == {}
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_remove_targeting_is_dangerous(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), remove_url_targeting=True)
+        preview = await tool.format_dangerous_operation_preview(
+            survey_id=str(survey.id), remove_url_targeting=True, remove_linked_flag=True
+        )
+
+        assert is_dangerous is True
+        assert "Remove URL targeting" in preview
+        assert "Remove linked feature flag targeting" in preview
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -802,6 +988,67 @@ class TestEditSurveyTool(BaseTest):
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
         assert updated_survey.end_date is not None
         assert updated_survey.archived is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="open",
+                    question="<b>Updated question</b><script>alert('xss')</script>",
+                    description="<i>Details</i><script>bad()</script>",
+                    button_text="<strong>Send</strong><script>evil()</script>",
+                )
+            ],
+        )
+
+        assert "updated successfully" in content
+        assert "questions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        question = updated_survey.questions[0]
+        assert "<b>Updated question</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Details</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Send</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "link", "question": "Safe question?", "link": "https://example.com", "id": "q1"}]
+        )
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="link",
+                    question="Unsafe question?",
+                    link="javascript:alert('xss')",
+                )
+            ],
+        )
+
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["question"] == "Safe question?"
+        assert updated_survey.questions[0]["link"] == "https://example.com"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

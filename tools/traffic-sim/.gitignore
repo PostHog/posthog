@@ -1,0 +1,4 @@
+results/
+browserstack.yml
+__pycache__/
+*.pyc

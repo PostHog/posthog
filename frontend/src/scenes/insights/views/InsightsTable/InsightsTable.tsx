@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -17,7 +17,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { isValidBreakdown } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -79,7 +79,7 @@ export function InsightsTable({
     isMainInsightView = false,
     editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -135,17 +135,20 @@ export function InsightsTable({
     // info into the first column and skip the separate "Breakdown" column.
     const isSingleSeriesWithBreakdown =
         isSingleSeriesDefinition &&
-        isValidBreakdown(breakdownFilter) &&
+        hasBreakdownFilter(breakdownFilter) &&
         !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
 
-    const formatItemBreakdownLabel = isValidBreakdown(breakdownFilter)
+    // Untruncated — BreakdownColumnItem clips for display but needs the full value for hover and copy
+    const formatItemBreakdownLabel = hasBreakdownFilter(breakdownFilter)
         ? (item: IndexedTrendResult): string =>
               formatBreakdownLabel(
                   Array.isArray(item.breakdown_value) ? item.breakdown_value[0] : item.breakdown_value,
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  undefined,
+                  false
               )
         : undefined
 
@@ -158,7 +161,9 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
-                        disabledReason={editingDisabledReason}
+                        disabledReason={
+                            !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                        }
                     />
                 )}
                 {isSingleSeriesWithBreakdown ? (
@@ -189,7 +194,7 @@ export function InsightsTable({
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeriesDefinition}
-                    hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    hasBreakdown={hasBreakdownFilter(breakdownFilter)}
                     hideCompare={isCompareTable}
                 />
             )
@@ -201,7 +206,9 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
+                    disabledReason={
+                        !canCheckUncheckSeries ? 'You need editor access to modify this insight.' : undefined
+                    }
                 />
             ) : (
                 label
@@ -222,7 +229,7 @@ export function InsightsTable({
         },
     })
 
-    if (breakdownFilter?.breakdown) {
+    if (hasBreakdownFilter(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
             columns.push({
                 title: (
@@ -271,7 +278,9 @@ export function InsightsTable({
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay,
-                    index
+                    index,
+                    undefined,
+                    false
                 )
 
             const columnKey = `breakdown-${breakdown.property?.toString() || index}`
@@ -508,9 +517,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
-            // Allow vertical scrolling within the card so long tables
-            // inside dashboards remain scrollable without resizing tiles.
-            allowContentScroll={isInDashboardContext}
+            // Allow vertical scrolling so long tables inside constrained
+            // containers (dashboards, embedded views) remain scrollable.
+            allowContentScroll={isInDashboardContext || embedded}
         />
     )
 }

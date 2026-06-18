@@ -1,7 +1,8 @@
 import react from '@vitejs/plugin-react'
-import { readdirSync } from 'fs'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
+
+import { discoverApps } from './scripts/utils'
 
 // PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
@@ -17,16 +18,6 @@ const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
 // Single app mode: UI_APP env var selects which app to build
 const appName = process.env.UI_APP
-
-/**
- * Auto-discover UI apps from src/ui-apps/apps/.
- * An app is any .tsx file in the directory (e.g. debug.tsx → "debug").
- */
-function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
-        .filter((f) => f.endsWith('.tsx'))
-        .map((f) => f.replace(/\.tsx$/, ''))
-}
 
 // Discover all apps
 const ALL_APPS = discoverApps()
@@ -48,11 +39,35 @@ const ALL_APPS = discoverApps()
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: {
-            products: resolve(__dirname, '../../products'),
-            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@common': resolve(__dirname, '../../common'),
-        },
+        alias: [
+            { find: 'products', replacement: resolve(__dirname, '../../products') },
+            { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+            // Resolve Quill explicitly so files imported via the `products` alias
+            // (which live outside this package's node_modules tree) can find it.
+            // Match exact import (`@posthog/quill`) -> dist/index.js, but leave
+            // subpath imports (`@posthog/quill/tokens.css`, etc.) to fall through
+            // to the package's exports map.
+            {
+                find: /^@posthog\/quill$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
+            },
+            // quill-charts is consumed as source (its package main is src/index.ts); resolve it
+            // explicitly so files reached via the `products` alias — and the local chart wrappers —
+            // can find it without a node_modules symlink.
+            {
+                find: /^@posthog\/quill-charts$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
+            },
+            // lucide-react, react, and react-dom aren't reachable from files
+            // resolved via the `products` alias (products/ isn't a dep of this
+            // package), so pin them to this package's copies. react needs its
+            // subpaths covered too: Vite 7 resolves the injected react/jsx-runtime
+            // import relative to the importing file.
+            { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+            { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
+            { find: '@common', replacement: resolve(__dirname, '../../common') },
+        ],
     },
     define: {
         // Inject PostHog configuration at build time

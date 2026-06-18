@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -31,14 +32,13 @@ from ee.hogai.sandbox.types import (
     ACP_METHOD_SESSION_UPDATE,
     ACP_NOTIFICATION_TYPE,
     ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK,
-    TURN_COMPLETE_METHOD,
     ACPNotification,
     ACPSessionUpdateParams,
     SandboxSeedEvent,
+    is_turn_complete,
 )
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -186,7 +186,7 @@ def handle_sandbox_message(
 
 
 def _make_streaming_response(
-    async_generator_factory: Callable[[], AsyncGenerator[bytes, None]],
+    async_generator_factory: Callable[[], AsyncGenerator[bytes]],
 ) -> StreamingHttpResponse:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
     return StreamingHttpResponse(
@@ -233,11 +233,7 @@ def _seed_sandbox_stream(run_id: str) -> None:
     conn.expire(stream_key, SANDBOX_STREAM_TTL)
 
 
-def _is_turn_complete(event: dict) -> bool:
-    if event.get("type") != ACP_NOTIFICATION_TYPE:
-        return False
-    notification = event.get("notification", {})
-    return notification.get("method") == TURN_COMPLETE_METHOD
+_is_turn_complete = is_turn_complete
 
 
 async def _sandbox_stream(
@@ -247,7 +243,7 @@ async def _sandbox_stream(
     conversation_id: str | None = None,
     user_content: str | None = None,
     team_id: int | None = None,
-) -> AsyncGenerator[bytes, None]:
+) -> AsyncGenerator[bytes]:
     """Stream sandbox events from Redis to the browser as SSE.
 
     Reads events in a background task and funnels them through an

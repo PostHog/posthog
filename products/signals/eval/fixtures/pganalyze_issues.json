@@ -1,0 +1,42 @@
+[
+  {
+    "id": "issue_unused_index_persondistinctid",
+    "database_id": "db_main",
+    "description": "Index 'posthog_persondistinctid_distinct_id_team_id_aac1d8f8' on table 'posthog_persondistinctid' has not been used in the last 21 days (0 scans, 1.4GB storage). Dropping it would remove write-amplification overhead on a table with high INSERT and UPDATE volume from person merging. Detected by the 'index_unused' check.",
+    "severity": "warning",
+    "references": "[{\"kind\": \"Index\", \"name\": \"posthog_persondistinctid_distinct_id_team_id_aac1d8f8\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/indexes/posthog_persondistinctid_distinct_id_team_id_aac1d8f8\"}, {\"kind\": \"Table\", \"name\": \"posthog_persondistinctid\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/tables/posthog_persondistinctid\"}]",
+    "server_human_id": "posthog-cloud-prod",
+    "server_name": "posthog-cloud-prod-us-east-1",
+    "synced_at": "2026-04-20T12:00:00+00:00"
+  },
+  {
+    "id": "issue_missing_index_propertydefinition_project_query",
+    "database_id": "db_main",
+    "description": "Sequential scan on 'posthog_propertydefinition' accounts for 8.3% of total runtime. Filter clause is `WHERE project_id = $1 AND query @@ to_tsquery($2)`. The Index Advisor suggests adding a composite GIN index on `posthog_propertydefinition(project_id, query)` to reduce average query time from ~620ms to ~9ms based on plan estimates. Property-definition lookups dominate taxonomy autocomplete latency.",
+    "severity": "critical",
+    "references": "[{\"kind\": \"Table\", \"name\": \"posthog_propertydefinition\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/tables/posthog_propertydefinition\"}, {\"kind\": \"Query\", \"name\": \"taxonomic-property-search\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/queries/15282978\", \"queryText\": \"SELECT * FROM posthog_propertydefinition WHERE project_id = $1 AND query @@ to_tsquery($2)\"}]",
+    "server_human_id": "posthog-cloud-prod",
+    "server_name": "posthog-cloud-prod-us-east-1",
+    "synced_at": "2026-04-20T12:00:00+00:00"
+  },
+  {
+    "id": "issue_autovacuum_lag_eventdefinition",
+    "database_id": "db_main",
+    "description": "Autovacuum on 'posthog_eventdefinition' is significantly behind. The dead_tuple_ratio is 41% and the table has not been vacuumed in 7 days. This is causing index bloat (estimated 2.8GB wasted) and slowing down range scans of event definitions when populating the taxonomy panel. Consider lowering autovacuum_vacuum_scale_factor for this table — definitions are upserted on every new event property seen, so the default scale factor is too conservative.",
+    "severity": "warning",
+    "references": "[{\"kind\": \"Table\", \"name\": \"posthog_eventdefinition\", \"url\": \"https://app.pganalyze.com/servers/posthog-cloud-prod/databases/main/tables/posthog_eventdefinition\"}]",
+    "server_human_id": "posthog-cloud-prod",
+    "server_name": "posthog-cloud-prod-us-east-1",
+    "synced_at": "2026-04-20T12:00:00+00:00"
+  },
+  {
+    "id": "issue_snapshot_succeeded_noop",
+    "database_id": "db_main",
+    "description": "Collector snapshot completed successfully. No errors detected. Next snapshot scheduled in 10 minutes.",
+    "severity": "info",
+    "references": "[]",
+    "server_human_id": "posthog-cloud-prod",
+    "server_name": "posthog-cloud-prod-us-east-1",
+    "synced_at": "2026-04-20T12:00:00+00:00"
+  }
+]

@@ -3,10 +3,12 @@ import { api } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
 import {
     experimentsLogic,
@@ -271,6 +273,35 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
         })
 
+        it('discards a stale search response that resolves after a newer one', async () => {
+            api.get.mockClear()
+
+            const staleExperiment = createMockExperiment({ id: 10, name: 'wat' })
+            const freshExperiment = createMockExperiment({ id: 20, name: 'watermark' })
+
+            let resolveStale: (value: unknown) => void = () => {}
+            api.get.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStale = resolve
+                    })
+            )
+            api.get.mockResolvedValueOnce({ results: [freshExperiment], count: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperiments() // slow request, e.g. search for "wat"
+                logic.actions.loadExperiments() // fast request, e.g. search for "watermark"
+            }).toDispatchActions(['loadExperimentsSuccess'])
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+
+            // The slow, stale response arrives after the newer one — it must be discarded
+            resolveStale({ results: [staleExperiment], count: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
@@ -334,6 +365,82 @@ describe('experimentsLogic', () => {
             expect(router.actions.push).toHaveBeenCalledWith(expect.stringContaining('/999'))
         })
 
+        it('copies experiment to the selected target team', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            api.create.mockResolvedValue(copiedExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    featureFlagKey: 'new-flag',
+                })
+            }).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${mockExperiment.id}/copy_to_project`),
+                { target_team_id: 456, feature_flag_key: 'new-flag' }
+            )
+        })
+
+        it('uses the target project id in the copy success link', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            api.create.mockResolvedValue(copiedExperiment)
+
+            const toastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
+            const projectSpy = jest.spyOn(urls, 'project').mockImplementation(() => {
+                throw new Error('navigation-called')
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                })
+            }).toFinishAllListeners()
+
+            const toastOptions = toastSpy.mock.calls.at(-1)?.[1] as { button?: { action?: () => void } } | undefined
+
+            expect(toastOptions?.button?.action).not.toBeUndefined()
+            expect(() => toastOptions?.button?.action?.()).toThrow('navigation-called')
+            expect(projectSpy).toHaveBeenCalledWith(123, expect.stringContaining('/999'))
+        })
+
+        it('runs the copy success callback only after a successful copy', async () => {
+            const copiedExperiment = createMockExperiment({ id: 999 })
+            const onSuccess = jest.fn()
+            api.create.mockResolvedValue(copiedExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    onSuccess,
+                })
+            }).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not run the copy success callback when the copy fails', async () => {
+            const onSuccess = jest.fn()
+            api.create.mockRejectedValue(new Error('Permission denied'))
+
+            await expectLogic(logic, () => {
+                logic.actions.copyExperimentToProject({
+                    id: mockExperiment.id as number,
+                    targetProjectId: 123,
+                    targetTeamId: 456,
+                    onSuccess,
+                })
+            }).toFinishAllListeners()
+
+            expect(onSuccess).not.toHaveBeenCalled()
+        })
+
         it('adds experiment to list', () => {
             const initialExperiments = { results: [mockExperiment], count: 1 }
             logic.actions.loadExperimentsSuccess(initialExperiments)
@@ -357,6 +464,24 @@ describe('experimentsLogic', () => {
                 results: [updatedExperiment],
                 count: 1,
             })
+        })
+    })
+
+    describe('activity deep-link', () => {
+        it('preserves the activity deep-link param when staying on the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.History)
+            })
+            expect(router.values.searchParams['activity']).toEqual('some-uuid')
+        })
+
+        it('drops the activity deep-link param when switching away from the history tab', async () => {
+            router.actions.push(urls.experiments(), { tab: 'history', activity: 'some-uuid' })
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentsTab(ExperimentsTabs.All)
+            })
+            expect(router.values.searchParams['activity']).toBeUndefined()
         })
     })
 
@@ -420,18 +545,18 @@ describe('utility functions', () => {
     })
 
     describe('isExperimentPaused', () => {
-        it('returns true when a running experiment has an inactive feature flag', () => {
+        it('returns true when the API status is paused', () => {
             const pausedExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
-                status: ExperimentStatus.Running,
+                status: ExperimentStatus.Paused,
                 feature_flag: { active: false },
             })
 
             expect(isExperimentPaused(pausedExperiment)).toBe(true)
         })
 
-        it('returns false when a running experiment has an active feature flag', () => {
+        it('returns false when the experiment is running', () => {
             const runningExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
@@ -447,7 +572,7 @@ describe('utility functions', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
-            expect(getExperimentStatusColor(ExperimentStatus.Running, true)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
         })
     })

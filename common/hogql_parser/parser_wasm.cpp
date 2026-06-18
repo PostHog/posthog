@@ -28,7 +28,7 @@ class HogQLErrorListener : public antlr4::BaseErrorListener {
   explicit HogQLErrorListener(string input) : input(std::move(input)) {}
 
   void syntaxError(
-      antlr4::Recognizer* /* recognizer */,
+      antlr4::Recognizer* recognizer,
       antlr4::Token* /* offendingSymbol */,
       size_t line,
       size_t charPositionInLine,
@@ -38,6 +38,22 @@ class HogQLErrorListener : public antlr4::BaseErrorListener {
     size_t start = getPosition(line, charPositionInLine);
     if (start == string::npos) {
       start = 0;
+    }
+    // A character outside the HogQL token set lexes as UNEXPECTED_CHARACTER
+    // and dooms the parse. The default message quotes the raw character,
+    // which is unactionable when it is invisible — report the code point
+    // instead and point at the character itself.
+    if (auto* parser = dynamic_cast<antlr4::Parser*>(recognizer)) {
+      if (auto* tokens = dynamic_cast<antlr4::BufferedTokenStream*>(parser->getTokenStream())) {
+        tokens->fill();
+        for (antlr4::Token* token : tokens->getTokens()) {
+          if (token->getType() == HogQLLexer::UNEXPECTED_CHARACTER) {
+            throw SyntaxError(
+                describe_unexpected_character(token->getText()), token->getStartIndex(), input.size()
+            );
+          }
+        }
+      }
     }
     throw SyntaxError(msg, start, input.size());
   }

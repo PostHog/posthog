@@ -10,9 +10,6 @@ Usage:
     # Warm specific teams
     python manage.py warm_flag_definitions_cache --team-ids 12345 67890
 
-    # Schema changes (invalidates all caches first)
-    python manage.py warm_flag_definitions_cache --invalidate-first
-
     # Warm only one variant
     python manage.py warm_flag_definitions_cache --variant with-cohorts
     python manage.py warm_flag_definitions_cache --variant without-cohorts
@@ -22,7 +19,8 @@ Usage:
 """
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.models.feature_flag.local_evaluation import (
+
+from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
 )
@@ -46,7 +44,6 @@ class Command(BaseHyperCacheCommand):
         # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
         team_ids = options.get("team_ids")
         batch_size = options["batch_size"]
-        invalidate_first = options["invalidate_first"]
         stagger_ttl = not options["no_stagger"]
         min_ttl_days = options["min_ttl_days"]
         max_ttl_days = options["max_ttl_days"]
@@ -84,7 +81,6 @@ class Command(BaseHyperCacheCommand):
             self.run_warm(
                 team_ids=team_ids,
                 batch_size=batch_size,
-                invalidate_first=invalidate_first,
                 stagger_ttl=stagger_ttl,
                 min_ttl_days=min_ttl_days,
                 max_ttl_days=max_ttl_days,

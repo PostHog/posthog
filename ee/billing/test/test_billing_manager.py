@@ -1,11 +1,18 @@
+import hmac
 import json
+import math
+import hashlib
 import datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase, override_settings
+
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
@@ -13,8 +20,15 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
-from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
-from ee.billing.billing_types import BillingProvider, Product
+from ee.billing.billing_manager import (
+    BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
+    BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
+    BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
+    BillingManager,
+    _get_user_organization_role,
+    build_billing_token,
+)
+from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
 
 
@@ -205,7 +219,7 @@ class TestBillingManager(BaseTest):
             }
         }
 
-        BillingManager(license).update_org_details(organization, billing_status)
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
 
         assert organization.usage == {
@@ -308,6 +322,186 @@ class TestBillingManager(BaseTest):
             BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
 
         assert "404" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(
+                return_value={
+                    "success": False,
+                    "error_message": "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first.",
+                    "code": "open_invoices_error",
+                }
+            ),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_open_invoices_error_on_409(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "unpaid invoice" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)),
+            text="Not JSON",
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_no_json_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "some_other_error", "error_message": "Something else"}),
+            text='{"code": "some_other_error"}',
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_different_code_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "open_invoices_error"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_open_invoices_missing_message_uses_default(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "Open invoices must be resolved first" in str(context.exception)
+
+
+class TestBillingProviderWebhookSigning(SimpleTestCase):
+    def setUp(self):
+        self.license = SimpleNamespace(key="license_id::license_secret")
+        self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
+    @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(status_code=200, ok=True, text="", json=MagicMock(return_value={"status": "ok"})),
+    )
+    def test_handle_billing_provider_webhook_signs_forwarded_body(
+        self, billing_post_request_mock: MagicMock, mock_time: MagicMock
+    ):
+        BillingManager(self.license).handle_billing_provider_webhook(
+            event_type="marketplace.invoice.paid",
+            event_data={"installationId": "icfg_123", "invoiceId": "mi_123"},
+            organization=self.organization,
+            billing_provider="vercel",
+        )
+
+        billing_post_request_mock.assert_called_once()
+        call_kwargs = billing_post_request_mock.call_args.kwargs
+        body = call_kwargs["data"]
+        expected_body = (
+            b'{"event_type":"marketplace.invoice.paid",'
+            b'"event_data":{"installationId":"icfg_123","invoiceId":"mi_123"},'
+            b'"billing_provider":"vercel"}'
+        )
+        expected_signature = hmac.new(
+            b"test_webhook_secret",
+            b"1700000000." + expected_body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        assert body == expected_body
+        assert call_kwargs["headers"][BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER] == "1700000000"
+        assert (
+            call_kwargs["headers"][BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER]
+            == f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={expected_signature}"
+        )
+        assert call_kwargs["headers"]["Content-Type"] == "application/json"
+        assert "Authorization" in call_kwargs["headers"]
+
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_handle_billing_provider_webhook_requires_signature_secret(self, billing_post_request_mock: MagicMock):
+        with self.assertRaises(ValueError) as context:
+            BillingManager(self.license).handle_billing_provider_webhook(
+                event_type="marketplace.invoice.paid",
+                event_data={"installationId": "icfg_123", "invoiceId": "mi_123"},
+                organization=self.organization,
+                billing_provider="vercel",
+            )
+
+        assert "BILLING_PROVIDER_WEBHOOK_SECRET" in str(context.exception)
+        billing_post_request_mock.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("nan", math.nan),
+            ("infinity", math.inf),
+            ("negative_infinity", -math.inf),
+        ]
+    )
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_handle_billing_provider_webhook_rejects_non_finite_numbers(
+        self, _name: str, non_finite_number: float, billing_post_request_mock: MagicMock
+    ):
+        with self.assertRaises(ValueError) as context:
+            BillingManager(self.license).handle_billing_provider_webhook(
+                event_type="marketplace.invoice.paid",
+                event_data={"installationId": "icfg_123", "amount": non_finite_number},
+                organization=self.organization,
+                billing_provider="vercel",
+            )
+
+        assert "Out of range float values are not JSON compliant" in str(context.exception)
+        billing_post_request_mock.assert_not_called()
 
 
 class TestBuildBillingToken(BaseTest):

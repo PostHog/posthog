@@ -194,6 +194,18 @@ pub async fn evaluate_grouping_rules(
                 metrics::counter!(CUSTOM_GROUPED_EVENTS).increment(1);
                 return Ok(Some(rule));
             }
+            // See `try_assignment_rules` for the rationale: step-budget exhaustion
+            // is a per-event cost issue, not a logic bug in the rule. Skip this rule
+            // for this event rather than disabling it permanently. Other
+            // `OutOfResource` variants still fall through to the disable path.
+            Err(VmError::OutOfResource(resource)) if resource == "steps" => {
+                tracing::warn!(
+                    rule_id = %rule.id,
+                    team_id = %rule.team_id,
+                    "grouping rule exceeded HogVM step budget for this event, skipping"
+                );
+                continue;
+            }
             Err(err) => {
                 rule.disable(&mut *con, err.to_string(), props.clone())
                     .await?

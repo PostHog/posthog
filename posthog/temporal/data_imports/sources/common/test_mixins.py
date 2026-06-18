@@ -58,6 +58,19 @@ class TestIsHostSafe(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("localhost", "localhost"),
+            ("loopback", "127.0.0.1"),
+            ("private_ip", "10.0.0.1"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="E2E", E2E_TESTING=True)
+    def test_allows_internal_hosts_in_e2e(self, _name: str, host: str):
+        valid, error = _is_host_safe(host, team_id=999)
+        assert valid
+        assert error is None
+
+    @parameterized.expand(
+        [
             ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
             ("postwh_eu", "my-db.eu.postwh.com"),
             ("postwh_bare", "something.postwh.com"),
@@ -107,6 +120,36 @@ class TestIsHostSafe(SimpleTestCase):
             valid, error = _is_host_safe("nonexistent.invalid", team_id=999)
             assert not valid
             assert error == "Host could not be resolved"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blocked_host_logs_warning(self):
+        with patch("posthog.temporal.data_imports.sources.common.mixins.logger") as mock_logger:
+            valid, _ = _is_host_safe("10.0.0.1", team_id=999)
+            assert not valid
+            mock_logger.warning.assert_called_once()
+            _args, kwargs = mock_logger.warning.call_args
+            assert kwargs["decision"] == "block"
+            assert kwargs["stage"] == "literal_ip"
+            assert kwargs["host"] == "10.0.0.1"
+            mock_logger.info.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allowed_resolved_host_logs_info_with_resolved_ips(self):
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
+                return_value=[(None, None, None, None, ("52.1.2.3", 0))],
+            ),
+            patch("posthog.temporal.data_imports.sources.common.mixins.logger") as mock_logger,
+        ):
+            valid, _ = _is_host_safe("good.example.com", team_id=999)
+            assert valid
+            mock_logger.info.assert_called_once()
+            _args, kwargs = mock_logger.info.call_args
+            assert kwargs["decision"] == "allow"
+            assert kwargs["stage"] == "resolved_ip"
+            assert kwargs["resolved_ips"] == ["52.1.2.3"]
+            mock_logger.warning.assert_not_called()
 
 
 class TestValidateDatabaseHostMixin(SimpleTestCase):

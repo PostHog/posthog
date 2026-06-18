@@ -2,6 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_INGESTION_WARNINGS,
+    CONSUMER_GROUP_INGESTION_WARNINGS_WS,
     KAFKA_COLUMNS_WITH_PARTITION,
     kafka_engine,
 )
@@ -10,6 +11,12 @@ from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
 DROP_INGESTION_WARNINGS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS ingestion_warnings_mv"
 DROP_KAFKA_INGESTION_WARNINGS_TABLE_SQL = f"DROP TABLE IF EXISTS kafka_ingestion_warnings"
+
+KAFKA_INGESTION_WARNINGS_WS_TABLE = "kafka_ingestion_warnings_ws"
+INGESTION_WARNINGS_WS_MV = "ingestion_warnings_ws_mv"
+
+DROP_KAFKA_INGESTION_WARNINGS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_INGESTION_WARNINGS_WS_TABLE}"
+DROP_INGESTION_WARNINGS_WS_MV_SQL = f"DROP TABLE IF EXISTS {INGESTION_WARNINGS_WS_MV}"
 
 
 def INGESTION_WARNINGS_TABLE_BASE_SQL():
@@ -67,6 +74,44 @@ _offset,
 _partition
 FROM {database}.kafka_ingestion_warnings
 """.format(
+        target_table=target_table,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+
+def KAFKA_INGESTION_WARNINGS_WS_TABLE_SQL():
+    return INGESTION_WARNINGS_TABLE_BASE_SQL().format(
+        table_name=KAFKA_INGESTION_WARNINGS_WS_TABLE,
+        engine=kafka_engine(
+            topic=KAFKA_INGESTION_WARNINGS,
+            group=CONSUMER_GROUP_INGESTION_WARNINGS_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        materialized_columns="",
+        extra_fields="",
+    )
+
+
+def INGESTION_WARNINGS_WS_MV_SQL(target_table="writable_ingestion_warnings"):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {database}.{target_table}
+AS SELECT
+team_id,
+source,
+type,
+details,
+timestamp,
+_timestamp,
+_offset,
+_partition
+FROM {database}.{from_table}
+""".format(
+        mv_name=INGESTION_WARNINGS_WS_MV,
+        from_table=KAFKA_INGESTION_WARNINGS_WS_TABLE,
         target_table=target_table,
         database=settings.CLICKHOUSE_DATABASE,
     )

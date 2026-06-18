@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { IconPerson } from '@posthog/icons'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -26,9 +26,7 @@ export function RelatedGroups({
     pageSize,
     embedded = false,
 }: RelatedGroupsProps): JSX.Element {
-    const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(
-        relatedGroupsLogic({ groupTypeIndex, id, type })
-    )
+    const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const dataSource = type === 'person' ? relatedPeople : relatedActors
     const { aggregationLabel } = useValues(groupsModel)
 

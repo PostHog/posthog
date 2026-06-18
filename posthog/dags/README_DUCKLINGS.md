@@ -114,8 +114,8 @@ class DucklingBackfillConfig:
    - `bucket_region`: AWS region
    - `db_host`: RDS endpoint
    - `db_name`: Database name
-   - `cross_account_role_arn`: IAM role for Dagster to assume
-   - `cross_account_external_id`: External ID for role assumption
+
+   Ensure the runtime IAM role can read from and write to the configured S3 bucket.
 
 2. The discovery sensor will automatically pick up the new team on its next run
 
@@ -153,6 +153,6 @@ If multiple partitions for the same team run concurrently, they may race to crea
 ## S3 Path Structure
 
 ```text
-s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
-s3://{bucket}/backfill/persons/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
+s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{run_id}.parquet
+s3://{bucket}/backfill/persons/{team_id}/{year}/{month}/{day}/{run_id}.parquet
 ```

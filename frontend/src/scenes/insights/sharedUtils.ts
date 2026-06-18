@@ -25,9 +25,10 @@ export const keyForInsightLogicProps =
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId
+        const baseKey = props.dashboardItemId
             ? `${props.dashboardItemId}${props.dashboardId ? `/on-dashboard-${props.dashboardId}` : ''}`
             : defaultKey
+        return props.tabId ? `${baseKey}/tab-${props.tabId}` : baseKey
     }
 
 export function filterTrendsClientSideParams(

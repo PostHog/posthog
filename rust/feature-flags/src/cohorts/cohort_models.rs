@@ -1,4 +1,6 @@
 use crate::properties::property_models::PropertyFilter;
+use crate::utils::json_size::estimate_json_size;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -13,34 +15,52 @@ pub enum CohortType {
     Analytical,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// HYPERCACHE CONTRACT: These fields are deserialized from JSON written by Python's
+/// `_serialize_cohort()` in posthog/models/feature_flag/flags_cache.py. Field changes
+/// must follow the expand-and-contract pattern. Golden fixture contract test:
+///   cargo test -p feature-flags test_hypercache_contract
+#[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub team_id: i32,
     pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<i32>,
     pub is_calculating: bool,
     pub is_static: bool,
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cohort_type: Option<CohortType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
+    /// Requires both a realtime/behavioral cohort type AND a populated backfill
+    /// timestamp, which indicates that the membership table has been written to.
+    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        )
+        ) && self.last_backfill_person_properties_at.is_some()
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -69,53 +89,6 @@ impl Cohort {
         let groups_size = estimate_json_size(&self.groups);
 
         base_size + name_size + desc_size + filters_size + query_size + groups_size
-    }
-}
-
-/// Estimates the serialized size of a JSON value with minimal allocation.
-///
-/// This walks the JSON tree and estimates the byte length of the serialized form.
-/// The estimate is close to `value.to_string().len()` but avoids the large allocation
-/// of serializing the entire structure. Numbers still allocate a small temporary string
-/// for simplicity, as they're typically only a few bytes.
-fn estimate_json_size(value: &serde_json::Value) -> usize {
-    match value {
-        serde_json::Value::Null => 4, // "null"
-        serde_json::Value::Bool(b) => {
-            if *b {
-                4
-            } else {
-                5
-            }
-        } // "true" or "false"
-        serde_json::Value::Number(n) => {
-            // For accuracy, just convert to string - numbers are small and this is fast
-            n.to_string().len()
-        }
-        serde_json::Value::String(s) => s.len() + 2, // quotes + content (ignoring escapes)
-        serde_json::Value::Array(arr) => {
-            if arr.is_empty() {
-                2 // "[]"
-            } else {
-                // "[" + elements + commas + "]"
-                2 + arr.iter().map(estimate_json_size).sum::<usize>() + arr.len().saturating_sub(1)
-            }
-        }
-        serde_json::Value::Object(map) => {
-            if map.is_empty() {
-                2 // "{}"
-            } else {
-                // "{" + entries + commas + "}"
-                // Each entry serialized as "key":value
-                2 + map
-                    .iter()
-                    .map(|(k, v)| {
-                        k.len() + 3 + estimate_json_size(v) // key + 2 quotes + colon + value
-                    })
-                    .sum::<usize>()
-                    + map.len().saturating_sub(1)
-            }
-        }
     }
 }
 
@@ -148,6 +121,27 @@ pub struct CohortValues {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_update)]
+mod mock_impls {
+    use super::*;
+    use crate::utils::mock::Mock;
+
+    impl Mock for Cohort {
+        fn mock() -> Self {
+            Cohort {
+                id: 1,
+                name: Some("Test Cohort".to_string()),
+                description: Some("Test cohort description".to_string()),
+                team_id: 1,
+                version: Some(1),
+                groups: serde_json::json!({}),
+                ..Default::default()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -173,6 +167,7 @@ mod tests {
             groups,
             created_by_id: Some(1),
             cohort_type: None,
+            last_backfill_person_properties_at: None,
         }
     }
 
@@ -299,24 +294,69 @@ mod tests {
 
     #[test]
     fn test_uses_realtime_membership() {
-        let cases = vec![
-            (None, false),
-            (Some(CohortType::Static), false),
-            (Some(CohortType::PersonProperty), false),
-            (Some(CohortType::Analytical), false),
-            (Some(CohortType::Realtime), true),
-            (Some(CohortType::Behavioral), true),
+        let backfill_ts = Some(Utc::now());
+
+        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
+            (None, None, false),
+            (None, backfill_ts, false),
+            (Some(CohortType::Static), None, false),
+            (Some(CohortType::Static), backfill_ts, false),
+            (Some(CohortType::PersonProperty), None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, false),
+            (Some(CohortType::Analytical), None, false),
+            (Some(CohortType::Analytical), backfill_ts, false),
+            (Some(CohortType::Realtime), None, false),
+            (Some(CohortType::Realtime), backfill_ts, true),
+            (Some(CohortType::Behavioral), None, false),
+            (Some(CohortType::Behavioral), backfill_ts, true),
         ];
 
-        for (cohort_type, expected) in cases {
+        for (cohort_type, ts, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
+            cohort.last_backfill_person_properties_at = ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?} should return {expected}"
+                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
+                ts.is_some()
             );
         }
+    }
+
+    #[test]
+    fn test_realtime_cohort_filtering_mirrors_flag_matching() {
+        // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
+        // selects only Realtime/Behavioral cohorts with a backfill timestamp, which
+        // is the same filter applied in flag_matching::prepare_flag_evaluation_data.
+        let backfill_ts = Some(Utc::now());
+
+        let make_cohort = |id: i32, cohort_type: Option<CohortType>, ts: Option<DateTime<Utc>>| {
+            let mut c = create_test_cohort(None, None, serde_json::json!({}));
+            c.id = id;
+            c.cohort_type = cohort_type;
+            c.last_backfill_person_properties_at = ts;
+            c
+        };
+
+        let cohorts = [
+            make_cohort(1, Some(CohortType::Static), None),
+            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
+            make_cohort(3, Some(CohortType::Realtime), None), // no backfill
+            make_cohort(4, Some(CohortType::Realtime), backfill_ts), // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None), // no backfill
+            make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
+            make_cohort(7, Some(CohortType::Analytical), backfill_ts),
+            make_cohort(8, None, backfill_ts),
+        ];
+
+        let realtime_ids: Vec<i32> = cohorts
+            .iter()
+            .filter(|c| c.uses_realtime_membership())
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(realtime_ids, vec![4, 6]);
     }
 
     #[test]
@@ -340,5 +380,85 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+}
+
+#[cfg(test)]
+mod skip_serializing_if_tests {
+    //! Verify the `skip_serializing_if = "Option::is_none"` sweep on `Cohort`.
+    //! For every swept `Option<T>` field, absent input must round-trip as absent
+    //! (no fabricated `null` key on cache-write serialize), and a real value must
+    //! round-trip unchanged. See
+    //! plans/rust-flag-models-skip-serializing-if-sweep.md.
+    use super::*;
+
+    fn assert_absent(value: &serde_json::Value, key: &str) {
+        let map = value
+            .as_object()
+            .expect("serialized cohort should be an object");
+        assert!(
+            !map.contains_key(key),
+            "absent field `{key}` must not be promoted to a null key on serialize"
+        );
+    }
+
+    /// Minimal cohort with every swept Option field at `None`.
+    fn minimal_cohort() -> Cohort {
+        Cohort {
+            id: 1,
+            team_id: 1,
+            groups: serde_json::json!({}),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cohort_absent_options_stay_absent() {
+        let output = serde_json::to_value(minimal_cohort()).unwrap();
+        for key in [
+            "name",
+            "description",
+            "filters",
+            "query",
+            "version",
+            "pending_version",
+            "count",
+            "created_by_id",
+            "cohort_type",
+            "last_backfill_person_properties_at",
+        ] {
+            assert_absent(&output, key);
+        }
+    }
+
+    #[test]
+    fn cohort_values_round_trip() {
+        let cohort = Cohort {
+            id: 1,
+            name: Some("QA".to_string()),
+            description: Some("desc".to_string()),
+            team_id: 1,
+            filters: Some(serde_json::json!({"k": "v"})),
+            query: Some(serde_json::json!({"q": 1})),
+            version: Some(2),
+            pending_version: Some(3),
+            count: Some(7),
+            created_by_id: Some(9),
+            cohort_type: Some(CohortType::Behavioral),
+            last_backfill_person_properties_at: Some(Utc::now()),
+            groups: serde_json::json!({}),
+            ..Default::default()
+        };
+        let output = serde_json::to_value(&cohort).unwrap();
+        assert_eq!(output["name"], "QA");
+        assert_eq!(output["description"], "desc");
+        assert_eq!(output["filters"]["k"], "v");
+        assert_eq!(output["query"]["q"], 1);
+        assert_eq!(output["version"], 2);
+        assert_eq!(output["pending_version"], 3);
+        assert_eq!(output["count"], 7);
+        assert_eq!(output["created_by_id"], 9);
+        assert_eq!(output["cohort_type"], "behavioral");
+        assert!(output["last_backfill_person_properties_at"].is_string());
     }
 }

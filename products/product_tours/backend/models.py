@@ -14,6 +14,7 @@ class ProductTourManager(models.Manager):
 class ProductTour(models.Model):
     """A product tour guides users through application features."""
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     team = models.ForeignKey(
@@ -27,7 +28,7 @@ class ProductTour(models.Model):
     description = models.TextField(blank=True, default="")
 
     internal_targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -36,7 +37,7 @@ class ProductTour(models.Model):
     )
 
     linked_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

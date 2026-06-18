@@ -9,7 +9,7 @@ import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 export const SidePanelQuestionIcon = (props: { className?: string }): JSX.Element => {
     const { totalUnreadCount } = useValues(sidepanelTicketsLogic)
     return (
-        <IconWithCount count={totalUnreadCount} {...props}>
+        <IconWithCount count={totalUnreadCount} size="xsmall" {...props}>
             <IconQuestion />
         </IconWithCount>
     )

@@ -20,6 +20,10 @@ import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQu
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
+const getEffectiveQueryKind = (req: {
+    body?: { query?: { kind?: string; source?: { kind?: string } } }
+}): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Revenue Analytics',
@@ -47,21 +51,28 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req) => {
-                    const query = (req.body as any).query
-                    const queryKind = query.kind
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as {
+                        query?: { kind?: string; source?: { kind?: string } }
+                    }
+                    const queryKind = getEffectiveQueryKind({ body })
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
-                    } else if (queryKind === 'RevenueAnalyticsMetricsQuery') {
+                    }
+                    if (queryKind === 'RevenueAnalyticsMetricsQuery') {
                         return [200, revenueAnalyticsMetricsQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
+                    }
+                    if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
+                    }
+                    if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
                         return [200, revenueAnalyticsGrossRevenueQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsMRRQuery') {
+                    }
+                    if (queryKind === 'RevenueAnalyticsMRRQuery') {
                         return [200, revenueAnalyticsMRRQueryMock]
-                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
+                    }
+                    if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
                         return [200, revenueAnalyticsTopCustomersMock]
                     }
                 },
@@ -91,6 +102,28 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
         addBreakdown(PRODUCT_A_BREAKDOWN)
     }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardAreaMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('area')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardBarMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('bar')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
 
     return <App />
 }

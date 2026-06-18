@@ -2,16 +2,18 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import hash_key_value
 
 
 class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
@@ -115,7 +117,63 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert api_key is not None
         self.assertEqual(api_key.scopes, CLI_SCOPES)
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
+        self.assertEqual(api_key.scoped_organizations, [])
         self.assertIn("CLI -", api_key.label)
+
+    def test_authorization_honors_submitted_scopes(self):
+        # The browser consent screen derives scopes from the requested use cases
+        # (e.g. the `agent` use case grants the MCP scope set) and submits them.
+        # The endpoint must mint a key with exactly those scopes, not CLI_SCOPES.
+        submitted_scopes = ["user:read", "project:read", "query:read", "insight:write"]
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": submitted_scopes},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert api_key is not None
+        self.assertEqual(api_key.scopes, submitted_scopes)
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
+
+    @parameterized.expand(
+        [
+            ("wildcard", "*"),
+            ("malformed", "query"),
+            ("unknown_object", "not_a_scope:read"),
+            ("unknown_action", "query:admin"),
+            ("internal_object", "signal_scout_internal:write"),
+        ]
+    )
+    def test_authorization_rejects_invalid_or_disallowed_scopes(self, _name: str, scope: str):
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": [scope]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertIn(scope, response.json()["error_description"])
+        self.assertEqual(PersonalAPIKey.objects.filter(user=self.user).count(), 0)
+
+        device_cache_key = get_device_cache_key(self.device_code)
+        device_data = cache.get(device_cache_key)
+        self.assertEqual(device_data["status"], "pending")
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled", return_value=True)
+    def test_authorization_rejects_llm_gateway_scope(self, feature_enabled):
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": ["llm_gateway:read"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertIn("llm_gateway:read", response.json()["error_description"])
+        feature_enabled.assert_not_called()
+        self.assertEqual(PersonalAPIKey.objects.filter(user=self.user).count(), 0)
 
     def test_authorization_requires_authentication(self):
         """Test that authorization endpoint requires user to be logged in"""
@@ -438,6 +496,36 @@ class TestCLIAuthEndToEnd(APIBaseTest):
         self.assertIn("event_definition:read", api_key.scopes)
         self.assertIn("property_definition:read", api_key.scopes)
         self.assertIn("error_tracking:write", api_key.scopes)
+
+    def test_api_key_is_scoped_to_authorized_project(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        response = self.client.post("/api/cli-auth/device-code/")
+        device_code = response.json()["device_code"]
+        user_code = response.json()["user_code"]
+
+        self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": user_code, "project_id": self.team.id},
+        )
+
+        response = self.client.post("/api/cli-auth/poll/", {"device_code": device_code})
+        api_key_value = response.json()["personal_api_key"]
+
+        api_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(api_key_value))
+        self.assertEqual(api_key.scoped_teams, [self.team.id])
+        self.assertEqual(api_key.scoped_organizations, [])
+
+        self.client.logout()
+        authorized_response = self.client.get(
+            f"/api/projects/{self.team.pk}/event_definitions/", headers={"authorization": f"Bearer {api_key_value}"}
+        )
+        self.assertEqual(authorized_response.status_code, status.HTTP_200_OK)
+
+        other_project_response = self.client.get(
+            f"/api/projects/{other_team.pk}/event_definitions/", headers={"authorization": f"Bearer {api_key_value}"}
+        )
+        self.assertEqual(other_project_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_cross_team_access_is_prevented(self):
         """Test that user cannot authorize CLI for a team in a different organization"""

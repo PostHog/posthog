@@ -1,0 +1,106 @@
+{
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": "01984696-0000-0000-0000-0000000000ee",
+            "created_by": {
+                "id": 2,
+                "uuid": "019838c5-64ac-0000-9f43-aaaaaaaaaaaa",
+                "distinct_id": "aaaaAAAAbbbbBBBBccccCCCCddddDDDDeeeeEEEEffff",
+                "first_name": "Mira",
+                "last_name": "Sato",
+                "email": "mira@example.com",
+                "is_email_verified": true,
+                "hedgehog_config": null,
+                "role_at_organization": "engineering"
+            },
+            "deleted": false,
+            "content": "Full-session write-up from today's moderated research call with the Acme Growth team. This is the longest comment on purpose — it should exercise the max-h-64 overflow cap and show a scrollbar inside the cell rather than blowing the row height out.\n\nContext\n-------\nMira drove, two PMs observed. Goal: understand why Acme's weekly \"Monday metrics\" ritual is taking ~40 minutes instead of the ~10 minutes we thought it would. Recording starts at 00:03:12 (real session start) and the decision moments are timestamped below so future-us can jump straight there.\n\nTimeline\n--------\n- 00:05:14 — user opens the dashboard, immediately flinches at the load time. First thought out loud: \"is this broken?\" It isn't — the dashboard is slow because four of the tiles are funnels filtered to last-90-days with breakdown-by-browser, which we all know is a pathological query for the current query engine. Note for self: we should either cache these or push a warning when a user configures a funnel that is going to take >5s.\n- 00:09:41 — user tries to filter one of the tiles by cohort. Clicks the filter icon, gets the property filter instead. This is the UX bug we already have a ticket for (#48217) but today confirmed the cost: it took the user ~45 seconds to realise the filter they applied wasn't the cohort filter, and they only noticed when the numbers didn't match what they expected.\n- 00:17:03 — user reaches for export, lands in the overflow menu, struggles for ~40s before finding the CSV option. This is the same issue as #51902 — export is hidden behind the ⋯ menu and the affordance is weak. Low-hanging fix.\n- 00:26:48 — user tries to save the dashboard as a \"shared view\" so their team can look at the same thing. Confused by the difference between \"pin\", \"share\", and \"save as template\". In their words: \"there are too many save buttons.\" Their mental model is one action — \"give this to my team\" — and our UI fragments that across three features.\n- 00:38:22 — user gives up on the built-in PDF export and pastes a screenshot into Notion. This is signal worth paying attention to: when the official escape hatch is too slow or too hidden, the unofficial one wins, and we lose telemetry about who is reading the report.\n\nFollow-ups\n----------\n1. Short term — promote CSV export out of the overflow menu on trends, funnels, and retention (same fix as #51902).\n2. Short term — add a preflight warning when a funnel breakdown is likely to be slow (>5s p50 for the selected date range). The warning should suggest materializing the funnel or reducing the breakdown cardinality.\n3. Medium term — consolidate the \"save / pin / share\" triumvirate. A single \"share with team\" entry point would collapse the decision tree from three options to one.\n4. Medium term — fix #48217 so the filter icon opens the cohort filter, not the property filter. We have been sitting on this for a quarter and it is still the #1 source of \"wrong number\" tickets.\n5. Longer term — instrument the PDF/CSV export pipeline so we can see how often users fall back to manual screenshots. If we can measure it we can fix it; right now we are guessing.\n\nQuotes worth saving\n-------------------\n> \"There are too many save buttons.\"\n> \"I don't trust the numbers when the page takes this long to load.\"\n> \"Just let me send this to Slack.\"\n\nNext step: schedule a 30 min with the growth platform team to sequence the short-term fixes. Mira to write up a one-pager by end of week; link will live in this thread when it exists.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:10:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:45:00.000Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        },
+        {
+            "id": "01984696-0000-0000-0000-00000000bbbb",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "fasda",
+                "last_name": "",
+                "email": "paul@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "User struggled to find the export button — it's hidden behind the overflow menu and they spent about 40 seconds hovering over the top-right area before giving up.\n\nFollow-ups:\n- Promote the export action out of the overflow menu on the trends view\n- Check whether the same issue shows up for funnels and retention\n- Write a short loom walking through what the user tried",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:05:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:35:47.216Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        },
+        {
+            "id": "01984696-0000-0000-0000-00000000cccc",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "David",
+                "last_name": "",
+                "email": "david@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "Repro: open the session, click the timeline scrubber, drag past the 3-minute mark. The page briefly shows a 'connection lost' toast even though the network tab is quiet. Seems related to the websocket reconnect logic we changed last week. Needs a real repro in Playwright before we can triage.",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:03:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:38:12.010Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        },
+        {
+            "id": "01984696-0000-0000-0000-00000000dddd",
+            "created_by": {
+                "id": 1,
+                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
+                "first_name": "fasda",
+                "last_name": "",
+                "email": "paul@posthog.com",
+                "is_email_verified": false,
+                "hedgehog_config": null,
+                "role_at_organization": "other"
+            },
+            "deleted": false,
+            "content": "quick fix",
+            "rich_content": null,
+            "version": 0,
+            "created_at": "2025-07-26T12:01:00.000000Z",
+            "item_id": "019838c8-8f12-7dfa-b651-abf957639b4b",
+            "item_context": {
+                "time_in_recording": "2025-07-23T19:40:00.000Z"
+            },
+            "scope": "recording",
+            "source_comment": null
+        }
+    ]
+}

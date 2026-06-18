@@ -39,11 +39,12 @@ class LogsTable(Table):
         # internal fields for query optimization
         "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
+        "_bytes_uncompressed": IntegerDatabaseField(name="_bytes_uncompressed", nullable=True, hidden=True),
         "mat_body_ipv4_matches": StringJSONDatabaseField(name="mat_body_ipv4_matches", nullable=True, hidden=True),
     }
 
     def to_printed_clickhouse(self, context):
-        return "logs"
+        return "logs_distributed"
 
     def to_printed_hogql(self):
         return "logs"
@@ -63,7 +64,7 @@ class LogAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "log_attributes"
+        return "log_attributes_distributed"
 
     def to_printed_hogql(self):
         return "log_attributes"
@@ -84,7 +85,7 @@ class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "logs_kafka_metrics"
+        return "logs_kafka_metrics_distributed"
 
     def to_printed_hogql(self):
         return "logs_kafka_metrics"

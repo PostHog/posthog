@@ -10,7 +10,7 @@ import {
     IconPlusSmall,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -195,14 +195,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 'data-attr': 'replay-export-posthog-json',
             },
             isStandardMode && {
-                label: (
-                    <div className="flex w-full gap-x-2 justify-between items-center">
-                        Export to MP4{' '}
-                        <LemonTag type="warning" size="small">
-                            BETA
-                        </LemonTag>
-                    </div>
-                ),
+                label: 'Export to MP4',
                 status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
                 icon: <IconDownload />,
                 onClick: () => exportRecordingToVideoFile(),

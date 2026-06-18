@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -509,13 +510,40 @@ if ("example-variant".equals(flagValue)) {
     )
 }
 
-export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+export function AndroidSnippet({
+    flagKey,
+    multivariant,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog.'
+
+    if (remoteConfiguration) {
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Kotlin} wrap>
+                    {`${warning ? warning + '\n' : ''}val result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
+result.payload?.let { payload ->
+    // Handle remote configuration payload
+    println("Remote config: $payload")
+}`}
+                </CodeSnippet>
+                <div className="mt-2">
+                    <Link to="https://posthog.com/tutorials/android-remote-config" target="_blank">
+                        View complete Android remote config tutorial
+                    </Link>
+                </div>
+            </>
+        )
+    }
 
     if (payload) {
         return (
             <CodeSnippet language={Language.Kotlin} wrap>
-                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+                {`${clientSuffix}getFeatureFlagResult("${flagKey}")?.payload`}
             </CodeSnippet>
         )
     }
@@ -533,13 +561,40 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
-export function FlutterSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+export function FlutterSnippet({
+    flagKey,
+    multivariant,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'await Posthog().'
+
+    if (remoteConfiguration) {
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Dart} wrap>
+                    {`${warning ? warning + '\n' : ''}final result = ${clientSuffix}getFeatureFlagResult('${flagKey}');
+if (result.payload != null) {
+  // Handle remote configuration payload
+  print('Remote config: \${result.payload}');
+}`}
+                </CodeSnippet>
+                <div className="mt-2">
+                    <Link to="https://posthog.com/tutorials/flutter-remote-config" target="_blank">
+                        View complete Flutter remote config tutorial
+                    </Link>
+                </div>
+            </>
+        )
+    }
 
     if (payload) {
         return (
             <CodeSnippet language={Language.Dart} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}');`}
+                {`(${clientSuffix}getFeatureFlagResult('${flagKey}'))?.payload;`}
             </CodeSnippet>
         )
     }
@@ -558,13 +613,40 @@ export function FlutterSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
-export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+export function iOSSnippet({
+    flagKey,
+    multivariant,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHogSDK.shared.'
+
+    if (remoteConfiguration) {
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Swift} wrap>
+                    {`${warning ? warning + '\n' : ''}let result = ${clientSuffix}getFeatureFlagResult("${flagKey}")
+if let payload = result.payload {
+    // Handle remote configuration payload
+    print("Remote config: \\(payload)")
+}`}
+                </CodeSnippet>
+                <div className="mt-2">
+                    <Link to="https://posthog.com/tutorials/ios-remote-config" target="_blank">
+                        View complete iOS remote config tutorial
+                    </Link>
+                </div>
+            </>
+        )
+    }
 
     if (payload) {
         return (
             <CodeSnippet language={Language.Swift} wrap>
-                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+                {`${clientSuffix}getFeatureFlagResult("${flagKey}")?.payload`}
             </CodeSnippet>
         )
     }
@@ -581,13 +663,47 @@ export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippe
     )
 }
 
-export function ReactNativeSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+export function ReactNativeSnippet({
+    flagKey,
+    multivariant,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
+
+    if (remoteConfiguration) {
+        const warning = `// ${REMOTE_CONFIG_REMINDER}` + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.JSX} wrap>
+                    {`${warning ? warning + '\n' : ''}import { useFeatureFlagResult } from 'posthog-react-native'
+
+const MyComponent = () => {
+    const result = useFeatureFlagResult('${flagKey}')
+    
+    if (result.payload) {
+        // Handle remote configuration payload
+        console.log('Remote config:', result.payload)
+    }
+    
+    return <YourComponent />
+}`}
+                </CodeSnippet>
+                <div className="mt-2">
+                    <Link to="https://posthog.com/tutorials/react-native-remote-config" target="_blank">
+                        View complete React Native remote config tutorial
+                    </Link>
+                </div>
+            </>
+        )
+    }
 
     if (payload) {
         return (
             <CodeSnippet language={Language.JSX} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
+                {`${clientSuffix}getFeatureFlagResult('${flagKey}')?.payload`}
             </CodeSnippet>
         )
     }
@@ -631,7 +747,7 @@ export function ReactSnippet({ flagKey, multivariant, payload }: FeatureFlagSnip
     return (
         <CodeSnippet language={Language.JSX} wrap>
             {`
-import { ${flagFunction} } from 'posthog-js/react'
+import { ${flagFunction} } from '@posthog/react'
 
 function App() {
     const ${variable} = ${flagFunction}('${flagKey}')
@@ -689,11 +805,12 @@ export function JSSnippet({
     instantlyAvailableProperties,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
     if (payload) {
         return (
             <>
                 <CodeSnippet language={Language.JavaScript} wrap>
-                    {`posthog.getFeatureFlagPayload('${flagKey ?? ''}')`}
+                    {`${clientSuffix}getFeatureFlagResult('${flagKey ?? ''}')?.payload`}
                 </CodeSnippet>
             </>
         )
@@ -712,7 +829,6 @@ posthog.${
 
 `
 
-    const clientSuffix = 'posthog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''

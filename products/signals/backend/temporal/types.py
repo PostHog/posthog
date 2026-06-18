@@ -1,6 +1,11 @@
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
+
+# Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
+# re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
+RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
 
 
 @dataclass
@@ -12,6 +17,11 @@ class EmitSignalInputs:
     description: str
     weight: float = 0.5
     extra: dict = field(default_factory=dict)
+    # Optional fix guidance (separate from `extra`), shaped by the `SignalRemediation` schema and
+    # validated against it at the emit boundary. Carried as a plain dict like `extra` so it survives
+    # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
+    # present; not required by any source.
+    remediation: Optional[dict] = None
 
 
 @dataclass
@@ -105,11 +115,12 @@ class TeamSignalGroupingV2Input:
 
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
+    paused_until: Optional[datetime] = None
 
 
 @dataclass
 class ReadSignalsFromS3Input:
-    """Activity input: read a batch of signals from S3."""
+    """Activity input for reading a signal batch."""
 
     object_key: str
 
@@ -135,6 +146,14 @@ class SignalReportReingestionWorkflowInputs:
 
     team_id: int
     report_id: str
+
+
+@dataclass
+class TeamSignalReingestionWorkflowInputs:
+    """Inputs for the team-wide signal reingestion workflow."""
+
+    team_id: int
+    delete_only: bool = False
 
 
 @dataclass
@@ -168,6 +187,33 @@ class SignalData:
     weight: float
     timestamp: datetime
     extra: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    # Optional fix guidance (separate from `extra`); see EmitSignalInputs.remediation.
+    remediation: Optional[dict] = None
+
+
+def _render_extra_to_text(extra: dict) -> list[str]:
+    """Render signal extra data to text lines for LLM consumption."""
+    lines = []
+    for key, value in extra.items():
+        if key == "images":
+            images = value or []
+            rendered = ", ".join(f"[{img.get('author', 'unknown')}] {img['url']}" for img in images if img.get("url"))
+            if rendered:
+                lines.append(f"- images: {rendered}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
+
+
+def _render_remediation_to_text(remediation: dict) -> list[str]:
+    """Render a remediation (SignalRemediation shape) to text lines for LLM consumption."""
+    lines = ["- Remediation (authoritative guidance — follow it, then verify via the PostHog MCP):"]
+    if agent := remediation.get("agent"):
+        lines.append(f"  - Guidance: {agent}")
+    if priority := remediation.get("priority"):
+        lines.append(f"  - Suggested priority: {priority}")
+    return lines
 
 
 def render_signal_to_text(
@@ -180,6 +226,10 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.remediation:
+        lines.extend(_render_remediation_to_text(signal.remediation))
+    if signal.extra:
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 

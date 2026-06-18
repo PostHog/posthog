@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,7 +25,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
@@ -34,20 +34,9 @@ import {
     DashboardType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
-
-export function getDashboardFolderLabelFromItems(
-    itemsByRef: Record<string, { path?: string }>,
-    id: DashboardType['id']
-): string {
-    const entry = itemsByRef[`dashboard::${id}`]
-    const folderParts = splitPath(entry?.path).slice(0, -1)
-    if (folderParts.length === 0) {
-        return '—'
-    }
-    return folderParts.join(' / ')
-}
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -70,8 +59,12 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting } = useValues(dashboardsLogic)
+    const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
+    const { tableSorting, filters } = useValues(dashboardsLogic)
+    // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
+    // would push the exact match below partial matches. Suppress the persisted column sort
+    // while the user has an active search term.
+    const effectiveTableSorting = filters.search ? null : tableSorting
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -148,11 +141,24 @@ export function DashboardsTable({
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         {
             title: 'Folder',
-            key: 'folder',
-            render: function RenderFolder(_, { id }: DashboardType) {
-                return getDashboardFolderLabelFromItems(itemsByRef, id)
+            dataIndex: 'folder' as keyof DashboardType,
+            render: function Render(folder: DashboardType['folder']) {
+                // Unfiled dashboards live in the default `Unfiled/Dashboards` folder — that's not a folder
+                // the user chose, so show nothing rather than a filter affordance.
+                if (folder === null || folder === undefined || folder === UNFILED_DASHBOARDS_FOLDER) {
+                    return <span className="text-secondary">—</span>
+                }
+                const label = folder || 'Project root'
+                return (
+                    <Tooltip title={`Filter to dashboards in ${label}`}>
+                        <Link className="flex items-center gap-1 text-secondary" onClick={() => setFilters({ folder })}>
+                            <IconFolder className="shrink-0" />
+                            <span className="truncate">{label}</span>
+                        </Link>
+                    </Tooltip>
+                )
             },
-        },
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
@@ -278,10 +284,34 @@ export function DashboardsTable({
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={dashboardsLoading}
-                defaultSorting={tableSorting}
+                defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
+                bulkSelection={{
+                    barClassName: 'mb-2',
+                    getKey: (dashboard: DashboardType): number => dashboard.id,
+                    isRowSelectable: (dashboard: DashboardType) =>
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Dashboard,
+                            dashboard.user_access_level,
+                            AccessControlLevel.Editor
+                        )
+                            ? true
+                            : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
+                    rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
+                    headerAriaLabel: 'Select all dashboards on this page',
+                    renderActions: (ctx) => (
+                        <BulkUpdateTagsButton
+                            resource="dashboards"
+                            selectedIds={ctx.selectedKeys}
+                            onSuccess={() => {
+                                ctx.clearSelection()
+                                dashboardsModel.actions.loadDashboards()
+                            }}
+                        />
+                    ),
+                }}
             />
         </>
     )

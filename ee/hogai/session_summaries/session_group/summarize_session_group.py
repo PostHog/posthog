@@ -112,14 +112,32 @@ def generate_session_group_patterns_combination_prompt(
     )
 
 
+def partition_sessions_by_recording_existence(session_ids: list[str], team: Team) -> tuple[list[str], list[str]]:
+    """Split session_ids into (found, missing) based on whether a replay row exists for the team.
+
+    Used by flows that want to surface per-session "no recording" errors instead of failing the
+    whole batch — see ``find_sessions_timestamps`` for the strict variant used by the group flow.
+    """
+    replay_events = SessionReplayEvents()
+    sessions_found, _, _ = replay_events.sessions_found_with_timestamps(session_ids, team)
+    found = [sid for sid in session_ids if sid in sessions_found]
+    missing = [sid for sid in session_ids if sid not in sessions_found]
+    return found, missing
+
+
 def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[datetime, datetime]:
     """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
     replay_events = SessionReplayEvents()
     sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(session_ids, team)
-    # Check for missing sessions
+    # Check for missing sessions. The replay_events table is the source of truth for "did we capture a recording";
+    # a missing row most commonly means the session never produced a recording or the recording has aged out
+    # of retention, not that the caller is hitting the wrong team.
     if len(sessions_found) != len(session_ids):
         missing_sessions = set(session_ids) - sessions_found
-        msg = f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
+        msg = (
+            "Session recordings not found for the following IDs (the recording may not have been captured, "
+            f"may have expired, or may belong to a different team): {', '.join(missing_sessions)}"
+        )
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
     # Check for missing timestamps

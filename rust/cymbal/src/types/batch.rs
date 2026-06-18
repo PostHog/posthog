@@ -1,6 +1,9 @@
-use std::future::Future;
+use std::{future::Future, sync::atomic::Ordering};
+
+use futures::{StreamExt, TryStreamExt};
 
 use crate::{
+    config::BATCH_APPLY_CONCURRENCY,
     error::UnhandledError,
     types::{
         operator::Operator,
@@ -73,11 +76,7 @@ impl<T> Batch<T> {
         Ok(Batch(result))
     }
 
-    pub fn apply_func<Ctx, O, F, Fu, E>(
-        self,
-        mut func: F,
-        ctx: Ctx,
-    ) -> impl Future<Output = Result<Batch<O>, E>>
+    pub async fn apply_func<Ctx, O, F, Fu, E>(self, mut func: F, ctx: Ctx) -> Result<Batch<O>, E>
     where
         Ctx: Clone + Send,
         F: FnMut(T, Ctx) -> Fu + 'static,
@@ -85,19 +84,12 @@ impl<T> Batch<T> {
         O: Send + 'static,
         E: Send + 'static,
     {
-        let mut handles = vec![];
-        for item in self.0.into_iter() {
-            let future = func(item, ctx.clone());
-            handles.push(tokio::spawn(future));
-        }
-        async move {
-            futures::future::try_join_all(handles)
-                .await
-                .unwrap_or_else(|e| panic!("task panicked during batch processing: {:?}", e))
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()
-                .map(|value| value.into())
-        }
+        let concurrency_limit = BATCH_APPLY_CONCURRENCY.load(Ordering::Relaxed).max(1);
+        futures::stream::iter(self.0.into_iter().map(|item| func(item, ctx.clone())))
+            .buffered(concurrency_limit)
+            .try_collect::<Vec<_>>()
+            .await
+            .map(Batch::from)
     }
 
     #[allow(clippy::manual_async_fn)]

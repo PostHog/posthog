@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
@@ -6,8 +6,8 @@ import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { toSentenceCase } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { productTourLogic } from '../productTourLogic'
 
@@ -57,7 +57,7 @@ function LanguageCard({ tourId, langCode }: { tourId: string; langCode: string }
 
     return (
         <button
-            className={classNames(
+            className={clsx(
                 'group flex p-3 rounded-md bg-surface-primary border items-center justify-between cursor-pointer',
                 isActive ? 'border-accent' : 'border'
             )}

@@ -4,8 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Dashboard, Insight, Project, Team
-from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models import Project, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -15,6 +14,14 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
+from posthog.models.scoping import team_scope
+
+from products.actions.backend.models.action import Action
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.product_analytics.backend.models.insight import Insight
+from products.surveys.backend.models import Survey
 
 
 class TestBuildResourceDuplicationGraph(BaseTest):
@@ -51,6 +58,32 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert DashboardTile in model_types
         assert Team in model_types
 
+    def test_survey_with_insight_and_actions_includes_related_resources(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Survey insight")
+        action = Action.objects.create(
+            team=self.team,
+            name="survey action",
+            steps_json=[{"event": "$pageview"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Hello"}],
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        graph = list(build_resource_duplication_graph(survey, set()))
+        model_types = {v.model for v in graph}
+        through = Survey._meta.get_field("actions").remote_field.through
+
+        assert Survey in model_types
+        assert Insight in model_types
+        assert Action in model_types
+        assert through in model_types
+        assert Team in model_types
+
     def test_dashboard_text_tiles_reachable_via_m2m(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
         text = Text.objects.create(team=self.team, body="Hello world")
@@ -62,6 +95,25 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert Dashboard in model_types
         assert Text in model_types
         assert DashboardTile in model_types
+
+    def test_dashboard_with_widget_tile_includes_all_related_resources(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                name="Top errors",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        graph = list(build_resource_duplication_graph(dashboard, set()))
+        model_types = {v.model for v in graph}
+
+        assert Dashboard in model_types
+        assert DashboardWidget in model_types
+        assert DashboardTile in model_types
+        assert Team in model_types
 
     def test_immutable_resources_have_no_edges(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
@@ -78,7 +130,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from posthog.models import Annotation
+        from products.annotations.backend.models.annotation import Annotation
 
         annotation = Annotation.objects.create(team=self.team, content="My annotation")
         with self.assertRaises(TypeError):
@@ -131,6 +183,43 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         assert new_dashboards[0].team == dest_team
         assert new_dashboards[0].name == "My dashboard"
 
+    def test_duplicates_survey_with_linked_insight_and_actions(self) -> None:
+        dest_team = self._create_destination_team()
+        insight = Insight.objects.create(team=self.team, name="Linked", filters={})
+        action = Action.objects.create(
+            team=self.team,
+            name="trigger action",
+            steps_json=[{"event": "subscribed"}],
+        )
+        survey = Survey.objects.create(
+            team=self.team,
+            name="NPS",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"id": "q1", "type": "open", "question": "Rate us"}],
+            conditions={"linkedFlagVariant": "control", "url": "/p"},
+            linked_insight=insight,
+        )
+        survey.actions.add(action)
+
+        results = duplicate_resource_to_new_team(survey, dest_team, created_by=self.user)
+        new_surveys = [r for r in results if isinstance(r, Survey)]
+        new_insights = [r for r in results if isinstance(r, Insight)]
+        new_actions = [r for r in results if isinstance(r, Action)]
+
+        assert len(new_surveys) == 1
+        assert len(new_insights) == 1
+        assert len(new_actions) == 1
+
+        copied = new_surveys[0]
+        assert copied.team == dest_team
+        assert copied.linked_insight_id == new_insights[0].pk
+        assert copied.linked_insight is not None
+        assert copied.linked_insight.team == dest_team
+        assert list(copied.actions.values_list("pk", flat=True)) == [new_actions[0].pk]
+        assert copied.conditions is not None
+        assert "linkedFlagVariant" not in copied.conditions
+        assert copied.conditions.get("url") == "/p"
+
     def test_duplicates_dashboard_with_insight_tile(self) -> None:
         dest_team = self._create_destination_team()
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
@@ -169,6 +258,35 @@ class TestDuplicateResourceToNewTeam(BaseTest):
 
         for r in new_insights:
             assert r.team == dest_team
+
+    def test_duplicates_dashboard_with_widget_tile(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                name="Top errors",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        new_dashboards = [r for r in results if isinstance(r, Dashboard)]
+        new_widgets = [r for r in results if isinstance(r, DashboardWidget)]
+        new_tiles = [r for r in results if isinstance(r, DashboardTile)]
+
+        assert len(new_dashboards) == 1
+        assert len(new_widgets) == 1
+        assert len(new_tiles) == 1
+
+        assert new_widgets[0].pk != widget.pk
+        assert new_widgets[0].team == dest_team
+        assert new_widgets[0].widget_type == "error_tracking_list"
+        assert new_widgets[0].config == {"limit": 10}
+        assert new_tiles[0].dashboard == new_dashboards[0]
+        assert new_tiles[0].widget == new_widgets[0]
 
     def test_does_not_modify_source_resources(self) -> None:
         dest_team = self._create_destination_team()

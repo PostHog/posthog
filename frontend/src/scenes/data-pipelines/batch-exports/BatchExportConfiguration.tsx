@@ -16,7 +16,7 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { timeZoneLabel } from 'lib/utils'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,11 +24,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -39,16 +39,15 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfigTest,
         batchExportConfigTestLoading,
         configuration,
-        configurationChanged,
         tables,
         batchExportConfig,
         selectedModel,
         runningStep,
         isDatabaseDestination,
         service,
-    } = useValues(batchExportConfigurationLogic)
+    } = useValues(batchExportConfigFormLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
-        useActions(batchExportConfigurationLogic)
+        useActions(batchExportConfigFormLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
@@ -66,7 +65,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <Form logic={batchExportConfigurationLogic} formKey="configuration" className="flex flex-col gap-3">
+        <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
@@ -360,7 +359,6 @@ export function BatchExportConfiguration(): JSX.Element {
                         <BatchExportConfigurationFields
                             isNew={isNew}
                             formValues={configuration as BatchExportConfigurationForm}
-                            configurationChanged={configurationChanged}
                         />
                     </div>
                     {batchExportConfigTest && (
@@ -387,20 +385,14 @@ export function BatchExportConfiguration(): JSX.Element {
 function BatchExportConfigurationFields({
     isNew,
     formValues,
-    configurationChanged,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
-    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields
-                isNew={isNew}
-                batchExportConfigForm={formValues}
-                configurationChanged={configurationChanged}
-            />
+            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
         </>
     )
 }

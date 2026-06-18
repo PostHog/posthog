@@ -1,7 +1,7 @@
 import gzip
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import close_old_connections
 
@@ -9,10 +9,16 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
+from products.customer_analytics.backend.services.usage_spike_notifications import notify_managers_of_usage_spike
+
 from ee.billing.billing_manager import BillingManager
 from ee.sqs.SQSConsumer import SQSConsumer
 
 logger = logging.getLogger(__name__)
+
+# PostHog's own team on Cloud US — owns the Customer-analytics accounts that inbound billing
+# usage-spike events resolve against. Billing emits these spike messages to the US queue.
+POSTHOG_SELF_TEAM_ID = 2
 
 
 class BillingConsumer(SQSConsumer):
@@ -44,6 +50,8 @@ class BillingConsumer(SQSConsumer):
             # Process different message types
             if message_type == "billing_customer_update":
                 self._process_billing_customer_update(body)
+            elif message_type == "usage_spike_detected":
+                self._process_usage_spike_detected(body)
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
@@ -68,7 +76,9 @@ class BillingConsumer(SQSConsumer):
             logger.exception(f"Error processing billing message: {e}")
             capture_exception(e, {"message_id": message_id, "message_type": message_type})
 
-    def _decompress_and_parse_message(self, raw_body: str, message_attributes: Optional[dict] = None) -> dict:
+    def _decompress_and_parse_message(
+        self, raw_body: str | bytes, message_attributes: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """
         Decompress and parse message body based on content encoding.
 
@@ -90,21 +100,26 @@ class BillingConsumer(SQSConsumer):
                     import base64
 
                     try:
-                        raw_body = base64.b64decode(raw_body)
+                        raw_body_bytes = base64.b64decode(raw_body)
                     except Exception:
-                        raw_body = raw_body.encode("utf-8")
+                        raw_body_bytes = raw_body.encode("utf-8")
+                else:
+                    raw_body_bytes = raw_body
 
-                decompressed_data = gzip.decompress(raw_body)
-                return json.loads(decompressed_data.decode("utf-8"))
+                decompressed_data = gzip.decompress(raw_body_bytes)
+                return cast(dict[str, Any], json.loads(decompressed_data.decode("utf-8")))
             except Exception as e:
                 logger.exception(f"Failed to decompress gzipped message: {str(e)}")
                 capture_exception(e)
                 raise
 
         try:
-            return json.loads(raw_body)
+            return cast(dict[str, Any], json.loads(raw_body))
         except json.JSONDecodeError:
-            logger.exception(f"Invalid JSON in message body: {raw_body[:100]}...")
+            preview = (
+                raw_body[:100].decode("utf-8", errors="replace") if isinstance(raw_body, bytes) else raw_body[:100]
+            )
+            logger.exception(f"Invalid JSON in message body: {preview}...")
             raise
 
     def _process_billing_customer_update(self, body: dict[str, Any]) -> None:
@@ -139,3 +154,23 @@ class BillingConsumer(SQSConsumer):
         billing_manager.update_org_details(organization, data)
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
+
+    def _process_usage_spike_detected(self, body: dict[str, Any]) -> None:
+        """Route a billing-detected usage spike to the account's CSM and Account Executive."""
+        data = body.get("data", {})
+        spike_id = data.get("spike_id")
+
+        if not spike_id:
+            logger.error("Usage spike message is missing spike_id")
+            capture_exception(Exception("Usage spike message is missing spike_id"))
+            return
+
+        notify_managers_of_usage_spike(
+            team_id=POSTHOG_SELF_TEAM_ID,
+            spike_id=str(spike_id),
+            spikes=data.get("spikes", []),
+            organization_id=data.get("organization_id"),
+            billing_id=data.get("billing_id"),
+            stripe_customer_id=data.get("stripe_customer_id"),
+            detected_at=data.get("detected_at"),
+        )

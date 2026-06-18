@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconBell } from '@posthog/icons'
@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonInput,
+    LemonSelect,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -20,9 +21,8 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionConfigurationContextId, HogFunctionType } from '~/types'
@@ -31,6 +31,7 @@ import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
@@ -52,6 +53,10 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
+    'health-alerts': {
+        label: 'Health alerts',
+        url: urls.healthAlerts(),
+    },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
@@ -91,14 +96,17 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
     )
 }
 
-const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+// `returnTo` only applies to the canonical hog-function path; legacy plugin and
+// batch-export scenes don't read it.
+export const urlForHogFunction = (hogFunction: HogFunctionType, returnTo?: string): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
     }
     if (hogFunction.id.startsWith('batch-export-')) {
         return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }
-    return urls.hogFunction(hogFunction.id)
+    const path = urls.hogFunction(hogFunction.id)
+    return returnTo ? combineUrl(path, { returnTo }).url : path
 }
 
 export function HogFunctionList({
@@ -107,6 +115,7 @@ export function HogFunctionList({
     emptyText,
     onDeleteHogFunction,
     onEditHogFunction,
+    returnTo,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
@@ -114,6 +123,7 @@ export function HogFunctionList({
     emptyText?: string
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
+    returnTo?: string
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -146,13 +156,14 @@ export function HogFunctionList({
             {
                 title: 'Name',
                 sticky: true,
-                sorter: true,
+                sorter: (a, b) =>
+                    (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true }),
                 key: 'name',
                 dataIndex: 'name',
                 render: (_, hogFunction) => {
                     return (
                         <LemonTableLink
-                            to={urlForHogFunction(hogFunction)}
+                            to={urlForHogFunction(hogFunction, returnTo)}
                             onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
@@ -169,21 +180,7 @@ export function HogFunctionList({
                     )
                 },
             },
-            {
-                title: 'Created by',
-                width: 0,
-                render: (_, hogFunction) => {
-                    if (!hogFunction.created_by) {
-                        return <span className="text-muted">Unknown</span>
-                    }
-                    return (
-                        <div className="flex items-center gap-2">
-                            <ProfilePicture user={hogFunction.created_by} size="sm" />
-                            <span>{hogFunction.created_by.first_name || hogFunction.created_by.email}</span>
-                        </div>
-                    )
-                },
-            },
+            createdByColumn() as LemonTableColumn<HogFunctionType, any>,
 
             updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
             {
@@ -253,7 +250,7 @@ export function HogFunctionList({
                                                   // TRICKY: Hack for now to just link out to the full view
                                                   {
                                                       label: 'View & configure',
-                                                      to: urlForHogFunction(hogFunction),
+                                                      to: urlForHogFunction(hogFunction, returnTo),
                                                   },
                                               ]
                                             : [
@@ -278,6 +275,18 @@ export function HogFunctionList({
                 },
             },
         ]
+
+        if (props.type === 'destination') {
+            // insert after the Name column
+            columns.splice(2, 0, {
+                title: 'Type',
+                key: 'deliveryType',
+                width: 0,
+                render: function RenderDeliveryType(_, hogFunction) {
+                    return <DeliveryTypeTag item={hogFunction} />
+                },
+            })
+        }
 
         if (props.type === 'transformation') {
             // insert it in the second column
@@ -309,6 +318,7 @@ export function HogFunctionList({
         isManualFunction,
         onDeleteHogFunction,
         onEditHogFunction,
+        returnTo,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
@@ -333,6 +343,14 @@ export function HogFunctionList({
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
+                {props.type === 'destination' && (
+                    <LemonSelect
+                        size="small"
+                        value={filters.deliveryType ?? null}
+                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
+                        options={DELIVERY_TYPE_FILTER_OPTIONS}
+                    />
+                )}
                 <LemonCheckbox
                     label="Show paused"
                     bordered

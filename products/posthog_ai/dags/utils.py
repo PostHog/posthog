@@ -126,7 +126,7 @@ class ResultsFormatter:
         total_metrics = sum(len(result.get("scores", {})) for result in results)
 
         body_parts = [
-            f"🧠 **AI eval results** for dataset [{self.dataset_name}](https://us.posthog.com/llm-analytics/datasets/{self.dataset_id})",
+            f"🧠 **AI eval results** for dataset [{self.dataset_name}](https://us.posthog.com/ai-evals/datasets/{self.dataset_id})",
             f"Evaluated **{total_experiments}** experiment{'' if total_experiments == 1 else 's'}, comprising **{total_metrics}** metric{'' if total_metrics == 1 else 's'}.",
             *experiment_summaries,
         ]
@@ -239,7 +239,7 @@ class ResultsFormatter:
                 "type": "event",
             },
         ]
-        return f"https://us.posthog.com/llm-analytics/traces?filters={urllib.parse.quote(json.dumps(traces_filter))}"
+        return f"https://us.posthog.com/ai-observability/traces?filters={urllib.parse.quote(json.dumps(traces_filter))}"
 
 
 def format_results(

@@ -32,22 +32,22 @@ operations = [
     # and add writable view, so other nodes can write to it
     run_sql_with_exceptions(
         SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL(),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
     ),
     # This is tricky part, the worker nodes, writes to own replica of sharded_query_log_archive.
-    # This limits the parts flying in the cluster. But coordinator does not have own query_log_archive table,
-    # therefor needs to write to distributed one. This will need to be carried through all query_log_archive updates!
+    # This limits the parts flying in the cluster. Endpoints nodes do not have own query_log_archive table,
+    # therefor need to write to distributed one. This will need to be carried through all query_log_archive updates!
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_NEW_MV_SQL(
             view_name=DIST_QUERY_LOG_ARCHIVE_MV,
             dest_table=SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
         ),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.ENDPOINTS],
     ),
     # Drop old MV
     run_sql_with_exceptions(
         f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_MV}",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.DATA, NodeRole.ENDPOINTS],
     ),
     # and drop old distributed table for endpoints
     run_sql_with_exceptions(
@@ -57,11 +57,11 @@ operations = [
     # rename old table, so it can be taken care later
     run_sql_with_exceptions(
         f"RENAME TABLE {QUERY_LOG_ARCHIVE_DATA_TABLE} TO {QUERY_LOG_ARCHIVE_OLD_TABLE}",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # and create a new distributed so we can query it without interruptions
     run_sql_with_exceptions(
         DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

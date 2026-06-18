@@ -1,0 +1,104 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .form-row {
+        margin-bottom: 15px;
+    }
+    .help {
+        font-size: 11px;
+        color: #666;
+    }
+    .submit-row {
+        margin-top: 30px;
+    }
+    .alert {
+        padding: 10px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    .alert-info {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        color: #1565c0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>Note:</strong> This tool triggers the Temporal workflow to backfill the precalculated_events table
+    for realtime cohorts with behavioral event filters. The backfill scans historical events in daily chunks
+    and evaluates behavioral filter bytecodes against them. Check the Temporal UI for progress and results.
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<form method="post" id="backfill-form">
+    {% csrf_token %}
+
+    <fieldset class="module aligned">
+        <h2>Target Cohort</h2>
+
+        <div class="form-row">
+            <label for="{{ form.team_id.id_for_label }}" class="required">
+                {{ form.team_id.label }}:
+            </label>
+            {{ form.team_id }}
+            {% if form.team_id.help_text %}
+                <p class="help">{{ form.team_id.help_text }}</p>
+            {% endif %}
+            {{ form.team_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.cohort_id.id_for_label }}">
+                {{ form.cohort_id.label }}:
+            </label>
+            {{ form.cohort_id }}
+            {% if form.cohort_id.help_text %}
+                <p class="help">{{ form.cohort_id.help_text }}</p>
+            {% endif %}
+            {{ form.cohort_id.errors }}
+        </div>
+    </fieldset>
+
+    <fieldset class="module aligned">
+        <h2>Processing Configuration</h2>
+
+        <div class="form-row">
+            <label for="{{ form.days.id_for_label }}">
+                {{ form.days.label }}:
+            </label>
+            {{ form.days }}
+            {% if form.days.help_text %}
+                <p class="help">{{ form.days.help_text }}</p>
+            {% endif %}
+            {{ form.days.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.concurrent_workflows.id_for_label }}" class="required">
+                {{ form.concurrent_workflows.label }}:
+            </label>
+            {{ form.concurrent_workflows }}
+            {% if form.concurrent_workflows.help_text %}
+                <p class="help">{{ form.concurrent_workflows.help_text }}</p>
+            {% endif %}
+            {{ form.concurrent_workflows.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Run Backfill" class="default" />
+    </div>
+</form>
+{% endblock %}

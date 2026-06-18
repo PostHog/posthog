@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 
 import {
@@ -45,7 +45,7 @@ export function QuestionBranchingInput({
     questionIndex: number
     question: SurveyQuestion
 }): JSX.Element {
-    const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
+    const { survey, getBranchingDropdownValue, editingLanguage } = useValues(surveyLogic)
     const { setQuestionBranchingType, setSurveyValue } = useActions(surveyLogic)
 
     const availableQuestions = getAvailableQuestionOptions(survey.questions, questionIndex)
@@ -126,6 +126,10 @@ export function QuestionBranchingInput({
                     data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={handleBranchingSelection}
                     options={dropdownOptions}
+                    disabled={!!editingLanguage}
+                    disabledReason={
+                        editingLanguage ? 'Question branching can only be edited in the original language' : undefined
+                    }
                 />
             </LemonField>
             {/* Show response-based branching UI when that option is selected */}

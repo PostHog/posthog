@@ -29,13 +29,19 @@ export function RenderMetricValueEdit({
         )
     }
 
-    const parsedValue = isSecret && value ? '' : (value as string | number)
+    const parsedValue = isSecret && value ? '' : Array.isArray(value) ? value.join(', ') : (value as string | number)
 
     return (
         <LemonInput
             defaultValue={parsedValue as any}
             type={value_type === 'int' ? 'number' : 'text'}
-            placeholder={isSecret && value ? 'Keep existing secret value' : undefined}
+            placeholder={
+                isSecret && value
+                    ? 'Keep existing secret value'
+                    : value_type === 'list[int]'
+                      ? 'e.g. 1, 2, 3'
+                      : undefined
+            }
             onBlur={(e) => onValueChanged(key, e.target.value)}
         />
     )

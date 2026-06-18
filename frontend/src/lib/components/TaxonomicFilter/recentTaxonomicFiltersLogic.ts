@@ -1,24 +1,28 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { now } from 'lib/dayjs'
-import { isOperatorFlag } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { isOperatorFlag } from 'lib/utils/operators'
 
 import { AnyPropertyFilter } from '~/types'
 
 import type { recentTaxonomicFiltersLogicType } from './recentTaxonomicFiltersLogicType'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
+import {
+    isKeyOnlyForGroup,
+    META_GROUP_TYPES,
+    SelectingKeyOnly,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from './types'
 
 export const MAX_RECENT_FILTERS = 20
 export const RECENT_FILTER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.SuggestedFilters,
-    TaxonomicFilterGroupType.RecentFilters,
-    TaxonomicFilterGroupType.Empty,
-    TaxonomicFilterGroupType.Wildcards,
-    TaxonomicFilterGroupType.MaxAIContext,
+const EXCLUDED_RECENT_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    ...META_GROUP_TYPES,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+    TaxonomicFilterGroupType.DataWarehousePersonProperties,
 ])
 
 export interface RecentTaxonomicFilter {
@@ -34,6 +38,13 @@ export interface RecentTaxonomicFilter {
 export interface RecentItemContext {
     sourceGroupType: TaxonomicFilterGroupType
     sourceGroupName: string
+    /**
+     * Canonical value the entry was recorded under (e.g. `action.id`,
+     * `event.name`). Lets consumers resolve the underlying definition
+     * when the recorded source group is a META group (Suggested filters)
+     * or otherwise unavailable.
+     */
+    sourceValue: TaxonomicFilterValue
     teamId?: number
     propertyFilter?: AnyPropertyFilter
 }
@@ -47,7 +58,7 @@ export function stripRecentContext<T extends Record<string, any>>(item: T): Omit
     return clean
 }
 
-function isCompleteRecentPropertyFilter(propertyFilter: AnyPropertyFilter | undefined): boolean {
+export function isCompleteRecentPropertyFilter(propertyFilter: AnyPropertyFilter | undefined): boolean {
     if (!propertyFilter) {
         return false
     }
@@ -57,6 +68,60 @@ function isCompleteRecentPropertyFilter(propertyFilter: AnyPropertyFilter | unde
         !(Array.isArray(propertyFilter.value) && propertyFilter.value.length === 0)
     const op = 'operator' in propertyFilter ? propertyFilter.operator : undefined
     return hasValue || (!!op && isOperatorFlag(op))
+}
+
+type RecentDisplayItem = Record<string, any> & { _recentContext: RecentItemContext }
+
+function recentStorageKey(item: RecentDisplayItem): string {
+    return `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
+}
+
+function toBareKeyRecent(item: RecentDisplayItem): TaxonomicDefinitionTypes {
+    const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
+    return { ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes
+}
+
+export function expandRecentsForDisplay(
+    scopedRecentItems: TaxonomicDefinitionTypes[],
+    selectingKeyOnly?: SelectingKeyOnly
+): TaxonomicDefinitionTypes[] {
+    const keysWithExplicitBareRecent = new Set<string>()
+    for (const item of scopedRecentItems) {
+        if (hasRecentContext(item) && !isCompleteRecentPropertyFilter(item._recentContext.propertyFilter)) {
+            keysWithExplicitBareRecent.add(recentStorageKey(item))
+        }
+    }
+
+    const emittedBareKey = new Set<string>()
+    const result: TaxonomicDefinitionTypes[] = []
+    for (const item of scopedRecentItems) {
+        if (!hasRecentContext(item)) {
+            result.push(item)
+            continue
+        }
+        const key = recentStorageKey(item)
+
+        if (isKeyOnlyForGroup(selectingKeyOnly, item._recentContext.sourceGroupType)) {
+            if (!emittedBareKey.has(key)) {
+                emittedBareKey.add(key)
+                result.push(toBareKeyRecent(item))
+            }
+            continue
+        }
+
+        if (!isCompleteRecentPropertyFilter(item._recentContext.propertyFilter)) {
+            emittedBareKey.add(key)
+            result.push(item)
+            continue
+        }
+
+        if (!keysWithExplicitBareRecent.has(key) && !emittedBareKey.has(key)) {
+            emittedBareKey.add(key)
+            result.push(toBareKeyRecent(item))
+        }
+        result.push(item)
+    }
+    return result
 }
 
 function isDuplicateRecentFilter(
@@ -84,40 +149,43 @@ function isDuplicateRecentFilter(
     return true
 }
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'recentTaxonomicFiltersLogic']),
     actions({
-        recordRecentFilter: (
-            groupType: TaxonomicFilterGroupType,
-            groupName: string,
-            value: TaxonomicFilterValue,
-            item: any,
-            teamId?: number,
+        recordRecentFilter: (payload: {
+            groupType: TaxonomicFilterGroupType
+            groupName: string
+            value: TaxonomicFilterValue
+            item: any
+            teamId?: number
             propertyFilter?: AnyPropertyFilter
-        ) => ({
-            groupType,
-            groupName,
-            value,
-            item,
-            teamId,
-            propertyFilter,
-        }),
+            selectingKeyOnly?: boolean
+        }) => payload,
         clearRecentFilters: true,
     }),
     reducers({
         recentFilters: [
             [] as RecentTaxonomicFilter[],
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 clearRecentFilters: () => [],
-                recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {
-                    if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
+                recordRecentFilter: (
+                    state,
+                    { groupType, groupName, value, item, teamId, propertyFilter, selectingKeyOnly }
+                ) => {
+                    if (EXCLUDED_RECENT_FILTER_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
 
                     const incomingComplete = isCompleteRecentPropertyFilter(propertyFilter)
+                    // A non-selectingKeyOnly partial write is treated as a stale precursor to a complete filter
+                    // and should not stomp the better record. A selectingKeyOnly write is the final value, so
+                    // it is allowed to coexist with — and bump the recency of — any complete record.
                     if (
                         !incomingComplete &&
+                        !selectingKeyOnly &&
                         state.some(
                             (f) =>
                                 f.groupType === groupType &&
@@ -169,6 +237,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                             _recentContext: {
                                 sourceGroupType: f.groupType,
                                 sourceGroupName: f.groupName,
+                                sourceValue: f.value,
                                 teamId: f.teamId,
                                 propertyFilter: f.propertyFilter,
                             } as RecentItemContext,

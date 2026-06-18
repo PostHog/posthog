@@ -9,8 +9,9 @@ from django.core.paginator import Paginator
 import structlog
 import temporalio
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 from products.data_warehouse.backend.data_load.saved_query_service import sync_saved_query_workflow
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +28,12 @@ class Command(BaseCommand):
             default=None,
             type=str,
             help="Comma separated list of team IDs to filter by",
+        )
+        parser.add_argument(
+            "--start-after-saved-query-id",
+            default=None,
+            type=str,
+            help="Resume after this saved query UUID (exclusive), following the id ordering used by this command",
         )
         parser.add_argument(
             "--all",
@@ -62,6 +69,15 @@ class Command(BaseCommand):
                 raise CommandError("team_ids must be a comma separated list of team IDs")
             queryset = queryset.filter(team_id__in=team_ids)
 
+        if options.get("start_after_saved_query_id") is not None:
+            queryset = queryset.filter(id__gt=options["start_after_saved_query_id"])
+
+        # Never refresh a v1 schedule for a saved query whose DAG already runs on v2.
+        v2_ids = get_v2_saved_query_ids(list(queryset.values_list("id", flat=True)))
+        if v2_ids:
+            logger.info(f"Skipping {len(v2_ids)} saved queries on DAGs already migrated to v2")
+            queryset = queryset.exclude(id__in=v2_ids)
+
         queryset = queryset.order_by("id")
         total = queryset.count()
 
@@ -89,6 +105,7 @@ class Command(BaseCommand):
         for batch in Paginator(queryset, BATCH_SIZE):
             for saved_query in batch.object_list:
                 try:
+                    saved_query.setup_model_paths()
                     sync_saved_query_workflow(saved_query, create=False)
                     updated += 1
                 except temporalio.service.RPCError as e:

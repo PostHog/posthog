@@ -4,7 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
@@ -33,17 +33,17 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     )
 
     return (
-        <div className="flex items-center gap-2" data-attr="funnel-conversion-window-filter">
+        <div className="flex items-center gap-2 flex-wrap" data-attr="funnel-conversion-window-filter">
             <span className="flex whitespace-nowrap">
                 Conversion window limit
                 <Tooltip
                     title={
                         <>
                             Limit to {aggregationTargetLabel.plural}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} converted within a
                             specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                            {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in
-                            this time frame will be considered as drop-offs.
+                            {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} do not convert in this
+                            time frame will be considered as drop-offs.
                         </>
                     }
                 >

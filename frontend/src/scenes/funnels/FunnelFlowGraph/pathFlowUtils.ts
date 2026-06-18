@@ -74,6 +74,39 @@ export function extractLayerIndex(name: string): number {
     return match ? parseInt(match[1], 10) : 0
 }
 
+export function extractStepIndex(stepId: string): number {
+    const match = stepId.match(/^step-([0-9]+)$/)
+    return match ? parseInt(match[1], 10) : -1
+}
+
+export function buildFunnelStepReplacementMap(
+    funnelSteps: { id: string; name: string }[],
+    sourceStepId: string | null,
+    targetStepId: string | null
+): Map<string, string> {
+    if (funnelSteps.length === 0) {
+        return new Map()
+    }
+
+    const firstAllowedIndex = sourceStepId ? extractStepIndex(sourceStepId) : 0
+    const lastAllowedIndex = targetStepId ? extractStepIndex(targetStepId) : Infinity
+    const allowedSteps = funnelSteps.filter((step) => {
+        const index = extractStepIndex(step.id)
+        return index >= firstAllowedIndex && index <= lastAllowedIndex
+    })
+
+    const earliestMatchWins = sourceStepId !== null
+    const stepsInResolutionOrder = earliestMatchWins ? allowedSteps : allowedSteps.slice().reverse()
+
+    const replacementMap = new Map<string, string>()
+    for (const { id, name } of stepsInResolutionOrder) {
+        if (!replacementMap.has(name)) {
+            replacementMap.set(name, id)
+        }
+    }
+    return replacementMap
+}
+
 function formatDisplayName(rawName: string): string {
     const name = stripStepPrefix(rawName)
     try {
@@ -124,11 +157,24 @@ export function buildPathFlowElements(
 
     const nodeReplacement = new Map<string, string>()
     if (funnelStepByEventName) {
+        const targetStepIndex = targetStepId ? extractStepIndex(targetStepId) : -1
+
+        const candidatesByEventName = new Map<string, { rawName: string; layer: number }[]>()
         for (const [rawName, data] of nodeMap) {
-            const funnelStepId = funnelStepByEventName.get(data.eventName)
-            if (funnelStepId) {
-                nodeReplacement.set(rawName, funnelStepId)
+            if (!funnelStepByEventName.has(data.eventName)) {
+                continue
             }
+            const list = candidatesByEventName.get(data.eventName) ?? []
+            list.push({ rawName, layer: data.layer })
+            candidatesByEventName.set(data.eventName, list)
+        }
+
+        for (const [eventName, candidates] of candidatesByEventName) {
+            const funnelStepId = funnelStepByEventName.get(eventName)!
+            const stepMatchesTarget = targetStepIndex !== -1 && extractStepIndex(funnelStepId) === targetStepIndex
+            candidates.sort((a, b) => a.layer - b.layer)
+            const winner = stepMatchesTarget ? candidates[candidates.length - 1] : candidates[0]
+            nodeReplacement.set(winner.rawName, funnelStepId)
         }
     }
 

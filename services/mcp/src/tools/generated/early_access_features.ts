@@ -10,38 +10,14 @@ import {
     EarlyAccessFeaturePartialUpdateParams,
     EarlyAccessFeatureRetrieveParams,
 } from '@/generated/early_access_features/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const EarlyAccessFeatureListSchema = EarlyAccessFeatureListQueryParams
-
-const earlyAccessFeatureList = (): ToolBase<
-    typeof EarlyAccessFeatureListSchema,
-    Schemas.PaginatedEarlyAccessFeatureList & { _posthogUrl: string }
-> => ({
-    name: 'early-access-feature-list',
-    schema: EarlyAccessFeatureListSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEarlyAccessFeatureList>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/early_access_feature/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/early_access_features`,
-        }
-    },
-})
 
 const EarlyAccessFeatureCreateSchema = EarlyAccessFeatureCreateBody.omit({ _create_in_folder: true })
 
 const earlyAccessFeatureCreate = (): ToolBase<
     typeof EarlyAccessFeatureCreateSchema,
-    Schemas.EarlyAccessFeatureSerializerCreateOnly & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.EarlyAccessFeatureSerializerCreateOnly>
 > => ({
     name: 'early-access-feature-create',
     schema: EarlyAccessFeatureCreateSchema,
@@ -68,34 +44,47 @@ const earlyAccessFeatureCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.EarlyAccessFeatureSerializerCreateOnly>({
             method: 'POST',
-            path: `/api/projects/${projectId}/early_access_feature/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/early_access_features/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
     },
 })
 
-const EarlyAccessFeatureRetrieveSchema = EarlyAccessFeatureRetrieveParams.omit({ project_id: true })
+const EarlyAccessFeatureDestroySchema = EarlyAccessFeatureDestroyParams.omit({ project_id: true })
 
-const earlyAccessFeatureRetrieve = (): ToolBase<
-    typeof EarlyAccessFeatureRetrieveSchema,
-    Schemas.EarlyAccessFeature & { _posthogUrl: string }
-> => ({
-    name: 'early-access-feature-retrieve',
-    schema: EarlyAccessFeatureRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureRetrieveSchema>) => {
+const earlyAccessFeatureDestroy = (): ToolBase<typeof EarlyAccessFeatureDestroySchema, unknown> => ({
+    name: 'early-access-feature-destroy',
+    schema: EarlyAccessFeatureDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EarlyAccessFeature>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/early_access_features/${(result as any).id}`,
-        }
+        return result
+    },
+})
+
+const EarlyAccessFeatureListSchema = EarlyAccessFeatureListQueryParams
+
+const earlyAccessFeatureList = (): ToolBase<
+    typeof EarlyAccessFeatureListSchema,
+    WithPostHogUrl<Schemas.PaginatedEarlyAccessFeatureList>
+> => ({
+    name: 'early-access-feature-list',
+    schema: EarlyAccessFeatureListSchema,
+    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedEarlyAccessFeatureList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/early_access_features')
     },
 })
 
@@ -105,7 +94,7 @@ const EarlyAccessFeaturePartialUpdateSchema = EarlyAccessFeaturePartialUpdatePar
 
 const earlyAccessFeaturePartialUpdate = (): ToolBase<
     typeof EarlyAccessFeaturePartialUpdateSchema,
-    Schemas.EarlyAccessFeature & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.EarlyAccessFeature>
 > => ({
     name: 'early-access-feature-partial-update',
     schema: EarlyAccessFeaturePartialUpdateSchema,
@@ -126,35 +115,35 @@ const earlyAccessFeaturePartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/early_access_features/${(result as any).id}`,
-        }
+        return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
     },
 })
 
-const EarlyAccessFeatureDestroySchema = EarlyAccessFeatureDestroyParams.omit({ project_id: true })
+const EarlyAccessFeatureRetrieveSchema = EarlyAccessFeatureRetrieveParams.omit({ project_id: true })
 
-const earlyAccessFeatureDestroy = (): ToolBase<typeof EarlyAccessFeatureDestroySchema, unknown> => ({
-    name: 'early-access-feature-destroy',
-    schema: EarlyAccessFeatureDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureDestroySchema>) => {
+const earlyAccessFeatureRetrieve = (): ToolBase<
+    typeof EarlyAccessFeatureRetrieveSchema,
+    WithPostHogUrl<Schemas.EarlyAccessFeature>
+> => ({
+    name: 'early-access-feature-retrieve',
+    schema: EarlyAccessFeatureRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof EarlyAccessFeatureRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${projectId}/early_access_feature/${params.id}/`,
+        const result = await context.api.request<Schemas.EarlyAccessFeature>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        return await withPostHogUrl(context, result, `/early_access_features/${result.id}`)
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'early-access-feature-list': earlyAccessFeatureList,
     'early-access-feature-create': earlyAccessFeatureCreate,
-    'early-access-feature-retrieve': earlyAccessFeatureRetrieve,
-    'early-access-feature-partial-update': earlyAccessFeaturePartialUpdate,
     'early-access-feature-destroy': earlyAccessFeatureDestroy,
+    'early-access-feature-list': earlyAccessFeatureList,
+    'early-access-feature-partial-update': earlyAccessFeaturePartialUpdate,
+    'early-access-feature-retrieve': earlyAccessFeatureRetrieve,
 }

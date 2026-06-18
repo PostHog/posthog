@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from django.utils import timezone
 
 import dateutil.parser
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_event_definition import EventData, capture_event
@@ -172,6 +173,35 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
+
+    @parameterized.expand(
+        [
+            # $pageview is a core PostHog event, so it's treated as verified
+            ("verified_only", "true", ["$pageview", "entered_free_trial", "watched_movie"]),
+            ("unverified_only", "false", ["purchase"]),
+            ("all_when_not_specified", None, ["$pageview", "entered_free_trial", "purchase", "watched_movie"]),
+        ]
+    )
+    def test_filter_event_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
+            EnterpriseEventDefinition.objects.filter(name=event_definition["name"], team=self.demo_team).update(
+                verified=event_definition["verified"] or False
+            )
+
+        url = "/api/projects/@current/event_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -447,6 +477,63 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified is True
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
+
+    def test_cannot_assign_owner_from_another_organization(self):
+        """Owner must belong to the current organization (PATCH)."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        other_org = create_organization(name="other org")
+        other_user = create_user("other-user-patch@example.com", "pass", other_org)
+
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="owner_patch_event", owner=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event.id}/",
+            {"owner": other_user.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert other_user.email.encode() not in response.content
+
+        event.refresh_from_db()
+        assert event.owner_id == self.user.id
+
+    def test_cannot_create_with_owner_from_another_organization(self):
+        """Owner must belong to the current organization (POST)."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        other_org = create_organization(name="other org")
+        other_user = create_user("other-user-post@example.com", "pass", other_org)
+
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {"name": "owner_post_event", "owner": other_user.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert other_user.email.encode() not in response.content
+        assert not EnterpriseEventDefinition.objects.filter(name="owner_post_event", team=self.demo_team).exists()
+
+    def test_can_assign_owner_from_same_organization(self):
+        """Assigning an owner who is in the same org should still work."""
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+
+        same_org_user = create_user("same-org@example.com", "pass", self.organization)
+
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="same_org_owner_event", owner=self.user
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event.id}/",
+            {"owner": same_org_user.id},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["owner"]["id"] == same_org_user.id
+
+        event.refresh_from_db()
+        assert event.owner_id == same_org_user.id
 
     def test_create_event_definition_with_hidden(self):
         """Test creating a hidden event definition"""

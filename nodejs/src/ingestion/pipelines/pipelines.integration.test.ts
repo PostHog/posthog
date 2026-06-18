@@ -1,7 +1,16 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ProjectId, Team } from '../../types'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    OVERFLOW_OUTPUT,
+    OverflowOutput,
+} from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchProcessingStep } from './base-batch-pipeline'
 import { newBatchPipelineBuilder } from './builders'
 import { createBatch, createNewPipeline, createUnwrapper } from './helpers'
@@ -18,7 +27,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     anonymize_ips: false,
     api_token: 'test-api-token',
     secret_api_token: null,
-    slack_incoming_webhook: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
     heatmaps_opt_in: null,
@@ -64,14 +72,14 @@ type TestEventWithTeam = {
  * replicate every single step from the actual ingestion consumer.
  */
 
-type AsyncStepConfig<TOutput> = {
+type AsyncStepConfig<TOutput, R extends string = never> = {
     delay: number
-    result: PipelineResult<TOutput>
+    result: PipelineResult<TOutput, R>
 }
 
-const createMockStep = <TInput extends { message: Message }, TOutput>(
-    resultMap: Map<string, AsyncStepConfig<TOutput>>
-): jest.MockedFunction<ProcessingStep<TInput, TOutput>> => {
+const createMockStep = <TInput extends { message: Message }, TOutput, R extends string = never>(
+    resultMap: Map<string, AsyncStepConfig<TOutput, R>>
+): jest.MockedFunction<ProcessingStep<TInput, TOutput, R>> => {
     return jest.fn(async (input: TInput) => {
         // Extract event ID from message value
         const eventId = input.message.value?.toString() || 'default'
@@ -106,23 +114,23 @@ const createMockBatchStep = <TInput, TOutput>(
 }
 
 describe('Pipeline Integration Tests', () => {
-    let mockKafkaProducer: any
+    let mockOutputs: jest.Mocked<
+        IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
+    >
     let mockPromiseScheduler: any
     let pipelineConfig: PipelineConfig
 
     beforeEach(() => {
-        mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
-            flush: jest.fn().mockResolvedValue(undefined),
-        }
+        mockOutputs = createMockIngestionOutputs<
+            typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         mockPromiseScheduler = {
             schedule: jest.fn(),
         }
 
         pipelineConfig = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'test-dlq-topic',
+            outputs: mockOutputs,
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -381,12 +389,15 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result map
-            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
-                ['redirect-event', { delay: 0, result: redirect('Mock redirect', 'mock-topic', true) }],
-            ])
+            const step1Map = new Map<
+                string,
+                AsyncStepConfig<{ message: Message; headers: TestHeaders }, OverflowOutput>
+            >([['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }]])
 
             // Define step
-            const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
+            const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }, string>(
+                step1Map
+            )
 
             // Define batch step result map
             const batchStep2Map = new Map([
@@ -426,9 +437,9 @@ describe('Pipeline Integration Tests', () => {
 
             // Should return empty array since event was redirected
             expect(results).toHaveLength(0)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                OVERFLOW_OUTPUT,
                 expect.objectContaining({
-                    topic: 'mock-topic',
                     value: messages[0].value,
                     key: messages[0].key,
                 })
@@ -502,9 +513,9 @@ describe('Pipeline Integration Tests', () => {
 
             // Should return empty array since event went to DLQ
             expect(results).toHaveLength(0)
-            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                DLQ_OUTPUT,
                 expect.objectContaining({
-                    topic: 'test-dlq-topic',
                     value: messages[0].value,
                     key: messages[0].key,
                 })
@@ -991,8 +1002,7 @@ describe('Pipeline Integration Tests', () => {
                     builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
                 )
                 .handleResults({
-                    kafkaProducer: mockKafkaProducer,
-                    dlqTopic: 'dlq-topic',
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1156,8 +1166,7 @@ describe('Pipeline Integration Tests', () => {
                         .pipeBatch(batchStep3)
                 )
                 .handleResults({
-                    kafkaProducer: mockKafkaProducer,
-                    dlqTopic: 'dlq-topic',
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1223,15 +1232,20 @@ describe('Pipeline Integration Tests', () => {
             ]
 
             // Define result maps
-            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+            const step1Map = new Map<
+                string,
+                AsyncStepConfig<{ message: Message; headers: TestHeaders }, OverflowOutput>
+            >([
                 ['drop-event', { delay: 0, result: drop('Mock drop') }],
                 ['dlq-event', { delay: 0, result: dlq('Mock DLQ') }],
-                ['redirect-event', { delay: 0, result: redirect('Mock redirect', 'redirect-topic', true) }],
+                ['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }],
                 ['ok-event', { delay: 0, result: ok({ message: messages[3], headers: { token: 'test-token' } }) }],
             ])
 
             // Define steps
-            const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
+            const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }, string>(
+                step1Map
+            )
 
             // Create a step that throws an exception for the remaining event
             const step2 = jest.fn(
@@ -1250,8 +1264,7 @@ describe('Pipeline Integration Tests', () => {
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
-                    kafkaProducer: mockKafkaProducer,
-                    dlqTopic: 'dlq-topic',
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1269,8 +1282,8 @@ describe('Pipeline Integration Tests', () => {
             expect(step1).toHaveBeenCalledTimes(4)
             expect(step2).toHaveBeenCalledTimes(1) // Only ok-event reaches step2
 
-            // Verify no messages were produced to Kafka due to exception
-            expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(0)
+            // Verify no messages were produced due to exception
+            expect(mockOutputs.produce).toHaveBeenCalledTimes(0)
         })
     })
 
@@ -1365,8 +1378,7 @@ describe('Pipeline Integration Tests', () => {
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
                 .handleResults({
-                    kafkaProducer: mockKafkaProducer,
-                    dlqTopic: 'dlq-topic',
+                    outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
                 })
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1796,7 +1808,7 @@ describe('Pipeline Integration Tests', () => {
                                             .gather()
                                             .pipeBatch(batchStep)
                                     )
-                                    .handleIngestionWarnings(mockKafkaProducer)
+                                    .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
                         )
                 )
                 .handleResults(pipelineConfig)

@@ -1,3 +1,10 @@
+export function parseList(text: string | undefined): string[] {
+    if (!text) {
+        return []
+    }
+    return text.split(',').map((item) => item.trim())
+}
+
 export const config = {
     // Temporal
     temporalHost: process.env.TEMPORAL_HOST || '127.0.0.1',
@@ -16,10 +23,11 @@ export const config = {
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
     screenshotFormat: (process.env.SCREENSHOT_FORMAT || 'jpeg') as 'png' | 'jpeg',
     screenshotJpegQuality: parseInt(process.env.SCREENSHOT_JPEG_QUALITY || '80', 10),
-    metricsPort: parseInt(process.env.METRICS_PORT || '6740', 10),
+    metricsPort: parseInt(process.env.METRICS_PORT || '6738', 10),
 
     // Encryption
-    secretKey: process.env.SECRET_KEY,
+    secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
+    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,

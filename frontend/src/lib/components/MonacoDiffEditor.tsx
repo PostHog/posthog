@@ -1,10 +1,11 @@
-// adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
 import * as monaco from 'monaco-editor'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
+// adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
+import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-interface MonacoDiffEditorProps {
+export interface MonacoDiffEditorProps {
     width?: number | string
     height?: number | string
     value?: string | null
@@ -108,24 +109,27 @@ function MonacoDiffEditor(
         })
 
         // Get initial content height
-        setTimeout(() => {
+        const initialHeightTimer = setTimeout(() => {
             if (editorRef.current) {
                 const modEditor = editorRef.current.getModifiedEditor()
                 setContentHeight(modEditor.getContentHeight())
             }
         }, 100)
 
-        // Cleanup
+        // Cleanup — order matters: detach the models from the DiffEditorWidget via setModel(null)
+        // before disposing anything, so Monaco's internal onWillDispose listeners don't fire
+        // against models that are about to be torn down ("TextModel got disposed before
+        // DiffEditorWidget model got reset").
         return () => {
-            const model = editorRef.current?.getModel()
-            if (editorRef.current && model) {
-                const { original: originalEditor, modified } = model
-                editorRef.current.dispose()
-                originalEditor.dispose()
-                modified.dispose()
-            }
+            clearTimeout(initialHeightTimer)
             subscriptionRef.current?.dispose()
-            contentSizeListener?.dispose()
+            contentSizeListener.dispose()
+            editorRef.current?.setModel(null)
+            editorRef.current?.dispose()
+            originalModel.dispose()
+            modifiedModel.dispose()
+            editorRef.current = null
+            subscriptionRef.current = null
         }
     })
 

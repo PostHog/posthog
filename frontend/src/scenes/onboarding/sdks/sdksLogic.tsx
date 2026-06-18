@@ -5,8 +5,8 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isKeyOf } from 'lib/utils/guards'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -229,9 +229,17 @@ export const sdksLogic = kea<sdksLogicType>([
                     if (selectedTag && !sdk.tags.includes(selectedTag)) {
                         return false
                     }
-                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return false
+
+                    if (searchTerm) {
+                        const term = searchTerm.toLowerCase()
+                        const nameMatch = sdk.name.toLowerCase().includes(term)
+                        const searchTermsMatch = sdk.searchTerms?.some((t) => t.toLowerCase().includes(term))
+
+                        if (!nameMatch && !searchTermsMatch) {
+                            return false
+                        }
                     }
+
                     return true
                 })
             },

@@ -8,7 +8,7 @@ use crate::metric_consts::{
     STORE_CACHE_MISSES,
 };
 
-use super::{Fetcher, Parser, Provider};
+use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
 
 // This is a type-specific symbol provider layer, designed to
 // wrap some inner provider and provide a type-safe caching layer
@@ -20,10 +20,10 @@ pub struct Caching<P> {
 impl<P> Caching<P>
 // This where clause exists exclusively to give more obvious compiler errors in cases where
 // the passed P doesn't cause Provider to be implemented for this Caching<P> - for example,
-// if the P's P::Ref doesn't implement ToString
+// if the P's P::Ref doesn't implement SymbolSetCacheKey
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
-    P::Ref: ToString + Send,
+    P::Ref: SymbolSetCacheKey + Send,
     P::Fetched: Send,
     P::Set: Countable + Any + Send + Sync,
 {
@@ -36,7 +36,7 @@ where
 impl<P> Provider for Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
-    P::Ref: ToString + Send,
+    P::Ref: SymbolSetCacheKey + Send,
     P::Fetched: Send,
     P::Set: Countable + Any + Send + Sync,
 {
@@ -46,7 +46,7 @@ where
 
     async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
         let mut cache = self.cache.lock().await;
-        let cache_key = format!("{}:{}", team_id, r.to_string());
+        let cache_key = format!("{}:{}", team_id, r.symbol_set_cache_key());
         if let Some(set) = cache.get(&cache_key) {
             metrics::counter!(STORE_CACHE_HITS).increment(1);
             return Ok(set);
@@ -167,5 +167,78 @@ pub trait Countable {
 impl Countable for Vec<u8> {
     fn byte_count(&self) -> usize {
         self.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        convert::Infallible,
+        sync::atomic::{AtomicUsize, Ordering},
+        sync::Arc,
+    };
+
+    use async_trait::async_trait;
+    use reqwest::Url;
+
+    use super::*;
+    use crate::symbol_store::chunk_id::OrChunkId;
+
+    struct FakeProvider {
+        fetches: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Fetcher for FakeProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Vec<u8>;
+        type Err = Infallible;
+
+        async fn fetch(&self, _team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
+            let data = match r {
+                OrChunkId::Inner(_) => b"inner".to_vec(),
+                OrChunkId::ChunkId(_) => b"chunk-id".to_vec(),
+                OrChunkId::Both { .. } => b"both".to_vec(),
+            };
+            Ok(data)
+        }
+    }
+
+    #[async_trait]
+    impl Parser for FakeProvider {
+        type Source = Vec<u8>;
+        type Set = Vec<u8>;
+        type Err = Infallible;
+
+        async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err> {
+            Ok(data)
+        }
+    }
+
+    #[tokio::test]
+    async fn caching_does_not_share_both_and_chunk_id_keys() {
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let provider = FakeProvider {
+            fetches: fetches.clone(),
+        };
+        let cache = Arc::new(Mutex::new(SymbolSetCache::new(1024)));
+        let caching = Caching::new(provider, cache);
+
+        let chunk_id = "chunk-id-1".to_string();
+        let url = Url::parse("https://example.com/static/chunk.js").unwrap();
+
+        let both = caching
+            .lookup(1, OrChunkId::both(url, chunk_id.clone()))
+            .await
+            .unwrap();
+        let chunk_only = caching
+            .lookup(1, OrChunkId::<Url>::chunk_id(chunk_id))
+            .await
+            .unwrap();
+
+        assert_eq!(both.as_ref(), b"both");
+        assert_eq!(chunk_only.as_ref(), b"chunk-id");
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
     }
 }

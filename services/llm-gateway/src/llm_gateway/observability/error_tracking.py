@@ -19,7 +19,7 @@ def _ensure_initialized() -> bool:
     if not settings.posthog_project_token:
         return False
 
-    posthoganalytics.api_key = settings.posthog_project_token
+    posthoganalytics.api_key = settings.posthog_project_token  # ty: ignore[invalid-assignment]
     _initialized = True
     return True
 

@@ -6,7 +6,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.schema_migrations.upgrade import upgrade
 
 if TYPE_CHECKING:
-    from posthog.models.insight import Insight
+    from products.product_analytics.backend.models.insight import Insight
 
 
 @contextmanager
@@ -19,5 +19,6 @@ def upgrade_query(insight: "Insight") -> Iterator[None]:
 @contextmanager
 def upgrade_insight(insight: "Insight") -> Iterator[None]:
     """Upgrade the query to the latest version if needed."""
-    insight.query = upgrade(insight.query)
+    if insight.query is not None:
+        insight.query = upgrade(insight.query)
     yield

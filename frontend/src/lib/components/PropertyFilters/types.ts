@@ -1,7 +1,9 @@
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -60,9 +62,16 @@ export interface PropertyFilterInternalProps {
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
+    /**
+     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
+     * (the default) renders a button. Only has an effect on the rebuild menu
+     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
+     */
+    triggerVariant?: 'button' | 'input'
 }

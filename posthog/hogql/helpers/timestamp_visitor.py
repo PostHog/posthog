@@ -94,6 +94,13 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is a timestamp field
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
+
     def visit_and(self, node: ast.And) -> bool:
         return False
 
@@ -122,7 +129,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
-            if isinstance(table_type, ast.TableAliasType):
+            if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             return (
                 (
@@ -187,6 +194,13 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast of a constant is still a constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
@@ -275,6 +289,13 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
 
     def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is a start-of-period constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         # some functions just return a constant
@@ -419,6 +440,13 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        # a cast doesn't change whether the underlying expression is an end-of-period constant
+        return self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast) -> bool:
+        return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         # there's no toEndOfDay function, so we're just checking the constant itself

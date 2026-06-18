@@ -7,7 +7,7 @@ use sourcemap::Token;
 
 use crate::{
     error::{FrameError, HermesError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,
@@ -54,8 +54,8 @@ impl RawHermesFrame {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Hermes symbol resolution error: {:?}", e);
+                Ok(self.handle_resolution_error(HermesError::InvalidMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -123,6 +123,10 @@ impl Display for HermesRef {
 
 impl From<(&RawHermesFrame, HermesError)> for Frame {
     fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
+        record_frame_resolution_failure("hermes", err.metric_reason(), &err);
+
+        let resolve_failure = Some(err.to_string());
+
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
@@ -133,7 +137,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             resolved_name: None,
             lang: "javascript".to_string(),
             resolved: false,
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure,
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
@@ -274,7 +278,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

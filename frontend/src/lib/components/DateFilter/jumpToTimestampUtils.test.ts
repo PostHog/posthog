@@ -45,22 +45,30 @@ describe('jumpToTimestamp', () => {
     })
 
     describe('computeDateRange', () => {
-        const ts = dayjs('2024-01-15T12:00:00')
+        const ts = dayjs.utc('2024-01-15T12:00:00')
 
         it.each<[WindowDirection, WindowSize, string, string]>([
-            ['before', '5m', '2024-01-15T11:55:00', '2024-01-15T12:00:00'],
-            ['before', '10m', '2024-01-15T11:50:00', '2024-01-15T12:00:00'],
-            ['before', '1h', '2024-01-15T11:00:00', '2024-01-15T12:00:00'],
-            ['around', '5m', '2024-01-15T11:57:30', '2024-01-15T12:02:30'],
-            ['around', '10m', '2024-01-15T11:55:00', '2024-01-15T12:05:00'],
-            ['around', '1h', '2024-01-15T11:30:00', '2024-01-15T12:30:00'],
-            ['after', '5m', '2024-01-15T12:00:00', '2024-01-15T12:05:00'],
-            ['after', '10m', '2024-01-15T12:00:00', '2024-01-15T12:10:00'],
-            ['after', '1h', '2024-01-15T12:00:00', '2024-01-15T13:00:00'],
+            ['before', '5m', '2024-01-15T11:55:00Z', '2024-01-15T12:00:00Z'],
+            ['before', '10m', '2024-01-15T11:50:00Z', '2024-01-15T12:00:00Z'],
+            ['before', '1h', '2024-01-15T11:00:00Z', '2024-01-15T12:00:00Z'],
+            ['around', '5m', '2024-01-15T11:57:30Z', '2024-01-15T12:02:30Z'],
+            ['around', '10m', '2024-01-15T11:55:00Z', '2024-01-15T12:05:00Z'],
+            ['around', '1h', '2024-01-15T11:30:00Z', '2024-01-15T12:30:00Z'],
+            ['after', '5m', '2024-01-15T12:00:00Z', '2024-01-15T12:05:00Z'],
+            ['after', '10m', '2024-01-15T12:00:00Z', '2024-01-15T12:10:00Z'],
+            ['after', '1h', '2024-01-15T12:00:00Z', '2024-01-15T13:00:00Z'],
         ])('direction=%s window=%s → %s to %s', (direction, windowSize, expectedFrom, expectedTo) => {
             const result = computeDateRange(ts, windowSize, direction)
             expect(result.date_from).toBe(expectedFrom)
             expect(result.date_to).toBe(expectedTo)
+        })
+
+        it('converts timezone-aware timestamps to UTC output', () => {
+            // 10:30 at +05:00 = 05:30 UTC
+            const ts2 = dayjs('2024-01-15T10:30:00+05:00')
+            const result = computeDateRange(ts2, '5m', 'around')
+            expect(result.date_from).toBe('2024-01-15T05:27:30Z')
+            expect(result.date_to).toBe('2024-01-15T05:32:30Z')
         })
     })
 })

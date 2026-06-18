@@ -10,38 +10,66 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     EndpointLastExecutionTimesRequestApi,
+    EndpointMaterializationApi,
     EndpointRequestApi,
+    EndpointResponseApi,
     EndpointRunRequestApi,
+    EndpointRunResponseApi,
+    EndpointVersionResponseApi,
+    EndpointsListParams,
+    EndpointsLogsRetrieveParams,
+    EndpointsOpenapiSpecRetrieveParams,
+    EndpointsVersionsListParams,
+    MaterializationPreviewRequestApi,
+    PaginatedEndpointResponseListApi,
+    PaginatedEndpointVersionResponseListApi,
+    PatchedEndpointRequestApi,
     QueryStatusResponseApi,
 } from './api.schemas'
+
+export const getEndpointsListUrl = (projectId: string, params?: EndpointsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/`
+}
 
 /**
  * List all endpoints for the team.
  */
-export const getEndpointsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/endpoints/`
-}
-
-export const endpointsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRetrieveUrl(projectId), {
+export const endpointsList = async (
+    projectId: string,
+    params?: EndpointsListParams,
+    options?: RequestInit
+): Promise<PaginatedEndpointResponseListApi> => {
+    return apiMutator<PaginatedEndpointResponseListApi>(getEndpointsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Create a new endpoint
- */
 export const getEndpointsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/endpoints/`
 }
 
+/**
+ * Create a new endpoint.
+ */
 export const endpointsCreate = async (
     projectId: string,
-    endpointRequestApi: EndpointRequestApi,
+    endpointRequestApi?: EndpointRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsCreateUrl(projectId), {
+): Promise<EndpointResponseApi> => {
+    return apiMutator<EndpointResponseApi>(getEndpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -49,34 +77,38 @@ export const endpointsCreate = async (
     })
 }
 
-/**
- * Retrieve an endpoint, or a specific endpoint version.
- */
-export const getEndpointsRetrieve2Url = (projectId: string, name: string) => {
+export const getEndpointsRetrieveUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
-export const endpointsRetrieve2 = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRetrieve2Url(projectId, name), {
+/**
+ * Retrieve an endpoint, or a specific version via ?version=N.
+ */
+export const endpointsRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<EndpointVersionResponseApi> => {
+    return apiMutator<EndpointVersionResponseApi>(getEndpointsRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
- */
 export const getEndpointsUpdateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
+/**
+ * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
+ */
 export const endpointsUpdate = async (
     projectId: string,
     name: string,
-    endpointRequestApi: EndpointRequestApi,
+    endpointRequestApi?: EndpointRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsUpdateUrl(projectId, name), {
+): Promise<EndpointResponseApi> => {
+    return apiMutator<EndpointResponseApi>(getEndpointsUpdateUrl(projectId, name), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -88,20 +120,30 @@ export const getEndpointsPartialUpdateUrl = (projectId: string, name: string) =>
     return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
-export const endpointsPartialUpdate = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsPartialUpdateUrl(projectId, name), {
+/**
+ * Update an existing endpoint.
+ */
+export const endpointsPartialUpdate = async (
+    projectId: string,
+    name: string,
+    patchedEndpointRequestApi?: PatchedEndpointRequestApi,
+    options?: RequestInit
+): Promise<EndpointResponseApi> => {
+    return apiMutator<EndpointResponseApi>(getEndpointsPartialUpdateUrl(projectId, name), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEndpointRequestApi),
     })
+}
+
+export const getEndpointsDestroyUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
 /**
  * Delete an endpoint and clean up materialized query.
  */
-export const getEndpointsDestroyUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/`
-}
-
 export const endpointsDestroy = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
@@ -109,88 +151,140 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     })
 }
 
-/**
- * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
- */
-export const getEndpointsMaterializationPreviewRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
+export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, params?: EndpointsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/logs/`
 }
 
-export const endpointsMaterializationPreviewRetrieve = async (
+export const endpointsLogsRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsMaterializationPreviewRetrieveUrl(projectId, name), {
+    return apiMutator<void>(getEndpointsLogsRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getEndpointsMaterializationPreviewCreateUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
+}
+
+/**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const endpointsMaterializationPreviewCreate = async (
+    projectId: string,
+    name: string,
+    materializationPreviewRequestApi?: MaterializationPreviewRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsMaterializationPreviewCreateUrl(projectId, name), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(materializationPreviewRequestApi),
+    })
+}
+
+export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_status/`
 }
 
 /**
  * Get materialization status for an endpoint. Supports ?version=N query param.
  */
-export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/materialization_status/`
-}
-
 export const endpointsMaterializationStatusRetrieve = async (
     projectId: string,
     name: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsMaterializationStatusRetrieveUrl(projectId, name), {
+): Promise<EndpointMaterializationApi> => {
+    return apiMutator<EndpointMaterializationApi>(getEndpointsMaterializationStatusRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getEndpointsOpenapiSpecRetrieveUrl = (
+    projectId: string,
+    name: string,
+    params?: EndpointsOpenapiSpecRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/openapi.json/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
 }
 
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const getEndpointsOpenapiJsonRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
-}
-
-export const endpointsOpenapiJsonRetrieve = async (
+export const endpointsOpenapiSpecRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsOpenapiSpecRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name), {
+    return apiMutator<void>(getEndpointsOpenapiSpecRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
- */
 export const getEndpointsRunRetrieveUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/run/`
 }
 
-export const endpointsRunRetrieve = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunRetrieveUrl(projectId, name), {
+/**
+ * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
+ */
+export const endpointsRunRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
- */
 export const getEndpointsRunCreateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/run/`
 }
 
+/**
+ * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
+ */
 export const endpointsRunCreate = async (
     projectId: string,
     name: string,
-    endpointRunRequestApi: EndpointRunRequestApi,
+    endpointRunRequestApi?: EndpointRunRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunCreateUrl(projectId, name), {
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -198,31 +292,44 @@ export const endpointsRunCreate = async (
     })
 }
 
+export const getEndpointsVersionsListUrl = (projectId: string, name: string, params?: EndpointsVersionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/versions/`
+}
+
 /**
  * List all versions for an endpoint.
  */
-export const getEndpointsVersionsRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/versions/`
-}
-
-export const endpointsVersionsRetrieve = async (
+export const endpointsVersionsList = async (
     projectId: string,
     name: string,
+    params?: EndpointsVersionsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsVersionsRetrieveUrl(projectId, name), {
+): Promise<PaginatedEndpointVersionResponseListApi> => {
+    return apiMutator<PaginatedEndpointVersionResponseListApi>(getEndpointsVersionsListUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Get the last execution times in the past 6 months for multiple endpoints.
- */
 export const getEndpointsLastExecutionTimesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/endpoints/last_execution_times/`
 }
 
+/**
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
+ */
 export const endpointsLastExecutionTimesCreate = async (
     projectId: string,
     endpointLastExecutionTimesRequestApi: EndpointLastExecutionTimesRequestApi,

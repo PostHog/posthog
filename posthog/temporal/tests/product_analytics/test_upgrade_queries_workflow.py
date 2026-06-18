@@ -12,8 +12,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import NodeKind
 
-from posthog.models.insight import Insight
-from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
+import posthog.schema_migrations as schema_migrations_module
+from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration, _discover_migrations
 from posthog.temporal.product_analytics.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
@@ -24,6 +24,8 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import (
     UpgradeQueriesWorkflow,
     UpgradeQueriesWorkflowInputs,
 )
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 class InsightVizMigration1(SchemaMigration):
@@ -79,6 +81,11 @@ def setup_migrations():
     LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 8
 
     yield
+
+    LATEST_VERSIONS.clear()
+    MIGRATIONS.clear()
+    schema_migrations_module._migrations_discovered = False
+    _discover_migrations()
 
 
 def setup_insights(team):

@@ -19,6 +19,7 @@ class TeamCustomerAnalyticsConfig(models.Model):
     signup_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     subscription_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     payment_event = field_access_control(models.JSONField(default=dict), "project", "admin")
+    account_group_type_index = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
 
     def to_cache_key_dict(self) -> dict:
         return {

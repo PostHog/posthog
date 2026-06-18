@@ -1,26 +1,21 @@
 import { aiSummaryMock } from './ai-summary.mock'
 
-import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
-import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import {
-    capitalizeFirstLetter,
-    ceilMsToClosestSecond,
-    humanFriendlyDuration,
-    isEmptyObject,
-    percentage,
-} from 'lib/utils'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { Dayjs } from 'lib/dayjs'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { ceilMsToClosestSecond, humanFriendlyDuration } from 'lib/utils/durations'
+import { isEmptyObject } from 'lib/utils/guards'
+import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
-import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerLogicProps,
@@ -30,15 +25,57 @@ import {
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
-import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import type { InspectorListItemEvent } from '../inspector/playerInspectorLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
-import { SessionSummaryContent } from './types'
+import { sessionSummaryProgressLogic } from './sessionSummaryProgressLogic'
+import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
+
+// The summary backend filters these out before summarizing, so mirror them here: the
+// "Summarize" button should be disabled when every event would be filtered away (otherwise
+// the user triggers a summary that fails with "This recording has no events to summarize").
+// Keep in sync with SESSION_SUMMARY_EVENT_BLOCKLIST and SESSION_EVENTS_REPLAY_CUTOFF_MS in
+// ee/hogai/session_summaries/constants.py.
+const SUMMARY_EVENT_MINI_FILTER_KEYS = [
+    'events-posthog',
+    'events-custom',
+    'events-pageview',
+    'events-autocapture',
+    'events-exceptions',
+]
+const SUMMARY_EVENT_BLOCKLIST = ['$feature_flag_called']
+const SUMMARY_EVENTS_REPLAY_CUTOFF_MS = 5000
+
+/**
+ * Whether any event would survive the backend summary filters — i.e. is not blocklisted and
+ * does not fall within the replay cutoff of the recording start/end. Mirrors the backend so
+ * the Summarize button is only enabled when a summary could actually be produced.
+ */
+export function hasSummarizableEvents(
+    eventItems: InspectorListItemEvent[],
+    start: Dayjs | null,
+    end: Dayjs | null
+): boolean {
+    return eventItems.some((item) => {
+        if (SUMMARY_EVENT_BLOCKLIST.includes(item.data.event)) {
+            return false
+        }
+        if (start && end) {
+            const msSinceStart = item.timestamp.diff(start)
+            const msTillEnd = end.diff(item.timestamp)
+            if (msSinceStart <= SUMMARY_EVENTS_REPLAY_CUTOFF_MS || msTillEnd <= SUMMARY_EVENTS_REPLAY_CUTOFF_MS) {
+                return false
+            }
+        }
+        return true
+    })
+}
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
@@ -115,9 +152,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById'],
+            ['recordingPropertiesById', 'recordingPropertiesLoading'],
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
+            sessionSummaryProgressLogic,
+            [
+                'loadingBySessionId',
+                'progressBySessionId',
+                'summaryBySessionId',
+                'summaryIdBySessionId',
+                'feedbackBySessionId',
+                'errorBySessionId',
+                'retryStateBySessionId',
+            ],
+            playerInspectorLogic(props),
+            ['allItemsByMiniFilterKey'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
@@ -126,34 +175,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
             sessionRecordingPinnedPropertiesLogic,
             ['setPinnedProperties', 'togglePropertyPin'],
+            sessionSummaryProgressLogic,
+            ['startSummarization', 'setSummary', 'markFeedbackGiven'],
         ],
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
-        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
-        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setShowFeedbackSurvey: (show: boolean) => ({ show }),
     }),
     reducers(() => ({
-        summaryHasHadFeedback: [
+        showFeedbackSurvey: [
             false,
             {
-                sessionSummaryFeedback: () => true,
-            },
-        ],
-        sessionSummary: [
-            null as SessionSummaryContent | null,
-            {
-                setSessionSummaryContent: (_, { content }) => content,
-            },
-        ],
-        sessionSummaryLoading: [
-            false,
-            {
-                summarizeSession: () => true,
-                setSessionSummaryContent: () => false,
-                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+                setShowFeedbackSurvey: (_, { show }) => show,
             },
         ],
         isPropertyPopoverOpen: [
@@ -163,7 +199,50 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
+        sessionSummary: [
+            (s) => [s.summaryBySessionId],
+            (summaryBySessionId): SessionSummaryContent | null => summaryBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryId: [
+            (s) => [s.summaryIdBySessionId],
+            (summaryIdBySessionId): string | null => summaryIdBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryLoading: [
+            (s) => [s.loadingBySessionId],
+            (loadingBySessionId): boolean => !!loadingBySessionId[props.sessionRecordingId],
+        ],
+        summarizationProgress: [
+            (s) => [s.progressBySessionId],
+            (progressBySessionId): SummarizationProgress | null =>
+                progressBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryError: [
+            (s) => [s.errorBySessionId],
+            (errorBySessionId): string | null => errorBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryHasRetried: [
+            (s) => [s.retryStateBySessionId],
+            (retryStateBySessionId): boolean => !!retryStateBySessionId[props.sessionRecordingId]?.hasRetried,
+        ],
+        summaryHasHadFeedback: [
+            (s) => [s.feedbackBySessionId],
+            (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
+        ],
+        summaryDisabledReason: [
+            (s) => [s.allItemsByMiniFilterKey, s.sessionPlayerData],
+            (allItemsByMiniFilterKey, sessionPlayerData): string | undefined => {
+                const eventItems = SUMMARY_EVENT_MINI_FILTER_KEYS.flatMap(
+                    (key) => allItemsByMiniFilterKey[key] ?? []
+                ).filter((item): item is InspectorListItemEvent => item.type === 'events')
+                if (eventItems.length === 0) {
+                    return 'Session events are not available yet. Try again in a few minutes.'
+                }
+                return hasSummarizableEvents(eventItems, sessionPlayerData.start ?? null, sessionPlayerData.end ?? null)
+                    ? undefined
+                    : 'This recording has no events to summarize.'
+            },
+        ],
         loading: [
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
             (sessionPlayerMetaData, recordingPropertiesById) => {
@@ -253,14 +332,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     items.push({
                         label: 'Start',
                         icon: <IconClock />,
-                        value: (
-                            <SimpleTimeLabel
-                                muted={false}
-                                size="small"
-                                timestampFormat={TimestampFormat.UTC}
-                                startTime={startTime}
-                            />
-                        ),
+                        value: <Timestamp size="small" noPadding hideIcon fixedTimestamp={startTime} />,
                         type: 'text',
                     })
                 }
@@ -430,7 +502,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData) {
+            // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
             if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
@@ -441,63 +514,25 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             posthog.capture('session summary feedback', {
                 feedback,
                 session_summary: values.sessionSummary,
+                summary_id: values.sessionSummaryId,
                 summarized_session_id: props.sessionRecordingId,
             })
+            actions.markFeedbackGiven(props.sessionRecordingId)
         },
-        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
-        summarizeSession: async () => {
+        summarizeSession: () => {
             // TODO: Remove after testing
             const local = false
             if (local) {
-                actions.setSessionSummaryContent(aiSummaryMock)
+                actions.setSummary(props.sessionRecordingId, aiSummaryMock)
                 return
             }
-            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
-            try {
-                const response = await api.recordings.summarizeStream(id)
-                const reader = response.body?.getReader()
-                if (!reader) {
-                    throw new Error('No reader available')
-                }
-                const decoder = new TextDecoder()
-                const parser = createParser({
-                    onEvent: ({ event, data }) => {
-                        try {
-                            // Stop loading and show error if encountered an error event
-                            if (event === 'session-summary-error') {
-                                lemonToast.error(data)
-                                actions.setSessionSummaryLoading(false)
-                                return
-                            }
-                            const parsedData = JSON.parse(data)
-                            if (parsedData) {
-                                actions.setSessionSummaryContent(parsedData)
-                            }
-                        } catch {
-                            // Don't handle errors as we can afford to fail some chunks silently.
-                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
-                        }
-                    },
-                })
-                // Consume stream until exhausted
-                while (true) {
-                    const { done, value } = await reader.read()
-                    if (done) {
-                        break
-                    }
-                    const decodedValue = decoder.decode(value)
-                    parser.feed(decodedValue)
-                }
-            } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
-                throw err
-            } finally {
-                actions.setSessionSummaryLoading(false)
-            }
+            // Delegates the SSE stream + per-session state to the singleton so that
+            // progress survives navigation away from and back to a recording mid-stream.
+            actions.startSummarization(id)
         },
     })),
 ])
