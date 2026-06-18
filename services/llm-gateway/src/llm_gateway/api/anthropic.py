@@ -258,7 +258,7 @@ def _wrap_stream_with_breaker(
 
     inner = response.body_iterator
 
-    async def wrapped() -> AsyncIterator[bytes]:
+    async def wrapped() -> AsyncIterator[str | bytes | memoryview[int]]:
         success = True
         try:
             async for chunk in inner:
@@ -503,12 +503,13 @@ async def _bedrock_count_tokens_impl(
         # bedrock-runtime CountTokens doesn't support every Claude model (cross-Region-inference-only
         # models like claude-opus-4-8 return a ValidationException). AWS's recommended path for those
         # is Anthropic's count_tokens API on the bedrock-mantle endpoint — try it before giving up.
-        logger.warning(
-            "Bedrock CountTokens failed, attempting bedrock-mantle count_tokens",
+        logger.exception(
+            "Bedrock CountTokens failed",
             model=bedrock_model,
             error_type=type(e).__name__,
             error_message=str(e),
         )
+        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model)
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
                 data,

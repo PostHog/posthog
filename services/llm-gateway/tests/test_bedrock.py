@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -469,15 +469,26 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.side_effect = Exception("The provided model doesn't support counting tokens.")
         mock_mantle_count_tokens.return_value = 77
 
-        response = authenticated_client.post(
-            "/v1/messages/count_tokens",
-            json=valid_request_body,
-            headers=valid_request_headers,
-        )
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json=valid_request_body,
+                headers=valid_request_headers,
+            )
 
         assert response.status_code == 200
         assert response.json()["input_tokens"] == 77
         assert mock_mantle_count_tokens.await_count == 1
+        mock_logger.exception.assert_called_once_with(
+            "Bedrock CountTokens failed",
+            model="us.anthropic.claude-sonnet-4-6",
+            error_type="Exception",
+            error_message="The provided model doesn't support counting tokens.",
+        )
+        mock_logger.info.assert_any_call(
+            "Attempting bedrock-mantle count_tokens fallback",
+            model="us.anthropic.claude-sonnet-4-6",
+        )
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
@@ -692,14 +703,23 @@ class TestBedrockMantleCountTokens:
             "tools": [{"name": "x", "description": "", "input_schema": {"type": "object"}}],
         }
 
-        result = await count_tokens_with_bedrock_mantle(
-            request_data,
-            "us.anthropic.claude-opus-4-8",
-            "us-east-1",
-            300.0,
-        )
+        with patch("llm_gateway.bedrock.logger") as mock_logger:
+            result = await count_tokens_with_bedrock_mantle(
+                request_data,
+                "us.anthropic.claude-opus-4-8",
+                "us-east-1",
+                300.0,
+            )
 
         assert result == 99
+        mock_logger.info.assert_called_once_with(
+            "bedrock-mantle count_tokens request succeeded",
+            model="us.anthropic.claude-opus-4-8",
+            mantle_model="anthropic.claude-opus-4-8",
+            region_name="us-east-1",
+            status_code=200,
+            duration_ms=ANY,
+        )
         # URL targets the regional mantle endpoint and the native count_tokens path.
         signed_url = mock_sign.call_args.args[0]
         assert signed_url == "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens"

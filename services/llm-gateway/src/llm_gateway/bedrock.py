@@ -4,6 +4,7 @@ import asyncio
 import functools
 import json
 import os
+import time
 from typing import Any, Final
 
 import boto3
@@ -252,6 +253,7 @@ async def count_tokens_with_bedrock_mantle(
     # Credential resolution can touch the network (e.g. role refresh), so sign off the event loop.
     headers = await asyncio.to_thread(_sign_bedrock_mantle_request, url, payload, aws_region_name)
 
+    request_start_time = time.monotonic()
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(url, content=payload, headers=headers)
 
@@ -262,4 +264,13 @@ async def count_tokens_with_bedrock_mantle(
             detail = {"error": {"message": response.text, "type": "api_error"}}
         raise HTTPException(status_code=response.status_code, detail=detail)
 
-    return int(response.json()["input_tokens"])
+    input_tokens = int(response.json()["input_tokens"])
+    logger.info(
+        "bedrock-mantle count_tokens request succeeded",
+        model=model,
+        mantle_model=mantle_model,
+        region_name=aws_region_name,
+        status_code=response.status_code,
+        duration_ms=round((time.monotonic() - request_start_time) * 1000, 2),
+    )
+    return input_tokens
