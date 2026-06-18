@@ -280,19 +280,19 @@ export const MetricHeader = ({
                         </div>
                     )}
                 </div>
-                <div className="deprecated-space-x-1">
+                <div className="flex flex-wrap items-center gap-1">
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
-                        {isMetricThresholdCueVisible(metric) && (
-                            <Tooltip
-                                title={`Reports the percentage of users whose value reaches or exceeds ${metric.threshold}.`}
-                            >
-                                <span className="inline-flex items-center gap-0.5 ml-1">
-                                    <IconTarget />≥ {metric.threshold}
-                                </span>
-                            </Tooltip>
-                        )}
                     </LemonTag>
+                    {isMetricThresholdCueVisible(metric) && (
+                        <Tooltip
+                            title={`Reports the percentage of users whose value reaches or exceeds ${metric.threshold}.`}
+                        >
+                            <LemonTag type="muted" size="small" icon={<IconTarget />}>
+                                ≥ {metric.threshold}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                     {experiment.parameters?.prompt_metadata && (
                         <LemonTag type="completion" size="small">
                             LLM
