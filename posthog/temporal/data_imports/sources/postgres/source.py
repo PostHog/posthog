@@ -308,6 +308,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
                 "Check your host and port, then re-enable the sync."
             ),
+            # libpq raises this during the SSL negotiation step of the handshake when the server
+            # answers the SSLRequest packet with a byte that is neither 'S' (SSL supported) nor 'N'
+            # (not supported), so it can't proceed. In practice the configured host/port isn't a
+            # PostgreSQL server speaking the wire protocol — an HTTP/proxy/edge endpoint, a TCP proxy
+            # pointed at the wrong service, or simply the wrong port — and every retry re-runs into the
+            # same invalid response. It only reaches this check when require_ssl=False leaves the
+            # OperationalError unwrapped; with require_ssl=True it's surfaced as SSLRequiredError below.
+            # Match the stable phrase and exclude the volatile received byte and host/port.
+            "received invalid response to SSL negotiation": (
+                "PostHog couldn't negotiate a connection with the host and port you configured — the "
+                'server sent an invalid response during SSL negotiation ("received invalid response to '
+                "SSL negotiation\"). This usually means the host and port don't point at a PostgreSQL "
+                "server (for example an HTTP, proxy, or edge endpoint, or the wrong port). Check your "
+                "host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
