@@ -72,8 +72,8 @@ log "bringing up sibling gateway deps (postgres + valkey)"
 #      the write lands where the gateway reads (posthog:1:cache/...).
 log "provisioning phs_ + publishing credential blob to $GATEWAY_REDIS_URL"
 provision_out="$(
-    AI_GATEWAY_REDIS_URL="$GATEWAY_REDIS_URL" DEV_GATEWAY_PHS="$DEV_PHS" \
-        python "$REPO_ROOT/manage.py" shell 2>/dev/null <<'PY'
+    DEBUG="${DEBUG:-1}" AI_GATEWAY_REDIS_URL="$GATEWAY_REDIS_URL" DEV_GATEWAY_PHS="$DEV_PHS" \
+        python "$REPO_ROOT/manage.py" shell 2>&1 <<'PY'
 import os
 from django.conf import settings
 from django.utils import timezone
@@ -115,19 +115,26 @@ project_gateway_credential(key)
 
 print(f"__GATEWAY_E2E_TEAM_ID__={team.id}")
 PY
-)"
+)" || true
 TEAM_ID="$(printf '%s\n' "$provision_out" | sed -n 's/^__GATEWAY_E2E_TEAM_ID__=//p')"
 if [ -z "${TEAM_ID:-}" ]; then
-    echo "[setup-gateway-e2e] failed to provision the credential (no team id returned)." >&2
+    echo "[setup-gateway-e2e] failed to provision the credential. Django output:" >&2
     printf '%s\n' "$provision_out" >&2
     exit 1
 fi
 log "team $TEAM_ID enabled; phs_ minted + blob published"
 
-# 4. Fund that team's ledger in the gateway's Postgres (admission gate).
+# 4. Fund that team's ledger in the gateway's Postgres (admission gate). The
+#    gateway creates the ledger schema on its first boot, so this is best-effort
+#    on a fresh stack — if `ledger_entries` doesn't exist yet, fund on the next
+#    run (after the gateway has come up once).
 log "funding team $TEAM_ID gateway ledger (+${TOPUP_USD} USD)"
-(cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) VALUES (${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD});" >/dev/null)
+if (cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
+    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) VALUES (${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD});" >/dev/null 2>&1); then
+    log "ledger funded"
+else
+    log "ledger not funded — gateway hasn't created the schema yet; start the gateway, then re-run this to fund"
+fi
 
 # 5. Switch the sibling gateway to resolver mode (validate phs_ vs the blob).
 SIBLING_ENV="$AI_GATEWAY_REPO/.env"

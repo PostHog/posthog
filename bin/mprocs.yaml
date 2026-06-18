@@ -276,16 +276,18 @@ procs:
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
             POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
-            # ai-gateway routing — every model call goes through the external
-            # Go gateway (github.com/PostHog/ai-gateway) at :8080. Off unless
-            # you opt in: run `bin/setup-gateway-e2e`, which provisions a phs_
-            # bearer + credential blob and writes AGENT_USE_AI_GATEWAY=true and
-            # POSTHOG_AI_GATEWAY_KEY into .env.local (the runner authenticates
-            # with that static phs_, not a per-team phc_). Then run the gateway
-            # from the sibling repo: `cd ~/Development/ai-gateway && bin/start
-            # gateway`. With nothing in .env.local the runner uses direct
-            # providers (ANTHROPIC_API_KEY / OPENAI_API_KEY). See
+            # ai-gateway routing — the local default. Every model call goes
+            # through the external Go gateway (github.com/PostHog/ai-gateway) at
+            # :8080, authenticated with the deterministic local phs_ below (must
+            # match bin/setup-gateway-e2e's DEV_GATEWAY_PHS). Run
+            # `bin/setup-gateway-e2e` once to publish the matching credential
+            # blob + fund the ledger, and run the gateway (sibling repo `bin/start
+            # gateway`, or the hogli `ai_gateway` capability). To fall back to
+            # direct providers (ANTHROPIC_API_KEY / OPENAI_API_KEY), set
+            # AGENT_USE_AI_GATEWAY=false in .env.local. See
             # products/agent_platform/docs/local-dev.md ("Local ai-gateway").
+            AGENT_USE_AI_GATEWAY: 'true'
+            POSTHOG_AI_GATEWAY_KEY: 'phs_localgatewaye2elocalgatewaye2e0001'
             POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
             # bucket `posthog` is pre-created by docker-compose.base.yml. The
