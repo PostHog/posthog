@@ -6,8 +6,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { parseSandboxQuestions } from './sandboxQuestionUtils'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
 import type {
@@ -66,7 +66,6 @@ export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
 export const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30
 /** A connection open at least this long before dropping is healthy — its drop is forgiven. */
 export const SSE_HEALTHY_CONNECTION_MS = 60_000
-export const SANDBOX_INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = 'auto'
 
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
@@ -439,6 +438,11 @@ export function parsePermissionRequestFrame(
     const claudeCode = (meta.claudeCode ?? {}) as Record<string, unknown>
     const toolName = String(claudeCode.toolName ?? toolCall.toolName ?? rawToolName)
 
+    // `AskUserQuestion` is routed through the permission framework by the agent (Twig): the question
+    // payload rides `_meta.codeToolKind === 'question'` + `_meta.questions`. When present, this renders
+    // the interactive question overlay (not the approve/decline card) and is never auto-approved.
+    const questions = meta.codeToolKind === 'question' ? parseSandboxQuestions(meta) : []
+
     return {
         requestId,
         toolCallId,
@@ -446,6 +450,7 @@ export function parsePermissionRequestFrame(
         options,
         title: toolCall.title as string | undefined,
         description: toolCall.description as string | undefined,
+        ...(questions.length > 0 ? { questions } : {}),
         rawToolCall: {
             toolCallId,
             rawServerName,
@@ -534,9 +539,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * User picked an option on the approval card. POSTs the reply to the sandbox `permission/`
          * endpoint (which routes to the products/tasks `permission_response` command); the pending
          * request clears only once the POST succeeds, so a failure keeps the card for retry.
-         * `customInput` carries `reject_with_feedback` text.
+         * `customInput` carries `reject_with_feedback` text. `answers` carries `AskUserQuestion`
+         * selections (keyed by question text) — the agent reads `_meta.answers` to resolve the question.
          */
-        respondToPermission: (payload: { requestId: string; optionId: string; customInput?: string }) => payload,
+        respondToPermission: (payload: {
+            requestId: string
+            optionId: string
+            customInput?: string
+            answers?: Record<string, string>
+        }) => payload,
         clearPermissionRequest: true,
         /**
          * Cancel a run via the generic tasks relay. With no argument, cancels the streamed run
@@ -1213,7 +1224,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 execution_type: 'sandbox',
             })
         },
-        respondToPermission: async ({ requestId, optionId, customInput }) => {
+        respondToPermission: async ({ requestId, optionId, customInput, answers }) => {
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             if (!activeRun || values.currentProjectId == null) {
                 // No live run to command — keep the card so the user can retry once the stream resolves.
@@ -1229,7 +1240,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 await tasksRunsCommandCreate(String(values.currentProjectId), activeRun.taskId, activeRun.runId, {
                     jsonrpc: '2.0',
                     method: 'permission_response',
-                    params: { requestId, optionId, customInput },
+                    params: { requestId, optionId, customInput, answers },
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
