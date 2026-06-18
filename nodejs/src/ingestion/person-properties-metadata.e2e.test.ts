@@ -21,6 +21,7 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { createAiEventSubpipeline } from './ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -184,6 +185,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const outputs = createTestIngestionOutputs(kafkaProducer)
             const ingester = new IngestionConsumer(hub, {
                 ...hub,
+                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
                     monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),

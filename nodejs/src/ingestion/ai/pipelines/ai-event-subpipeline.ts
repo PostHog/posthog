@@ -1,54 +1,22 @@
-import { Message } from 'node-rdkafka'
-
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
-import { PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
-import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { AsyncOutput, EVENTS_OUTPUT } from '~/common/outputs'
+import type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { createProcessGroupsStep } from '~/ingestion/event-processing/process-groups-step'
-import { PluginEvent } from '~/plugin-scaffold'
 
-import { EventHeaders, Team } from '../../../types'
-import { TeamManager } from '../../../utils/team-manager'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
-import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
-import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
+import { createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
-import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
+import { sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 
-export interface AiEventSubpipelineInput {
-    message: Message
-    event: PluginEvent
-    team: Team
-    headers: EventHeaders
-    personsStoreForBatch: PersonsStoreForBatch
-    groupStoreForBatch: GroupStoreForBatch
-}
-
-export interface AiEventSubpipelineConfig {
-    options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
-    >
-    teamManager: TeamManager
-    groupTypeManager: GroupTypeManager
-    hogTransformer: HogTransformer
-    splitAiEventsConfig: SplitAiEventsStepConfig
-    groupId: string
-    topHog: TopHogWrapper
-}
+export type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,

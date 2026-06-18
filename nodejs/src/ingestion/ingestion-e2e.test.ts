@@ -21,6 +21,7 @@ import { createHogTransformerService } from '../cdp/hog-transformations/hog-tran
 import { InternalPerson } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
+import { createAiEventSubpipeline } from './ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
@@ -50,6 +51,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 cookielessManager: infra.cookielessManager,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(infra.config, {
                     geoipService: infra.geoipService,
                     postgres: infra.postgres,

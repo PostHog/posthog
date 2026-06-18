@@ -43,6 +43,12 @@ const LANES = new Set([
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '__snapshots__'])
 
+// The guard enforces the *production* import DAG. Test files (unit/integration/e2e) act as
+// composition roots — they wire real implementations across domains (e.g. cdp's HogTransformer,
+// the ai sub-pipeline factory) the same way the servers do — so they legitimately cross lanes.
+// Test-file organization is a separate concern, owned by Phase 3 ("split mixed tests").
+const isTestFile = (name) => name.endsWith('.test.ts') || name.endsWith('.spec.ts')
+
 function walk(dir) {
     const out = []
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -51,7 +57,7 @@ function walk(dir) {
                 continue
             }
             out.push(...walk(path.join(dir, entry.name)))
-        } else if (entry.name.endsWith('.ts')) {
+        } else if (entry.name.endsWith('.ts') && !isTestFile(entry.name)) {
             out.push(path.join(dir, entry.name))
         }
     }

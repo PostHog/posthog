@@ -1,4 +1,3 @@
 [
-  "src/ingestion/analytics/per-distinct-id-pipeline.ts -> lane:ai",
   "src/ingestion/ingestion-consumer.ts -> lane:analytics"
 ]

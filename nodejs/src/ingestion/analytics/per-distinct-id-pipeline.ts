@@ -5,10 +5,10 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AiEventSubpipelineFactory, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
-import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -24,6 +24,7 @@ export interface PerDistinctIdPipelineConfig {
         EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
+    aiSubpipelineFactory: AiEventSubpipelineFactory
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
@@ -50,15 +51,24 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, splitAiEventsConfig, teamManager, groupTypeManager, hogTransformer, groupId, topHog } =
-        config
+    const {
+        options,
+        outputs,
+        splitAiEventsConfig,
+        aiSubpipelineFactory,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        groupId,
+        topHog,
+    } = config
 
     return builder.retry(
         (e) =>
             e.branching(classifyEvent, (branches) =>
                 branches
                     .branch('ai', (b) =>
-                        createAiEventSubpipeline(b, {
+                        aiSubpipelineFactory(b, {
                             options,
                             outputs,
                             teamManager,

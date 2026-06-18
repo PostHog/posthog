@@ -46,6 +46,7 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
+import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
@@ -83,6 +84,7 @@ export interface IngestionConsumerDeps {
     personRepository: PersonRepository
     cookielessManager: CookielessManager
     hogTransformer: HogTransformer
+    aiSubpipelineFactory: AiEventSubpipelineFactory
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -284,6 +286,7 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: this.deps.aiSubpipelineFactory,
             eventFilterManager: this.eventFilterManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,

@@ -25,6 +25,7 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { createAiEventSubpipeline } from '../ingestion/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -357,6 +358,7 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),

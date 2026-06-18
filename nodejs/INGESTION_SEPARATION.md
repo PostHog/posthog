@@ -237,11 +237,18 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
 - [x] Add moved lanes to the guard's `LANES` set. `LANES` now = analytics, heatmaps, ingestionwarnings,
       ai, error-tracking, session-replay, logs, metrics. Guard green (2 baselined) — no intra-ingestion
       code imports the four newly-registered lanes, so lane isolation holds across all eight.
-- [ ] Resolve the 2 deferred intra-ingestion edges (`analytics` -> `ai` via `createAiEventSubpipeline`,
-      and `ingestion-consumer` -> `analytics`). Intent (per product owner): AI and analytics are
-      separate lanes in the long run, but the split is still mid-migration so the boundary is blurry
-      today — lean toward separation (e.g. wire the AI sub-pipeline at the composition root rather
-      than the analytics lane importing it) without forcing a premature clean break.
+- [x] Resolve `analytics` -> `ai` (the ai/analytics separation; product-owner chose full separation).
+      Dependency inversion: `AiEventSubpipelineInput`/`Config` + an `AiEventSubpipelineFactory` type now
+      live in `ingestion/common/ai-subpipeline.contract`; analytics' per-distinct-id pipeline takes the
+      factory injected (no ai import); the ai lane implements it; the servers (composition root) wire the
+      concrete `createAiEventSubpipeline`. Guard baseline 2 -> 1. The guard now scopes to production
+      files (test files are composition roots that wire real impls across domains — e.g. cdp's
+      HogTransformer and the ai factory — so their cross-lane wiring is Phase 3's concern, not the guard's).
+- [ ] Resolve `ingestion-consumer` -> `analytics` (the last baselined edge). This is a composition-root
+      edge, not ai/analytics: the consumer (SHARED, at `src/ingestion/`) builds the analytics joined
+      pipeline. Options: move the consumer into the `analytics` lane (it is the analytics consumer; the
+      other lanes own their consumers) to empty the baseline, or treat it as a composition root.
+- [ ] **Exit gate:** `pnpm test:full` green.
 - [ ] **Exit gate:** `pnpm test:full` green.
 
 ### Phase 3 — split mixed tests
@@ -329,3 +336,14 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
   deferred top-level `config.ts`/`types.ts`/`index.ts` -> lane edges are NOT guard-enforced; they are
   composition/config wiring outside ingestion and don't break the in-ingestion DAG. Remaining Phase 2:
   the ai<->analytics composition decision (blurry, product-owner-flagged) + the CI exit gate.
+- Phase 2 "ai/analytics separation" complete (product owner chose full separation): the `analytics` ->
+  `ai` edge is gone via dependency inversion. New `ingestion/common/ai-subpipeline.contract` holds
+  `AiEventSubpipelineInput`/`Config` + an `AiEventSubpipelineFactory` type; analytics' per-distinct-id
+  pipeline takes the factory injected instead of importing `createAiEventSubpipeline` from the ai lane;
+  the ai lane implements the factory; both servers (general + api) inject the concrete impl. Also scoped
+  the guard to production files — the e2e/integration tests are composition roots that already wire
+  cdp's HogTransformer and now the ai factory, so their cross-lane wiring belongs to Phase 3, not the
+  guard. Gate: tsc 0 new errors (threading is fully typed, so tsc validates the wiring), eslint +
+  prettier clean, guard baseline shrank 2 -> 1. The remaining edge is `ingestion-consumer -> analytics`
+  (composition-root, not ai/analytics). Pipeline behavior is covered by the ai/analytics integration +
+  e2e tests, which need infra -> CI gate.

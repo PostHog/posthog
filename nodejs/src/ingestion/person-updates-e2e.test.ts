@@ -27,6 +27,7 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { createAiEventSubpipeline } from './ai'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -230,6 +231,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         const outputs = createTestIngestionOutputs(kafkaProducer)
         ingester = new IngestionConsumer(hub, {
             ...hub,
+            aiSubpipelineFactory: createAiEventSubpipeline,
             hogTransformer: createHogTransformerService(hub, {
                 ...hub,
                 monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),

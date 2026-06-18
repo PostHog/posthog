@@ -22,6 +22,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { createAiEventSubpipeline } from '../ingestion/ai'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import {
     KafkaDownstreamProducerEnvConfig,
@@ -252,6 +253,7 @@ export class IngestionGeneralServer implements NodeServer {
             personRepository,
             cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+            aiSubpipelineFactory: createAiEventSubpipeline,
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {
