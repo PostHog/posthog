@@ -2049,3 +2049,69 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     for user in recipients:
         message.add_user_recipient(user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int) -> None:
+    """Notify org admins that a member is requesting PostHog AI be enabled."""
+    organization = Organization.objects.filter(id=organization_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if organization is None or requester is None:
+        return
+
+    log_context = {"organization_id": organization_id, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
+    )
+
+    # AI consent is an org-level setting reachable from any project; prefer the requester's
+    # current project so the link feels familiar, falling back to any project in the org.
+    current_team = requester.current_team
+    team = (
+        current_team
+        if current_team is not None and current_team.organization_id == organization.id
+        else organization.teams.first()
+    )
+    if team is None:
+        return
+    posthog_ai_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+    )
+
+    # Deterministic per requester so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"posthog_ai_access_request_{organization_id}_{requesting_user_id}"
+
+    # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"{requester_name} requested access to PostHog AI",
+        template_name="posthog_ai_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "organization_name": org_name,
+            "posthog_ai_url": posthog_ai_url,
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()

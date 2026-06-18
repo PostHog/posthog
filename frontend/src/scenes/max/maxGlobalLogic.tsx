@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -14,12 +13,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
+import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
@@ -218,25 +217,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 return
             }
             try {
-                // The members list is a safe read available to every org member and
-                // includes emails, so the captured event can carry the recipients a
-                // messaging workflow needs to notify the owner/admins.
-                const members = await api.organizationMembers.listAll({ limit: 200 })
-                const adminsAndOwners = (members ?? []).filter(
-                    (member) => member.level >= OrganizationMembershipLevel.Admin
-                )
-                const owner = adminsAndOwners.find((member) => member.level === OrganizationMembershipLevel.Owner)
-                const user = userLogic.values.user
-
-                // This is what starts the workflow for the AI access request.
-                posthog.capture('ai_access_requested', {
-                    organization_id: organization.id,
-                    organization_name: organization.name,
-                    requested_by_email: user?.email,
-                    requested_by_name: user ? `${user.first_name} ${user.last_name ?? ''}`.trim() : undefined,
-                    organization_owner_email: owner?.user.email,
-                    organization_admin_emails: adminsAndOwners.map((member) => member.user.email),
-                })
+                // Backend notifies the org admins/owners via a customer.io email — keeps the
+                // recipient resolution server-side so it can't be tampered with from the client.
+                await requestAiAccessCreate(organization.id)
                 actions.markAiAccessRequested(organization.id)
                 lemonToast.success('Request sent to your organization admins')
             } catch {
