@@ -288,6 +288,10 @@ class TestBingAdsSource:
             ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
             ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
             ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+            (
+                "Bing Ads OAuth application credentials not configured",
+                "Bing Ads OAuth application credentials not configured",
+            ),
         ],
     )
     def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):

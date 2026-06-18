@@ -3616,6 +3616,7 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -7,6 +9,7 @@ import structlog
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
+    initial_datetime,
     sync_revenue_analytics_views,
 )
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
@@ -50,6 +53,9 @@ def test_incremental_type_to_operator(field_type: IncrementalFieldType, expected
         (IncrementalFieldType.Integer, 0),
         (IncrementalFieldType.Numeric, 0),
         (IncrementalFieldType.ObjectID, "000000000000000000000000"),
+        (IncrementalFieldType.DateTime, initial_datetime),
+        (IncrementalFieldType.Timestamp, initial_datetime),
+        (IncrementalFieldType.Date, date(1970, 1, 1)),
     ],
 )
 def test_incremental_type_to_initial_value(field_type: IncrementalFieldType, expected: object) -> None:

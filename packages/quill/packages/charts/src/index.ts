@@ -3,6 +3,8 @@ export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
+export { ComboChart } from './charts/ComboChart/ComboChart'
+export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
     ConfidenceIntervalConfig,
@@ -77,11 +79,13 @@ export type {
     BarChartConfig,
     BarsConfig,
     ChartConfig,
+    ChartLegendConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartMargins,
     ChartScales,
     ChartTheme,
+    ComboChartConfig,
     CreateScalesFn,
     DateRangeZoomData,
     DragRect,
@@ -90,6 +94,7 @@ export type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    SeriesType,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
@@ -150,3 +155,5 @@ export type { LegendItem, LegendProps } from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
+export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState } from './components/Legend/useChartLegend'

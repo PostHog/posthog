@@ -70,7 +70,13 @@ JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 # to avoid Azure AD scope-mismatch errors. TeamsAppInstallation.ReadWriteForTeam
 # is deliberately omitted here — that's requested at authorize time but we don't
 # need it on refresh for Graph user/channel reads.
-GRAPH_REFRESH_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All offline_access openid profile"
+#
+# ChannelMessage.Read.All (delegated) powers the shared-channel message poller:
+# shared/private channels never push ambient messages over the bot webhook, so we
+# pull them from Graph's per-channel messages/delta as the connecting admin.
+GRAPH_REFRESH_SCOPES = (
+    "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All ChannelMessage.Read.All offline_access openid profile"
+)
 
 
 def get_teams_instance_settings() -> dict:
@@ -429,6 +435,25 @@ def get_graph_token(team: Team) -> str:
             pass
 
 
+def store_teams_service_url(tenant_id: str, service_url: str) -> None:
+    """Persist the tenant's Bot Framework serviceUrl on its Teams config.
+
+    The shared-channel poller pulls messages from Graph and has no inbound
+    activity to read serviceUrl from, so it reuses this value — captured here
+    from any inbound webhook activity (install welcome, help command, mention,
+    or channel message) — to post confirmation cards and route agent replies.
+
+    Writes only when the value changes (≈once per tenant) and is a no-op for
+    tenants without a config row (e.g. AppSource validators pre-OAuth).
+    """
+    service_url = (service_url or "").rstrip("/")
+    if not tenant_id or not service_url or not is_trusted_teams_service_url(service_url):
+        return
+    TeamConversationsTeamsConfig.objects.filter(teams_tenant_id=tenant_id).exclude(
+        teams_service_url=service_url
+    ).update(teams_service_url=service_url)
+
+
 def save_teams_token(
     *,
     team: Team,
@@ -511,6 +536,7 @@ def clear_teams_token(
         settings_blob.pop("teams_team_name", None)
         settings_blob.pop("teams_channel_id", None)
         settings_blob.pop("teams_channel_name", None)
+        settings_blob.pop("teams_channels", None)
         locked_team.conversations_settings = settings_blob
 
         config.teams_tenant_id = None
