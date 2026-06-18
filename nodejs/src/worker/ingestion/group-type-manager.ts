@@ -59,7 +59,7 @@ export class GroupTypeManager {
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
-        eventTimestamp?: DateTime
+        eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(projectId)
         if (groupType in groupTypes) {

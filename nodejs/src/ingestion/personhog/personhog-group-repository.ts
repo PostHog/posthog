@@ -207,7 +207,7 @@ export class PersonHogGroupRepository implements GroupRepository {
         projectId: ProjectId,
         groupType: string,
         index: number,
-        createdAt?: DateTime
+        createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]> {
         return this.postgres.insertGroupType(teamId, projectId, groupType, index, createdAt)
     }

@@ -68,6 +68,6 @@ export interface GroupRepositoryTransaction {
         projectId: ProjectId,
         groupType: string,
         index: number,
-        createdAt?: DateTime
+        createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]>
 }

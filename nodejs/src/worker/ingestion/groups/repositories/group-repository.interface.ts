@@ -120,7 +120,7 @@ export interface GroupRepository {
         projectId: ProjectId,
         groupType: string,
         index: number,
-        createdAt?: DateTime
+        createdAt: DateTime
     ): Promise<[GroupTypeIndex | null, boolean]>
 
     // Transaction Methods

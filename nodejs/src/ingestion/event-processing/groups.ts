@@ -28,7 +28,7 @@ export async function addGroupProperties(
     projectId: ProjectId,
     properties: Properties,
     groupTypeManager: GroupTypeManager,
-    eventTimestamp?: DateTime
+    eventTimestamp: DateTime
 ): Promise<Properties> {
     const groups = properties.$groups
     if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {

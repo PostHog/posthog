@@ -50,7 +50,15 @@ describe('addGroupProperties', () => {
     it('does nothing if no $groups present', async () => {
         const mgr = mockGroupTypeManager({ org: 0 })
 
-        expect(await addGroupProperties(2, 2 as ProjectId, { foo: 'bar' }, mgr as any)).toEqual({
+        expect(
+            await addGroupProperties(
+                2,
+                2 as ProjectId,
+                { foo: 'bar' },
+                mgr as any,
+                DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+            )
+        ).toEqual({
             foo: 'bar',
         })
         expect(mgr.fetchGroupTypeIndex).not.toHaveBeenCalled()
