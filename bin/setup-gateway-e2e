@@ -127,11 +127,13 @@ log "team $TEAM_ID enabled; phs_ minted + blob published"
 # 4. Fund that team's ledger in the gateway's Postgres (admission gate). The
 #    gateway creates the ledger schema on its first boot, so this is best-effort
 #    on a fresh stack — if `ledger_entries` doesn't exist yet, fund on the next
-#    run (after the gateway has come up once).
-log "funding team $TEAM_ID gateway ledger (+${TOPUP_USD} USD)"
+#    run (after the gateway has come up once). The INSERT is guarded so reruns
+#    (start-ai-gateway re-invokes this script on every gateway boot) don't keep
+#    stacking +$100 topups onto the same team.
+log "funding team $TEAM_ID gateway ledger (+${TOPUP_USD} USD if not already funded)"
 if (cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) VALUES (${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD});" >/dev/null 2>&1); then
-    log "ledger funded"
+    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) SELECT ${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD} WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE team_id = ${TEAM_ID} AND transaction_type = 'topup' AND source = 'funding');" >/dev/null 2>&1); then
+    log "ledger funded (or already funded — no-op)"
 else
     log "ledger not funded — gateway hasn't created the schema yet; start the gateway, then re-run this to fund"
 fi
