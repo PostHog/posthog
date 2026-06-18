@@ -350,6 +350,7 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "element:read",
         "uploaded_media:write",
         "user:read",
+        "user:write",
     ]
 
     @parameterized.expand([(s,) for s in EXPECTED_SCOPES])
