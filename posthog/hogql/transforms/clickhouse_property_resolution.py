@@ -24,6 +24,8 @@ exist in the blob" test, but tightening it would change query results.
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
@@ -131,7 +133,7 @@ def resolve_materialized_property_source(
         raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
     field_name = field.name
 
-    if json_source := resolve_json_subcolumn_source(table_name, field_name, property_name, context):
+    if json_source := resolve_json_subcolumn_source(table_name, field_name, property_name):
         return json_source
 
     if context.modifiers.materializationMode == "disabled":
@@ -166,9 +168,9 @@ def resolve_materialized_property_source(
 
 
 def resolve_json_subcolumn_source(
-    table_name: str, field_name: str, property_name: str, context: HogQLContext
+    table_name: str, field_name: str, property_name: str
 ) -> MaterializedPropertySource | None:
-    if not context.use_new_events_schema:
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return None
     if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
         return None
@@ -224,7 +226,7 @@ def resolve_property_group_source(
         return None
 
     table_name = table_type.table.to_printed_clickhouse(context)
-    if context.use_new_events_schema and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
         return None
     for group_column in property_groups.get_property_group_columns(table_name, field.name, property_name):
         return MaterializedPropertySource(kind="property_group", column=group_column, is_nullable=True)
@@ -746,7 +748,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         return super().visit_call(node)
 
     def _rewrite_to_json_string_on_events_json_subcolumn(self, node: ast.Call) -> ast.Expr | None:
-        if not self.context.use_new_events_schema or node.name != "toJSONString" or len(node.args) != 1:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "toJSONString" or len(node.args) != 1:
             return None
 
         property_access = self._lowered_property_operand(node.args[0])
@@ -772,7 +774,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _rewrite_json_extract_on_events_json_subcolumn(self, node: ast.Call) -> ast.Expr | None:
-        if not self.context.use_new_events_schema or node.name != "JSONExtract" or len(node.args) != 2:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONExtract" or len(node.args) != 2:
             return None
 
         type_arg = node.args[1]
@@ -828,7 +830,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
-        if not self.context.use_new_events_schema or node.name != "JSONHas" or len(node.args) == 0:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONHas" or len(node.args) == 0:
             return None
 
         field_type = resolve_field_type(node.args[0])
@@ -853,7 +855,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         keys = [cast(str, cast(ast.Constant, arg).value) for arg in node.args[1:]]
         source = resolve_json_subcolumn_source(
-            table_type.table.to_printed_clickhouse(self.context), field.name, keys[0], self.context
+            table_type.table.to_printed_clickhouse(self.context), field.name, keys[0]
         )
         if source is None:
             return None

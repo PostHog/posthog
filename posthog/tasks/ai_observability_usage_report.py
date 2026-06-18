@@ -66,7 +66,6 @@ CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_us
 
 
 def _ai_property_expr(property_name: str) -> str:
-    # Cross-team usage report with no per-query HogQLContext, so read the global default directly.
     if not django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return f"properties_group_ai['{property_name}']"
 

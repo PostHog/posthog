@@ -47,8 +47,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
-            # Query-construction site (AST built before a HogQLContext exists): read the global default directly.
-            # It matches HogQLContext.use_new_events_schema, which falls back to this same setting.
             event_field_prefix = ["event_source"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(

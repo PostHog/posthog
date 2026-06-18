@@ -268,7 +268,6 @@ def _to_value_expression(
             column="person_properties" if direct_on_events else "person_props",
             allow_denormalized_props=True,
             materialised_table_column="person_properties" if direct_on_events else "properties",
-            hogql_context=hogql_context,
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
@@ -283,7 +282,6 @@ def _to_value_expression(
             materialised_table_column=(
                 f"group{breakdown_group_type_index}_properties" if direct_on_events else "group_properties"
             ),
-            hogql_context=hogql_context,
         )
     elif breakdown_type == "hogql":
         from posthog.hogql.hogql import translate_hogql
@@ -300,7 +298,6 @@ def _to_value_expression(
             query_alias=None,
             column="properties",
             normalize_url=breakdown_normalize_url,
-            hogql_context=hogql_context,
         )
 
     if cast_as_float:

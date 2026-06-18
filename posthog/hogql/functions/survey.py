@@ -1,27 +1,23 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
+
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 
-if TYPE_CHECKING:
-    from posthog.hogql.context import HogQLContext
 
-
-def get_survey_response(node: ast.Call, args: list[ast.Expr], context: "HogQLContext") -> ast.Expr:
+def get_survey_response(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
     Process getSurveyResponse() function call and return HogQL AST.
 
     Args:
         node: The AST Call node for getSurveyResponse
         args: The function arguments
-        context: The HogQL context (carries the events-json schema decision)
 
     Returns:
         ast.Expr representing the survey response extraction
     """
-    use_new_events_schema = context.use_new_events_schema
     question_index_obj = args[0]
     if not isinstance(question_index_obj, ast.Constant):
         raise QueryError("getSurveyResponse first argument must be a constant")
@@ -36,16 +32,16 @@ def get_survey_response(node: ast.Call, args: list[ast.Expr], context: "HogQLCon
     is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
 
     # Build the property keys for lookup
-    id_based_key = _build_id_based_key(question_index, question_id, use_new_events_schema)
+    id_based_key = _build_id_based_key(question_index, question_id)
     index_based_key = _build_index_based_key(question_index)
 
     if is_multiple_choice:
-        return _build_multiple_choice_expr(id_based_key, index_based_key, use_new_events_schema)
+        return _build_multiple_choice_expr(id_based_key, index_based_key)
 
-    return _build_coalesce_expr(id_based_key, index_based_key, use_new_events_schema)
+    return _build_coalesce_expr(id_based_key, index_based_key)
 
 
-def _build_id_based_key(question_index: int, question_id: str | None, use_new_events_schema: bool) -> str | ast.Expr:
+def _build_id_based_key(question_index: int, question_id: str | None) -> str | ast.Expr:
     """Build the ID-based property key. Returns string when static, ast.Expr when dynamic."""
     if question_id:
         return f"$survey_response_{question_id}"
@@ -59,7 +55,7 @@ def _build_id_based_key(question_index: int, question_id: str | None, use_new_ev
                 name="JSONExtractString",
                 args=[
                     ast.ArrayAccess(
-                        array=_build_property_array_raw("$survey_questions", use_new_events_schema),
+                        array=_build_property_array_raw("$survey_questions"),
                         property=ast.Constant(value=question_index + 1),
                     ),
                     ast.Constant(value="id"),
@@ -76,13 +72,13 @@ def _build_index_based_key(question_index: int) -> str:
     return f"$survey_response_{question_index}"
 
 
-def _build_property_access(key: str | ast.Expr, use_new_events_schema: bool) -> ast.Expr:
+def _build_property_access(key: str | ast.Expr) -> ast.Expr:
     """Build property access expression.
 
     Native JSON static-key access reads the subcolumn and stringifies the value. Legacy and dynamic-key access use
     JSONExtractString to keep a consistent String return type.
     """
-    if use_new_events_schema and isinstance(key, str):
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
 
     return ast.Call(
@@ -91,16 +87,16 @@ def _build_property_access(key: str | ast.Expr, use_new_events_schema: bool) -> 
     )
 
 
-def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str, use_new_events_schema: bool) -> ast.Expr:
+def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
     response_keys: list[str | ast.Expr] = [index_based_key]
-    if not use_new_events_schema or isinstance(id_based_key, str):
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or isinstance(id_based_key, str):
         response_keys.insert(0, id_based_key)
 
     coalesce_args: list[ast.Expr] = [
         ast.Call(
             name="nullif",
-            args=[_build_property_access(response_key, use_new_events_schema), ast.Constant(value="")],
+            args=[_build_property_access(response_key), ast.Constant(value="")],
         )
         for response_key in response_keys
     ]
@@ -112,8 +108,8 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
     return ast.Constant(value=key) if isinstance(key, str) else key
 
 
-def _build_property_array_raw(key: str | ast.Expr, use_new_events_schema: bool) -> ast.Expr:
-    if use_new_events_schema and isinstance(key, str):
+def _build_property_array_raw(key: str | ast.Expr) -> ast.Expr:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
         json_value = ast.Call(name="toJSONString", args=[ast.Field(chain=["properties", key])])
         return ast.Call(
             name="JSONExtractArrayRaw",
@@ -126,8 +122,8 @@ def _build_property_array_raw(key: str | ast.Expr, use_new_events_schema: bool) 
     )
 
 
-def _build_property_presence(key: str | ast.Expr, use_new_events_schema: bool) -> ast.Expr:
-    if use_new_events_schema and isinstance(key, str):
+def _build_property_presence(key: str | ast.Expr) -> ast.Expr:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
         return ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", key])])
 
     return ast.Call(
@@ -136,24 +132,22 @@ def _build_property_presence(key: str | ast.Expr, use_new_events_schema: bool) -
     )
 
 
-def _build_multiple_choice_expr(
-    id_based_key: str | ast.Expr, index_based_key: str, use_new_events_schema: bool
-) -> ast.Expr:
+def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build if() expression for multiple-choice survey response.
 
     Note: JSONExtractArrayRaw doesn't benefit from materialization like string properties do.
     """
-    index_value = _build_property_array_raw(index_based_key, use_new_events_schema)
-    if use_new_events_schema and not isinstance(id_based_key, str):
+    index_value = _build_property_array_raw(index_based_key)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not isinstance(id_based_key, str):
         return index_value
 
-    id_value = _build_property_array_raw(id_based_key, use_new_events_schema)
+    id_value = _build_property_array_raw(id_based_key)
     return ast.Call(
         name="if",
         args=[
             ast.And(
                 exprs=[
-                    _build_property_presence(id_based_key, use_new_events_schema),
+                    _build_property_presence(id_based_key),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
                         left=ast.Call(

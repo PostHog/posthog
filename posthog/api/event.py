@@ -603,8 +603,6 @@ class EventViewSet(
         value_expr: ast.Expr = field_expr
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
-        # Query-construction site: the AST is built before a HogQLContext exists, so read the global default
-        # directly. It matches HogQLContext.use_new_events_schema, which falls back to this same setting.
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not query_params.is_column:
             value_expr = ast.Call(name="toJSONString", args=[field_expr])
             presence_expr = ast.Call(name="isNotNull", args=[field_expr])
