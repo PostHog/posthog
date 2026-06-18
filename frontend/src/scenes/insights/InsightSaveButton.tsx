@@ -7,6 +7,7 @@ export function InsightSaveButton({
     insightSaving,
     insightChanged,
     addingToDashboard,
+    onSaveAndAddToDashboard,
 }: {
     saveAs: () => void
     saveInsight: (redirectToViewMode?: boolean) => void
@@ -14,6 +15,8 @@ export function InsightSaveButton({
     insightSaving: boolean
     insightChanged: boolean
     addingToDashboard: boolean
+    // When provided (B branch of the add-to-dashboard A/A/B test), adds a "Save & add to dashboard" dropdown option.
+    onSaveAndAddToDashboard?: () => void
 }): JSX.Element {
     const disabled = isSaved && !insightChanged
     const saveAsAvailable = isSaved && !addingToDashboard
@@ -38,6 +41,15 @@ export function InsightSaveButton({
                                     fullWidth
                                 >
                                     {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
+                                </LemonButton>
+                            )}
+                            {!disabled && onSaveAndAddToDashboard && (
+                                <LemonButton
+                                    onClick={() => onSaveAndAddToDashboard()}
+                                    data-attr="insight-save-and-add-to-dashboard"
+                                    fullWidth
+                                >
+                                    Save & add to dashboard
                                 </LemonButton>
                             )}
                             {saveAsAvailable && (

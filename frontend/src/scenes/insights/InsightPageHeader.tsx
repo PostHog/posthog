@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { IconPlusSmall } from '@posthog/icons'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
@@ -9,6 +11,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -52,6 +55,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
+    const { openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
+
+    // B branch of the add-to-dashboard A/A/B test (control + control_2 keep current behavior).
+    const isAddToDashboardTest = useFeatureFlag('INSIGHT_ADD_TO_DASHBOARD_AAB', 'test')
 
     const { query, queryChanged, insightQuery, generatedInsightMetadataLoading } = useValues(
         insightDataLogic(insightProps)
@@ -150,6 +157,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
+                        {insightMode !== ItemMode.Edit &&
+                            isAddToDashboardTest &&
+                            isSavedInsight &&
+                            insight.short_id && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    data-attr="insight-add-to-dashboard-prominent-button"
+                                    onClick={() => openAddToDashboardModal()}
+                                >
+                                    Add to dashboard
+                                </LemonButton>
+                            )}
+
                         {insightMode !== ItemMode.Edit && isSavedInsight && insight.short_id && (
                             <InsightSubscribeProminentButton insightShortId={insight.short_id} />
                         )}
@@ -203,6 +225,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
+                                onSaveAndAddToDashboard={
+                                    isAddToDashboardTest
+                                        ? () => {
+                                              if (insight.short_id) {
+                                                  saveInsight(false)
+                                              } else {
+                                                  saveInsight(false, getLastNewFolder() ?? 'Unfiled/Insights')
+                                              }
+                                              openAddToDashboardModal()
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </>
