@@ -12,6 +12,8 @@ class IncrementalFieldType(StrEnum):
     Timestamp = "timestamp"
     # MongoDB specific
     ObjectID = "objectid"
+    # Postgres xmin system column — synthetic cursor, never in information_schema
+    XID = "xid"
 
 
 class IncrementalField(typing.TypedDict, total=False):

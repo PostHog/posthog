@@ -20785,6 +20785,7 @@ export namespace Schemas {
      * * `append` - append
      * * `webhook` - webhook
      * * `cdc` - cdc
+     * * `xmin` - xmin
      */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
@@ -20795,6 +20796,7 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+      Xmin: 'xmin',
     } as const;
 
     /**
@@ -20804,6 +20806,7 @@ export namespace Schemas {
      * * `date` - date
      * * `timestamp` - timestamp
      * * `objectid` - objectid
+     * * `xid` - xid
      */
     export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
 
@@ -20815,6 +20818,7 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
+      Xid: 'xid',
     } as const;
 
     /**
@@ -20871,7 +20875,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -20885,7 +20890,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -20957,7 +20963,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Incremental cursor field for incremental or append syncs.
@@ -35186,7 +35193,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -35200,7 +35208,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
