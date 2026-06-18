@@ -11,6 +11,7 @@ from products.error_tracking.backend.facade import (
     api as error_tracking_api,
     contracts,
 )
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 MAX_HASH_ID_LENGTH = 128
 
@@ -71,11 +72,11 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return hash_id
 
     def list(self, request, *args, **kwargs) -> Response:
-        releases = error_tracking_api.list_releases(self.team.id)
-        page = self.paginate_queryset(releases)
-        if page is not None:
-            return self.get_paginated_response(self.get_serializer(page, many=True).data)
-        return Response(self.get_serializer(releases, many=True).data)
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: error_tracking_api.list_releases(self.team.id, limit=limit, offset=offset),
+        )
 
     def retrieve(self, request, *args, pk=None, **kwargs) -> Response:
         release = error_tracking_api.get_release(self.team.id, pk)

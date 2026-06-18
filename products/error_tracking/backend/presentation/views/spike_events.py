@@ -1,5 +1,4 @@
 from rest_framework import viewsets
-from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -8,6 +7,7 @@ from products.error_tracking.backend.facade import (
     api as error_tracking_api,
     contracts,
 )
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 
 class ErrorTrackingSpikeEventSerializer(DataclassSerializer):
@@ -22,16 +22,20 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     def list(self, request, *args, **kwargs):
         issue_ids_param = request.query_params.get("issue_ids")
         issue_ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        order_by = request.query_params.get("order_by")
 
-        events = error_tracking_api.list_spike_events(
-            team_id=self.team.id,
-            issue_ids=issue_ids or None,
-            date_from=request.query_params.get("date_from"),
-            date_to=request.query_params.get("date_to"),
-            order_by=request.query_params.get("order_by"),
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: error_tracking_api.list_spike_events(
+                team_id=self.team.id,
+                issue_ids=issue_ids or None,
+                date_from=date_from,
+                date_to=date_to,
+                order_by=order_by,
+                limit=limit,
+                offset=offset,
+            ),
         )
-
-        page = self.paginate_queryset(events)
-        if page is not None:
-            return self.get_paginated_response(self.get_serializer(page, many=True).data)
-        return Response(self.get_serializer(events, many=True).data)

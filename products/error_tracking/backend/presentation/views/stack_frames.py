@@ -12,6 +12,7 @@ from products.error_tracking.backend.facade import (
     api as error_tracking_api,
     contracts,
 )
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 
 class ErrorTrackingStackFrameSerializer(DataclassSerializer):
@@ -42,11 +43,11 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     serializer_class = ErrorTrackingStackFrameSerializer
 
     def list(self, request, *args, **kwargs):
-        frames = error_tracking_api.list_stack_frames(self.team.id)
-        page = self.paginate_queryset(frames)
-        if page is not None:
-            return self.get_paginated_response(self.get_serializer(page, many=True).data)
-        return Response(self.get_serializer(frames, many=True).data)
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: error_tracking_api.list_stack_frames(self.team.id, limit=limit, offset=offset),
+        )
 
     def retrieve(self, request, *args, pk=None, **kwargs):
         frame = error_tracking_api.get_stack_frame(self.team.id, pk)

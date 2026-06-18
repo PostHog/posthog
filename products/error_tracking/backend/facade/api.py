@@ -171,11 +171,15 @@ def list_spike_events(
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
-) -> list[contracts.ErrorTrackingSpikeEvent]:
-    events = logic.list_spike_events(
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
+    qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    return [_to_spike_event(event) for event in events]
+    total = qs.count()
+    rows = qs if limit is None else qs[offset : offset + limit]
+    return [_to_spike_event(event) for event in rows], total
 
 
 def _to_release(release) -> contracts.ErrorTrackingRelease:
@@ -205,8 +209,13 @@ def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
     )
 
 
-def list_stack_frames(team_id: int) -> list[contracts.ErrorTrackingStackFrame]:
-    return [_to_stack_frame(frame) for frame in logic.stack_frame_queryset(team_id)]
+def list_stack_frames(
+    team_id: int, *, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.ErrorTrackingStackFrame], int]:
+    qs = logic.stack_frame_queryset(team_id)
+    total = qs.count()
+    rows = qs if limit is None else qs[offset : offset + limit]
+    return [_to_stack_frame(frame) for frame in rows], total
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
@@ -220,8 +229,13 @@ def batch_get_stack_frames(
     return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
 
 
-def list_releases(team_id: int) -> list[contracts.ErrorTrackingRelease]:
-    return [_to_release(release) for release in logic.list_releases(team_id)]
+def list_releases(
+    team_id: int, *, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.ErrorTrackingRelease], int]:
+    qs = logic.list_releases(team_id)
+    total = qs.count()
+    rows = qs if limit is None else qs[offset : offset + limit]
+    return [_to_release(release) for release in rows], total
 
 
 def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:
