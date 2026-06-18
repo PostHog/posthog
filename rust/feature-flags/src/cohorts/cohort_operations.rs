@@ -217,48 +217,6 @@ impl Cohort {
 }
 
 impl InnerCohortProperty {
-    /// Flattens the nested cohort property structure into a list of property filters.
-    ///
-    /// The cohort property structure in Postgres looks like:
-    /// ```json
-    /// {
-    ///   "type": "OR",
-    ///   "values": [
-    ///     {
-    ///       "type": "OR",
-    ///       "values": [
-    ///         {
-    ///           "key": "email",
-    ///           "value": "@posthog.com",
-    ///           "type": "person",
-    ///           "operator": "icontains"
-    ///         },
-    ///         {
-    ///           "key": "age",
-    ///           "value": 25,
-    ///           "type": "person",
-    ///           "operator": "gt"
-    ///         }
-    ///       ]
-    ///     }
-    ///   ]
-    /// }
-    /// ```
-    pub fn to_inner(self) -> Vec<PropertyFilter> {
-        fn flatten(items: Vec<CohortValuesItem>, filters: &mut Vec<PropertyFilter>) {
-            for item in items {
-                match item {
-                    CohortValuesItem::Group(group) => flatten(group.values, filters),
-                    CohortValuesItem::Filter(filter) => filters.push(filter),
-                }
-            }
-        }
-
-        let mut filters = Vec::new();
-        flatten(self.values, &mut filters);
-        filters
-    }
-
     /// Evaluates a cohort property based on its type (AND/OR) and values.
     ///
     /// This function recursively evaluates the cohort property tree structure, handling both
@@ -502,11 +460,7 @@ impl DependencyProvider for Cohort {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cohorts::cohort_models::{CohortPropertyType, CohortValues},
-        properties::property_models::PropertyType,
-        utils::test_utils::TestContext,
-    };
+    use crate::utils::test_utils::TestContext;
     use serde_json::json;
 
     #[tokio::test]
@@ -546,71 +500,6 @@ mod tests {
         let names: HashSet<String> = cohorts.into_iter().filter_map(|c| c.name).collect();
         assert!(names.contains("Cohort 1"));
         assert!(names.contains("Cohort 2"));
-    }
-
-    #[test]
-    fn test_cohort_property_to_inner() {
-        let cohort_property = InnerCohortProperty {
-            prop_type: CohortPropertyType::AND,
-            values: vec![CohortValuesItem::Group(CohortValues {
-                prop_type: "property".to_string(),
-                values: vec![
-                    CohortValuesItem::Filter(PropertyFilter {
-                        key: "email".to_string(),
-                        value: Some(json!("test@example.com")),
-                        operator: None,
-                        prop_type: PropertyType::Person,
-                        group_type_index: None,
-                        negation: None,
-                        compiled_regex: None,
-                        extra: Default::default(),
-                    }),
-                    CohortValuesItem::Filter(PropertyFilter {
-                        key: "age".to_string(),
-                        value: Some(json!(25)),
-                        operator: None,
-                        prop_type: PropertyType::Person,
-                        group_type_index: None,
-                        negation: None,
-                        compiled_regex: None,
-                        extra: Default::default(),
-                    }),
-                ],
-            })],
-        };
-
-        let result = cohort_property.to_inner();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].key, "email");
-        assert_eq!(result[0].value, Some(json!("test@example.com")));
-        assert_eq!(result[1].key, "age");
-        assert_eq!(result[1].value, Some(json!(25)));
-    }
-
-    #[test]
-    fn test_cohort_property_to_inner_flattens_flat_and_nested_entries() {
-        // Filters can sit directly at the top level, inside a group, or inside a
-        // nested group — to_inner should flatten all of them.
-        let cohort_property: InnerCohortProperty = serde_json::from_value(json!({
-            "type": "AND",
-            "values": [
-                {"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"},
-                {"type": "OR", "values": [
-                    {"key": "age", "type": "person", "value": 25, "operator": "gt"},
-                    {"type": "AND", "values": [
-                        {"key": "country", "type": "person", "value": ["USA"], "operator": "exact"}
-                    ]}
-                ]}
-            ]
-        }))
-        .expect("Should parse mixed flat and nested entries");
-
-        let keys: Vec<String> = cohort_property
-            .to_inner()
-            .into_iter()
-            .map(|f| f.key)
-            .collect();
-        assert_eq!(keys, vec!["email", "age", "country"]);
     }
 
     #[tokio::test]
