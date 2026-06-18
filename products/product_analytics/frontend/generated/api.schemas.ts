@@ -1448,6 +1448,7 @@ export const ChartDisplayTypeApi = {
     ActionsAreaGraph: 'ActionsAreaGraph',
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
+    Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
@@ -1479,6 +1480,13 @@ export interface GoalLineApi {
     position?: PositionApi | null
     value: number
 }
+
+export type MetricGoodDirectionApi = (typeof MetricGoodDirectionApi)[keyof typeof MetricGoodDirectionApi]
+
+export const MetricGoodDirectionApi = {
+    Up: 'up',
+    Down: 'down',
+} as const
 
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
@@ -1549,12 +1557,6 @@ export interface TrendsFilterApi {
     aggregationAxisPostfix?: string | null
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
-    /** Show the compare-to-previous change as a compact pill next to the big number (BoldNumber display only). */
-    boldNumberShowComparisonPill?: boolean | null
-    /** Draw a sparkline of the per-interval series below the big number (BoldNumber display only). */
-    boldNumberShowSparkline?: boolean | null
-    /** Show the series label as a title above the big number (BoldNumber display only). */
-    boldNumberShowTitle?: boolean | null
     breakdown_histogram_bin_count?: number | null
     confidenceLevel?: number | null
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
@@ -1571,6 +1573,10 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Metric display: whether an increase is a good trend (green pill) or a bad one (red pill). */
+    metricGoodDirection?: MetricGoodDirectionApi | null
+    /** Show the period-over-period change pill on the Metric display. */
+    metricShowChange?: boolean | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */

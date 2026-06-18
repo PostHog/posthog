@@ -30,6 +30,8 @@ export interface MetricCardProps {
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
     sparklineHeight?: number
+    /** Fill the card's remaining height with the sparkline instead of using a fixed `sparklineHeight`. */
+    sparklineFill?: boolean
     sparklineFillOpacity?: number
     sparklineClassName?: string
     formatValue?: (value: number) => string
@@ -38,13 +40,14 @@ export interface MetricCardProps {
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
     change?: MetricChange | null
     goodDirection?: 'up' | 'down'
+    /** Size of the change pill. Defaults to `sm`. */
+    changeSize?: 'sm' | 'md'
+    /** Render the change pill inline next to the headline instead of in the header row. */
+    changeInline?: boolean
     positiveColor?: ChangeColor
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
-    /** Horizontal alignment of the card contents. `center` centers the title/headline/subtitle —
-     *  use it for a bare headline (no title, pill, or sparkline). Defaults to the left-aligned tile. */
-    align?: 'left' | 'center'
     /** Override the headline rendering. Receives the already-formatted value string (the hover-animated
      *  value when a sparkline is present); return the node to render in place of the default headline —
      *  e.g. to attach click handlers or custom typography. */
@@ -84,6 +87,7 @@ function MetricCardInner({
     theme,
     color,
     sparklineHeight = 120,
+    sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineClassName = 'mt-4',
     formatValue = DEFAULT_FORMAT_VALUE,
@@ -91,10 +95,11 @@ function MetricCardInner({
     showChange = true,
     change,
     goodDirection = 'up',
+    changeSize = 'sm',
+    changeInline = false,
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
-    align = 'left',
     headline,
     animationMs = 350,
     hoverIntentMs = 140,
@@ -132,25 +137,34 @@ function MetricCardInner({
     const isGood = goodDirection === 'up' ? positive : !positive
     const pillColors = isGood ? positiveColor : negativeColor
 
-    const showHeader = title != null || delta != null
-    const centered = align === 'center'
+    const headerDelta = delta != null && !changeInline ? delta : null
+    const showHeader = title != null || headerDelta != null
+    // With a title, space it against the pill; with only a pill (no title), keep the pill on the right.
+    const headerJustify = title != null ? 'justify-between' : 'justify-end'
+    const renderedHeadline = headline ? (
+        headline(headlineDisplay)
+    ) : (
+        <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
+    )
 
     return (
-        <div
-            className={`flex flex-col w-full ${centered ? 'items-center text-center' : ''} ${className ?? ''}`}
-            data-attr={dataAttr}
-        >
+        <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
             {showHeader && (
-                <div className={`flex items-start gap-2 ${centered ? 'justify-center' : 'justify-between'}`}>
+                <div className={`flex items-start gap-2 ${headerJustify}`}>
                     {title != null && <div className="text-sm font-medium">{title}</div>}
-                    {delta != null && <ChangePill positive={positive} label={delta.label} colors={pillColors} />}
+                    {headerDelta != null && (
+                        <ChangePill positive={positive} label={headerDelta.label} colors={pillColors} size={changeSize} />
+                    )}
                 </div>
             )}
 
-            {headline ? (
-                headline(headlineDisplay)
+            {changeInline && delta != null ? (
+                <div className="flex items-center justify-between gap-2">
+                    {renderedHeadline}
+                    <ChangePill positive={positive} label={delta.label} colors={pillColors} size={changeSize} />
+                </div>
             ) : (
-                <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
+                renderedHeadline
             )}
 
             {resolvedSubtitle != null && resolvedSubtitle !== '' && (
@@ -164,6 +178,7 @@ function MetricCardInner({
                     theme={theme}
                     color={color}
                     height={sparklineHeight}
+                    fill={sparklineFill}
                     fillOpacity={sparklineFillOpacity}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
@@ -177,25 +192,27 @@ interface ChangePillProps {
     positive: boolean
     label: React.ReactNode
     colors: ChangeColor
+    size?: 'sm' | 'md'
 }
 
-function ChangePill({ positive, label, colors }: ChangePillProps): React.ReactElement {
+function ChangePill({ positive, label, colors, size = 'sm' }: ChangePillProps): React.ReactElement {
+    const sizeClasses = size === 'md' ? 'gap-1.5 px-2.5 py-1 text-sm' : 'gap-1 px-2 py-0.5 text-xs'
     return (
         <div
-            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors"
+            className={`inline-flex items-center rounded-full font-medium transition-colors ${sizeClasses}`}
             style={{ background: colors.background, color: colors.foreground }}
         >
-            <Chevron up={positive} />
+            <Chevron up={positive} size={size === 'md' ? 12 : 10} />
             <span className="tabular-nums">{label}</span>
         </div>
     )
 }
 
-function Chevron({ up }: { up: boolean }): React.ReactElement {
+function Chevron({ up, size = 10 }: { up: boolean; size?: number }): React.ReactElement {
     return (
         <svg
-            width="10"
-            height="10"
+            width={size}
+            height={size}
             viewBox="0 0 10 10"
             fill="none"
             stroke="currentColor"

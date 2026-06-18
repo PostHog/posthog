@@ -90,25 +90,3 @@ export const NumberOnly: Story = {
         </Stage>
     ),
 }
-
-// Centered headline override — value-only card with no title/subtitle/pill (the look the trends
-// "Number" insight uses with all toggles off). `align="center"` centers the number and the
-// `headline` render-prop lets the consumer attach click handlers or custom typography.
-export const CenteredHeadline: Story = {
-    render: () => (
-        <Stage width={360} height={200}>
-            <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex items-center justify-center">
-                <MetricCard
-                    title={null}
-                    value={1_284_320}
-                    align="center"
-                    showChange={false}
-                    headline={(s) => (
-                        <div className="text-6xl font-bold tracking-tight tabular-nums cursor-pointer">{s}</div>
-                    )}
-                    formatValue={(v) => v.toLocaleString()}
-                />
-            </div>
-        </Stage>
-    ),
-}

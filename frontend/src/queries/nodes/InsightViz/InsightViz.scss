@@ -210,7 +210,8 @@
 
     &--ActionsTable,
     &--WorldMap,
-    &--BoldNumber {
+    &--BoldNumber,
+    &--Metric {
         min-height: auto;
         margin: 0;
     }
@@ -220,6 +221,12 @@
         align-items: center;
         justify-content: center;
     }
+}
+
+// The Metric sparkline bleeds to the card edges, so drop the viz content padding that would otherwise inset it.
+// Matches both the insight view (.TrendsInsight--Metric) and dashboard cards (.InsightCard__viz) via .Metric.
+.InsightVizDisplay__content:has(.Metric) {
+    padding: 0;
 }
 
 .FunnelInsight {

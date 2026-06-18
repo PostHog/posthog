@@ -170,6 +170,7 @@ from posthog.schema_enums import (
     MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
+    MetricGoodDirection as MetricGoodDirection,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -7655,20 +7656,6 @@ class TrendsFilter(BaseModel):
             " the project's base currency. Include any trailing space yourself."
         ),
     )
-    boldNumberShowComparisonPill: bool | None = Field(
-        default=False,
-        description=(
-            "Show the compare-to-previous change as a compact pill next to the big number (BoldNumber display only)."
-        ),
-    )
-    boldNumberShowSparkline: bool | None = Field(
-        default=False,
-        description=("Draw a sparkline of the per-interval series below the big number (BoldNumber display only)."),
-    )
-    boldNumberShowTitle: bool | None = Field(
-        default=False,
-        description=("Show the series label as a title above the big number (BoldNumber display only)."),
-    )
     breakdown_histogram_bin_count: float | None = None
     confidenceLevel: float | None = None
     decimalPlaces: float | None = Field(
@@ -7689,6 +7676,14 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    metricGoodDirection: MetricGoodDirection | None = Field(
+        default=MetricGoodDirection.UP,
+        description=("Metric display: whether an increase is a good trend (green pill) or a bad one (red pill)."),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description="Show the period-over-period change pill on the Metric display.",
+    )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
