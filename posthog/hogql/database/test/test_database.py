@@ -182,7 +182,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
-            database = Database.create_for(team=self.team)
+            database = Database.create_for(team=self.team, user=self.user)
             serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
             assert (
@@ -195,7 +195,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            database = Database.create_for(team=self.team)
+            database = Database.create_for(team=self.team, user=self.user)
             serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
             assert (
@@ -944,7 +944,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="my_join_field",
         )
 
-        db = Database.create_for(team=self.team)
+        db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=db)
         serialized = db.serialize(context, include_only={"system.accounts"})
 
@@ -2988,15 +2988,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured["result"] = result
             return result
 
-        with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
-            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
-        ):
+        with patch(
+            "posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy
+        ) as decision:
             Database.create_for(team=self.team, user=synthetic_user)
 
         decision.assert_called_once()
@@ -3011,15 +3010,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured["result"] = result
             return result
 
-        with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
-            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
-        ):
+        with patch(
+            "posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy
+        ) as decision:
             Database.create_for(team=self.team, user=self.user)
 
         decision.assert_called_once()

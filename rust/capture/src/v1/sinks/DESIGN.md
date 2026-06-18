@@ -55,8 +55,8 @@ Key properties:
   WarpStream during a migration).
 - **Per-event results** — `publish_batch` returns one `Box<dyn SinkResult>`
   per published event, correlating outcomes back to request events by UUID.
-- **Buffer-reuse** — serialization and partition-key methods write into
-  caller-owned `String` buffers, eliminating per-event allocations.
+- **Owned-return API** — `serialize()` and `partition_key()` each return
+  a fresh `String`, keeping the trait simple and parallelism-ready.
 
 ---
 
@@ -210,8 +210,8 @@ pub trait Event: Send + Sync {
     fn should_publish(&self) -> bool;
     fn destination(&self) -> &Destination;
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
-    fn partition_key(&self, ctx: &Context, buf: &mut String);
-    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;
+    fn partition_key(&self, ctx: &Context) -> String;
+    fn serialize(&self, ctx: &Context) -> anyhow::Result<String>;
 }
 ```
 
@@ -227,28 +227,16 @@ The analytics capture endpoint's `WrappedEvent` implements this trait
 Other capture endpoints (e.g. session replay, exceptions) provide
 their own `Event` implementations without changing any sink code.
 
-### Buffer-reuse pattern
+### Owned-return serialization
 
-`partition_key` and `serialize_into` write into caller-owned
-`String` buffers that are cleared between events. This eliminates
-per-event allocations after the first iteration — the buffers grow to
-high-water mark and stay there for the entire batch.
+`partition_key(ctx)` and `serialize(ctx)` each return a fresh owned
+`String`. This trades a small per-event allocation for a simpler trait
+contract that needs no shared mutable buffers — making the prep loop
+trivially parallelizable if needed in the future.
 
-```text
-  ┌──────────────────────────────────────────────┐
-  │ publish_batch                                │
-  │                                              │
-  │   payload_buf = String::with_capacity(4096)  │
-  │   key_buf     = String::with_capacity(128)   │
-  │                                              │
-  │   for event in events:                       │
-  │       payload_buf.clear()   ◄─ no alloc      │
-  │       key_buf.clear()       ◄─ no alloc      │
-  │       event.serialize_into(ctx, &payload_buf) │
-  │       event.partition_key(ctx, &key_buf)      │
-  │       producer.send(...)                     │
-  └──────────────────────────────────────────────┘
-```
+`WrappedEvent::serialize` pre-sizes its buffer via
+`String::with_capacity(data.len() + 512)` to minimize reallocations
+for typical payloads.
 
 ### Skip mechanisms
 
@@ -356,7 +344,7 @@ Captures every failure mode within a single configured sink:
 | Variant | Outcome | When |
 |---|---|---|
 | `SinkUnavailable` | `RetriableError` | Producer health gate failed |
-| `SerializationFailed(String)` | `FatalError` | `serialize_into` returned `Err` |
+| `SerializationFailed(String)` | `FatalError` | `serialize` returned `Err` |
 | `Produce(ProduceError)` | Depends on `ProduceError::is_retriable()` | rdkafka send or delivery error |
 | `Timeout` | `Timeout` | Ack not received within `produce_timeout` |
 | `TaskPanicked` | `RetriableError` | Ack task panicked (should not happen with `FuturesUnordered`) |
@@ -443,10 +431,10 @@ corresponds 1:1 to a published event.
   │   for each event:                                               │
   │     ├── should_publish()? → skip if false                       │
   │     ├── topic_for(destination)? → skip if Drop/None             │
-  │     ├── serialize_into(ctx, payload_buf)                        │
+  │     ├── event.serialize(ctx) → payload String                   │
   │     ├── event.headers(ctx) → CapturedEventHeaders               │
-  │     ├── event.partition_key(ctx, key_buf)                       │
-  │     ├── effective_partition_key(key, headers, dest) → key/None  │
+  │     ├── should_null_partition_key(headers, dest)?                │
+  │     │     └── false → event.partition_key(ctx) → Some(key)      │
   │     ├── CapturedEventHeaders → OwnedHeaders (via From)          │
   │     └── producer.send(ProduceRecord)                            │
   │           ├── Ok(ack_future) → push to FuturesUnordered         │
@@ -497,10 +485,9 @@ reusable `String` buffers (`payload_buf`, `key_buf`) are cleared and
 rewritten each iteration, amortizing allocations to zero after the first
 event.
 
-If `producer.send()` returns `QueueFull`, the sink retries up to
-`enqueue_retry_max` times with `enqueue_poll_ms` pauses. This gives
-rdkafka's background thread time to drain in-flight deliveries. Metrics
-track recovery vs exhaustion via `capture_v1_kafka_queue_full_retries_total`.
+If `producer.send()` returns `QueueFull`, the event is failed immediately
+as a retriable error. Backpressure is handled by librdkafka's internal
+queue and the client-level retry mechanism, not an app-level sleep loop.
 
 After serialization and header construction, `effective_partition_key()`
 (`kafka/sink.rs`) decides whether the partition key should be nulled.
@@ -673,8 +660,6 @@ only needs to specify hosts and topics.
 | `retry_backoff_max_ms` | `1000` | `retry.backoff.max.ms` | Upper bound on exponential retry backoff |
 | `socket_send_buffer_bytes` | `0` | `socket.send.buffer.bytes` | TCP send buffer size; 0 = OS default |
 | `socket_receive_buffer_bytes` | `0` | `socket.receive.buffer.bytes` | TCP receive buffer size; 0 = OS default |
-| `enqueue_retry_max` | `3` | _(application-level)_ | QueueFull backpressure retries |
-| `enqueue_poll_ms` | `33` | _(application-level)_ | Pause between QueueFull retries |
 | `topic_main` | _(required)_ | — | Analytics main topic |
 | `topic_historical` | _(required)_ | — | Historical migration topic |
 | `topic_overflow` | _(required)_ | — | Overflow topic |
@@ -906,7 +891,7 @@ request-level context (`path`, `attempt`).
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
 | `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
 | `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
-| `capture_v1_kafka_queue_full_retries_total` | counter | `mode`, `cluster`, `result` | QueueFull retry (`result` = `recovered` or `exhausted`) |
+| `capture_v1_kafka_serialize_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+"), `batch_size` | Per-batch serialization time (serialize + partition-key + enqueue loop), bucketed by batch size for latency/size correlation |
 
 Cardinality note: the `destination` label is bounded at 9 values
 (`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)
@@ -993,12 +978,12 @@ keeping the Sink trait unaware of topic names.
 Partition key construction is split between the `Event` implementation
 and the sink:
 
-1. **`Event::partition_key(ctx, buf)`** always writes a key into the
-   buffer. For analytics events (`WrappedEvent`):
+1. **`Event::partition_key(ctx)`** returns an owned key String.
+   For analytics events (`WrappedEvent`):
 
 ```text
   ┌───────────────────────────────────────────────────┐
-  │ partition_key(ctx, buf)                            │
+  │ partition_key(ctx) -> String                       │
   │                                                    │
   │   cookieless_mode?                                 │
   │   ├── yes, capture_internal → "token:127.0.0.1"   │
@@ -1007,7 +992,7 @@ and the sink:
   └───────────────────────────────────────────────────┘
 ```
 
-2. **`effective_partition_key()`** (`kafka/sink.rs`) decides whether
+2. **`should_null_partition_key()`** (`kafka/sink.rs`) decides whether
    the key should be nulled before sending to the producer:
 
 ```rust
@@ -1076,7 +1061,7 @@ expect.
   │  destination: Destination│
   │  force_disable_*        │
   └───────────┬─────────────┘
-              │ serialize_into(ctx, buf)
+              │ serialize(ctx)
               ▼
   ┌──────────────────────────────┐
   │  IngestionEvent (Kafka msg)  │
@@ -1151,7 +1136,7 @@ Fields intentionally omitted vs the legacy `RawEvent`:
 ### IP redaction
 
 `capture_internal` requests (PostHog's own telemetry) have their IP
-redacted to `127.0.0.1` in both `serialize_into` (the `ip` field on
+redacted to `127.0.0.1` in both `serialize` (the `ip` field on
 `IngestionEvent`) and `partition_key` (cookieless mode).
 
 ---
@@ -1204,14 +1189,12 @@ Builder options include:
 | `ack_delay(d)` | Simulate slow acks / timeouts |
 | `not_ready()` | Producer health gate fails |
 | `with_liveness(deadline, poll)` | Custom liveness timing for health tests |
-| `enqueue_retry_max(n)` | QueueFull retry budget |
-| `enqueue_poll_ms(ms)` | QueueFull retry pause |
 
 ### Analytics event serialization tests
 
 `v1::analytics::types` has a comprehensive test suite validating:
 
-- **Round-trip parity**: `WrappedEvent::serialize_into` output
+- **Round-trip parity**: `WrappedEvent::serialize` output
   deserializes as `common_types::CapturedEvent` + `RawEvent`, verifying
   field-by-field compatibility with legacy capture.
 - **Property injection**: all option fields are correctly injected into

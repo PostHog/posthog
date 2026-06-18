@@ -349,7 +349,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportInsightCreated: (query: Node | null) => ({ query }),
+        reportInsightStarted: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
@@ -783,6 +783,31 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             teamId,
             context,
         }),
+        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
+        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
+        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
+        reportExperimentMetricRecalculation: (
+            status: 'triggered' | 'completed' | 'failed',
+            properties: {
+                experiment_id: number
+                recalculation_id: string | null
+                trigger?:
+                    | 'manual'
+                    | 'cold_run'
+                    | 'stale_refresh'
+                    | 'auto_refresh'
+                    | 'config_change'
+                    | 'experiment_launch'
+                    | 'experiment_stop'
+                    | 'experiment_update'
+                is_existing?: boolean
+                total_metrics?: number
+                succeeded?: number
+                failed?: number
+                duration_ms?: number
+                poll_count?: number
+            }
+        ) => ({ status, properties }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
@@ -966,6 +991,34 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        // Setup wizard sync (CLI ↔ app) funnel. Fired from the onboarding install step's
+        // progress tracker; guards for "once per session" live in that logic.
+        reportWizardSyncSessionDetected: (props: {
+            workflowId: string
+            skillId: string
+            runPhase: string
+            taskCount: number
+        }) => props,
+        reportWizardSyncSessionFinished: (props: {
+            workflowId: string
+            skillId: string
+            outcome: string
+            taskCount: number
+            completedTaskCount: number
+            elapsedSeconds: number
+        }) => props,
+        reportWizardSyncDismissed: (props: {
+            workflowId: string
+            skillId?: string
+            outcome: string
+            elapsedSeconds: number
+        }) => props,
+        reportWizardSyncProgressExpanded: (props: {
+            workflowId?: string
+            skillId?: string
+            displayState: string
+            progressPct: number
+        }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
         reportRevenueAnalyticsViewed: (delay?: number) => ({ delay }),
@@ -1194,11 +1247,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportInsightCreated: async ({ query }, breakpoint) => {
-            // "insight created" essentially means that the user clicked "New insight"
+        reportInsightStarted: async ({ query }, breakpoint) => {
+            // "insight started" means the user opened a blank insight editor (intent — it may never be
+            // persisted). The actual creation is tracked server-side as "insight created".
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
+            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
         },
         reportInsightMetadataAiGenerated: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generated', { query_kind: queryKind })
@@ -1230,6 +1284,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 insight_id: insightModel.id,
                 insight_short_id: insightModel.short_id,
                 ...sanitizeQuery(query),
+            }
+
+            // The view path passes a bare source node, so sanitizeQuery's `query_kind`/`query_source_kind`
+            // describe the source rather than the wrapper. Override them from the full stored query so
+            // `query_kind` consistently means the top-level node, matching every other insight event.
+            const modelQuery = insightModel.query as Node | null | undefined
+            if (modelQuery) {
+                payload.query_kind = modelQuery.kind
+                payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : undefined
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
@@ -1810,6 +1873,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...context,
             })
         },
+        reportExperimentMetricRecalculation: ({ status, properties }) => {
+            posthog.capture('experiment metric recalculation', { status, ...properties })
+        },
         reportExperimentFeatureFlagModalOpened: () => {
             posthog.capture('experiment feature flag modal opened')
         },
@@ -2269,6 +2335,47 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
+            })
+        },
+        reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {
+            posthog.capture('setup wizard sync session detected', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                run_phase: runPhase,
+                task_count: taskCount,
+            })
+        },
+        reportWizardSyncSessionFinished: ({
+            workflowId,
+            skillId,
+            outcome,
+            taskCount,
+            completedTaskCount,
+            elapsedSeconds,
+        }) => {
+            posthog.capture('setup wizard sync session finished', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                outcome,
+                task_count: taskCount,
+                completed_task_count: completedTaskCount,
+                elapsed_seconds: elapsedSeconds,
+            })
+        },
+        reportWizardSyncDismissed: ({ workflowId, skillId, outcome, elapsedSeconds }) => {
+            posthog.capture('setup wizard sync dismissed', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                outcome,
+                elapsed_seconds: elapsedSeconds,
+            })
+        },
+        reportWizardSyncProgressExpanded: ({ workflowId, skillId, displayState, progressPct }) => {
+            posthog.capture('setup wizard sync progress expanded', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                display_state: displayState,
+                progress_pct: progressPct,
             })
         },
         // command bar

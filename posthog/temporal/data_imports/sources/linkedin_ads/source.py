@@ -51,6 +51,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
             # access. Retrying can't recover it, so stop syncing instead of looping the 404.
             "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a 401 with this stable error code when the member who authorized the
+            # integration has been restricted on LinkedIn's side (suspended / flagged account). The
+            # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —
+            # stop syncing and tell the user to resolve it with LinkedIn and re-authorize.
+            "RESTRICTED_MEMBER": "LinkedIn has restricted the account that authorized this integration, so PostHog can no longer access your ad data. Resolve the restriction with LinkedIn, then re-authorize the LinkedIn Ads integration.",
             # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
             # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
             # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying

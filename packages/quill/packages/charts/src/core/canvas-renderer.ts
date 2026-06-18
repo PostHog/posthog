@@ -574,6 +574,68 @@ export function withVerticalClip(
     }
 }
 
+export interface LineSeriesLayerOptions {
+    ctx: CanvasRenderingContext2D
+    dimensions: ChartDimensions
+    labels: string[]
+    /** Series to draw, in paint order. Excluded series are skipped. */
+    series: readonly ResolvedSeries[]
+    xScale: (label: string) => number | undefined
+    resolveYScale: (s: ResolvedSeries) => ScaleLinear<number, number> | ScaleLogarithmic<number, number>
+    /** y-values to plot for a series (e.g. stacked tops). Defaults to `series.data`. */
+    yValuesFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Bottom edge for the area fill (stacked bottom or `fill.lowerData`). */
+    bottomFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Whether to fill the area under a series. Defaults to `!!s.fill`. */
+    shouldFill?: (s: ResolvedSeries) => boolean
+    /** `per-series`: area then line+points per series (LineChart). `areas-first`: every area, then
+     *  every line+points (ComboChart) so a later area can't paint over an earlier line. */
+    zOrder?: 'per-series' | 'areas-first'
+}
+
+/** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
+ *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
+ *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
+export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
+    const { ctx, dimensions, labels, series, xScale, resolveYScale } = options
+    const yValuesFor = options.yValuesFor ?? (() => undefined)
+    const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
+    const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
+    const zOrder = options.zOrder ?? 'per-series'
+    const visible = series.filter((s) => !s.visibility?.excluded)
+
+    const paintArea = (s: ResolvedSeries): void => {
+        if (!shouldFill(s)) {
+            return
+        }
+        drawArea({ ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }, s, yValuesFor(s), bottomFor(s))
+    }
+    const paintLine = (s: ResolvedSeries): void => {
+        if (s.fill?.lowerData) {
+            return
+        }
+        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }
+        drawLine(drawCtx, s, yValuesFor(s))
+        drawPoints(drawCtx, s, yValuesFor(s))
+    }
+
+    withVerticalClip(ctx, dimensions, () => {
+        if (zOrder === 'areas-first') {
+            for (const s of visible) {
+                paintArea(s)
+            }
+            for (const s of visible) {
+                paintLine(s)
+            }
+            return
+        }
+        for (const s of visible) {
+            paintArea(s)
+            paintLine(s)
+        }
+    })
+}
+
 /** Draw hover highlight rings for line/area series at the hovered index. Skips excluded,
  *  fill-between (`fill.lowerData`), and overlay series (trendlines/moving averages opt out of hover
  *  points). `pointFor` lets each chart supply its own anchor — LineChart resolves the point x and
@@ -925,5 +987,49 @@ export function composeDrawHoverWithCrosshair(
             }
         }
         return getDrawHover()(args)
+    }
+}
+
+// Drag-selection band styling. Intentionally a fixed accent rather than a theme token: there's no
+// selection color in the design tokens yet, and the band is a transient interaction affordance, not
+// chart data. Add a `--color-graph-selection-*` token and thread it through here if it needs theming.
+const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
+const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
+const SELECTION_LINE_WIDTH = 1
+
+export function drawSelectionRect(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; width: number; height: number }
+): void {
+    if (rect.width <= 0 || rect.height <= 0) {
+        return
+    }
+    ctx.fillStyle = SELECTION_FILL
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+    ctx.strokeStyle = SELECTION_STROKE
+    ctx.lineWidth = SELECTION_LINE_WIDTH
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
+}
+
+// The selection always spans the full plot height — this is x-axis range selection only.
+export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
+    return (args) => {
+        const result = baseDrawHover(args)
+        const dragRect = args.dragRect
+        if (!dragRect) {
+            return result
+        }
+        const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
+        const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
+        if (x1 <= x0) {
+            return result
+        }
+        drawSelectionRect(args.ctx, {
+            x: x0,
+            y: args.dimensions.plotTop,
+            width: x1 - x0,
+            height: args.dimensions.plotHeight,
+        })
+        return result
     }
 }

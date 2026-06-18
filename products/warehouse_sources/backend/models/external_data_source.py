@@ -84,6 +84,10 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
 
     @property
+    def is_direct_mysql(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.MYSQL
+
+    @property
     def supports_scheduled_sync(self) -> bool:
         return not self.is_direct_query
 

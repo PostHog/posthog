@@ -44,3 +44,35 @@ class TestBehavioralPropertyDateRangeValidation(BaseTest):
                 value=BehavioralPropertyType.PERFORMED_EVENT,
                 explicit_datetime_to="-7d",
             )
+
+    def test_performed_event_first_time_accepts_explicit_datetime(self) -> None:
+        self._build(
+            value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+            explicit_datetime="-30d",
+        )
+
+    def test_performed_event_first_time_accepts_explicit_datetime_range(self) -> None:
+        self._build(
+            value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+            explicit_datetime="-30d",
+            explicit_datetime_to="-7d",
+        )
+
+    def test_performed_event_first_time_still_accepts_time_value_interval(self) -> None:
+        # Legacy shape emitted by the old UI must keep validating so saved cohorts don't break
+        self._build(
+            value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+            time_value=30,
+            time_interval="day",
+        )
+
+    def test_performed_event_first_time_rejects_no_time_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            self._build(value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME)
+
+    def test_performed_event_first_time_rejects_only_upper_bound(self) -> None:
+        with self.assertRaises(ValueError):
+            self._build(
+                value=BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                explicit_datetime_to="-7d",
+            )

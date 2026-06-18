@@ -1,5 +1,29 @@
 # posthog-cli
 
+## 0.7.28 — 2026-06-18
+
+### Patch changes
+
+- [f0bb5426d5](https://github.com/PostHog/posthog/commit/f0bb5426d51601a7e39c4d3bcadbe592962ab980) Remove the `posthog-cli api` experimental opt-in and skip unavailable generated tools without warning noise. — Thanks @cvolzer3!
+
+## 0.7.27 — 2026-06-18
+
+### Patch changes
+
+- [7be64cbe1e](https://github.com/PostHog/posthog/commit/7be64cbe1e982e27c1d863146a6268986b7a3ca3) Fix the post-login hint so `posthog-cli login` suggests a valid next command based on the scopes authorized for the generated key. — Thanks @cvolzer3!
+
+## 0.7.26 — 2026-06-18
+
+### Patch changes
+
+- [801e9a763c](https://github.com/PostHog/posthog/commit/801e9a763c5247540106db6740fe71ba6798bd7f) Fix CLI login for agent workflows by adding the Agent CLI preset, using the supported agent scope set, and showing clearer messages about what the generated key can do. — Thanks @cvolzer3!
+
+## 0.7.25 — 2026-06-17
+
+### Patch changes
+
+- [36812957e0](https://github.com/PostHog/posthog/commit/36812957e0b6548a5586d9341f3bcf7450ad0839) Show default values in upload help — Thanks @marandaneto!
+
 ## 0.7.24 — 2026-06-16
 
 ### Patch changes

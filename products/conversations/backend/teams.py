@@ -585,6 +585,27 @@ def create_or_update_teams_ticket(
     return ticket
 
 
+def _configured_support_channel_ids(settings: dict) -> set[str]:
+    """Return the set of Teams channel IDs configured for auto-ticket creation.
+
+    Merges the new ``teams_channels`` list with the legacy scalar
+    ``teams_channel_id`` so that teams that haven't re-saved settings after
+    the multi-channel migration still work.
+    """
+    ids: set[str] = set()
+    teams_channels = settings.get("teams_channels")
+    if isinstance(teams_channels, list):
+        for entry in teams_channels:
+            if isinstance(entry, dict):
+                channel_id = entry.get("channel_id")
+                if channel_id:
+                    ids.add(channel_id)
+    legacy = settings.get("teams_channel_id")
+    if legacy:
+        ids.add(legacy)
+    return ids
+
+
 def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
     """
     Handle a Teams message activity for the dedicated support channel.
@@ -606,7 +627,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         return
 
     settings_dict = team.conversations_settings or {}
-    configured_channel = settings_dict.get("teams_channel_id")
+    configured_channels = _configured_support_channel_ids(settings_dict)
 
     conversation_id = _extract_conversation_id(activity)
     is_reply = _is_reply(activity)
@@ -616,7 +637,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         if not Ticket.objects.filter(
             team=team, teams_channel_id=channel_id, teams_conversation_id=conversation_id
         ).exists():
-            if not configured_channel or configured_channel != channel_id:
+            if channel_id not in configured_channels:
                 return
 
         create_or_update_teams_ticket(
@@ -627,7 +648,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         )
         return
 
-    if not configured_channel or configured_channel != channel_id:
+    if channel_id not in configured_channels:
         return
 
     # Top-level message -> create new ticket
@@ -684,3 +705,55 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
         is_thread_reply=existing,
         channel_detail=ChannelDetail.TEAMS_BOT_MENTION,
     )
+
+
+def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> dict | None:
+    """Map a Microsoft Graph ``chatMessage`` (from channel ``messages/delta``) to the
+    Bot Framework activity shape that ``create_or_update_teams_ticket`` consumes.
+
+    Returns ``None`` for anything we don't ingest as a top-level support message:
+    non-message types (system events), deletions, replies, empty bodies, and
+    system/bot/app-authored posts (no ``from.user``). The mapped activity uses the
+    canonical ``"<channelId>;messageid=<msgId>"`` conversation id so a later webhook
+    reply on the same thread dedupes onto the same ticket.
+    """
+    # Only real user messages: skip systemEventMessage, typing, etc.
+    if msg.get("messageType") != "message":
+        return None
+    if msg.get("deletedDateTime"):
+        return None
+    # Channel messages/delta returns root messages only; guard defensively in case
+    # a reply ever shows up (reply sync is out of v1 scope).
+    if msg.get("replyToId"):
+        return None
+
+    body = msg.get("body") or {}
+    content = body.get("content") or ""
+    if not content.strip():
+        return None
+
+    # System/bot/app posts (incl. our own confirmation cards) carry from.application
+    # or from.device, never from.user — skip them so we never self-ingest.
+    from_field = msg.get("from") or {}
+    user = from_field.get("user") or {}
+    aad_object_id = user.get("id")
+    if not aad_object_id:
+        return None
+
+    msg_id = msg.get("id")
+    if not msg_id:
+        return None
+
+    return {
+        "id": msg_id,
+        "type": "message",
+        "text": content,
+        "from": {
+            "id": aad_object_id,
+            "aadObjectId": aad_object_id,
+            "name": user.get("displayName") or "",
+        },
+        "conversation": {"id": f"{channel_id};messageid={msg_id}"},
+        "channelData": {"channel": {"id": channel_id}},
+        "serviceUrl": service_url,
+    }

@@ -46,7 +46,7 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = get_direct_connection_source(team, query.connectionId)
+    source = get_direct_connection_source(team, query.connectionId, user=user)
     if query.connectionId and source is None:
         response.isValid = False
         response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
@@ -105,10 +105,13 @@ def get_hogql_metadata(
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:
+                direct_dialect: Literal["postgres", "mysql"] = (
+                    "mysql" if source and source.is_direct_mysql else "postgres"
+                )
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="postgres" if source else "clickhouse",
+                    dialect=direct_dialect if source else "clickhouse",
                 )
 
             if prepared_ast:
@@ -209,9 +212,11 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        dialect: Literal["clickhouse", "postgres"] = (
-            "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
-        )
+        dialect: Literal["clickhouse", "postgres", "mysql"] = "clickhouse"
+        if getattr(context.database, "_connection_id", None):
+            connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
+            engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
+            dialect = "mysql" if engine == "mysql" else "postgres"
         prepare_and_print_ast(select_query, context, dialect)
     except (NotImplementedError, SyntaxError):
         raise
