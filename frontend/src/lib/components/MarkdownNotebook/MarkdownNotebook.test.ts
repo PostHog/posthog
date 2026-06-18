@@ -1930,6 +1930,44 @@ Tail paragraph`
         expect(unmountComponent).not.toHaveBeenCalled()
     })
 
+    it('keeps rendering other components when one component panel crashes', () => {
+        expect.hasAssertions()
+
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Broken',
+                label: 'Broken',
+                category: 'PostHog',
+                ViewComponent: () => {
+                    throw new Error('Broken node render failed')
+                },
+            },
+            {
+                tagName: 'Safe',
+                label: 'Safe',
+                category: 'PostHog',
+                ViewComponent: () => createElement('div', { 'data-testid': 'safe-component' }, 'Safe output'),
+            },
+        ])
+
+        try {
+            const { container, getByText } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle('<Broken />\n\n<Safe />'),
+                    mode: 'view',
+                    registry,
+                })
+            )
+
+            expect(getByText("This block couldn't render.")).toBeInstanceOf(HTMLElement)
+            expect(getByText('Broken node render failed')).toBeInstanceOf(HTMLElement)
+            expect(container.querySelector('[data-testid="safe-component"]')?.textContent).toEqual('Safe output')
+        } finally {
+            consoleError.mockRestore()
+        }
+    })
+
     it('does not remount a newly inserted component when the matching remote save arrives', () => {
         const onChange = jest.fn()
         const renderComponent = jest.fn()

@@ -1784,6 +1784,15 @@ button.MarkdownNotebook__component-title:focus-visible {
     background: var(--markdown-notebook-component-background);
 }
 
+.MarkdownNotebook__component-render-error {
+    color: var(--color-danger);
+}
+
+.MarkdownNotebook__component-render-error code {
+    color: var(--color-danger);
+    white-space: pre-wrap;
+}
+
 .MarkdownNotebook__unknown-component {
     display: flex;
     flex-direction: column;

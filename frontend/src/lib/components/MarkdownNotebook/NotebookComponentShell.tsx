@@ -3,6 +3,7 @@ import { KeyboardEvent, ReactNode, memo, useState } from 'react'
 
 import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import {
     ComponentPanel,
@@ -262,30 +263,86 @@ export function NotebookComponentShell({
             ) : null}
             {showEditPanel && EditComponent ? (
                 <div className="MarkdownNotebook__component-panel">
-                    <EditComponent
-                        node={node}
-                        mode="edit"
-                        notebookMode={mode}
-                        updateProps={updateProps}
-                        deleteNode={deleteNode}
-                    />
+                    <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                        <EditComponent
+                            node={node}
+                            mode="edit"
+                            notebookMode={mode}
+                            updateProps={updateProps}
+                            deleteNode={deleteNode}
+                        />
+                    </NotebookComponentPanelErrorBoundary>
                 </div>
             ) : null}
             {showViewPanel ? (
                 <div className="MarkdownNotebook__component-panel">
                     {ViewComponent ? (
-                        <ViewComponent
-                            node={node}
-                            mode="view"
-                            notebookMode={mode}
-                            updateProps={updateProps}
-                            deleteNode={deleteNode}
-                        />
+                        <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                            <ViewComponent
+                                node={node}
+                                mode="view"
+                                notebookMode={mode}
+                                updateProps={updateProps}
+                                deleteNode={deleteNode}
+                            />
+                        </NotebookComponentPanelErrorBoundary>
                     ) : (
                         <UnknownComponentView node={node} />
                     )}
                 </div>
             ) : null}
+        </div>
+    )
+}
+
+export function NotebookComponentPanelErrorBoundary({
+    children,
+    node,
+    panel,
+}: {
+    children: ReactNode
+    node: NotebookComponentBlockNode
+    panel: ComponentPanel
+}): JSX.Element {
+    return (
+        <PostHogErrorBoundary
+            key={`${node.id}-${panel}`}
+            additionalProperties={{
+                feature: 'markdown_notebook_component',
+                markdown_notebook_node_id: node.id,
+                markdown_notebook_tag_name: node.tagName,
+                markdown_notebook_panel: panel,
+            }}
+            fallback={({ error }) => <NotebookComponentRenderError error={error} node={node} panel={panel} />}
+        >
+            {children}
+        </PostHogErrorBoundary>
+    )
+}
+
+export function NotebookComponentRenderError({
+    error,
+    node,
+    panel,
+}: {
+    error: unknown
+    node: NotebookComponentBlockNode
+    panel: ComponentPanel
+}): JSX.Element {
+    const message =
+        error instanceof Error && error.message
+            ? error.message
+            : typeof error === 'string' && error
+              ? error
+              : 'Unknown error'
+
+    return (
+        <div className="MarkdownNotebook__component-preview MarkdownNotebook__component-render-error">
+            <strong>This block couldn't render.</strong>
+            <span className="text-secondary text-sm">
+                The <code>{`<${node.tagName} />`}</code> {panel === 'filters' ? 'filters' : 'results'} panel crashed.
+            </span>
+            <code>{message}</code>
         </div>
     )
 }
