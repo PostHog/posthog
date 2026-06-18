@@ -69,6 +69,36 @@ export const SSE_HEALTHY_CONNECTION_MS = 60_000
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
 
+/**
+ * HMR-stable registry of the single live `EventSource` per stream key, hung off a global that
+ * survives module re-evaluation.
+ *
+ * The connection normally lives in `cache.disposables` and is torn down when the logic unmounts.
+ * But `cache` is recreated whenever this module is hot-reloaded, and a reload orphans the previous
+ * build's `EventSource`: editing the logic cascades a rebuild up through `maxThreadLogic`, which
+ * mounts the new build at the same keyed path *before* the old one unmounts — so the disposables
+ * plugin's `isMounted()` guard is still true and the old connection is never closed. The orphan
+ * keeps firing `onmessage` with a stale closure and races the new build's reset-then-replay
+ * bootstrap, defeating the content-dedup and re-folding the whole thread once per reload, so
+ * duplicates pile up across multiple reloads.
+ *
+ * Keying the handle to a global (instead of the per-build `cache`) lets each build close the
+ * connection a prior build left open — before opening or resetting its own — guaranteeing exactly
+ * one live stream per key no matter how many times the module reloads. Exported for tests.
+ */
+export const liveEventSourcesByStreamKey: Map<string, EventSource> = ((
+    globalThis as unknown as { __sandboxLiveEventSources?: Map<string, EventSource> }
+).__sandboxLiveEventSources ??= new Map<string, EventSource>())
+
+/** Close and forget any `EventSource` a prior build (or an earlier open) registered for this key. */
+function closeLiveEventSource(streamKey: string): void {
+    const existing = liveEventSourcesByStreamKey.get(streamKey)
+    if (existing) {
+        existing.close()
+        liveEventSourcesByStreamKey.delete(streamKey)
+    }
+}
+
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
 export function isTerminalRunStatus(status: string | null | undefined): boolean {
@@ -1006,8 +1036,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             actions.sseConnecting()
             cache.disposables.dispose('reconnect-backoff')
 
-            // Replace any prior connection.
+            // Replace any prior connection — including one orphaned by a hot reload, whose `cache`
+            // (and thus this disposable) was discarded before the connection was ever closed.
             cache.disposables.dispose('event-source')
+            closeLiveEventSource(props.streamKey)
             // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
             // setup on show would replay the stream from the top and duplicate thread state.
             cache.disposables.add(
@@ -1015,6 +1047,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     const start = startLatest ? '?start=latest' : ''
                     const url = `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/stream/${start}`
                     const eventSource = new EventSource(url, { withCredentials: true })
+                    // Register as the live connection for this key so a later build (post-HMR) can
+                    // find and close it even after this build's `cache` is gone.
+                    liveEventSourcesByStreamKey.set(props.streamKey, eventSource)
 
                     eventSource.onopen = (): void => actions.sseOpened()
                     eventSource.onmessage = (event: MessageEvent<string>): void => {
@@ -1072,7 +1107,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         actions.sseDropped()
                     })
 
-                    return () => eventSource.close()
+                    return () => {
+                        eventSource.close()
+                        // Only clear the registry if we're still the registered connection — a newer
+                        // (post-HMR) build may have already replaced us.
+                        if (liveEventSourcesByStreamKey.get(props.streamKey) === eventSource) {
+                            liveEventSourcesByStreamKey.delete(props.streamKey)
+                        }
+                    }
                 },
                 'event-source',
                 { pauseOnPageHidden: false }
@@ -1323,6 +1365,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.activeRun = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+            closeLiveEventSource(props.streamKey)
         },
         reset: () => {
             // `ingestedFrameHashes` clears via its own reducer on `reset` — keep it Redux-only so the
@@ -1333,6 +1376,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.sseConnectedAtMs = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+            // Kill any connection a prior hot-reload build orphaned, before the caller's bootstrap
+            // replays history — otherwise the stale stream races the replay and doubles the thread.
+            closeLiveEventSource(props.streamKey)
         },
         pushHumanMessage: () => {
             // Stamp the start of the turn this message opens, so per-turn duration metrics on a
