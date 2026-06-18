@@ -6,6 +6,11 @@ import { AlertConfig, isHogQLAlertConfig } from './types'
  * the two in sync. Advisory only; the backend extractor is the evaluation-time authority. */
 export const HOGQL_ANY_ROW_MAX_ROWS = 50
 
+/** Mirror of the backend's LAST_ROW_MAX_ROWS (= MAX_SELECT_RETURNED_ROWS). In last_row mode the
+ * backend rejects a result this large because the tail may be truncated, so the last row may not be
+ * the true last row. first_row is immune — it reads the head. */
+export const HOGQL_LAST_ROW_MAX_ROWS = 50000
+
 /** One result row as the alert would read it, for the configure-time preview table. */
 export interface HogQLAlertPreviewRow {
     /** Label-column value, falling back to the row number — mirrors the backend's row labeling. */
@@ -23,6 +28,7 @@ export type HogQLAlertPreview =
     | { status: 'no-rows' }
     | { status: 'bad-shape' }
     | { status: 'too-many-rows'; rowCount: number }
+    | { status: 'last-row-truncated'; rowCount: number }
     | { status: 'ambiguous-columns'; columnNames: string[] | null }
     | { status: 'missing-column'; column: string; columnNames: string[] | null }
     | { status: 'not-numeric'; value: string }
@@ -94,6 +100,9 @@ export function deriveHogQLAlertPreview(
     const lastRow = anchorRow
     if (mode === 'any_row' && rows.length > HOGQL_ANY_ROW_MAX_ROWS) {
         return { status: 'too-many-rows', rowCount: rows.length }
+    }
+    if (mode === 'last_row' && rows.length >= HOGQL_LAST_ROW_MAX_ROWS) {
+        return { status: 'last-row-truncated', rowCount: rows.length }
     }
     const columnNames = Array.isArray(insightData?.columns) ? insightData.columns.map(String) : null
 

@@ -107,6 +107,14 @@ export function HogQLAlertPreviewBanner({
                     {preview.rowCount} — add a LIMIT or aggregate the query, or the alert will fail to evaluate.
                 </LemonBanner>
             )
+        case 'last-row-truncated':
+            return (
+                <LemonBanner type="warning">
+                    The query returns {preview.rowCount.toLocaleString()} rows and may be truncated, so the last row
+                    isn't reliably the newest — add a LIMIT, aggregate the query, or switch to evaluating the first row
+                    (newest-first ordering), or the alert will fail to evaluate.
+                </LemonBanner>
+            )
         case 'bad-shape':
             return (
                 <LemonBanner type="warning">

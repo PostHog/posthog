@@ -23,7 +23,7 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
-import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS } from './hogqlAlertPreview'
+import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
 
@@ -581,6 +581,16 @@ describe('alertFormLogic', () => {
                 { status: 'too-many-rows', rowCount: HOGQL_ANY_ROW_MAX_ROWS + 1 },
             ],
             [
+                'last-row at the truncation cap warns (tail may be truncated)',
+                {
+                    result: Array.from({ length: HOGQL_LAST_ROW_MAX_ROWS }, (_, i) => [i]),
+                    columns: ['count'],
+                },
+                { type: 'HogQLAlertConfig', evaluation: 'last_row' },
+                null,
+                { status: 'last-row-truncated', rowCount: HOGQL_LAST_ROW_MAX_ROWS },
+            ],
+            [
                 'missing explicit label column',
                 { result: [['US', 1]], columns: ['country', 'count'] },
                 { type: 'HogQLAlertConfig', evaluation: 'any_row', label_column: 'gone' },
@@ -634,6 +644,16 @@ describe('alertFormLogic', () => {
             expect(
                 deriveHogQLAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
             ).toEqual(expected)
+        })
+
+        it('first_row is immune to the last_row truncation cap (reads the head)', () => {
+            const result = Array.from({ length: HOGQL_LAST_ROW_MAX_ROWS }, (_, i) => [i])
+            const preview = deriveHogQLAlertPreview(
+                { result, columns: ['count'] },
+                { type: 'HogQLAlertConfig', evaluation: 'first_row' } as any,
+                null
+            )
+            expect(preview?.status).toBe('ok')
         })
     })
 })
