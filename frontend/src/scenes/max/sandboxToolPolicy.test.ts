@@ -1,3 +1,4 @@
+import type { SandboxQuestion } from './sandboxQuestionUtils'
 import {
     defaultPermissionDecision,
     findAllowOptionId,
@@ -9,7 +10,13 @@ import type { PermissionRequestRecord, ToolInvocation } from './types/sandboxStr
 import type { PermissionOption } from './types/sandboxWireTypes'
 
 function makeRecord(
-    overrides: { toolName?: string; resolvedKey?: string; innerToolName?: string; options?: PermissionOption[] } = {}
+    overrides: {
+        toolName?: string
+        resolvedKey?: string
+        innerToolName?: string
+        options?: PermissionOption[]
+        questions?: SandboxQuestion[]
+    } = {}
 ): PermissionRequestRecord {
     const rawToolCall: ToolInvocation = {
         toolCallId: 'tc',
@@ -27,6 +34,7 @@ function makeRecord(
         toolName: overrides.toolName ?? 'mcp__posthog__exec',
         options: overrides.options ?? [{ optionId: 'allow', name: 'Yes', kind: 'allow_once' }],
         rawToolCall,
+        ...(overrides.questions ? { questions: overrides.questions } : {}),
     }
 }
 
@@ -74,6 +82,17 @@ describe('sandboxToolPolicy', () => {
                 'prompt',
             ],
             ['other mcp tool', makeRecord({ toolName: 'mcp__other__foo', resolvedKey: 'foo' }), 'prompt'],
+            // AskUserQuestion rides the permission framework with allow_once options, but must never
+            // auto-approve — picking option_0 with no answers gets rejected by the agent.
+            [
+                'question request',
+                makeRecord({
+                    toolName: 'AskUserQuestion',
+                    resolvedKey: 'AskUserQuestion',
+                    questions: [{ question: 'Pick one', multiSelect: false, options: [{ label: 'A' }] }],
+                }),
+                'prompt',
+            ],
         ])('%s → %s', (_case, record, expected) => {
             expect(defaultPermissionDecision(record)).toEqual(expected)
         })

@@ -6,6 +6,7 @@
  * `./sandboxWireTypes`) into the `ToolInvocation` / `ThreadItem` state the renderer consumes.
  */
 
+import type { SandboxQuestion } from '../sandboxQuestionUtils'
 import type { PermissionOption } from './sandboxWireTypes'
 
 export type ToolInvocationStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -155,4 +156,10 @@ export interface PermissionRequestRecord {
     title?: string
     description?: string
     rawToolCall: ToolInvocation
+    /**
+     * Present when this request is an `AskUserQuestion` — Twig routes questions through the permission
+     * framework (`toolCall._meta.codeToolKind === 'question'`, `_meta.questions`). Drives the
+     * interactive question overlay instead of the approve/decline card, and blocks auto-approval.
+     */
+    questions?: SandboxQuestion[]
 }
