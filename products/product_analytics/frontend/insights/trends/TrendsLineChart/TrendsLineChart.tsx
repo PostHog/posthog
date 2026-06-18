@@ -292,7 +292,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
-            position: 'bottom',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {

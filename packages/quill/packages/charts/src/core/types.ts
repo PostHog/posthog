@@ -245,19 +245,12 @@ export interface ChartLegendConfig {
     show?: boolean
     /** Where the legend sits relative to the plot. Default 'bottom'. */
     position?: 'top' | 'bottom' | 'left' | 'right'
-    /** Legend alignment along its axis. Default 'center'. */
-    align?: 'start' | 'center' | 'end'
-    /** Gap in px between the legend and the plot. */
-    gap?: number
     /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
      *  set false for a static, read-only legend. */
     interactive?: boolean
     /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
      *  omit for chart-managed (uncontrolled) toggling. */
     hiddenKeys?: string[]
-    /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
-     *  is set (controlled). */
-    defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
     /** Wrap each rendered legend row — receives the default row node and its item, returns the
