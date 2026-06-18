@@ -1,39 +1,13 @@
-"""Prometheus metrics for the signals pipeline.
-
-Deliberately narrow: a handful of business-level counters that power incident
-alerts, emitted at the same stable callsites as the pipeline's product-analytics
-events (``signal_emitted``, ``signal_dropped``, ``signal_report_completed``, ...).
-Because they live next to those ``capture()`` calls, they move with the code when
-activities are renamed or moved — they are not pinned to an activity-name registry.
-
-What is intentionally NOT here:
-
-- Per-activity / per-workflow execution latency and failure counts. Temporal's
-  built-in SDK metrics already expose these for free on this worker, labelled by
-  ``activity_type`` / ``workflow_type``: ``temporal_activity_execution_latency``,
-  ``temporal_activity_schedule_to_start_latency`` (queue depth, the saturation
-  signal), ``temporal_activity_execution_failed``, ``temporal_workflow_failed``,
-  and ``temporal_workflow_endtoend_latency``. Re-deriving them here would mean
-  hand-maintaining a list of every activity name.
-- LLM token / cost / latency and embedding latency — cost/quality signals already
-  covered by LLM observability and the product-analytics events, not incidents.
-
-Cardinality note: no ``team_id`` label — per-team drill-down lives in the
-product-analytics events. Labels stay within the small bounded sets below.
-"""
+"""Business-level Prometheus counters for signals pipeline incident alerts."""
 
 from temporalio import activity, workflow
 
 from posthog.temporal.common.metrics import get_metric_meter
 
-# Funnel stages, in pipeline order, for `signals_funnel_total`. The funnel is
-# self-contained (emitted is the denominator) so alerts depend on one metric.
 FUNNEL_STAGE_EMITTED = "emitted"
-FUNNEL_STAGE_SAFETY_BLOCKED = "safety_blocked"
 FUNNEL_STAGE_GROUPED = "grouped"
 FUNNEL_STAGE_PROMOTED = "promoted"
 
-# LLM call outcomes for `signals_llm_calls_total`.
 LLM_STATUS_OK = "ok"
 LLM_STATUS_ERROR = "error"
 
@@ -52,8 +26,18 @@ def increment_funnel(stage: str, source_product: str = "unknown", count: int = 1
     ).add(count)
 
 
+def increment_safety_blocked(source_product: str = "unknown") -> None:
+    """Count a signal rejected by the safety filter — a legitimate terminal exit, not a drop."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"source_product": source_product}).create_counter(
+        "signals_safety_blocked_total",
+        "Signals rejected by the safety filter",
+    ).add(1)
+
+
 def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
-    """Count signals lost to an error, attributed to a stage and reason (the error indicator)."""
+    """Count signals lost to an error, attributed to a stage and reason."""
     if not _in_temporal_context() or count <= 0:
         return
     get_metric_meter({"stage": stage, "reason": reason}).create_counter(
@@ -93,7 +77,7 @@ def increment_ch_wait_timeout() -> None:
 
 
 def increment_scout_run(status: str) -> None:
-    """Count a scout run by terminal status — the signal source feeding the pipeline."""
+    """Count a scout run by terminal status."""
     if not _in_temporal_context():
         return
     get_metric_meter({"status": status}).create_counter(
