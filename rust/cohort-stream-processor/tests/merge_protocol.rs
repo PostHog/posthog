@@ -6,7 +6,9 @@
 
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
-use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
+use cohort_stream_processor::filters::{
+    CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
+};
 use cohort_stream_processor::merge::apply_handler::{
     handle_transfer, ApplyOutcome, MAX_TRANSFER_FORWARD_HOPS,
 };
@@ -18,13 +20,15 @@ use cohort_stream_processor::merge::transfer::{
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
+use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage1Key,
-    StoreConfig, TombstoneKey,
+    Stage2Key, StoreConfig, TombstoneKey,
 };
 use cohort_stream_processor::sweep::EvictionQueue;
 use cohort_stream_processor::workers::{
-    compose_stage2, handle_merge_gc, process_event, MergeGcCursor,
+    compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
+    Stage2GcCursor,
 };
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -959,6 +963,90 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
     assert!(
         matches!(&reclaimed_redrain, DrainOutcome::Drained { transfer } if transfer.leaves.is_empty()),
         "after GC the marker no longer dedupes; the replay re-drains (empty), got {reclaimed_redrain:?}",
+    );
+}
+
+/// End-to-end orphan reclaim: an absent-team merge drain leaves P_old's `cf_stage2` row behind
+/// (`composable_cohort_ids` is empty for an absent team, so the drain deletes nothing), and a later
+/// orphan-GC tick against a healthy non-empty catalog reclaims it while a co-resident live cohort's
+/// row on the same partition survives.
+#[test]
+fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
+    // TEAM (7) is absent from the GC catalog; LIVE_TEAM stays composable.
+    const LIVE_TEAM: i32 = 8;
+
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+
+    let p_old = Uuid::from_u128(0xABED);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+
+    // Seed TEAM's composable cohort-4 row for P_old, as a fold would.
+    let orphan = Stage2Key {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        cohort_id: 4,
+        person_id: p_old,
+    };
+    let row = Stage2State {
+        in_cohort: true,
+        last_evaluated_at_ms: MERGED_AT,
+    }
+    .encode();
+    store.write_batch(|b| b.put_stage2(&orphan, &row)).unwrap();
+
+    // Drive the real drain against empty filters — the absent-team fallback the worker uses. The drain
+    // deletes no cf_stage2 rows, so P_old's row orphans.
+    let absent_team_filters = TeamFiltersBuilder::default().freeze(UTC);
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    handle_merge_event(
+        p_old_part,
+        &store,
+        &absent_team_filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        &mut queue,
+    )
+    .unwrap();
+    assert!(
+        store.get_stage2(&orphan).unwrap().is_some(),
+        "the absent-team drain leaves P_old's cf_stage2 row behind (the orphan)",
+    );
+
+    // A co-resident LIVE row on the same partition: LIVE_TEAM, composable cohort 4.
+    let live = Stage2Key {
+        partition_id: p_old_part,
+        team_id: LIVE_TEAM as u64,
+        cohort_id: 4,
+        person_id: p_old,
+    };
+    store.write_batch(|b| b.put_stage2(&live, &row)).unwrap();
+
+    // Healthy non-empty catalog: LIVE_TEAM present with composable AND(daily, person) cohort 4, TEAM absent.
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(4),
+            TeamId(LIVE_TEAM),
+            &cohort(vec![daily_leaf(), person_leaf()]),
+        )
+        .unwrap();
+    let catalog = CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+        TeamId(LIVE_TEAM),
+        builder.freeze(UTC),
+    )]));
+
+    let mut cursor = Stage2GcCursor::default();
+    handle_stage2_orphan_gc(p_old_part, &store, &catalog, &mut cursor, 10_000);
+
+    assert!(
+        store.get_stage2(&orphan).unwrap().is_none(),
+        "the absent-team orphan is reclaimed by the GC tick",
+    );
+    assert!(
+        store.get_stage2(&live).unwrap().is_some(),
+        "the co-resident live cohort's row survives",
     );
 }
 

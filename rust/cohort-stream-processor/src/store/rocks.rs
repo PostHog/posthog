@@ -279,13 +279,15 @@ impl CohortStore {
         Ok(out)
     }
 
-    /// Scan up to `limit` raw `(key, value)` pairs from one partition's slice of a merge CF, in key
-    /// order, resuming strictly *after* `start_after` (exclusive) when given.
+    /// Scan up to `limit` raw `(key, value)` pairs from one partition's slice of a CF, in key order,
+    /// resuming strictly *after* `start_after` (exclusive) when given.
     ///
-    /// Returns raw bytes (not typed keys/values) so the merge-CF GC handler can decode each CF's own
-    /// value-timestamp shape (`DrainStamp` / `ApplyStamp` / `Tombstone`) and keep the last key as its
-    /// resume cursor. Intended for the GC-able merge CFs only; `cf_pending_transfers` is the redrive's
-    /// outbox and no GC path passes it (see [`crate::merge::gc`]).
+    /// Returns raw bytes (not typed keys/values) so each GC handler can decode the CF's own value
+    /// shape and keep the last key as its resume cursor. The mechanics are CF-generic: the merge-CF GC
+    /// passes the three time-stamped merge CFs (`DrainStamp` / `ApplyStamp` / `Tombstone`, see
+    /// [`crate::merge::gc`]), and the `cf_stage2` orphan GC passes `Cf::Stage2` (see
+    /// [`crate::workers::stage2_gc`]). `cf_pending_transfers` is the redrive's outbox and no GC path
+    /// passes it.
     pub fn scan_merge_cf(
         &self,
         cf: Cf,

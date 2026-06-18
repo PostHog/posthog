@@ -193,6 +193,7 @@ async fn async_main(config: Config) -> Result<()> {
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: config.transfer_retry_policy(),
         gc_scan_limit: config.merge_gc_scan_limit,
+        stage2_orphan_gc_enabled: config.stage2_orphan_gc_enabled,
         cascade_sink,
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: config.cascade_config(),

@@ -1406,6 +1406,7 @@ mod tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
             cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),

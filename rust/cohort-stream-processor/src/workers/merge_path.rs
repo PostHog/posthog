@@ -106,8 +106,11 @@ pub struct MergeWorkerDeps {
     pub merge_tracker: Arc<OffsetTracker>,
     pub transfer_tracker: Arc<OffsetTracker>,
     pub retry: TransferRetryPolicy,
-    /// Max keys scanned (and at most deleted) per merge CF, per partition, per GC tick.
+    /// Max keys scanned (and at most deleted) per merge CF, per partition, per GC tick. Reused as the
+    /// `cf_stage2` orphan-GC page cap.
     pub gc_scan_limit: usize,
+    /// Whether the `cf_stage2` orphan GC pass runs on each merge-GC tick (kill-switch, default on).
+    pub stage2_orphan_gc_enabled: bool,
     /// Sink for the internal `cohort_cascade_events` topic (a no-op when the gate is off).
     pub cascade_sink: Arc<dyn CascadeSink>,
     /// Isolated from the merge/transfer trackers so cascade-path lag is observable separately.
@@ -125,6 +128,7 @@ impl MergeWorkerDeps {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
             cascade_sink: Arc::new(CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
@@ -741,6 +745,7 @@ mod tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
             cascade_sink: Arc::new(CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),

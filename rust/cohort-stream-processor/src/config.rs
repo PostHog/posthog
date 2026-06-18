@@ -173,6 +173,12 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub merge_gc_scan_limit: usize,
 
+    /// Whether the `cf_stage2` orphan GC pass runs on each merge-GC tick — reclaims composed-membership
+    /// rows whose cohort has left the composable set. Default-on kill-switch; reuses `merge_gc_scan_limit`
+    /// as the page cap.
+    #[envconfig(from = "STAGE2_ORPHAN_GC_ENABLED", default = "true")]
+    pub stage2_orphan_gc_enabled: bool,
+
     // --- Cascade (cohort-of-cohort) depth + fan-out caps ---
     /// Max cascade hops before an outgoing cascade is dropped (`incoming.depth >= this`). Default 8.
     #[envconfig(default = "8")]
@@ -693,6 +699,7 @@ mod tests {
             merge_tombstone_retention_ms: 777_600_000,
             merge_gc_interval_ms: 3_600_000,
             merge_gc_scan_limit: 10_000,
+            stage2_orphan_gc_enabled: true,
             cohort_cascade_depth_cap: 8,
             cohort_cascade_fanout_cap: 1000,
             cohort_cascade_enabled: false,
@@ -1197,6 +1204,10 @@ mod tests {
         );
         assert_eq!(config.merge_gc_interval(), Duration::from_millis(3_600_000));
         assert_eq!(config.merge_gc_scan_limit, 10_000);
+        assert!(
+            config.stage2_orphan_gc_enabled,
+            "the cf_stage2 orphan GC defaults on",
+        );
     }
 
     #[test]
@@ -1206,6 +1217,7 @@ mod tests {
             ("MERGE_TOMBSTONE_RETENTION_MS", "456"),
             ("MERGE_GC_INTERVAL_MS", "789"),
             ("MERGE_GC_SCAN_LIMIT", "5"),
+            ("STAGE2_ORPHAN_GC_ENABLED", "false"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1216,6 +1228,10 @@ mod tests {
         assert_eq!(config.merge_tombstone_retention_ms, 456);
         assert_eq!(config.merge_gc_interval(), Duration::from_millis(789));
         assert_eq!(config.merge_gc_scan_limit, 5);
+        assert!(
+            !config.stage2_orphan_gc_enabled,
+            "the kill-switch disables the cf_stage2 orphan GC",
+        );
     }
 
     #[test]

@@ -605,6 +605,7 @@ async fn spawn_instance(
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: TransferRetryPolicy::default(),
         gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+        stage2_orphan_gc_enabled: true,
         cascade_sink: Arc::new(CaptureCascadeSink::new()),
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: CascadeConfig::default(),

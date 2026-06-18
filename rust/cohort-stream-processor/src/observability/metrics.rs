@@ -316,6 +316,17 @@ pub const MERGE_GC_KEYS_DELETED_TOTAL: &str = "merge_gc_keys_deleted_total";
 /// folded into [`MERGE_GC_KEYS_DELETED_TOTAL`] (an unreadable timestamp can never age out).
 pub const MERGE_GC_UNDECODABLE_TOTAL: &str = "merge_gc_undecodable_total";
 
+/// `cf_stage2` rows scanned by the orphan GC pass (counter).
+pub const STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL: &str = "stage2_orphan_gc_keys_scanned_total";
+/// `cf_stage2` orphan rows the pass deleted — the cohort left the composable set (counter).
+pub const STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL: &str = "stage2_orphan_gc_keys_deleted_total";
+/// Orphan-GC passes skipped without scanning, labelled by `reason`
+/// (`catalog_not_loaded`|`empty_catalog`) (counter).
+pub const STAGE2_ORPHAN_GC_SKIPPED_TOTAL: &str = "stage2_orphan_gc_skipped_total";
+/// `cf_stage2` keys the orphan GC could not classify and left in place (counter): a key the decoder
+/// rejected, or an id that overflows `i32`.
+pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_undecodable_keys_total";
+
 /// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
 /// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
@@ -398,6 +409,27 @@ mod tests {
         assert_eq!(
             DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
             "durable_restore_pending_transfers_recovered_partitions_total",
+        );
+    }
+
+    #[test]
+    fn stage2_orphan_gc_metric_names_are_stable() {
+        // Pin the wire names: a rename must not silently break dashboards or alerts.
+        assert_eq!(
+            STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
+            "stage2_orphan_gc_keys_scanned_total",
+        );
+        assert_eq!(
+            STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL,
+            "stage2_orphan_gc_keys_deleted_total",
+        );
+        assert_eq!(
+            STAGE2_ORPHAN_GC_SKIPPED_TOTAL,
+            "stage2_orphan_gc_skipped_total"
+        );
+        assert_eq!(
+            STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
+            "stage2_orphan_gc_undecodable_keys_total",
         );
     }
 }

@@ -44,6 +44,7 @@ use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{process_event, schedule_deadline, SkipReason};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
+use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
 
@@ -126,6 +127,7 @@ async fn run_worker(
     }
     // Per-worker merge-CF GC resume cursors (in-memory; loss on rebalance is benign — see MergeGcCursor).
     let mut gc_cursor = MergeGcCursor::default();
+    let mut stage2_gc_cursor = Stage2GcCursor::default();
 
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
@@ -258,6 +260,15 @@ async fn run_worker(
                         tombstone_cutoff_ms,
                         merge.gc_scan_limit,
                     );
+                    if merge.stage2_orphan_gc_enabled {
+                        handle_stage2_orphan_gc(
+                            partition_id,
+                            &store,
+                            &catalog,
+                            &mut stage2_gc_cursor,
+                            merge.gc_scan_limit,
+                        );
+                    }
                 }
             }
         }
@@ -873,7 +884,8 @@ mod tombstone_redirect_tests {
     };
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::{StoreConfig, TombstoneKey};
+    use crate::stage2::state::Stage2State;
+    use crate::store::{Stage2Key, StoreConfig, TombstoneKey};
     use crate::workers::merge_path::TransferRetryPolicy;
     use crate::workers::CascadeConfig;
 
@@ -956,6 +968,23 @@ mod tombstone_redirect_tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
+            cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: crate::workers::CascadeConfig::default(),
+        })
+    }
+
+    /// Capture-sink deps with the `cf_stage2` orphan-GC kill-switch set, for the MergeCfGc arm gate test.
+    fn merge_deps_stage2_gc(stage2_orphan_gc_enabled: bool) -> Arc<MergeWorkerDeps> {
+        Arc::new(MergeWorkerDeps {
+            transfer_sink: Arc::new(CaptureTransferSink::new()),
+            stream_event_sink: Arc::new(CaptureStreamEventSink::new()),
+            merge_tracker: Arc::new(OffsetTracker::new()),
+            transfer_tracker: Arc::new(OffsetTracker::new()),
+            retry: TransferRetryPolicy::default(),
+            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled,
             cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
@@ -971,6 +1000,7 @@ mod tombstone_redirect_tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
             cascade_sink: Arc::new(cascade_sink),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig {
@@ -1529,5 +1559,57 @@ mod tombstone_redirect_tests {
                 .is_some(),
             "alice's own state was written",
         );
+    }
+
+    /// The `MergeCfGc` arm runs the `cf_stage2` orphan GC only when `stage2_orphan_gc_enabled`: a
+    /// SingleLeaf cohort's row (an orphan) survives with the kill-switch off and is reclaimed with it on.
+    #[tokio::test]
+    async fn merge_cf_gc_arm_runs_stage2_orphan_gc_only_when_enabled() {
+        for (enabled, expect_present) in [(false, true), (true, false)] {
+            let (_dir, store) = temp_store();
+            let person = Uuid::from_u128(0xC0FFEE);
+            let partition_id = partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16;
+            let orphan = Stage2Key {
+                partition_id,
+                team_id: TEAM as u64,
+                cohort_id: 1, // SingleLeaf in person_catalog → an orphan
+                person_id: person,
+            };
+            store
+                .write_batch(|b| {
+                    b.put_stage2(
+                        &orphan,
+                        &Stage2State {
+                            in_cohort: true,
+                            last_evaluated_at_ms: 1,
+                        }
+                        .encode(),
+                    )
+                })
+                .unwrap();
+
+            let membership = CaptureSink::new();
+            let tracker = Arc::new(OffsetTracker::new());
+            run_batch(
+                partition_id,
+                &store,
+                person_catalog(),
+                &membership,
+                &tracker,
+                merge_deps_stage2_gc(enabled),
+                1,
+                vec![ShuffleMessage::MergeCfGc {
+                    marker_cutoff_ms: 0,
+                    tombstone_cutoff_ms: 0,
+                }],
+            )
+            .await;
+
+            assert_eq!(
+                store.get_stage2(&orphan).unwrap().is_some(),
+                expect_present,
+                "MergeCfGc arm runs the orphan GC iff enabled (enabled={enabled})",
+            );
+        }
     }
 }
