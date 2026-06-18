@@ -9329,6 +9329,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `dagster` - dagster
+     * * `viaduck` - viaduck
+     */
+    export type BackendEnum = typeof BackendEnum[keyof typeof BackendEnum];
+
+
+    export const BackendEnum = {
+      Dagster: 'dagster',
+      Viaduck: 'viaduck',
+    } as const;
+
+    /**
      * * `AED` - AED
      * * `AFN` - AFN
      * * `ALL` - ALL
@@ -47635,6 +47647,83 @@ export namespace Schemas {
          */
       failed_at: string | null;
       connection?: WarehouseConnection | null;
+    }
+
+    /**
+     * * `seeding` - seeding
+     * * `caught_up` - caught_up
+     * * `lagging` - lagging
+     * * `error` - error
+     * * `not_started` - not_started
+     */
+    export type WarehouseSyncStatusStateEnum = typeof WarehouseSyncStatusStateEnum[keyof typeof WarehouseSyncStatusStateEnum];
+
+
+    export const WarehouseSyncStatusStateEnum = {
+      Seeding: 'seeding',
+      CaughtUp: 'caught_up',
+      Lagging: 'lagging',
+      Error: 'error',
+      NotStarted: 'not_started',
+    } as const;
+
+    export interface _InitialBackfill {
+      /** Whether the one-time historical load has finished. */
+      complete: boolean;
+      /**
+         * Historical load progress, 0-100, or null if unknown.
+         * @nullable
+         */
+      progress_pct: number | null;
+    }
+
+    export interface _SyncError {
+      /** Human-readable error message. */
+      message: string;
+      /** When the current error first occurred. */
+      since: string;
+    }
+
+    export interface WarehouseSyncStatus {
+      /** Pipeline moving the data (internal).
+       *
+       * * `dagster` - dagster
+       * * `viaduck` - viaduck */
+      backend: BackendEnum;
+      /** Overall freshness state.
+       *
+       * * `seeding` - seeding
+       * * `caught_up` - caught_up
+       * * `lagging` - lagging
+       * * `error` - error
+       * * `not_started` - not_started */
+      state: WarehouseSyncStatusStateEnum;
+      /**
+         * Timestamp the warehouse is fresh through.
+         * @nullable
+         */
+      fresh_through: string | null;
+      /**
+         * Seconds behind now/source, or null if unknown.
+         * @nullable
+         */
+      lag_seconds: number | null;
+      /**
+         * Last time the pipeline made progress.
+         * @nullable
+         */
+      last_activity_at: string | null;
+      /** One-time historical load status, or null if the backend can't determine it. */
+      initial_backfill: _InitialBackfill | null;
+      /**
+         * Cumulative events moved into the warehouse.
+         * @nullable
+         */
+      total_rows_synced: number | null;
+      /** Current error, or null when healthy. */
+      error: _SyncError | null;
+      /** When this status was computed. */
+      updated_at: string;
     }
 
     export interface WeeklyDigestResponse {

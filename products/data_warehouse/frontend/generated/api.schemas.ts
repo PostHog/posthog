@@ -152,6 +152,94 @@ export interface WarehouseStatusResponseApi {
 }
 
 /**
+ * * `dagster` - dagster
+ * * `viaduck` - viaduck
+ */
+export type BackendEnumApi = (typeof BackendEnumApi)[keyof typeof BackendEnumApi]
+
+export const BackendEnumApi = {
+    Dagster: 'dagster',
+    Viaduck: 'viaduck',
+} as const
+
+/**
+ * * `seeding` - seeding
+ * * `caught_up` - caught_up
+ * * `lagging` - lagging
+ * * `error` - error
+ * * `not_started` - not_started
+ */
+export type WarehouseSyncStatusStateEnumApi =
+    (typeof WarehouseSyncStatusStateEnumApi)[keyof typeof WarehouseSyncStatusStateEnumApi]
+
+export const WarehouseSyncStatusStateEnumApi = {
+    Seeding: 'seeding',
+    CaughtUp: 'caught_up',
+    Lagging: 'lagging',
+    Error: 'error',
+    NotStarted: 'not_started',
+} as const
+
+export interface _InitialBackfillApi {
+    /** Whether the one-time historical load has finished. */
+    complete: boolean
+    /**
+     * Historical load progress, 0-100, or null if unknown.
+     * @nullable
+     */
+    progress_pct: number | null
+}
+
+export interface _SyncErrorApi {
+    /** Human-readable error message. */
+    message: string
+    /** When the current error first occurred. */
+    since: string
+}
+
+export interface WarehouseSyncStatusApi {
+    /** Pipeline moving the data (internal).
+     *
+     * * `dagster` - dagster
+     * * `viaduck` - viaduck */
+    backend: BackendEnumApi
+    /** Overall freshness state.
+     *
+     * * `seeding` - seeding
+     * * `caught_up` - caught_up
+     * * `lagging` - lagging
+     * * `error` - error
+     * * `not_started` - not_started */
+    state: WarehouseSyncStatusStateEnumApi
+    /**
+     * Timestamp the warehouse is fresh through.
+     * @nullable
+     */
+    fresh_through: string | null
+    /**
+     * Seconds behind now/source, or null if unknown.
+     * @nullable
+     */
+    lag_seconds: number | null
+    /**
+     * Last time the pipeline made progress.
+     * @nullable
+     */
+    last_activity_at: string | null
+    /** One-time historical load status, or null if the backend can't determine it. */
+    initial_backfill: _InitialBackfillApi | null
+    /**
+     * Cumulative events moved into the warehouse.
+     * @nullable
+     */
+    total_rows_synced: number | null
+    /** Current error, or null when healthy. */
+    error: _SyncErrorApi | null
+    /** When this status was computed. */
+    updated_at: string
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
