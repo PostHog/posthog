@@ -5,7 +5,6 @@ import { IconWarning, IconWrench } from '@posthog/icons'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 
 import type { McpToolCallMessage } from '../../maxTypes'
-import { MessageTemplate } from '../../messages/MessageTemplate'
 import { Activity, ActivityToggleSection, ActivityStatus } from './ActivityPrimitives'
 
 export function SandboxActivity({
@@ -116,18 +115,16 @@ export function SandboxToolActivity({
         )
 
     return (
-        <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full">
-            <Activity
-                id={message.id}
-                title={<span className="font-medium text-default">{headerLabel}</span>}
-                status={message.status}
-                icon={headerIcon}
-                showProgressIcon
-                failedIcon={<IconWarning className="text-danger size-3" />}
-                details={details}
-            >
-                {activityBody}
-            </Activity>
-        </MessageTemplate>
+        <Activity
+            id={message.id}
+            title={<span className="font-medium text-default">{headerLabel}</span>}
+            status={message.status}
+            icon={headerIcon}
+            showProgressIcon
+            failedIcon={<IconWarning className="text-danger size-3" />}
+            details={details}
+        >
+            {activityBody}
+        </Activity>
     )
 }
