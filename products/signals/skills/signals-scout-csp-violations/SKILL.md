@@ -118,6 +118,7 @@ WHERE event = '$csp_violation'
 GROUP BY blocked_domain
 HAVING first_seen > now() - INTERVAL 24 HOUR
    AND distinct_users >= 10
+   AND blocked_domain != ''   -- drop inline/eval/extension reports ('unsafe-inline' etc.): non-empty URL but no domain
 ORDER BY occurrences DESC
 LIMIT 20
 ```
@@ -168,6 +169,7 @@ WHERE event = '$csp_violation'
   AND JSONExtractString(properties, '$csp_blocked_url') != ''
 GROUP BY disposition, directive, blocked_domain
 HAVING distinct_users >= 100          -- broad reach, not a single user / extension
+   AND blocked_domain != ''           -- exclude inline/eval/extension noise so named domains fill the limit
 ORDER BY (disposition = 'enforce') DESC, distinct_users DESC
 LIMIT 30
 ```
@@ -182,10 +184,10 @@ Triage:
   remember (`pattern:`/`allowlist:`) rather than emit, unless it's a fresh domain (that's
   the fresh-domain path above).
 
-Skip the giant empty-`blocked_domain` `script-src` / `script-src-elem` clusters — those are
-inline / `eval` / `unsafe-inline` reports and browser-extension noise, the baseline this
-surface always carries. `noise:` them once and move on; the reach that matters is in the
-**named** domains. Dedupe standing emissions with
+The `blocked_domain != ''` filter already drops the giant inline / `eval` / `unsafe-inline`
+and browser-extension clusters (non-empty `$csp_blocked_url`, empty `domain()`) — the
+baseline noise this surface always carries — so the limit is spent on the reach that
+matters: **named** domains. Dedupe standing emissions with
 `addressed:csp_violations:{blocked_domain}-{directive}` so a confirmed-and-allowlisted (or
 accepted) block doesn't re-surface every run.
 
@@ -326,7 +328,9 @@ Harness-level:
 
 ## When to stop
 
-- `$csp_violation` row in profile is at baseline → close out empty.
+- `$csp_violation` row in profile is at baseline **and** the standing enforced / first-party
+  block check is clean → close out empty. A steady baseline alone is not enough — a standing
+  high-reach enforced (or first-party) block is a live problem even with no fresh burst.
 - A candidate matches a scratchpad entry with `noise:` / `allowlist:` / `addressed:` /
   `dedupe:` key prefix → skip.
 - You've validated some hypotheses and emitted what's solid → close out, even if
