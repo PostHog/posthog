@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use chrono::NaiveDateTime;
 use metrics::{counter, gauge, histogram};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::cascade::{should_emit, CascadeDecision, CascadeMessage, DropReason};
@@ -54,11 +54,7 @@ pub(crate) async fn handle_cascade(
         return;
     }
 
-    histogram!(
-        CASCADE_DEPTH_OBSERVED,
-        "originating_cohort_id" => message.originating_cohort_id.to_string(),
-    )
-    .record(f64::from(message.depth));
+    histogram!(CASCADE_DEPTH_OBSERVED).record(f64::from(message.depth));
 
     let snapshot = catalog.load();
     let Some(filters) = snapshot.team(TeamId(message.change.team_id)) else {
@@ -82,11 +78,11 @@ pub(crate) async fn handle_cascade(
     // The capped remainder self-heals on each dropped referrer's next event/sweep.
     let referrers: &[CohortId] = if referrers.len() > merge.cascade.fanout_cap {
         let dropped = (referrers.len() - merge.cascade.fanout_cap) as u64;
-        counter!(
-            CASCADE_FANOUT_CAPPED_TOTAL,
-            "upstream_cohort_id" => message.change.cohort_id.to_string(),
-        )
-        .increment(dropped);
+        counter!(CASCADE_FANOUT_CAPPED_TOTAL).increment(dropped);
+        debug!(
+            upstream_cohort_id = message.change.cohort_id,
+            dropped, "cascade fan-out capped",
+        );
         &referrers[..merge.cascade.fanout_cap]
     } else {
         referrers
@@ -153,21 +149,21 @@ pub(crate) async fn handle_cascade(
             CascadeDecision::Drop {
                 reason: DropReason::DepthExceeded,
             } => {
-                counter!(
-                    CASCADE_DEPTH_EXCEEDED_TOTAL,
-                    "originating_cohort_id" => message.originating_cohort_id.to_string(),
-                )
-                .increment(1);
+                counter!(CASCADE_DEPTH_EXCEEDED_TOTAL).increment(1);
+                debug!(
+                    originating_cohort_id = message.originating_cohort_id,
+                    "cascade depth cap reached",
+                );
             }
             CascadeDecision::Drop {
                 reason: DropReason::CycleDetectedRuntime,
             } => {
-                counter!(
-                    CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL,
-                    "originating_cohort_id" => message.originating_cohort_id.to_string(),
-                    "cycle_cohort_id" => referrer.0.to_string(),
-                )
-                .increment(1);
+                counter!(CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL).increment(1);
+                debug!(
+                    originating_cohort_id = message.originating_cohort_id,
+                    cycle_cohort_id = referrer.0,
+                    "cascade cycle detected at runtime",
+                );
             }
         }
     }

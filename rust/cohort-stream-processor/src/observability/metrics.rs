@@ -18,18 +18,18 @@ pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 /// Cohorts excluded because they sit in a cohort-reference cycle (counter).
 pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
 
-/// Cascade depths reached, from the `depth` field on cascade messages, labelled by
-/// `originating_cohort_id` (histogram).
+/// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
+/// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
-/// Outgoing cascades dropped because `incoming.depth >= cohort_cascade_depth_cap`, labelled by
-/// `originating_cohort_id` (counter).
+/// Outgoing cascades dropped because `incoming.depth >= cohort_cascade_depth_cap` (counter). Cohort
+/// ids are logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_EXCEEDED_TOTAL: &str = "cascade_depth_exceeded_total";
-/// Cycles caught at runtime by the `cascade_chain` membership check, labelled by
-/// `originating_cohort_id`, `cycle_cohort_id` (counter). Distinct from [`COHORT_IN_CYCLE_TOTAL`],
-/// which is Tarjan-SCC-based at catalog-refresh time.
+/// Cycles caught at runtime by the `cascade_chain` membership check (counter). Cohort ids are
+/// logged, not labelled, to keep cardinality bounded. Distinct from [`COHORT_IN_CYCLE_TOTAL`], which
+/// is Tarjan-SCC-based at catalog-refresh time.
 pub const CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL: &str = "cascade_cycle_detected_runtime_total";
-/// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap`, labelled by `upstream_cohort_id`
-/// (counter).
+/// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap` (counter). Cohort ids are
+/// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
 /// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). On the
 /// event path a failure holds the batch; on the sweep/merge paths it drops (at-most-once).
@@ -121,7 +121,8 @@ pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
-/// Cohort bytecode invoked a symbol with no registered native, labelled by `name` (counter).
+/// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
+/// logged, not labelled, to keep cardinality bounded.
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
 /// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";

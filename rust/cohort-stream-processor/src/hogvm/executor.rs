@@ -4,6 +4,7 @@
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use metrics::counter;
 use serde_json::Value;
+use tracing::debug;
 
 use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
 
@@ -59,7 +60,10 @@ pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
     match evaluate_detailed(bytecode, globals) {
         EvalOutcome::Matched(matched) => matched,
         EvalOutcome::UnknownFunction(name) => {
-            counter!(STAGE1_HOGVM_UNKNOWN_FUNCTION, "name" => name).increment(1);
+            // `name` is bytecode-derived from user cohort filters; keep it out of the metric label
+            // (bounded counter) and surface the specific function only in a debug log.
+            counter!(STAGE1_HOGVM_UNKNOWN_FUNCTION).increment(1);
+            debug!(function = %name, "cohort bytecode called a function with no registered Rust native");
             false
         }
         EvalOutcome::VmError(_) => {
