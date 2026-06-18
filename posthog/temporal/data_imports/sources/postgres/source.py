@@ -308,6 +308,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
                 "Check your host and port, then re-enable the sync."
             ),
+            # libpq raises "received invalid response to SSL negotiation: <byte>" when, after sending
+            # the SSLRequest packet, it reads back a byte that isn't a valid response ('S'/'N'/'E').
+            # A byte was received, so the host/port is reachable and responding — but with something
+            # that isn't the PostgreSQL protocol. In practice the configured host/port points at a
+            # non-Postgres service (an HTTP/proxy/edge endpoint, or the wrong port), or a middlebox is
+            # mangling the connection, so retrying re-runs into the same invalid response. With
+            # require_ssl=True the same condition is surfaced as SSLRequiredError below (str(e)
+            # contains "SSL"); this key catches the require_ssl=False (sslmode=prefer) path where the
+            # raw OperationalError propagates unwrapped. Match the stable phrase and exclude the
+            # volatile trailing byte/host/port. Placed before the generic SSL entries so its accurate
+            # message wins if both happen to match.
+            "received invalid response to SSL negotiation": (
+                "PostHog couldn't negotiate a connection with the host and port you configured — the "
+                'server sent an invalid response during SSL negotiation ("received invalid response '
+                "to SSL negotiation\"). This usually means the host and port don't point at a "
+                "PostgreSQL server (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
+                "Check your host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,

@@ -315,6 +315,32 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) when require_ssl=False
+            # leaves the OperationalError unwrapped. The host/port and trailing byte are volatile.
+            'connection failed: connection to server at "66.33.22.254", port 41667 failed: received invalid response to SSL negotiation: I',
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: received invalid response to SSL negotiation: H',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "66.33.22.254", port 41667 failed: received invalid response to SSL negotiation: I',
+        ],
+    )
+    def test_invalid_ssl_negotiation_response_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid SSL negotiation response error should be non-retryable: {error_msg}"
+
+    def test_invalid_ssl_negotiation_response_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "66.33.22.254", port 41667 failed: '
+            "received invalid response to SSL negotiation: I"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid SSL negotiation response error should surface an actionable message"
+        assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
             # fails with this provider message. The host/IP and port are volatile and excluded.
             'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
