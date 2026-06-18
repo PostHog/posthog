@@ -90,7 +90,7 @@ class DataProvider(Protocol):
 
     The engine asks for data while compiling — property types, cohort definitions,
     warehouse catalog entries — and a provider answers. Engine code depends only on
-    this protocol; the Django-backed implementation (``posthog.hogql.django_provider``)
+    this protocol; the Django-backed implementation (``posthog.hogql_django_provider``)
     answers from the ORM, while tests and future out-of-process callers inject
     ``StaticDataProvider`` (or any other implementation) instead.
 

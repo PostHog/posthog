@@ -8,6 +8,8 @@ from posthog.hogql.data_provider import DataProvider, InsightVariableInfo
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.hogql_django_provider import DjangoDataProvider
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
@@ -16,10 +18,6 @@ T = TypeVar("T", bound=ast.Expr)
 
 def replace_variables(node: T, variables: list[HogQLVariable], team: "Team") -> T:
     """Django boundary wrapper around replace_variables_core; keeps the Team signature."""
-    from posthog.hogql.django_provider import (
-        DjangoDataProvider,  # noqa: PLC0415 — keeps Django off the engine's import path
-    )
-
     return replace_variables_core(node, variables, DjangoDataProvider(team=team))
 
 

@@ -10,7 +10,7 @@ class EngineConfig:
     ``DataProvider`` / ``HogQLTeamContext``) and per-query knobs
     (``HogQLQueryModifiers``): facts about the installation itself, identical for
     every query it compiles. Build it at the Django boundary with
-    ``django_provider.default_engine_config`` (or by hand in tests); engine code
+    ``hogql_django_provider.default_engine_config`` (or by hand in tests); engine code
     depends only on this immutable data, never on ``django.conf.settings``.
     """
 

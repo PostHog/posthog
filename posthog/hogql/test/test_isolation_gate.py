@@ -337,7 +337,7 @@ class TestContextDataProviderWiring(SimpleTestCase):
         self.assertIs(context.data, provider)
 
     def test_defaults_to_django_provider(self) -> None:
-        from posthog.hogql.django_provider import DjangoDataProvider
+        from posthog.hogql_django_provider import DjangoDataProvider
 
         context = HogQLContext(team_id=42)
         self.assertIsInstance(context.data, DjangoDataProvider)

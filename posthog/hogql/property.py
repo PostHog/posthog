@@ -43,7 +43,6 @@ from posthog.hogql.base import AST
 from posthog.hogql.data_provider import DataProvider
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
-from posthog.hogql.django_provider import DjangoDataProvider
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import CacheOrigin, parse_expr
@@ -52,6 +51,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.hogql_django_provider import DjangoDataProvider
 from posthog.models import Property, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector

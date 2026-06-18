@@ -183,20 +183,25 @@ class HogQLContext:
 
     @property
     def data(self) -> "DataProvider":
+        # WEAK POINT — the lazy default. A context is plain data and shouldn't build its own
+        # provider; this exists only so the many callers that pass team_id (not a provider) keep
+        # working, and it's the one place the engine still reaches into the Django layer. The
+        # intended refactor: inject the provider at the execution entry points (HogQLQueryExecutor
+        # and the handful of direct compilers) and delete this default, leaving DjangoDataProvider
+        # as one injected implementation among others. Kept deferred so importing the engine
+        # doesn't pull the Django provider onto the module-load path until then.
         if self.data_provider is None:
-            # Deferred so the engine's import path stays free of the Django provider;
-            # mirrors the lazy Team fetch in project_id above.
-            from posthog.hogql.django_provider import DjangoDataProvider  # noqa: PLC0415
+            from posthog.hogql_django_provider import DjangoDataProvider  # noqa: PLC0415
 
             self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id, user=self.user)
         return self.data_provider
 
     @property
     def config(self) -> EngineConfig:
+        # Same weak point as `data` above: a lazy Django default, kept until config is injected
+        # at the execution entry points.
         if self.engine_config is None:
-            # Deferred so the engine's import path stays free of Django settings reads;
-            # mirrors the lazy provider default in `data` above.
-            from posthog.hogql.django_provider import default_engine_config  # noqa: PLC0415
+            from posthog.hogql_django_provider import default_engine_config  # noqa: PLC0415
 
             self.engine_config = default_engine_config()
         return self.engine_config

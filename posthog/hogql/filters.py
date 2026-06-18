@@ -21,6 +21,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr_core
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.hogql_django_provider import DjangoDataProvider
 from posthog.utils import relative_date_parse
 
 if TYPE_CHECKING:
@@ -37,10 +38,6 @@ class CompareOperationWrapper:
 
 def replace_filters(node: T, filters: Optional[HogQLFilters], team: "Team", database: Optional[Database] = None) -> T:
     """Django boundary wrapper around replace_filters_core; keeps the Team signature."""
-    from posthog.hogql.django_provider import (  # noqa: PLC0415 — keeps Django off the engine's import path
-        DjangoDataProvider,
-    )
-
     if database is None:
         database = Database.create_for(team=team)
     return replace_filters_core(node, filters, DjangoDataProvider(team=team), database)

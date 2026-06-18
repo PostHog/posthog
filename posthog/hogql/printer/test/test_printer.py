@@ -2538,7 +2538,7 @@ class TestPrinter(BaseTest):
             "hogql_val_8": "Bool",
         }
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
@@ -2614,7 +2614,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
@@ -2665,7 +2665,7 @@ class TestPrinter(BaseTest):
         )
         self.assertNotIn("ifNull(in", sql)
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
         # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
         # resolve to its materialized column. Property resolution has to unwrap that table type to reach the real table; if
@@ -2682,7 +2682,7 @@ class TestPrinter(BaseTest):
         self.assertIn("mat_foo", sql)
         self.assertNotIn("JSONExtractRaw(events.properties", sql)
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_get_mat_col):
         # Reading properties.foo.bar through materialized column mat_foo extracts key "bar" from the column value.
         # That extract must print exactly what `json_extract_trim_quotes` (kafka_engine.py) builds — the one
@@ -4531,7 +4531,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
         assert f"less(events.{mat_col.name}," not in printed
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_uses_typed_numeric_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -4559,7 +4559,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "mat_numeric_test_prop" in printed
         assert "accurateCastOrNull" not in printed
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_uses_typed_datetime_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -4588,7 +4588,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "toDateTime64(" in printed
         assert "parseDateTime64BestEffortOrNull" not in printed
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -5475,7 +5475,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
 
-    @patch("posthog.hogql.django_provider.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 

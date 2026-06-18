@@ -193,7 +193,7 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.django_provider.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql_django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
@@ -241,7 +241,7 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.django_provider.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql_django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )
