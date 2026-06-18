@@ -1,6 +1,6 @@
 from django.db import migrations, models
 
-from posthog.migration_helpers import CreateIndexConcurrently
+from posthog.migration_helpers import SafeAddIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -10,22 +10,8 @@ class Migration(migrations.Migration):
     dependencies = [("posthog", "1228_teamprovisioningconfig_application")]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddIndex(
-                    model_name="teamprovisioningconfig",
-                    index=models.Index(
-                        fields=["application", "stripe_project_id"],
-                        name="tpc_app_stripe_proj_idx",
-                    ),
-                ),
-            ],
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="tpc_app_stripe_proj_idx",
-                    table_name="posthog_teamprovisioningconfig",
-                    columns="(application_id, stripe_project_id)",
-                ),
-            ],
+        SafeAddIndexConcurrently(
+            model_name="teamprovisioningconfig",
+            index=models.Index(fields=["application"], name="tpc_application_idx"),
         ),
     ]

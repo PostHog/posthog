@@ -27,7 +27,7 @@ class TeamProvisioningConfig(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["application", "stripe_project_id"], name="tpc_app_stripe_proj_idx"),
+            models.Index(fields=["application"], name="tpc_application_idx"),
         ]
 
 
