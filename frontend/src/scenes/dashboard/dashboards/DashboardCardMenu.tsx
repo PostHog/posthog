@@ -1,7 +1,7 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconFolder, IconTrash } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -11,14 +11,19 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
-// Per-card actions for the grid/finder arms.
+// Per-card actions for the explorer/tree arms.
 export function DashboardCardMenu({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { cutDashboard, copyDashboard, startRenaming, deleteDashboardWithConfirm } =
         useActions(dashboardsFileSystemLogic)
+    const { entryByRef } = useValues(dashboardsFileSystemLogic)
+    const { openMoveToModal } = useActions(moveToLogic)
+    // The dashboard's FileSystem row, which the canonical searchable move-to-folder modal moves.
+    const entry = entryByRef[String(dashboardId)]
 
     return (
         <DropdownMenu>
@@ -31,6 +36,12 @@ export function DashboardCardMenu({ dashboardId }: { dashboardId: number }): JSX
                         Open
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => startRenaming(dashboardId)}>Rename</DropdownMenuItem>
+                    {entry ? (
+                        <DropdownMenuItem onClick={() => openMoveToModal([entry])}>
+                            <IconFolder />
+                            Move to…
+                        </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem onClick={() => cutDashboard(dashboardId)}>Cut</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => copyDashboard(dashboardId)}>
                         <IconCopy />

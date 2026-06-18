@@ -14,6 +14,8 @@ import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicT
 import {
     buildEntryByRef,
     buildFolderTree,
+    compactFolderChain,
+    CompactedSubfolder,
     folderBreadcrumb,
     FolderBreadcrumb,
     folderContents,
@@ -125,6 +127,15 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboards, s.entryByRef, s.currentFolder],
             (dashboards, entryByRef, currentFolder): FolderContents =>
                 folderContents(dashboards, entryByRef, currentFolder),
+        ],
+        // Explorer arm: immediate subfolders with single-child pass-through chains collapsed, so one
+        // click reaches a buried dashboard. The tree arm shows the full hierarchy and doesn't use this.
+        compactedSubfolders: [
+            (s) => [s.currentFolderContents, s.dashboards, s.entryByRef],
+            (currentFolderContents, dashboards, entryByRef): CompactedSubfolder[] =>
+                currentFolderContents.subfolders.map((subfolder) =>
+                    compactFolderChain(subfolder, dashboards, entryByRef)
+                ),
         ],
         breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
     }),

@@ -45,6 +45,7 @@ describe('DashboardsExplorer', () => {
             clipboard: null,
             renamingDashboardId: null,
             dashboardsLoading: false,
+            compactedSubfolders: [],
             ...overrides,
         })
     }
@@ -52,6 +53,7 @@ describe('DashboardsExplorer', () => {
     it('renders the breadcrumb, subfolders, and dashboards at the current folder', () => {
         mockValues({
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [{ id: 1, name: 'Campaigns' }] },
+            compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
             breadcrumb: [
                 { label: 'All dashboards', path: '' },
                 { label: 'Marketing', path: 'Marketing' },
@@ -67,6 +69,7 @@ describe('DashboardsExplorer', () => {
     it('drills into a folder on click', () => {
         mockValues({
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [] },
+            compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
             breadcrumb: [{ label: 'All dashboards', path: '' }],
         })
         render(<DashboardsExplorer />)

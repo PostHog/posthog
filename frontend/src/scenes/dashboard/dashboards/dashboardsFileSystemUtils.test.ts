@@ -4,6 +4,7 @@ import { DashboardBasicType } from '~/types'
 import {
     buildEntryByRef,
     buildFolderTree,
+    compactFolderChain,
     dashboardDraggableId,
     folderBreadcrumb,
     folderContents,
@@ -83,5 +84,21 @@ describe('dashboardsFileSystemUtils', () => {
 
     it('folderLabel returns the last path segment', () => {
         expect(folderLabel('Marketing/Q1')).toEqual('Q1')
+    })
+
+    it('compactFolderChain collapses a single-child pass-through chain to the deepest folder', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/Q1/Campaigns/Email/Dash')])
+        expect(compactFolderChain('Marketing', [dash(1, 'Dash')], byRef)).toEqual({
+            path: 'Marketing/Q1/Campaigns/Email',
+            label: 'Marketing / Q1 / Campaigns / Email',
+        })
+    })
+
+    it('compactFolderChain stops where a folder has a direct dashboard or multiple subfolders', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
+        expect(compactFolderChain('Marketing', [dash(1, 'A'), dash(2, 'B')], byRef)).toEqual({
+            path: 'Marketing',
+            label: 'Marketing',
+        })
     })
 })

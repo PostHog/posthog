@@ -11,18 +11,17 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardCard } from './DashboardCard'
 import { DashboardsDndContext, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { folderLabel } from './dashboardsFileSystemUtils'
 
 // Explorer arm (variant=explorer): drill-in folder navigation + organizing. Drill into folders via the
 // breadcrumb, drag a dashboard onto a subfolder, or use the per-card menu (rename / cut / copy / delete)
 // plus the clipboard paste affordance. Shares the FileSystem folder structure with the tree arm and sidebar.
 export function DashboardsExplorer(): JSX.Element {
-    const { currentFolderContents, breadcrumb, currentFolder, clipboard, renamingDashboardId } =
+    const { currentFolderContents, compactedSubfolders, breadcrumb, currentFolder, clipboard, renamingDashboardId } =
         useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
-    const isEmpty = currentFolderContents.subfolders.length === 0 && currentFolderContents.dashboards.length === 0
+    const isEmpty = compactedSubfolders.length === 0 && currentFolderContents.dashboards.length === 0
     if (dashboardsLoading && isEmpty) {
         return <Spinner className="text-2xl" />
     }
@@ -52,17 +51,17 @@ export function DashboardsExplorer(): JSX.Element {
                     ) : null}
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-                    {currentFolderContents.subfolders.map((folder) => (
-                        <DroppableFolder key={folder} folder={folder}>
+                    {compactedSubfolders.map((subfolder) => (
+                        <DroppableFolder key={subfolder.path} folder={subfolder.path}>
                             <button
                                 type="button"
                                 className="w-full"
                                 data-attr="dashboards-explorer-folder"
-                                onClick={() => navigateToFolder(folder)}
+                                onClick={() => navigateToFolder(subfolder.path)}
                             >
                                 <LemonCard hoverEffect className="flex flex-col gap-1 h-full text-left">
                                     <IconFolder className="text-2xl text-muted" />
-                                    <span className="font-semibold truncate">{folderLabel(folder)}</span>
+                                    <span className="font-semibold truncate">{subfolder.label}</span>
                                 </LemonCard>
                             </button>
                         </DroppableFolder>

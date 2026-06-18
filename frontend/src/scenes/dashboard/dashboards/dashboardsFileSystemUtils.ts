@@ -156,3 +156,31 @@ export function folderBreadcrumb(currentFolder: string): FolderBreadcrumb[] {
 export function folderLabel(folder: string): string {
     return splitPath(folder).at(-1) ?? folder
 }
+
+export interface CompactedSubfolder {
+    // The deepest folder to navigate to (the end of a single-child chain) when the card is clicked.
+    path: string
+    // Compacted display label, e.g. 'Q1 / Campaigns / Email' for a pass-through chain.
+    label: string
+}
+
+// Collapse a single-child pass-through chain: from `folder`, while it has exactly one subfolder and no
+// direct dashboards, descend. Lets the explorer reach a buried dashboard in one click instead of one
+// click per empty intermediate folder.
+export function compactFolderChain(
+    folder: string,
+    dashboards: DashboardBasicType[],
+    entryByRef: Record<string, FileSystemEntry>
+): CompactedSubfolder {
+    const labels = [folderLabel(folder)]
+    let path = folder
+    for (;;) {
+        const { subfolders, dashboards: direct } = folderContents(dashboards, entryByRef, path)
+        if (subfolders.length !== 1 || direct.length !== 0) {
+            break
+        }
+        path = subfolders[0]
+        labels.push(folderLabel(path))
+    }
+    return { path, label: labels.join(' / ') }
+}
