@@ -235,9 +235,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             { replace: false },
         ],
         setSelectedReportId: () => [
+            // When a report is cleared because a scout was just selected (mutually exclusive views),
+            // honor the scout's URL rather than bouncing to the list and clobbering the scout route.
             values.selectedReportId
                 ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                : urls.inbox(values.activeTab),
+                : values.selectedScoutSkillName
+                  ? urls.inboxScout(values.selectedScoutSkillName)
+                  : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
@@ -245,7 +249,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setSelectedScoutSkillName: () => [
             values.selectedScoutSkillName
                 ? urls.inboxScout(values.selectedScoutSkillName)
-                : urls.inbox(values.activeTab),
+                : values.selectedReportId
+                  ? urls.inboxReport(values.activeTab, values.selectedReportId)
+                  : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },

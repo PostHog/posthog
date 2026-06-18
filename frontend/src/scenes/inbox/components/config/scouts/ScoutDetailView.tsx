@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -16,9 +17,17 @@ import { ScoutRowCard } from './ScoutRowCard'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
-    const { updateScoutConfig } = useActions(scoutFleetLogic)
+    const { scoutConfigs, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
+
+    // Deep-linking straight to a scout (or a narrow viewport where the fleet list isn't mounted)
+    // means nobody else is polling the runs window, so the header + rollup would read empty
+    // defaults. Drive the same start/stop lifecycle the fleet section uses.
+    useEffect(() => {
+        startRunsPolling()
+        return () => stopRunsPolling()
+    }, [startRunsPolling, stopRunsPolling])
 
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
@@ -35,14 +44,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 Scouts
             </LemonButton>
 
-            {config === null ? (
-                scoutConfigsLoading ? (
-                    <LemonSkeleton className="h-16 w-full rounded" />
-                ) : (
-                    <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
-                        Scout not found.
-                    </div>
-                )
+            {scoutConfigs === null ? (
+                // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed
+                // load — never an empty fleet, which is `[]`). Hold the skeleton so "Scout not found"
+                // can't flash before we actually have the fleet to look in.
+                <LemonSkeleton className="h-16 w-full rounded" />
+            ) : config === null ? (
+                <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
             ) : (
                 <>
                     <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
@@ -60,7 +68,9 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                             ) : (
                                 'No runs in this window.'
                             )}
-                            <span className="text-muted"> · {scoutRunsWindowLabel(runsWindowComplete)}</span>
+                            {!runsWindowComplete && (
+                                <span className="text-muted"> · {scoutRunsWindowLabel(runsWindowComplete)}</span>
+                            )}
                         </span>
                     </div>
 

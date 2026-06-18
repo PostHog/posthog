@@ -16,6 +16,7 @@ import {
     prettifyScoutSkillName,
     ScoutRollup,
 } from '../../../utils/scoutRunsWindow'
+import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { DryRunBadge, ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -37,6 +38,7 @@ export function ScoutRowCard({
     asHeader?: boolean
 }): JSX.Element {
     const [settingsOpen, setSettingsOpen] = useState(false)
+    const { closeSetupModal } = useActions(agentSetupModalLogic)
     const displayName = prettifyScoutSkillName(config.skill_name)
 
     return (
@@ -55,6 +57,9 @@ export function ScoutRowCard({
                         <Tooltip title={`${config.skill_name} · view scout`}>
                             <Link
                                 to={urls.inboxScout(config.skill_name)}
+                                // The fleet list lives in the setup modal, which portals outside the
+                                // (hidden) list subtree — close it so it doesn't cover the detail page.
+                                onClick={() => closeSetupModal()}
                                 subtle
                                 className="truncate font-medium text-sm"
                             >
