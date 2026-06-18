@@ -190,57 +190,51 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
     })
 
-    it('should forward groups to the hog function invocation globals', async () => {
-        invocation.groups = {
-            organization: {
-                id: 'org_key',
-                type: 'organization',
-                index: 0,
-                url: '',
-                properties: { owner_name: 'Chris McNeill' },
-            },
-        }
-
-        const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
-
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
+    describe('with groups', () => {
+        beforeEach(() => {
+            invocation.groups = {
+                organization: {
+                    id: 'org_key',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: { owner_name: 'Chris McNeill' },
+                },
+            }
         })
 
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+        it('should forward groups to the hog function invocation globals', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
 
-        const passedGlobals = buildHogFunctionInvocationSpy.mock.calls[0][2]
-        expect(passedGlobals.groups).toEqual(invocation.groups)
-    })
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
 
-    it('should render a group property referenced in a function input template', async () => {
-        invocation.groups = {
-            organization: {
-                id: 'org_key',
-                type: 'organization',
-                index: 0,
-                url: '',
-                properties: { owner_name: 'Chris McNeill' },
-            },
-        }
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        // {groups.organization.properties.owner_name} compiled to hog bytecode
-        action.config.inputs.name = {
-            value: '{groups.organization.properties.owner_name}',
-            templating: 'hog',
-            bytecode: ['_H', 1, 32, 'owner_name', 32, 'properties', 32, 'organization', 32, 'groups', 1, 4],
-        }
-
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
+            const passedGlobals = buildHogFunctionInvocationSpy.mock.calls[0][2]
+            expect(passedGlobals.groups).toEqual(invocation.groups)
         })
 
-        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+        it('should render a group property referenced in a function input template', async () => {
+            // {groups.organization.properties.owner_name} compiled to hog bytecode
+            action.config.inputs.name = {
+                value: '{groups.organization.properties.owner_name}',
+                templating: 'hog',
+                bytecode: ['_H', 1, 32, 'owner_name', 32, 'properties', 32, 'organization', 32, 'groups', 1, 4],
+            }
 
-        expect(handlerResult.error).toBeUndefined()
-        expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(handlerResult.error).toBeUndefined()
+            expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+        })
     })
 
     it('should throw an error if template is not found', async () => {
