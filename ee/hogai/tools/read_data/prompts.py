@@ -53,6 +53,9 @@ Retrieves a customer account by its UUID or external id, including its assigned 
 - You need an account's details, role assignments, or saved notes.
 - You need to look up an account before updating it, adding a note, or analyzing its data — reading it returns the context needed to scope an analysis to that account.
 
+## Always use this (NOT SQL) for account identity and metadata:
+Any question about who owns or is assigned to an account (CSM, account executive, account owner), whether an account is managed, its ARR tier/band, its tags, or its external-system ids is an account-metadata question — answer it from this tool, never from `execute_sql`. Managed status and ARR bands are encoded as the account's tags; ownership roles are structured fields on its properties. SQL against low-level tables (billing customers, events) does not carry this structure and will give incomplete or wrongly-shaped answers. Reserve SQL for consumption and engagement analysis (usage, spend, volume over time), not for identity or ownership lookups.
+
 ## Parameters:
 - account_id: The UUID of the account (optional if external_id is provided).
 - external_id: The account's external id (optional if account_id is provided).

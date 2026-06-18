@@ -7,6 +7,7 @@ from posthog.schema import AgentMode
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.customer_analytics import (
     CUSTOMER_ANALYTICS_MODE_DESCRIPTION,
+    POSITIVE_EXAMPLE_ACCOUNT_METADATA,
     POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE,
     CustomerAnalyticsAgentToolkit,
     customer_analytics_agent,
@@ -48,3 +49,16 @@ class TestCustomerAnalyticsPreset(BaseTest):
         wired_examples = [example.example for example in CustomerAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES]
 
         self.assertIn(POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE, wired_examples)
+
+    def test_metadata_example_is_wired_into_todo_examples(self):
+        # An ownership/identity lookup must route to read_data, not SQL — the example reinforces that.
+        wired_examples = [example.example for example in CustomerAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES]
+
+        self.assertIn(POSITIVE_EXAMPLE_ACCOUNT_METADATA, wired_examples)
+
+    def test_mode_description_routes_metadata_lookups_away_from_sql(self):
+        description = CUSTOMER_ANALYTICS_MODE_DESCRIPTION.lower()
+
+        self.assertIn("read_data", description)
+        self.assertIn("managed", description)
+        self.assertIn("arr", description)

@@ -19,6 +19,12 @@ CUSTOMER_ANALYTICS_MODE_DESCRIPTION = (
     "Use this mode to create and update accounts, assign customer-success roles (CSM, account "
     "executive, account owner), set external-system identifiers and tags, and save and update notes "
     "(call recaps, meeting summaries, investigation recaps) on an account. "
+    "For any question about an account's identity, ownership, or metadata — who its CSM, account "
+    "executive, or account owner is; whether it is managed; its ARR tier or band; its tags; its "
+    "external-system ids — read the account with read_data (the account kind) and answer from that. "
+    "Do NOT use SQL for these: managed status and ARR bands are encoded as the account's tags and "
+    "ownership lives in structured fields, so raw queries against low-level tables return incomplete "
+    "or wrongly-shaped data. Reserve SQL for consumption and engagement analysis only. "
     "When the user asks about an account's usage, volume, spikes, growth, cost, or spend, they mean "
     "the account's CONSUMPTION of PostHog as a product — events ingested, data-warehouse rows synced, "
     "recordings, feature-flag requests, exceptions, MRR, spend — which lives in warehouse-synced billing "
@@ -55,6 +61,18 @@ POSITIVE_EXAMPLE_ASSIGN_ROLE_REASONING = """
 1. The account must be looked up by its id before it can be updated.
 2. Assigning a single role is a one-step task, so no todo list is needed.
 3. The CSM assignment requires the assignee's user id and email.
+""".strip()
+
+POSITIVE_EXAMPLE_ACCOUNT_METADATA = """
+User: Who's the CSM for Acme Corp, and is it a managed account?
+Assistant: Let me look up Acme Corp.
+*Uses read_data with the account kind to fetch Acme Corp, then reads its CSM from the role assignments and its managed status from its tags*
+""".strip()
+
+POSITIVE_EXAMPLE_ACCOUNT_METADATA_REASONING = """
+1. CSM, managed status, and ARR tier are account metadata — ownership lives in structured role fields and managed/ARR are encoded as tags — so the answer comes from reading the account, never from SQL against low-level tables.
+2. Looking the account up once returns roles, tags, and external ids together, so a single read answers the whole question.
+3. It's a one-step lookup, so no todo list is needed.
 """.strip()
 
 POSITIVE_EXAMPLE_ACCOUNT_USAGE = """
@@ -148,6 +166,9 @@ POSITIVE_EXAMPLE_UPDATE_NOTE_REASONING = """
 class CustomerAnalyticsAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
         TodoWriteExample(example=POSITIVE_EXAMPLE_ASSIGN_ROLE, reasoning=POSITIVE_EXAMPLE_ASSIGN_ROLE_REASONING),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_ACCOUNT_METADATA, reasoning=POSITIVE_EXAMPLE_ACCOUNT_METADATA_REASONING
+        ),
         TodoWriteExample(example=POSITIVE_EXAMPLE_ACCOUNT_USAGE, reasoning=POSITIVE_EXAMPLE_ACCOUNT_USAGE_REASONING),
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE, reasoning=POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE_REASONING
