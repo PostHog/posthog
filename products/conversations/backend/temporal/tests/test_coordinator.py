@@ -6,15 +6,27 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from temporalio import workflow
 
 from products.conversations.backend.temporal.coordinator import (
     CoordinatorInput,
+    EligibleTicket,
     SupportReplyCoordinatorWorkflow,
     _collect_eligible,
     collect_eligible_tickets_activity,
 )
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
+
+
+@workflow.defn(name="support-reply-pipeline")
+class _StubChildWorkflow:
+    """Stands in for SupportReplyWorkflow (same registered name) so the coordinator's child
+    dispatch resolves to a no-op instead of running the real pipeline."""
+
+    @workflow.run
+    async def run(self, _input) -> str:
+        return "persisted"
 
 
 def _make_ticket(
@@ -85,14 +97,13 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
         mock_has_ready.return_value = has_ready
 
-        # AI note check
-        mock_ai_qs = MagicMock()
-        mock_ai_qs.exists.return_value = has_ai
-        # Team reply check: .filter().exclude().exclude().exists() — exclude returns self.
-        mock_team_chain = MagicMock()
-        mock_team_chain.exclude.return_value = mock_team_chain
-        mock_team_chain.exists.return_value = has_team_reply
-        mock_comment_model.objects.filter.side_effect = [mock_ai_qs, mock_team_chain]
+        # Dedupe is one query per team: .filter().values_list("item_id", author_type) rows.
+        rows: list[tuple[str, str]] = []
+        if has_ai:
+            rows.append((ticket_id, "AI"))
+        if has_team_reply:
+            rows.append((ticket_id, "support"))
+        mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
         mock_rollout.return_value = rollout
 
@@ -115,14 +126,8 @@ class TestCollectEligible:
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
-        # No AI note
-        mock_ai_qs = MagicMock()
-        mock_ai_qs.exists.return_value = False
-        # No team reply — the chain: .filter().exclude().exclude().exists()
-        mock_team_chain = MagicMock()
-        mock_team_chain.exclude.return_value = mock_team_chain
-        mock_team_chain.exists.return_value = False
-        mock_comment_model.objects.filter.side_effect = [mock_ai_qs, mock_team_chain]
+        # No comments → not engaged (only customer messages would be, and there are none).
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
 
         result = _collect_eligible()
         assert len(result) == 1
@@ -145,10 +150,8 @@ class TestCollectEligible:
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
-        # AI note exists
-        mock_ai_qs = MagicMock()
-        mock_ai_qs.exists.return_value = True
-        mock_comment_model.objects.filter.return_value = mock_ai_qs
+        # AI note exists → engaged → skipped.
+        mock_comment_model.objects.filter.return_value.values_list.return_value = [(ticket_id, "AI")]
 
         result = _collect_eligible()
         assert result == []
@@ -180,3 +183,63 @@ class TestCoordinatorWorkflow:
         assert result.eligible_count == 0
         assert result.started_count == 0
         assert result.skipped_count == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{COORD_MODULE}._collect_eligible")
+    async def test_fans_out_eligible_tickets(self, mock_collect):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        mock_collect.return_value = [
+            EligibleTicket(team_id=1, ticket_id="ticket-a"),
+            EligibleTicket(team_id=1, ticket_id="ticket-b"),
+        ]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
+                activities=[collect_eligible_tickets_activity],
+            ):
+                result = await env.client.execute_workflow(
+                    SupportReplyCoordinatorWorkflow.run,
+                    CoordinatorInput(),
+                    id="test-coordinator-fanout",
+                    task_queue="test-queue",
+                )
+
+        assert result.eligible_count == 2
+        assert result.started_count == 2
+        assert result.skipped_count == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{COORD_MODULE}._collect_eligible")
+    async def test_skips_duplicate_child(self, mock_collect):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        # Two entries for the same ticket → same deterministic child id → the second dispatch
+        # hits WorkflowAlreadyStartedError and is counted as skipped, not started.
+        mock_collect.return_value = [
+            EligibleTicket(team_id=1, ticket_id="dup"),
+            EligibleTicket(team_id=1, ticket_id="dup"),
+        ]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
+                activities=[collect_eligible_tickets_activity],
+            ):
+                result = await env.client.execute_workflow(
+                    SupportReplyCoordinatorWorkflow.run,
+                    CoordinatorInput(),
+                    id="test-coordinator-dedupe",
+                    task_queue="test-queue",
+                )
+
+        assert result.eligible_count == 2
+        assert result.started_count == 1
+        assert result.skipped_count == 1
