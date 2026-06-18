@@ -123,7 +123,7 @@ Escalating to the next rung is the last resort, not the default.
 
 ## Before you open the PR
 
-State the justification where a reviewer will see it (PR description / agent-context).
+The PR template prompts for this under "How did you test this code?" — state the justification where a reviewer will see it.
 One line per group of tests is enough:
 
 > _"Added 3 cases to `test_cohort_query` covering empty / single / oversized cohorts — guards the 500 we just fixed; couldn't extend an existing test because none exercised the empty path."_

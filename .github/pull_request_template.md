@@ -23,6 +23,7 @@
 <!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State that you're an agent and list only the automated tests you actually ran. -->
+<!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
