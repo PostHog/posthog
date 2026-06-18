@@ -184,6 +184,15 @@ TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 # ``limit`` as a query param on cursor URLs.
 PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
+# Meta's Graph API intermittently returns HTTP 200 with a truncated/partial JSON
+# body — a server-side serialization hiccup under load — so ``response.json()``
+# raises ``JSONDecodeError``. The body is fully received but unparseable, so the
+# only recovery is to re-issue the same request; a couple of immediate retries
+# almost always returns a complete body. If it stays malformed we let the error
+# propagate (it remains retryable, so Temporal re-runs the activity from saved
+# resume state) rather than silently dropping the page.
+MALFORMED_JSON_MAX_ATTEMPTS = 3
+
 
 def _override_limit(url: str, limit: int) -> str:
     """Return ``url`` with its ``limit`` query parameter overridden.
@@ -321,6 +330,7 @@ def _iter_simple_pagination(
         return make_tracked_session().get(initial_url, params=params)
 
     response = _issue()
+    malformed_json_attempts = 0
 
     while True:
         if response.status_code != 200:
@@ -335,7 +345,19 @@ def _iter_simple_pagination(
                     continue
             _raise_meta_api_error(response)
 
-        response_payload = response.json()
+        try:
+            response_payload = response.json()
+        except json.JSONDecodeError:
+            # Truncated 200 body — re-issue the same request. Re-fetching is safe
+            # (the initial request has yielded nothing yet, and a cursor points at
+            # the start of the next not-yet-yielded page).
+            malformed_json_attempts += 1
+            if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                raise
+            response = _issue()
+            continue
+        malformed_json_attempts = 0
+
         yield response_payload.get("data", [])
 
         next_url = response_payload.get("paging", {}).get("next")
@@ -415,6 +437,9 @@ def _iter_time_range_pagination(
         # The most recent cursor URL we tried (without a limit override applied),
         # used to retry-with-smaller-limit if a mid-chunk request times out.
         last_paging_url: str | None = None
+        # Params of the initial chunk request, kept so a truncated 200 body can be
+        # re-fetched. Only set on the non-resume path; unused once we're on a cursor.
+        chunk_params: dict | None = None
 
         if pending_next_url:
             # Mid-chunk resume: re-attach a fresh access_token at request time
@@ -440,6 +465,7 @@ def _iter_time_range_pagination(
                         continue
                 _raise_meta_api_error(response)
 
+        malformed_json_attempts = 0
         while True:
             if response.status_code != 200:
                 # Mid-chunk timeout: retry the same cursor URL with a smaller
@@ -454,7 +480,23 @@ def _iter_time_range_pagination(
                         continue
                 _raise_meta_api_error(response)
 
-            response_payload = response.json()
+            try:
+                response_payload = response.json()
+            except json.JSONDecodeError:
+                # Truncated 200 body — re-issue whichever request produced it. A
+                # cursor points at the start of the not-yet-yielded page and the
+                # initial chunk request has yielded nothing, so no rows are re-emitted.
+                malformed_json_attempts += 1
+                if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                    raise
+                if last_paging_url is not None:
+                    response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
+                else:
+                    assert chunk_params is not None
+                    response = make_tracked_session().get(url, params=chunk_params)
+                continue
+            malformed_json_attempts = 0
+
             yield response_payload.get("data", [])
 
             next_url = response_payload.get("paging", {}).get("next")

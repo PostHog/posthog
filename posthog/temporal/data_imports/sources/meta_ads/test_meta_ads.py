@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    MALFORMED_JSON_MAX_ATTEMPTS,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -34,6 +35,16 @@ def _mock_response(status: int, body: dict) -> mock.MagicMock:
     response.status_code = status
     response.json.return_value = body
     response.text = ""
+    return response
+
+
+def _mock_truncated_response() -> mock.MagicMock:
+    # Meta occasionally returns HTTP 200 with a truncated JSON body, so `.json()`
+    # raises JSONDecodeError even though the status is healthy.
+    response = mock.MagicMock()
+    response.status_code = 200
+    response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", "{", 98254)
+    response.text = '{"data": [{"id": "1"'
     return response
 
 
@@ -282,6 +293,62 @@ class TestSimplePaginationLimitFallback:
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == 1
+
+
+class TestSimplePaginationMalformedJson:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+
+    def test_initial_truncated_body_reissues_same_request(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial request comes back 200 but with a truncated JSON body.
+            _mock_truncated_response(),
+            # Re-issuing the same request returns a complete body.
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        # Re-issue targets the same initial URL (no rows were yielded before the retry).
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+
+    def test_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {"data": [{"id": "1"}], "paging": {"next": "https://graph.facebook.com/v20/next?after=p1"}},
+            ),
+            # The cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # The already-yielded first page is not re-emitted; the cursor is re-fetched.
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+        assert mock_get.return_value.get.call_args_list[2].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+
+    def test_persistently_truncated_body_raises(self) -> None:
+        manager = _build_manager()
+        responses = [_mock_truncated_response() for _ in range(MALFORMED_JSON_MAX_ATTEMPTS)]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(json.JSONDecodeError):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
+        assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
 
 
 class TestTimeRangePagination:
@@ -772,6 +839,84 @@ class TestMidChunkLimitFallback:
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
         assert mock_get.return_value.get.call_count == 2
+
+
+class TestTimeRangeMalformedJson:
+    URL = "https://graph.facebook.com/v20/act_1/insights"
+    PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
+
+    def test_initial_chunk_truncated_body_reissues_chunk_request(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial chunk request returns a truncated 200 body.
+            _mock_truncated_response(),
+            # Re-issuing the same chunk request returns a complete body.
+            _mock_response(200, {"data": [{"ad_id": "a"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                )
+            )
+
+        assert batches == [[{"ad_id": "a"}]]
+        # Both calls are the same initial chunk request, carrying the time_range param.
+        assert mock_get.return_value.get.call_count == 2
+        for call in mock_get.return_value.get.call_args_list:
+            assert call.args[0] == self.URL
+            assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-04-21", "until": "2026-04-21"}
+
+    def test_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "a"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # The cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                )
+            )
+
+        # Already-yielded first page is not re-emitted; the cursor is re-fetched at the same limit.
+        assert batches == [[{"ad_id": "a"}], [{"ad_id": "b"}]]
+        assert (
+            mock_get.return_value.get.call_args_list[1].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
+
+    def test_persistently_truncated_body_raises(self) -> None:
+        manager = _build_manager()
+        responses = [_mock_truncated_response() for _ in range(MALFORMED_JSON_MAX_ATTEMPTS)]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(json.JSONDecodeError):
+                list(
+                    _iter_time_range_pagination(
+                        self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                    )
+                )
+
+        assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
 
 
 class TestNonRetryableErrors:
