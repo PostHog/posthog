@@ -1115,6 +1115,185 @@ class TestCDCExtractActivity:
         assert any("status" in call.kwargs.get("update_fields", []) for call in mock_job.save.call_args_list)
 
 
+class TestSlotAdvanceTransactionSafety:
+    """The slot must only advance past FULLY-yielded transactions.
+
+    A micro-flush can fire mid-transaction (the batcher threshold is per-event).
+    Since every event of a transaction shares its commit end LSN, advancing to that
+    LSN while the transaction's tail is still un-yielded would lose the tail on crash.
+    """
+
+    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_micro_flush_advances_only_past_completed_transaction(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+        MockBatcher,
+    ):
+        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        # txn-1 (commit LSN 0/100): 2 events; txn-2 (commit LSN 0/200): 3 events.
+        events = [
+            _make_event(op="I", table="users", position="0/100", columns={"id": 1}),
+            _make_event(op="I", table="users", position="0/100", columns={"id": 2}),
+            _make_event(op="I", table="users", position="0/200", columns={"id": 3}),
+            _make_event(op="I", table="users", position="0/200", columns={"id": 4}),
+            _make_event(op="I", table="users", position="0/200", columns={"id": 5}),
+        ]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # Flush after 4 events → mid txn-2 (only 2 of its 3 events have been yielded).
+        MockBatcher.return_value = RealBatcher(max_events=4)
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        # Micro-flush advances only to txn-1's end LSN; the final flush advances to txn-2's.
+        advanced_positions = [c.args[0] for c in mock_reader.confirm_position.call_args_list]
+        assert advanced_positions == ["0/100", "0/200"]
+
+    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_single_transaction_gets_no_micro_advance(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+        MockBatcher,
+    ):
+        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        # One transaction (single commit LSN) spanning all events.
+        events = [
+            _make_event(op="I", table="users", position="0/100", columns={"id": 1}),
+            _make_event(op="I", table="users", position="0/100", columns={"id": 2}),
+            _make_event(op="I", table="users", position="0/100", columns={"id": 3}),
+        ]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # Threshold of 2 forces a mid-transaction micro-flush, but the transaction is
+        # never complete during the loop, so no micro-advance may happen.
+        MockBatcher.return_value = RealBatcher(max_events=2)
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        # Only the final advance after the full transaction is flushed.
+        mock_reader.confirm_position.assert_called_once_with("0/100")
+
+    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_crash_after_micro_flush_never_advances_into_incomplete_transaction(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+        MockBatcher,
+    ):
+        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+
+        # txn-1 (0/100) fully yielded, then txn-2 (0/200) yields 2 events that trip the
+        # micro-flush, then the source dies before txn-2 finishes.
+        def _dying_changes():
+            yield _make_event(op="I", table="users", position="0/100", columns={"id": 1})
+            yield _make_event(op="I", table="users", position="0/100", columns={"id": 2})
+            yield _make_event(op="I", table="users", position="0/200", columns={"id": 3})
+            yield _make_event(op="I", table="users", position="0/200", columns={"id": 4})
+            raise RuntimeError("pod killed mid-transaction")
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            [],
+        )
+        mock_reader.read_changes.return_value = _dying_changes()
+
+        MockBatcher.return_value = RealBatcher(max_events=4)
+
+        with pytest.raises(RuntimeError, match="pod killed mid-transaction"):
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        # Slot advanced to txn-1's end only; it must never reach txn-2's LSN.
+        mock_reader.confirm_position.assert_called_once_with("0/100")
+
+
 class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
     must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
