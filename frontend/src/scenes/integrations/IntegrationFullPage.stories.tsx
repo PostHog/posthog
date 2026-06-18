@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -44,16 +47,21 @@ export const Connected: Story = {
 }
 
 // Below project-admin level: the connect button is replaced by the "request access" flow.
+// `useRestrictedArea` reads the level from teamLogic's currentTeam, which Storybook seeds from
+// the (admin-level) app context and never refetches — so we override it directly rather than
+// mocking the environments endpoint, which teamLogic never hits.
 export const NoPermission: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:id/integrations': { results: [] },
-                '/api/environments/@current/': {
-                    ...MOCK_DEFAULT_TEAM,
-                    effective_membership_level: OrganizationMembershipLevel.Member,
-                },
-            },
-        }),
-    ],
+    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
+    render: () => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
+        useEffect(() => {
+            loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: TeamMembershipLevel.Member,
+            })
+        }, [loadCurrentTeamSuccess])
+
+        return <IntegrationFullPage definition={Slack} SettingsSection={Slack.SettingsSection} />
+    },
 }
