@@ -94,20 +94,27 @@ def _personhog_routed(
     operation: str,
     personhog_fn: Callable[[PersonHogClient], _T],
     orm_fn: Callable[[], _T],
+    *,
+    caller_tag: str | None = None,
     **log_fields: Any,
 ) -> _T:
     """Try personhog first, fall back to ORM on failure or when disabled.
 
-    Handles client check, caller tagging, metrics, and error logging for all
-    personhog routing in this module.  ORM exceptions are NOT caught — callers
-    handle their own DatabaseError recovery (stale cache, fail-closed, etc.).
+    ``operation`` is the RPC being performed (used in metrics).
+    ``caller_tag`` is the granular calling context (used in personhog caller
+    tagging for observability).  Defaults to ``operation`` when not given.
+
+    ORM exceptions are NOT caught — callers handle their own DatabaseError
+    recovery (stale cache, fail-closed, etc.).
     """
     from posthog.personhog_client.client import get_personhog_client
+
+    tag = caller_tag or operation
 
     client = get_personhog_client()
     if client is not None:
         try:
-            with personhog_caller_tag(f"group_type_mapping/{operation}"):
+            with personhog_caller_tag(f"group_type_mapping/{tag}"):
                 result = personhog_fn(client)
             PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
             return result
@@ -226,13 +233,14 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
 
     try:
         result = _personhog_routed(
-            caller_tag or "get_group_types_for_project",
+            "get_group_types_for_project",
             lambda client: _fetch_group_types_via_personhog(client, project_id),
             lambda: list(
                 GroupTypeMapping.objects.filter(project_id=project_id)  # nosemgrep: no-direct-persons-db-orm
                 .order_by("group_type_index")
                 .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
             ),
+            caller_tag=caller_tag,
             project_id=project_id,
         )
     except DatabaseError as exc:
@@ -268,13 +276,14 @@ def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> 
     """Fetch group types for a team via personhog, falling back to ORM on error."""
     try:
         return _personhog_routed(
-            caller_tag or "get_group_types_for_team",
+            "get_group_types_for_team",
             lambda client: _fetch_group_types_for_team_via_personhog(client, team_id),
             lambda: list(
                 GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
                 .order_by("group_type_index")
                 .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
             ),
+            caller_tag=caller_tag,
             team_id=team_id,
         )
     except DatabaseError as exc:
@@ -414,7 +423,7 @@ def get_group_types_for_projects(
 
     try:
         result = _personhog_routed(
-            caller_tag or "get_group_types_for_projects", _personhog_fn, _orm_fn, project_ids=project_ids
+            "get_group_types_for_projects", _personhog_fn, _orm_fn, caller_tag=caller_tag, project_ids=project_ids
         )
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
@@ -429,7 +438,7 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
 
     try:
         return _personhog_routed(
-            caller_tag or "count_group_type_mappings_per_team",
+            "count_group_type_mappings_per_team",
             lambda client: [
                 {"team_id": c.team_id, "total": c.count}
                 for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
@@ -439,6 +448,7 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
                 .annotate(total=Count("id"))
                 .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
             ),
+            caller_tag=caller_tag,
         )
     except DatabaseError:
         logger.warning("count_group_type_mappings_orm_failure", exc_info=True)
@@ -522,7 +532,7 @@ def _fetch_group_types_for_project_direct(
     db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else "default"
 
     return _personhog_routed(
-        caller_tag or "get_group_types_for_project_direct",
+        "get_group_types_for_project_direct",
         lambda client: sorted(
             [
                 proto_group_type_mapping_to_dict(m)
@@ -541,6 +551,7 @@ def _fetch_group_types_for_project_direct(
             .order_by("group_type_index")
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         ),
+        caller_tag=caller_tag,
         project_id=project_id,
     )
 
@@ -629,9 +640,10 @@ def update_group_type_mapping_fields(
         ).update(**fields)
 
     _personhog_routed(
-        caller_tag or "update_group_type_mapping_fields",
+        "update_group_type_mapping_fields",
         _personhog_fn,
         _orm_fn,
+        caller_tag=caller_tag,
         project_id=instance.project_id,
         group_type_index=instance.group_type_index,
     )
@@ -644,7 +656,7 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
     _personhog_routed(
-        caller_tag or "delete_group_type_mapping",
+        "delete_group_type_mapping",
         lambda client: client.delete_group_type_mapping(
             DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
@@ -655,6 +667,7 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
             project_id=instance.project_id,
             group_type_index=instance.group_type_index,
         ).delete(),
+        caller_tag=caller_tag,
         project_id=instance.project_id,
         group_type_index=instance.group_type_index,
     )
@@ -694,9 +707,10 @@ def clear_dashboard_from_group_type_mapping(
             invalidate_group_types_cache(project_id)
 
     _personhog_routed(
-        caller_tag or "clear_dashboard_from_group_type_mapping",
+        "clear_dashboard_from_group_type_mapping",
         _personhog_fn,
         _orm_fn,
+        caller_tag=caller_tag,
         team_id=team_id,
         dashboard_id=dashboard_id,
     )
