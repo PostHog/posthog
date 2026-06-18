@@ -1,3 +1,4 @@
+import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
@@ -18,5 +19,14 @@ export function CreateInsightWidget(props: McpToolRendererProps): JSX.Element {
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
 
-    return <VisualizationWidget content={artifact.content} openUrl={target.url} openTooltip={target.tooltip} />
+    return (
+        <SandboxToolActivity {...props}>
+            <VisualizationWidget
+                content={artifact.content}
+                openUrl={target.url}
+                openTooltip={target.tooltip}
+                embedded
+            />
+        </SandboxToolActivity>
+    )
 }

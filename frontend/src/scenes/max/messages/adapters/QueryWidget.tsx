@@ -1,3 +1,4 @@
+import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget } from '../VisualizationWidget'
@@ -16,5 +17,9 @@ export function QueryWidget(props: McpToolRendererProps): JSX.Element {
         return <FallbackMcpToolRenderer {...props} />
     }
 
-    return <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" />
+    return (
+        <SandboxToolActivity {...props}>
+            <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" embedded />
+        </SandboxToolActivity>
+    )
 }
