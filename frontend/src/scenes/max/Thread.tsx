@@ -1336,13 +1336,24 @@ function SuccessActions({
         <>
             <div className="flex items-center ml-1">
                 {content && (
-                    <LemonButton
-                        icon={<IconCopy />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Copy answer"
-                        onClick={() => copyToClipboard(stripMarkdown(content))}
-                    />
+                    <>
+                        <LemonButton
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            tooltip="Copy answer"
+                            onClick={() => copyToClipboard(stripMarkdown(content), 'answer')}
+                        />
+                        <LemonButton
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            tooltip="Copy answer as Markdown"
+                            onClick={() => copyToClipboard(content, 'answer as Markdown')}
+                        >
+                            Markdown
+                        </LemonButton>
+                    </>
                 )}
                 {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
