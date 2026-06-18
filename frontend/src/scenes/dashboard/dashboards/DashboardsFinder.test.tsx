@@ -17,7 +17,7 @@ describe('DashboardsFinder', () => {
 
     beforeEach(() => {
         navigateToFolder.mockClear()
-        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder })
+        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, moveDashboardToFolder: jest.fn() })
     })
 
     it('renders the breadcrumb, subfolders, and dashboards at the current folder', () => {

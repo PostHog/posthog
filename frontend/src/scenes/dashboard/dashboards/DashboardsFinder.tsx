@@ -9,15 +9,16 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
+import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { folderLabel } from './dashboardsFileSystemUtils'
 
 // Finder arm (variant=finder): folder-first navigation. Opens at the dashboards root showing top-level
-// folders; click a folder card to drill in, a breadcrumb crumb to climb back. Reuses the same FileSystem
-// folder structure as the grid arm and the sidebar tree.
+// folders; click a folder card to drill in, a breadcrumb crumb to climb back, or drag a dashboard onto a
+// subfolder to file it. Reuses the same FileSystem folder structure as the grid arm and the sidebar tree.
 export function DashboardsFinder(): JSX.Element {
     const { currentFolderContents, breadcrumb } = useValues(dashboardsFileSystemLogic)
-    const { navigateToFolder } = useActions(dashboardsFileSystemLogic)
+    const { navigateToFolder, moveDashboardToFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     const isEmpty = currentFolderContents.subfolders.length === 0 && currentFolderContents.dashboards.length === 0
@@ -26,40 +27,46 @@ export function DashboardsFinder(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4" data-attr="dashboards-finder">
-            <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
-                {breadcrumb.map((crumb, index) => (
-                    <span key={crumb.path} className="flex items-center gap-1">
-                        {index > 0 ? <IconChevronRight className="text-muted" /> : null}
-                        <button type="button" className="font-medium" onClick={() => navigateToFolder(crumb.path)}>
-                            {crumb.label}
-                        </button>
-                    </span>
-                ))}
+        <DashboardsDndContext onMove={moveDashboardToFolder}>
+            <div className="flex flex-col gap-4" data-attr="dashboards-finder">
+                <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
+                    {breadcrumb.map((crumb, index) => (
+                        <span key={crumb.path} className="flex items-center gap-1">
+                            {index > 0 ? <IconChevronRight className="text-muted" /> : null}
+                            <button type="button" className="font-medium" onClick={() => navigateToFolder(crumb.path)}>
+                                {crumb.label}
+                            </button>
+                        </span>
+                    ))}
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+                    {currentFolderContents.subfolders.map((folder) => (
+                        <DroppableFolder key={folder} folder={folder}>
+                            <button
+                                type="button"
+                                className="w-full"
+                                data-attr="dashboards-finder-folder"
+                                onClick={() => navigateToFolder(folder)}
+                            >
+                                <LemonCard hoverEffect className="flex flex-col gap-1 h-full text-left">
+                                    <IconFolder className="text-2xl text-muted" />
+                                    <span className="font-semibold truncate">{folderLabel(folder)}</span>
+                                </LemonCard>
+                            </button>
+                        </DroppableFolder>
+                    ))}
+                    {currentFolderContents.dashboards.map((dashboard) => (
+                        <DraggableDashboard key={dashboard.id} dashboardId={dashboard.id}>
+                            <Link to={urls.dashboard(dashboard.id)} data-attr="dashboards-finder-card">
+                                <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
+                                    <IconDashboard className="text-2xl text-muted" />
+                                    <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
+                                </LemonCard>
+                            </Link>
+                        </DraggableDashboard>
+                    ))}
+                </div>
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-                {currentFolderContents.subfolders.map((folder) => (
-                    <button
-                        key={folder}
-                        type="button"
-                        data-attr="dashboards-finder-folder"
-                        onClick={() => navigateToFolder(folder)}
-                    >
-                        <LemonCard hoverEffect className="flex flex-col gap-1 h-full text-left">
-                            <IconFolder className="text-2xl text-muted" />
-                            <span className="font-semibold truncate">{folderLabel(folder)}</span>
-                        </LemonCard>
-                    </button>
-                ))}
-                {currentFolderContents.dashboards.map((dashboard) => (
-                    <Link key={dashboard.id} to={urls.dashboard(dashboard.id)} data-attr="dashboards-finder-card">
-                        <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
-                            <IconDashboard className="text-2xl text-muted" />
-                            <span className="font-semibold truncate">{dashboard.name || 'Untitled'}</span>
-                        </LemonCard>
-                    </Link>
-                ))}
-            </div>
-        </div>
+        </DashboardsDndContext>
     )
 }

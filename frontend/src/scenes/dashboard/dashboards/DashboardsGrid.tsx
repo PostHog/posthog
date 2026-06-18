@@ -1,13 +1,3 @@
-import {
-    DndContext,
-    DragEndEvent,
-    MouseSensor,
-    TouchSensor,
-    useDraggable,
-    useDroppable,
-    useSensor,
-    useSensors,
-} from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight, IconDashboard, IconFolder } from '@posthog/icons'
@@ -20,20 +10,13 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
 
+import { DashboardsDndContext, DraggableDashboard, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import {
-    dashboardDraggableId,
-    DashboardFolderGroup,
-    folderDroppableId,
-    parseDashboardDragEnd,
-} from './dashboardsFileSystemUtils'
+import { DashboardFolderGroup } from './dashboardsFileSystemUtils'
 
 function DashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.Element {
-    // The 10px mouse activation distance (see sensors below) keeps a plain click a navigation and a
-    // longer pointer movement a drag.
-    const { attributes, listeners, setNodeRef } = useDraggable({ id: dashboardDraggableId(dashboard.id) })
     return (
-        <div ref={setNodeRef} {...attributes} {...listeners}>
+        <DraggableDashboard dashboardId={dashboard.id}>
             <Link to={urls.dashboard(dashboard.id)} data-attr="dashboards-grid-card">
                 <LemonCard hoverEffect className="flex flex-col gap-1 h-full">
                     <IconDashboard className="text-2xl text-muted" />
@@ -43,31 +26,29 @@ function DashboardCard({ dashboard }: { dashboard: DashboardBasicType }): JSX.El
                     ) : null}
                 </LemonCard>
             </Link>
-        </div>
+        </DraggableDashboard>
     )
 }
 
 function FolderGroup({ group }: { group: DashboardFolderGroup }): JSX.Element {
     const { collapsedFolders } = useValues(dashboardsFileSystemLogic)
     const { toggleFolder } = useActions(dashboardsFileSystemLogic)
-    const { setNodeRef, isOver } = useDroppable({ id: folderDroppableId(group.folder) })
     const collapsed = !!collapsedFolders[group.folder]
 
     return (
         <div className="flex flex-col gap-2">
-            <button
-                type="button"
-                ref={setNodeRef}
-                className={`flex items-center gap-2 text-left font-semibold rounded p-1 ${
-                    isOver ? 'ring-2 ring-accent' : ''
-                }`}
-                onClick={() => toggleFolder(group.folder)}
-            >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
-                <IconFolder className="text-muted" />
-                <span>{group.folder}</span>
-                <span className="text-muted font-normal">· {group.dashboards.length}</span>
-            </button>
+            <DroppableFolder folder={group.folder}>
+                <button
+                    type="button"
+                    className="flex items-center gap-2 text-left font-semibold p-1 w-full"
+                    onClick={() => toggleFolder(group.folder)}
+                >
+                    {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                    <IconFolder className="text-muted" />
+                    <span>{group.folder}</span>
+                    <span className="text-muted font-normal">· {group.dashboards.length}</span>
+                </button>
+            </DroppableFolder>
             {!collapsed ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
                     {group.dashboards.map((dashboard) => (
@@ -87,28 +68,17 @@ export function DashboardsGrid(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { moveDashboardToFolder } = useActions(dashboardsFileSystemLogic)
 
-    const mouseSensor = useSensor(MouseSensor, { activationConstraint: { distance: 10 } })
-    const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
-    const sensors = useSensors(mouseSensor, touchSensor)
-
-    const onDragEnd = (event: DragEndEvent): void => {
-        const move = parseDashboardDragEnd(event.active?.id, event.over?.id)
-        if (move) {
-            moveDashboardToFolder(move.dashboardId, move.folder)
-        }
-    }
-
     if (dashboardsLoading && dashboardsByFolder.length === 0) {
         return <Spinner className="text-2xl" />
     }
 
     return (
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <DashboardsDndContext onMove={moveDashboardToFolder}>
             <div className="flex flex-col gap-6" data-attr="dashboards-grid">
                 {dashboardsByFolder.map((group) => (
                     <FolderGroup key={group.folder} group={group} />
                 ))}
             </div>
-        </DndContext>
+        </DashboardsDndContext>
     )
 }
