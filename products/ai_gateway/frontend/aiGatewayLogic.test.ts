@@ -23,7 +23,6 @@ describe('aiGatewayLogic', () => {
         jest.clearAllMocks()
         initKeaTests()
         logic = aiGatewayLogic()
-        logic.mount()
     })
 
     afterEach(() => {
@@ -31,6 +30,7 @@ describe('aiGatewayLogic', () => {
     })
 
     it('loads usage, spend series, and model usage on mount', async () => {
+        logic.mount()
         await expectLogic(logic).toDispatchActions([
             'loadUsageSuccess',
             'loadSpendSeriesSuccess',
@@ -50,14 +50,13 @@ describe('aiGatewayLogic', () => {
         })
         jest.mocked(fetchGatewayUsageByModel).mockResolvedValueOnce([])
 
-        const emptyLogic = aiGatewayLogic()
-        emptyLogic.mount()
-        await expectLogic(emptyLogic).toDispatchActions(['loadUsageSuccess', 'loadModelUsageSuccess'])
-        expect(emptyLogic.values.hasUsage).toBe(false)
-        emptyLogic.unmount()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadModelUsageSuccess'])
+        expect(logic.values.hasUsage).toBe(false)
     })
 
     it('confirming a top up closes the modal', async () => {
+        logic.mount()
         await expectLogic(logic, () => {
             logic.actions.setTopUpAmount(100)
             logic.actions.openTopUpModal()
