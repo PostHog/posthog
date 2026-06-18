@@ -55,6 +55,7 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         setSessionExpired: (info: ExpiredSessionInfo | null) => ({ info }),
         reImpersonate: (reason: string, readOnly: boolean) => ({ reason, readOnly }),
         reImpersonateFailure: (error: string) => ({ error }),
+        returnToPostHog: true,
     }),
 
     reducers({
@@ -119,6 +120,11 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        returnToPostHog: () => {
+            // Restore the original staff login (via the loginas logout endpoint) and
+            // land back in the PostHog app rather than the Django admin.
+            window.location.href = `/admin/logout/?next=${encodeURIComponent('/')}`
+        },
         upgradeImpersonationSuccess: () => {
             if (values.isUpgradeModalOpen && !values.isReadOnly) {
                 actions.closeUpgradeModal()

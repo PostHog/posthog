@@ -40,6 +40,7 @@ const baseRecalculation = {
     created_at: '2026-06-10T00:00:00Z',
     started_at: null,
     completed_at: null,
+    query_to: null,
     is_existing: false,
     results: [],
 }
@@ -52,6 +53,7 @@ const completedRecalculation = {
     started_at: new Date().toISOString(),
     // Fresh by default (within the 24h window) so tests using this fixture don't auto-trigger.
     completed_at: new Date().toISOString(),
+    query_to: '2026-06-10T00:05:00Z',
     results: [
         { metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null },
         { metric_uuid: SECONDARY_METRIC_UUID, status: 'completed', result: secondaryResult, error_message: null },
@@ -388,8 +390,7 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 2 })
             expect(logic.values.isRecalculating).toBe(false)
-            // lastRefresh comes from the completed run's completion time.
-            expect(logic.values.lastRefresh).toEqual(completedRecalculation.completed_at)
+            expect(logic.values.lastRefresh).toEqual(completedRecalculation.query_to)
         })
 
         it('defaults progress to zeroes and lastRefresh to null when there is no recalculation', () => {

@@ -165,6 +165,11 @@ class AhaSourceConfig(config.Config):
 
 
 @config.config
+class AhrefsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AirbyteSourceConfig(config.Config):
     pass
 
@@ -846,6 +851,11 @@ class DatadogSourceConfig(config.Config):
 
 @config.config
 class DatascopeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DatoramaSourceConfig(config.Config):
     pass
 
 
@@ -3438,6 +3448,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ADYEN: AdyenSourceConfig,
         ExternalDataSourceType.AGILECRM: AgileCRMSourceConfig,
         ExternalDataSourceType.AHA: AhaSourceConfig,
+        ExternalDataSourceType.AHREFS: AhrefsSourceConfig,
         ExternalDataSourceType.AIRBYTE: AirbyteSourceConfig,
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
@@ -3564,6 +3575,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
+        ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
         ExternalDataSourceType.DB2: Db2SourceConfig,
         ExternalDataSourceType.DBT: DbtSourceConfig,
         ExternalDataSourceType.DEEL: DeelSourceConfig,
