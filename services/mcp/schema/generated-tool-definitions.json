@@ -247,7 +247,7 @@
         }
     },
     "agent-applications-create": {
-        "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote.",
+        "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Create an agent application",
@@ -277,7 +277,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-clear": {
-        "description": "Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts — in-flight sessions keep the value they resolved at start.",
+        "description": "Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts — in-flight sessions keep the value they resolved at start. Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential punch-out flow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Clear one secret",
@@ -292,7 +292,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-get": {
-        "description": "Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write landed.",
+        "description": "Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write landed. Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential punch-out flow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Check whether one secret is set",
@@ -307,7 +307,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-list": {
-        "description": "Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already populated so you don't ask the user to set something that's already set. Pair with `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.",
+        "description": "Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already populated so you don't ask the user to set something that's already set. Pair with `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset. Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential punch-out flow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List the names of secrets currently set",
@@ -322,7 +322,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-list": {
-        "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable.",
+        "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List agent applications",
@@ -357,7 +357,7 @@
         "feature": "agent_platform",
         "summary": "Invoke a draft revision via the Django preview-proxy",
         "title": "Invoke a draft revision via the Django preview-proxy",
-        "required_scopes": ["agents:read"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -367,7 +367,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-retrieve": {
-        "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
+        "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get an agent application",
@@ -382,7 +382,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-agent-md-update": {
-        "description": "Body `{ content: \"…\" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves skills, tools, and spec untouched. Draft-only.",
+        "description": "Body `{ content: \"…\" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves skills, tools, and spec untouched. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Replace agent.md",
@@ -397,7 +397,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-archive-create": {
-        "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
+        "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Archive a revision",
@@ -412,7 +412,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-bundle-retrieve": {
-        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description` and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
+        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description` and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze). Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get the typed bundle",
@@ -427,7 +427,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-bundle-update": {
-        "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.",
+        "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Full-replace the typed bundle",
@@ -442,7 +442,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-clone-from-create": {
-        "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team.",
+        "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Clone bundle from another revision",
@@ -457,7 +457,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-create": {
-        "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision.",
+        "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Create a draft revision",
@@ -472,7 +472,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-cron-fire-create": {
-        "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires.",
+        "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Manually fire one cron job",
@@ -487,7 +487,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-freeze-create": {
-        "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256.",
+        "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Freeze a draft revision",
@@ -502,7 +502,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-list": {
-        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit.",
+        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List revisions of an application",
@@ -517,7 +517,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-manifest-retrieve": {
-        "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked.",
+        "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List files in a revision's bundle",
@@ -532,7 +532,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-new-draft-create": {
-        "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote.",
+        "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Branch a new draft from an existing revision",
@@ -547,7 +547,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-partial-update": {
-        "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here.",
+        "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Update a revision's spec",
@@ -562,7 +562,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-promote-create": {
-        "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op.",
+        "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Promote a revision to live",
@@ -577,7 +577,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-retrieve": {
-        "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`.",
+        "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get a revision",
@@ -592,7 +592,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-skills-destroy": {
-        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only.",
+        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Delete one skill",
@@ -607,7 +607,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-skills-update": {
-        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only.",
+        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Upsert one skill",
@@ -637,7 +637,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-spec-update": {
-        "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only.",
+        "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Replace the author-facing spec",
@@ -652,7 +652,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-system-prompt": {
-        "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
+        "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Preview the assembled system prompt for a revision",
@@ -667,7 +667,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-tools-destroy": {
-        "description": "Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist. Draft-only.",
+        "description": "Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Delete one custom tool",
@@ -682,7 +682,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-tools-update": {
-        "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.",
+        "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Upsert one custom tool",
@@ -697,7 +697,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-validate-create": {
-        "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
+        "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Validate a revision's bundle + spec",
@@ -712,7 +712,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-sessions-list": {
-        "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together.",
+        "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List sessions for an agent",
@@ -727,7 +727,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-sessions-retrieve": {
-        "description": "Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full untrimmed conversation so cost reporting stays accurate.",
+        "description": "Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get one session",
@@ -742,7 +742,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-native-tools-list": {
-        "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
+        "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List native tools the runner knows",
@@ -1671,7 +1671,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -1783,7 +1783,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -2267,6 +2267,20 @@
         "summary": "Preview endpoint materialization",
         "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-sources": {
+        "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "List connected GitHub sources",
+        "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2989,7 +3003,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
@@ -3311,7 +3325,7 @@
         }
     },
     "feature-flags-status-retrieve": {
-        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag status",
@@ -5653,6 +5667,76 @@
         },
         "system_prompt_hint": "List persons behind a trends data point"
     },
+    "reminder-create": {
+        "description": "Create a reminder for yourself. Set organization (required) and optionally team to scope it to a project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how they get recurring in-app notifications without manual polling.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Create reminder",
+        "title": "Create reminder",
+        "required_scopes": ["user:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminder-delete": {
+        "description": "Delete a reminder by ID. This stops it from firing.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Delete reminder",
+        "title": "Delete reminder",
+        "required_scopes": ["user:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminder-get": {
+        "description": "Get a single reminder by ID.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Get reminder",
+        "title": "Get reminder",
+        "required_scopes": ["user:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "reminder-update": {
+        "description": "Update a reminder's title, message, schedule, timezone, end date, or attached resource. Changing the schedule recomputes the next fire time.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Update reminder",
+        "title": "Update reminder",
+        "required_scopes": ["user:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminders-list": {
+        "description": "List your reminders in the current project, including their schedule, status (active/completed/errored), and next fire time.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "List reminders",
+        "title": "List reminders",
+        "required_scopes": ["user:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "role-get": {
         "description": "Get details of a specific role including its name, creation date, and creator.",
         "category": "Platform Features",
@@ -6169,6 +6253,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "skill-store-install-command": {
+        "description": "Get ready-to-paste commands that install this team's skill store into a coding agent as an auto-updating plugin marketplace. Returns both a Claude Code command (the `command` field) and an OpenAI Codex command (the `codex_command` field) for the same marketplace. On first use it mints a dedicated, read-only credential (scoped to skills only, scope llm_skill:read) for the calling user and returns the full commands with the token embedded. If the user is already connected it returns the existing connection masked, with no token — pass rotate=true to issue a fresh token. The credential is per-user, so rotating only ever replaces the caller's own token and never breaks a teammate's setup. Only call this when the user asks to connect or install their skills into a coding agent. Give the user the command matching their agent (Claude Code or Codex).",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill store install command",
+        "title": "Get skill store install command",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "skill-update": {
@@ -7496,7 +7594,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
+        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door, since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -7664,7 +7762,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit.",
+        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -7706,7 +7804,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
+        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
@@ -7720,7 +7818,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why.",
+        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

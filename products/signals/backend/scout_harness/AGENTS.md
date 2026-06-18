@@ -138,7 +138,7 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default hourly) is due, most-overdue
+  per-scout schedule (`run_interval_minutes`, default every 3 hours) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,

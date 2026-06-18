@@ -15,6 +15,7 @@ import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../t
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { EmailService } from '../../messaging/email.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
@@ -49,6 +50,7 @@ describe('HogFunctionHandler', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL
         )
@@ -190,6 +192,53 @@ describe('HogFunctionHandler', () => {
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
+    })
+
+    describe('with groups', () => {
+        beforeEach(() => {
+            invocation.groups = {
+                organization: {
+                    id: 'org_key',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: { owner_name: 'Chris McNeill' },
+                },
+            }
+        })
+
+        it('should forward groups to the hog function invocation globals', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            const passedGlobals = buildHogFunctionInvocationSpy.mock.calls[0][2]
+            expect(passedGlobals.groups).toEqual(invocation.groups)
+        })
+
+        it('should render a group property referenced in a function input template', async () => {
+            // {groups.organization.properties.owner_name} compiled to hog bytecode
+            action.config.inputs.name = {
+                value: '{groups.organization.properties.owner_name}',
+                templating: 'hog',
+                bytecode: ['_H', 1, 32, 'owner_name', 32, 'properties', 32, 'organization', 32, 'groups', 1, 4],
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(handlerResult.error).toBeUndefined()
+            expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+        })
     })
 
     it('should throw an error if template is not found', async () => {

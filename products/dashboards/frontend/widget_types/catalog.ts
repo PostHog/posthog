@@ -6,11 +6,17 @@ import { ActivityTab } from '~/types'
 import {
     activityEventsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
+    experimentResultsWidgetConfigSchema,
+    experimentsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
+import {
+    ExperimentResultsWidgetPreview,
+    ExperimentsListWidgetPreview,
+} from '../widgets/previews/ExperimentsWidgetPreviews'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
@@ -68,6 +74,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     activity: 'Activity',
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
+    experiments: 'Experiments',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -157,6 +164,37 @@ export const DASHBOARD_WIDGET_CATALOG = {
             allowedPropertyNames: SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES,
         },
     },
+    experiments_list: {
+        groupId: 'experiments',
+        label: 'Experiments list',
+        description: 'List of experiments filtered by status and creator.',
+        headerTitle: 'Experiments',
+        // Filtered by status/creator, not a date range — don't show a (defaulted) date in the header.
+        headerMeta: { showDateRange: false },
+        defaultConfig: experimentsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        titleHref: urls.experiments(),
+        sharedPlaceholder: {
+            title: 'Experiments',
+            message: 'Log in to PostHog to see experiments from this dashboard.',
+        },
+    },
+    experiment_results: {
+        groupId: 'experiments',
+        label: 'Experiment results',
+        description: 'Current results for the primary metrics of a selected experiment.',
+        headerTitle: 'Experiment results',
+        // Shows a selected experiment's current results — there's no date range to surface.
+        headerMeta: { showDateRange: false },
+        defaultConfig: experimentResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        sharedPlaceholder: {
+            title: 'Experiment results',
+            message: 'Log in to PostHog to see experiment results from this dashboard.',
+        },
+    },
     activity_events_list: {
         groupId: 'activity',
         label: 'Recent events',
@@ -181,6 +219,8 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,
+    experiments_list: ExperimentsListWidgetPreview,
+    experiment_results: ExperimentResultsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
