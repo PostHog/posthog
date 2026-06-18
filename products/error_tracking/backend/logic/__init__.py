@@ -313,7 +313,10 @@ def split_stack_frame_raw_id(raw_id: str) -> tuple[str, int]:
     parts = raw_id.split("/")
     if len(parts) != 2:
         return raw_id, 0
-    return parts[0], int(parts[1])
+    try:
+        return parts[0], int(parts[1])
+    except ValueError:
+        return raw_id, 0
 
 
 def stack_frame_queryset(team_id: int) -> QuerySet[ErrorTrackingStackFrame]:

@@ -551,6 +551,14 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
 
+        # a malformed raw_id (non-integer part) is handled gracefully, not a 500
+        data = {"raw_ids": ["abc/not-an-int"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
     def test_assigning_issues(self):
         issue = self.create_issue()
 
