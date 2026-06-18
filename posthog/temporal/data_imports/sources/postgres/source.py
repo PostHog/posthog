@@ -72,6 +72,11 @@ PostgresErrors = {
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    # An invalid SSL-negotiation response means the host/port isn't a PostgreSQL server speaking SSL
+    # (wrong port, an HTTP/proxy/edge endpoint, or a TCP proxy fronting a paused/deleted database).
+    # Map it to an actionable message so validation stops surfacing this expected user/upstream
+    # condition as captured error noise. See `get_non_retryable_errors` for the streaming-path twin.
+    "received invalid response to SSL negotiation": "PostHog reached the host and port you configured, but the server didn't respond like a PostgreSQL server speaking SSL. Check that the host and port point at your PostgreSQL server (not an HTTP, proxy, or edge endpoint) and that the database is running.",
     "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
     # libpq reports a server-side socket close during the startup handshake with this wording. During
     # credential validation it almost always means the host/port points at something that isn't (or
@@ -307,6 +312,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "protocol\"). This usually means the host and port don't point at a PostgreSQL server "
                 "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
                 "Check your host and port, then re-enable the sync."
+            ),
+            # libpq emits "received invalid response to SSL negotiation: <byte>" when the server
+            # answers its SSLRequest with a byte that isn't 'S'/'N'. In practice the configured
+            # host/port isn't a PostgreSQL server speaking SSL — an HTTP/proxy/edge endpoint, the
+            # wrong port, or a TCP proxy fronting a paused/deleted database — so retrying re-runs
+            # into the same wall. Surfaced raw on both require_ssl paths (postgres.py deliberately
+            # does NOT wrap it as SSLRequiredError, whose "enable SSL" message would be misleading).
+            # Placed before the generic SSL entries so its accurate message wins. The volatile
+            # trailing byte is excluded from the match.
+            "received invalid response to SSL negotiation": (
+                "PostHog reached the host and port you configured, but the server didn't respond "
+                'like a PostgreSQL server during the SSL handshake ("received invalid response to '
+                'SSL negotiation"). This usually means the host and port don\'t point at a '
+                "PostgreSQL server speaking SSL — for example an HTTP, proxy, or edge endpoint, the "
+                "wrong port, or a database that's paused or deleted behind a TCP proxy. Check your "
+                "host and port, then re-enable the sync."
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,

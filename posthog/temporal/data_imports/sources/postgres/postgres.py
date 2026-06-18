@@ -383,6 +383,18 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
     return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
 
 
+# libpq reports a non-'S'/'N' byte to its SSLRequest packet as "received invalid response to SSL
+# negotiation: <byte>". The handshake mentions SSL, but the cause is that the host/port doesn't
+# reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
+# or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
+# raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+_INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
+
+
+def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
+    return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -440,7 +452,7 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
+        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2192,7 +2204,7 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e):
+                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2478,7 +2490,7 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e):
+                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."

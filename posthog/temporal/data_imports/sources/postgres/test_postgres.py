@@ -56,6 +56,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeTimestampLoader,
     SafeTimestamptzLoader,
     SafeTimetzLoader,
+    SSLRequiredError,
     _build_count_query,
     _build_query,
     _connect_to_postgres,
@@ -71,6 +72,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
@@ -310,6 +312,32 @@ class TestPostgresSourceNonRetryableErrors:
         )
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "TLS ALPN rejection error should surface an actionable message"
+        assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The host/IP, port,
+            # and trailing response byte are volatile; the negotiation text is stable.
+            'connection failed: connection to server at "66.33.22.254", port 41667 failed: received invalid response to SSL negotiation: I',
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: received invalid response to SSL negotiation: H',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "66.33.22.254", port 41667 failed: received invalid response to SSL negotiation: I',
+        ],
+    )
+    def test_invalid_ssl_negotiation_response_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid SSL-negotiation response should be non-retryable: {error_msg}"
+
+    def test_invalid_ssl_negotiation_response_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "66.33.22.254", port 41667 failed: '
+            "received invalid response to SSL negotiation: I"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid SSL-negotiation response should surface an actionable message"
         assert "host and port" in friendly[0]
 
     @pytest.mark.parametrize(
@@ -953,6 +981,46 @@ class TestConnectOptionsStartupParamFallback:
         assert exc_info.value.__context__ is None
 
 
+class TestInvalidSSLNegotiationResponse:
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ("received invalid response to SSL negotiation: I", True),
+            ('connection to server at "1.2.3.4", port 41667 failed: received invalid response to SSL negotiation: I', True),
+            ("server does not support SSL, but SSL was required", False),
+            ("SSL error: tlsv1 alert no application protocol", False),
+            ("password authentication failed for user", False),
+        ],
+    )
+    def test_detects_invalid_ssl_negotiation_message(self, message, expected):
+        assert _is_invalid_ssl_negotiation_response(psycopg.OperationalError(message)) is expected
+
+    def test_invalid_negotiation_is_not_wrapped_as_ssl_required(self):
+        # require_ssl=True, but the message is a wrong-port/non-Postgres signal — it must surface
+        # raw (so get_non_retryable_errors can give an accurate message), not as the misleading
+        # SSLRequiredError "enable SSL on your server".
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError("received invalid response to SSL negotiation: I")
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError) as exc_info:
+                _connect_to_postgres(
+                    host="db", port=41667, database="railway", user="postgres", password="x", require_ssl=True
+                )
+        assert not isinstance(exc_info.value, SSLRequiredError)
+        assert "received invalid response to SSL negotiation" in str(exc_info.value)
+
+    def test_genuine_unsupported_ssl_still_raises_ssl_required(self):
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError("server does not support SSL, but SSL was required")
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(SSLRequiredError):
+                _connect_to_postgres(
+                    host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
+                )
+
+
 class TestStatementTimeoutAsNonRetryable:
     @pytest.mark.parametrize(
         "should_use_incremental_field,incremental_field,expected_substr",
@@ -1411,6 +1479,14 @@ class TestValidateCredentialsErrorMapping:
                 "Your database connection pooler couldn't find the tenant or user. This usually means the "
                 "database project is paused or deleted, or the pooler username/host is wrong. Check that "
                 "your database is active and the connection details are correct.",
+            ),
+            # Invalid SSL-negotiation response — the host/port isn't a Postgres server speaking SSL.
+            (
+                'connection failed: connection to server at "66.33.22.254", port 41667 failed: '
+                "received invalid response to SSL negotiation: I",
+                "PostHog reached the host and port you configured, but the server didn't respond like a "
+                "PostgreSQL server speaking SSL. Check that the host and port point at your PostgreSQL server "
+                "(not an HTTP, proxy, or edge endpoint) and that the database is running.",
             ),
             # Unmapped errors fall back to the generic message.
             (
