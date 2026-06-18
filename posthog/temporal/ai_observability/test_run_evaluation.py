@@ -877,7 +877,7 @@ class TestExecuteHogEvalActivity:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_hog_eval_non_bool_raises_error(self, setup_data):
+    async def test_hog_eval_non_bool_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
         from posthog.cdp.validation import compile_hog
@@ -896,8 +896,12 @@ class TestExecuteHogEvalActivity:
 
         event_data = create_mock_event_data(team.id)
 
-        with pytest.raises(ApplicationError, match="Must return boolean"):
-            await execute_hog_eval_activity(evaluation, event_data)
+        # A non-boolean result is a user-authored Hog error: recorded as skipped, not raised.
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert "Must return boolean" in result["reasoning"]
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -991,6 +995,75 @@ class TestExecuteHogEvalActivity:
         result = await execute_hog_eval_activity(evaluation, event_data)
 
         assert result["verdict"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_runtime_error_returns_skipped(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return true", "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        # A HogVM runtime error in user-authored Hog (e.g. unsupported function, unknown global)
+        # is recorded as skipped, not raised — so it never reaches error tracking.
+        user_error = {"verdict": None, "reasoning": "", "error": "Runtime error: Global variable not found: continue"}
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_hog.run_hog_eval",
+            return_value=user_error,
+        ):
+            result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert "Global variable not found" in result["reasoning"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_unexpected_error_raises(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return true", "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        # An unexpected error is a bug in our code, so it must still surface to error tracking.
+        unexpected_error = {
+            "verdict": None,
+            "reasoning": "",
+            "error": "Unexpected error during evaluation: KeyError: 'foo'",
+            "unexpected": True,
+        }
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_hog.run_hog_eval",
+            return_value=unexpected_error,
+        ):
+            with pytest.raises(ApplicationError, match="Unexpected error during evaluation"):
+                await execute_hog_eval_activity(evaluation, event_data)
 
 
 class TestExecuteSentimentEvalActivity:
@@ -1196,7 +1269,7 @@ class TestExecuteHogEvalActivityAllowsNA:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_hog_eval_null_return_without_allows_na_raises(self, setup_data):
+    async def test_hog_eval_null_return_without_allows_na_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
         from posthog.cdp.validation import compile_hog
@@ -1215,8 +1288,12 @@ class TestExecuteHogEvalActivityAllowsNA:
 
         event_data = create_mock_event_data(team.id)
 
-        with pytest.raises(ApplicationError, match="Must return boolean"):
-            await execute_hog_eval_activity(evaluation, event_data)
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Must return boolean" in result["reasoning"]
 
 
 class TestIncrementTrialEvalCountActivity:

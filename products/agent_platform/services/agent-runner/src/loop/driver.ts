@@ -1253,15 +1253,23 @@ export function translateAssistantNamesBack(
 }
 
 /**
- * Stamp `Idempotency-Key` + `X-Request-Id` (both `agent:<session>:<turn>`)
- * on every outbound model call, plus any caller-supplied gateway headers
- * (`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`). The id is recorded in
- * `turnRequestIds` keyed by the loop's outbound-call counter so the sink
- * can fetch settled cost via `GET /v1/usage/<request_id>` after `turn_end`.
+ * Stamp `Idempotency-Key` + `X-Request-Id` on every outbound model call,
+ * plus any caller-supplied gateway headers (`X-PostHog-Distinct-Id`,
+ * `X-PostHog-Trace-Id`). The id is recorded in `turnRequestIds` keyed by the
+ * loop's outbound-call counter so the sink can fetch settled cost via
+ * `GET /v1/usage/<request_id>` after `turn_end`.
  *
- * Idempotency on this exact id buys gateway-side dedupe for pi-ai's own
- * retries on transient 5xx — the gateway collapses both attempts onto the
- * same usage row and bills the team once.
+ * The id MUST be globally unique per outbound call. `outboundTurn` is a
+ * per-`runSession` counter that resets to 0 on every resume, so a key of just
+ * `agent:<session>:<turn>` collides across turns: the first model call of
+ * every follow-up reuses `agent:<session>:1`, which the gateway already has
+ * cached under its 24h Idempotency-Key window from the session's first turn.
+ * The gateway then replays that stale response instead of calling the model,
+ * so the follow-up turn ends instantly with no output (0 tokens). The
+ * per-call `randomUUID()` nonce keeps the id unique across resumes while
+ * staying stable within a single call — pi-ai's SDK-level retries on
+ * transient 5xx reuse these same headers, so the gateway still collapses one
+ * call's retries onto a single billed usage row.
  */
 function gatewayMetadataStreamFn(
     base: StreamFn,
@@ -1272,7 +1280,7 @@ function gatewayMetadataStreamFn(
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
-        const requestId = `agent:${sessionId}:${outboundTurn}`
+        const requestId = `agent:${sessionId}:${outboundTurn}:${randomUUID()}`
         turnRequestIds.set(outboundTurn, requestId)
         const headers = {
             ...gatewayHeaders,
