@@ -42,7 +42,7 @@ from posthog.hogql.direct_connection import (
     validate_direct_mysql_source_config,
     validate_direct_postgres_source_config,
 )
-from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -1069,8 +1069,10 @@ class HogQLQueryExecutor:
                 if prepared_execution.engine == "direct_sql":
                     if self.direct_dialect == "mysql":
                         self._execute_direct_mysql_query()
-                    else:
+                    elif self.direct_dialect == "postgres":
                         self._execute_direct_postgres_query()
+                    else:
+                        raise InternalHogQLError(f"Unsupported direct SQL dialect: {self.direct_dialect}")
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []
