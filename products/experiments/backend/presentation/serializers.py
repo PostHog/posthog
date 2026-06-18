@@ -33,7 +33,12 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricsRecalculation,
+    experiment_has_legacy_metrics,
+)
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -196,6 +201,13 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "feature_flag.active, not stored), 'stopped' (ended)."
         ),
     )
+    is_legacy = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or "
+            "ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support "
+            "them, such as duplicate and copy-to-project."
+        ),
+    )
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
@@ -204,6 +216,16 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
     @extend_schema_field(MinimalFeatureFlagSerializer)
     def get_feature_flag(self, obj):
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_legacy(self, obj: Experiment) -> bool:
+        # The list queryset annotates is_legacy_annotation in SQL so the heavy metric columns stay
+        # deferred (see EnterpriseExperimentsViewSet.safely_get_queryset / list_is_legacy_annotation).
+        # On other paths (detail) the metrics are loaded, so fall back to computing it directly.
+        annotated = getattr(obj, "is_legacy_annotation", None)
+        if annotated is not None:
+            return annotated
+        return experiment_has_legacy_metrics(obj)
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -316,6 +338,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
+            "is_legacy",
             "user_access_level",
         ]
         read_only_fields = [
@@ -567,6 +590,7 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "conclusion",
             "conclusion_comment",
             "status",
+            "is_legacy",
             "user_access_level",
         ]
         # Shared fields take their definitions from ExperimentBaseSerializer, so their types

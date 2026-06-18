@@ -4740,6 +4740,8 @@ export interface Experiment {
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
+    /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
+    is_legacy?: boolean
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null

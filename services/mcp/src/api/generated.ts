@@ -20207,6 +20207,8 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -20284,6 +20286,8 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -34852,6 +34856,8 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable

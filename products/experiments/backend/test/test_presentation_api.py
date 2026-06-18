@@ -418,9 +418,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
     def test_list_query_defers_heavy_metric_columns(self) -> None:
-        # Omitting the metric fields lets the list query defer the heavy JSON columns — they must
-        # not be SELECTed from posthog_experiment. This is the perf payoff of ExperimentBasicSerializer
-        # / safely_get_queryset; if the defer regresses, these columns reappear in the SELECT.
+        # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
+        # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
+        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
+        # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
         self._create_experiment_with_action_metrics(0)
 
         with CaptureQueriesContext(connection) as ctx:
@@ -431,11 +433,61 @@ class TestExperimentCRUD(APILicensedTest):
             query["sql"] for query in ctx.captured_queries if 'FROM "posthog_experiment"' in query["sql"]
         ]
         self.assertTrue(experiment_selects, "expected at least one SELECT against posthog_experiment")
+        # Inspected by the is_legacy predicate, so allowed in the SQL (but not in the SELECT output).
+        predicate_columns = {"metrics", "metrics_secondary"}
         for sql in experiment_selects:
             for column in LIST_DEFERRED_FIELDS:
+                if column in predicate_columns:
+                    continue
                 # Table-qualified so a same-named column on a joined table (e.g. feature_flag.filters)
                 # doesn't trigger a false positive.
                 self.assertNotIn(f'"posthog_experiment"."{column}"', sql)
+
+    def test_list_reports_is_legacy(self) -> None:
+        # is_legacy must survive the metric omission — it's computed in SQL on the list path so the
+        # frontend badge/duplicate/copy guards keep working without loading the deferred metric JSON.
+        # Cover the inline-metric path and the saved-metric (EXISTS) path, plus a non-legacy control.
+        non_legacy, action = self._create_experiment_with_action_metrics(0)
+
+        legacy_inline = Experiment.objects.create(
+            team=self.team,
+            name="Legacy inline",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-inline", created_by=self.user),
+            created_by=self.user,
+            metrics=[{"kind": "ExperimentTrendsQuery"}],
+        )
+
+        legacy_via_saved = Experiment.objects.create(
+            team=self.team,
+            name="Legacy via saved metric",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-saved", created_by=self.user),
+            created_by=self.user,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+        legacy_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Legacy saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentFunnelsQuery"},
+        )
+        ExperimentToSavedMetric.objects.create(experiment=legacy_via_saved, saved_metric=legacy_saved_metric)
+
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+        by_id = {r["id"]: r for r in results}
+
+        self.assertFalse(by_id[non_legacy.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_inline.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_via_saved.id]["is_legacy"])
+
+    def test_detail_reports_is_legacy(self) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        Experiment.objects.filter(pk=experiment.pk).update(metrics=[{"kind": "ExperimentTrendsQuery"}])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_legacy"])
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer

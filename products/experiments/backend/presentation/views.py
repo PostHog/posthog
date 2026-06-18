@@ -13,7 +13,7 @@ import asyncio
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.db.models import Prefetch, QuerySet
+from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
 import posthoganalytics
@@ -44,6 +44,7 @@ from products.experiments.backend.llm_metric_templates import build_template, li
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
@@ -110,6 +111,31 @@ def flag_evaluation_contexts_prefetch() -> Prefetch:
     return Prefetch(
         "feature_flag__flag_evaluation_contexts",
         queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+    )
+
+
+def list_is_legacy_annotation() -> Case:
+    """DB-side `is_legacy` for the list endpoint, mirroring ``experiment_has_legacy_metrics`` in SQL.
+
+    The list serializer omits metrics, so it can't compute legacy-ness in Python without
+    re-reading the deferred JSON columns (one query per row). Instead we annotate the flag in the
+    single list query: a JSONB containment check on the inline metrics plus an ``EXISTS`` over the
+    saved metrics. The metric columns are referenced only in the predicate, so they stay out of the
+    SELECT output and the response — the deferral still holds.
+    """
+    inline_legacy = Q()
+    for kind in LEGACY_METRIC_KINDS:
+        inline_legacy |= Q(metrics__contains=[{"kind": kind}]) | Q(metrics_secondary__contains=[{"kind": kind}])
+    saved_legacy = Exists(
+        ExperimentToSavedMetric.objects.filter(
+            experiment=OuterRef("pk"),
+            saved_metric__query__kind__in=LEGACY_METRIC_KINDS,
+        )
+    )
+    return Case(
+        When(inline_legacy | saved_legacy, then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
     )
 
 
@@ -317,11 +343,13 @@ class EnterpriseExperimentsViewSet(
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
-            # own values_list/queries, so it is unaffected by the defer.
+            # own values_list/queries, so it is unaffected by the defer. is_legacy is computed in
+            # SQL (see list_is_legacy_annotation) so the badge/guards survive without loading metrics.
             queryset = (
                 queryset.prefetch_related(None)
                 .prefetch_related(flag_evaluation_contexts_prefetch())
                 .defer(*LIST_DEFERRED_FIELDS)
+                .annotate(is_legacy_annotation=list_is_legacy_annotation())
             )
         service = ExperimentService(team=self.team, user=getattr(request, "user", None))
         return service.filter_experiments_queryset(
