@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -98,6 +99,46 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
     return sql, dict(context.values)
+
+
+# Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
+# recompiles it on every stats/preview render, so cache the result in the shared Django cache
+# (Redis). Keyed by request id and guarded by the predicate text it was compiled from, so a
+# changed predicate never serves a stale fragment even if explicit invalidation is missed. The
+# destructive Dagster deletion path deliberately calls ``compile_hogql_predicate`` directly
+# (never this) so the actual mutation is always built from a freshly compiled predicate.
+_COMPILED_PREDICATE_CACHE_PREFIX = "data_deletion:compiled_predicate:"
+_COMPILED_PREDICATE_CACHE_TTL = 60 * 60 * 24  # 1 day; admin-only, a brief staleness window is fine
+
+
+def _compiled_predicate_cache_key(request_id: object) -> str:
+    return f"{_COMPILED_PREDICATE_CACHE_PREFIX}{request_id}"
+
+
+def cached_compile_hogql_predicate(obj) -> tuple[str, dict]:
+    """Cache-backed ``compile_hogql_predicate`` for the Django admin's stats/preview rendering.
+
+    Only the informational admin path should use this. The Dagster deletion job compiles fresh via
+    ``compile_hogql_predicate`` so the mutation is never built from a stale fragment.
+    """
+    predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
+    if not predicate:
+        return "", {}
+    request_id = getattr(obj, "pk", None) or getattr(obj, "request_id", None)
+    if request_id is None:
+        return compile_hogql_predicate(obj)
+    key = _compiled_predicate_cache_key(request_id)
+    cached = cache.get(key)
+    if cached is not None and cached.get("source") == predicate:
+        return cached["sql"], cached["params"]
+    sql, params = compile_hogql_predicate(obj)
+    cache.set(key, {"source": predicate, "sql": sql, "params": params}, _COMPILED_PREDICATE_CACHE_TTL)
+    return sql, params
+
+
+def invalidate_compiled_predicate_cache(request_id: object) -> None:
+    """Drop the cached compiled predicate. Called when a request's deletion criteria change."""
+    cache.delete(_compiled_predicate_cache_key(request_id))
 
 
 def event_match_sql_fragment(obj) -> str:
@@ -326,8 +367,19 @@ class DataDeletionRequest(UUIDModel):
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        # Snapshot the persisted team_id so clean() can reject attempts to retarget an existing
+        # request at a different team.
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_team_id = instance.team_id
+        return instance
+
     def clean(self) -> None:
         super().clean()
+        loaded_team_id = getattr(self, "_loaded_team_id", None)
+        if loaded_team_id is not None and self.team_id != loaded_team_id:
+            raise ValidationError({"team_id": "team_id cannot be changed after the request is created."})
         if self.request_type == RequestType.EVENT_REMOVAL:
             self._clean_event_removal()
         elif self.request_type == RequestType.PROPERTY_REMOVAL:
