@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -349,6 +350,56 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check error reporting', () => {
+        it('does not capture an exception for expected network/CORS failures', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    // Browsers throw a TypeError for CORS/network failures on fetch.
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            // Telemetry is preserved for visibility.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'network_or_cors' })
+            )
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('captures an exception for genuinely unexpected failures', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    // A non-ok response classifies as http_error — an unexpected failure mode.
+                    return Promise.resolve({ ok: false, status: 500 })
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+            )
+            captureExceptionSpy.mockRestore()
         })
     })
 

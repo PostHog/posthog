@@ -659,13 +659,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // network_or_cors and timeout are the expected failure modes for non-Cloud
+            // uiHosts behind CORS-blocking reverse proxies — the toolbar handles them
+            // gracefully (auth status -> error, config modal). Keep the telemetry below
+            // for visibility, but don't escalate to error tracking; only genuinely
+            // unexpected error types are worth a captured exception.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
