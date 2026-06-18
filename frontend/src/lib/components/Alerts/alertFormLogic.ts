@@ -79,6 +79,9 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
+/** The insight query kind an alert is built for; selects the default config type for new alerts. */
+export type InsightAlertKind = 'trends' | 'hogql'
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
@@ -86,7 +89,7 @@ export interface AlertFormLogicProps {
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
-    insightAlertKind?: 'hogql' | 'trends'
+    insightAlertKind?: InsightAlertKind
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {

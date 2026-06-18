@@ -6,8 +6,6 @@ from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
-EMPTY_RESULT_LABEL = "empty result"
-
 
 @dataclass
 class SeriesPoint:
@@ -52,7 +50,7 @@ def zero_sentinel_series() -> ComparableSeries:
     """The shared empty-result sentinel: two zero points so relative conditions compute
     0 - 0 = 0 rather than skipping for lack of a previous point; absolute reads 0 at the anchor."""
     return ComparableSeries(
-        label=EMPTY_RESULT_LABEL,
+        label="empty result",
         points=[SeriesPoint(date=None, value=0.0), SeriesPoint(date=None, value=0.0)],
         current_index=1,
     )

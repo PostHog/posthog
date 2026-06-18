@@ -4,9 +4,8 @@ import { router } from 'kea-router'
 import { IconBell } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
@@ -23,8 +22,7 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const { push } = useActions(router)
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
     const { alerts } = useValues(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hogqlAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
 
     const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled })
     // List only the insight types this account can actually alert on — naming a flag-gated type the

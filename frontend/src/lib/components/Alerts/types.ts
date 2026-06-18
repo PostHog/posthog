@@ -19,6 +19,11 @@ export const isTrendsAlertConfig = (config: AlertConfig | null | undefined): con
 export const isHogQLAlertConfig = (config: AlertConfig | null | undefined): config is HogQLAlertConfig =>
     config?.type === 'HogQLAlertConfig'
 
+/** SQL alert in any-row mode: every result row is checked (one entity per row), which changes
+ * row labeling and history rendering versus the single-value modes. */
+export const isAnyRowHogQLConfig = (config: AlertConfig | null | undefined): boolean =>
+    isHogQLAlertConfig(config) && config.evaluation === 'any_row'
+
 // Capability helpers — read at call sites instead of bare `isTrendsAlertConfig`/`isHogQLAlertConfig`
 // checks, so the intent ("does this alert kind support X") is explicit. Kept separate even where
 // they coincide today (all trends-only) because the capabilities are independent and may diverge.

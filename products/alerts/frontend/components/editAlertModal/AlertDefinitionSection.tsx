@@ -13,7 +13,7 @@ import {
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { AlertSimulationResult, isHogQLAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import { AlertSimulationResult, isAnyRowHogQLConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -55,7 +55,7 @@ export interface AlertDefinitionSectionProps {
 
 /** Whether the form's SQL alert config is in any-row mode (every row checked, not just the last). */
 function isHogQLAnyRow(alertForm: AlertFormType): boolean {
-    return isHogQLAlertConfig(alertForm.config) && alertForm.config.evaluation === 'any_row'
+    return isAnyRowHogQLConfig(alertForm.config)
 }
 
 export function AlertDefinitionSection({

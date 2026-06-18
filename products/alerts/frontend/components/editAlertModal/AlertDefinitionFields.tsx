@@ -5,7 +5,7 @@ import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isHogQLAlertConfig } from 'lib/components/Alerts/types'
+import { isAnyRowHogQLConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -77,7 +77,7 @@ export function HogQLDefinitionFields({
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const hasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
-    const isAnyRow = isHogQLAlertConfig(alertForm.config) && alertForm.config.evaluation === 'any_row'
+    const isAnyRow = isAnyRowHogQLConfig(alertForm.config)
     return (
         <>
             <div className="flex gap-3 items-center">

@@ -24,7 +24,7 @@ import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
-import { isHogQLAlertConfig } from '../types'
+import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
@@ -140,7 +140,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     const { selectAlertHistoryView, alertHistoryTablePageForward, alertHistoryTablePageBackward } = useActions(logic)
 
     const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
-    const isAnyRowSqlAlert = isHogQLAlertConfig(alert?.config) && alert?.config?.evaluation === 'any_row'
+    const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
