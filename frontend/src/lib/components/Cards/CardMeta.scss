@@ -206,10 +206,9 @@
     transition: opacity 150ms ease;
 }
 
-// :focus-visible (not :focus-within) so a mouse click doesn't keep the icon pinned visible
-// after the pointer leaves — keyboard focus still reveals it.
-.CardMeta:hover .CardMeta__refresh,
-.CardMeta__refresh:focus-visible {
+// Strictly hover — no focus reveal, so clicking the icon doesn't pin it visible after the
+// pointer leaves. Keyboard users still reach refresh via the always-present "⋯" menu.
+.CardMeta:hover .CardMeta__refresh {
     opacity: 1;
     pointer-events: auto;
 }
