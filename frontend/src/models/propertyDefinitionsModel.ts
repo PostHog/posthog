@@ -523,7 +523,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             // Tear down any in-flight request and scheduled value-refresh polls before clearing,
             // so a late response can't write back into the cleared cache for the previous team
             actions.abortAnyRunningQuery()
-            for (const key of Array.from(cache.disposables?.registry.keys() ?? [])) {
+            for (const key of Array.from<string>(cache.disposables?.registry.keys() ?? [])) {
                 if (key.startsWith(POLL_DISPOSABLE_KEY_PREFIX)) {
                     cache.disposables.dispose(key)
                 }
