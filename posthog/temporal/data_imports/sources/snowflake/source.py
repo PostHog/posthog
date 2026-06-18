@@ -196,6 +196,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            # Snowflake error 250001 (08001): the supplied username or password is wrong, so the
+            # connector's login is rejected at connect time. Retrying can never succeed until the
+            # customer corrects the credentials. The codes, account id, and host in the message are
+            # volatile, so we match on the stable trailing phrase.
+            "Incorrect username or password was specified": "Snowflake rejected the login because the username or password is incorrect. Please check your Snowflake username and password (or switch to key-pair authentication), then resync.",
             # Snowflake error 000904 (42000): the table or view we select from references a column
             # that no longer exists — typically a stale view definition or a column dropped/renamed
             # in the source schema. We only run `SELECT ... FROM IDENTIFIER(%s)`, so the bad identifier
