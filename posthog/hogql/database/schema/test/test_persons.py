@@ -488,3 +488,109 @@ class TestVirtualFieldDetection(APIBaseTest):
 
         result = _is_virtual_field_requiring_join(mock_node)  # type: ignore
         self.assertFalse(result, "Malformed AST should return False without exception")
+
+
+class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
+    """`tupleElement(argMax(tuple(X), version), 1)` is simplified to `argMax(X, version)` only when X
+    is non-nullable.
+
+    The tuple() wrap is load-bearing for nullable columns: ClickHouse `argMax(x, v)` returns the
+    closest *non-null* x, so over a nullable column it would return a stale earlier value instead of
+    the latest one when that latest value is NULL. Every correctness test below creates a person whose
+    LATEST version unsets a property and asserts the latest (NULL) value wins — which is exactly what
+    breaks if the wrap is wrongly dropped (the query would return the stale earlier value instead).
+    """
+
+    def _modifiers(self) -> HogQLQueryModifiers:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        return modifiers
+
+    def _person_unsetting_prop_in_latest_version(self, distinct_id: str, prop: str):
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[distinct_id],
+            properties={prop: "stale_old_value", "untouched": "keep"},
+            version=1,
+            created_at=datetime(2024, 1, 1, 12),
+        )
+        # Latest version no longer carries `prop`, so its value is NULL.
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(person.uuid),
+            properties={"untouched": "keep"},
+            version=2,
+            created_at=datetime(2024, 1, 1, 12),
+        )
+        flush_persons_and_events()
+        return person
+
+    @snapshot_clickhouse_queries
+    def test_nullable_json_property_keeps_wrap_and_latest_null_wins(self):
+        person = self._person_unsetting_prop_in_latest_version("json-null", "jsonprop")
+        response = execute_hogql_query(
+            parse_select("SELECT properties.jsonprop, properties.untouched FROM persons WHERE id = {pid}"),
+            self.team,
+            placeholders={"pid": ast.Constant(value=person.uuid)},
+            modifiers=self._modifiers(),
+        )
+        # The latest version unset jsonprop -> NULL must win. If the wrap were dropped, ClickHouse argMax
+        # would skip the NULL and return the stale earlier value instead.
+        assert response.results[0][0] is None
+        assert response.results[0][1] == "keep"
+        # And the SQL keeps the wrap because the JSON property read is nullable.
+        assert response.clickhouse is not None
+        assert "tupleElement(argMax(tuple(" in response.clickhouse
+        assert "JSONExtractRaw(person.properties" in response.clickhouse
+
+    @snapshot_clickhouse_queries
+    def test_non_nullable_columns_are_simplified(self):
+        person = self._person_unsetting_prop_in_latest_version("nonnull-cols", "jsonprop")
+        response = execute_hogql_query(
+            parse_select("SELECT id, created_at FROM persons WHERE id = {pid}"),
+            self.team,
+            placeholders={"pid": ast.Constant(value=person.uuid)},
+            modifiers=self._modifiers(),
+        )
+        assert response.clickhouse is not None
+        # is_deleted and created_at are non-nullable -> plain argMax, no tuple()/tupleElement() wrap.
+        assert "argMax(person.is_deleted, person.version)" in response.clickhouse
+        assert "tupleElement(argMax(tuple(person.is_deleted" not in response.clickhouse
+        assert "tupleElement(argMax(tuple(toTimeZone(person.created_at" not in response.clickhouse
+        assert str(person.uuid) == str(response.results[0][0])
+
+    @snapshot_clickhouse_queries
+    def test_nullable_materialized_property_keeps_wrap_and_latest_null_wins(self):
+        from ee.clickhouse.materialized_columns.analyze import materialize  # noqa: PLC0415
+
+        materialize("person", "matprop", is_nullable=True)
+        person = self._person_unsetting_prop_in_latest_version("mat-null", "matprop")
+        response = execute_hogql_query(
+            parse_select("SELECT properties.matprop FROM persons WHERE id = {pid}"),
+            self.team,
+            placeholders={"pid": ast.Constant(value=person.uuid)},
+            modifiers=self._modifiers(),
+        )
+        # The latest version unset matprop -> NULL must win, even though it is read from a materialized
+        # column. If the wrap were dropped, argMax would skip the NULL and return the stale earlier value.
+        assert response.results[0][0] is None
+        # The property reads the materialized column, but the nullable column stays wrapped.
+        assert response.clickhouse is not None
+        assert "pmat_matprop" in response.clickhouse
+        assert "tupleElement(argMax(tuple(" in response.clickhouse
+
+    @snapshot_clickhouse_queries
+    def test_event_person_override_person_id_is_simplified(self):
+        _create_event(event="$pageview", distinct_id="ovr", team=self.team)
+        flush_persons_and_events()
+        response = execute_hogql_query(
+            parse_select("SELECT person_id FROM events WHERE event = '$pageview'"),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        # The person-overrides subquery argMaxes a non-nullable person_id -> simplified.
+        assert (
+            "argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version)"
+            in response.clickhouse
+        )
+        assert "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id" not in response.clickhouse

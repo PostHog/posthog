@@ -36,7 +36,10 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.type_aware_simplification import (
+    simplify_argmax_over_non_nullable,
+    simplify_redundant_type_operations,
+)
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -258,6 +261,14 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    # Drop the tuple()/tupleElement() wrapping that argmax_select adds around argMax for any column the
+    # type system proves non-nullable. Runs last, after lazy-table expansion, property swapping/resolution,
+    # and cohort joins, so every inner expression is in its final form (physical column or JSON extract)
+    # with a trustworthy resolved nullability. ClickHouse-only — argMax doesn't exist in the other dialects.
+    if dialect == "clickhouse":
+        with context.timings.measure("simplify_argmax_over_non_nullable"):
+            node = simplify_argmax_over_non_nullable(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
