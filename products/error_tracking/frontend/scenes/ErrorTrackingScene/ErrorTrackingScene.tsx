@@ -99,6 +99,7 @@ const IssuesTab = (): JSX.Element => {
                     <div className="relative">
                         <SearchBarVariantToggle />
                         <FilterBar
+                            variant="inline"
                             reload={<IssueReloadButton />}
                             logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                             quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
