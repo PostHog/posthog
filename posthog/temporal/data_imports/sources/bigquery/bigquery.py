@@ -266,34 +266,6 @@ def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     return dataset_project_id if dataset_project_id is not None else _resolve_project_id(config)
 
 
-@contextlib.contextmanager
-def bigquery_client(
-    project_id: str,
-    location: str | None,
-    credentials: google_auth_credentials.Credentials,
-) -> typing.Iterator[bigquery.Client]:
-    """Manage a BigQuery client."""
-    project_id = _normalize_identifier(project_id)
-    # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
-    # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
-    # call is logged and metered alongside the other warehouse sources.
-    authed_session = AuthorizedSession(credentials)
-    tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
-    authed_session.mount("https://", tracked_adapter)
-    authed_session.mount("http://", tracked_adapter)
-    client = bigquery.Client(
-        project=project_id,
-        location=location,
-        credentials=credentials,
-        _http=authed_session,
-    )
-
-    try:
-        yield client
-    finally:
-        client.close()
-
-
 def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int) -> BigQueryAuthInfo:
     if config.google_cloud_service_account_integration_id is not None:
         return _resolve_auth_from_integration(int(config.google_cloud_service_account_integration_id), team_id)
@@ -307,6 +279,7 @@ def bigquery_client(
     credentials: google_auth_credentials.Credentials,
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
+    project_id = _normalize_identifier(project_id)
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
