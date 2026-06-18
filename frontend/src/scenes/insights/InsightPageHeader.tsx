@@ -55,7 +55,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
-    const { openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
+    const { openAddToDashboardModal, openAddToDashboardModalAfterSave } = useActions(
+        insightModalsLogic(insightLogicProps)
+    )
 
     // B branch of the add-to-dashboard A/A/B test (control + control_2 keep current behavior).
     const isAddToDashboardTest = useFeatureFlag('INSIGHT_ADD_TO_DASHBOARD_AAB', 'test')
@@ -232,13 +234,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                                 // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
                                 // insight id, so saving a brand-new insight navigates to its real id and re-keys the
-                                // modal logic, dropping the open state. Saved insights keep the same key, so opening the
-                                // modal right after the in-place save is safe. New insights use the view-mode button.
+                                // modal logic, dropping the open state. New insights use the view-mode button instead.
+                                // The modal opens on save success (not synchronously) so the save response can't
+                                // overwrite a dashboard the user adds while the save is still in flight.
                                 onSaveAndAddToDashboard={
                                     isAddToDashboardTest && isSavedInsight
                                         ? () => {
+                                              openAddToDashboardModalAfterSave()
                                               saveInsightToFolder(false)
-                                              openAddToDashboardModal()
                                           }
                                         : undefined
                                 }
