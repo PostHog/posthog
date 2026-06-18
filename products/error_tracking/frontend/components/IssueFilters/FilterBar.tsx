@@ -236,41 +236,45 @@ const BarContents = ({
             )}
             {!isInline && <Separator />}
             <div className={cn('flex-1 min-w-0 flex items-center flex-wrap gap-1', !isInline && 'px-1')}>
-                <TaxonomicFilterMenu
-                    placeholder={
-                        showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
-                    }
-                    comboboxLeadingEntries={searchEntries}
-                    extraMenuItems={({ close }) => (
-                        <>
-                            {showIssueControls && (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <IssueControlMenuItems close={close} />
-                                </>
-                            )}
-                            {quickFilterContext && (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <QuickFilterMenuItems context={quickFilterContext} logicKey={logicKey} />
-                                </>
-                            )}
-                            <DropdownMenuSeparator />
-                            <InternalUsersMenuItem />
-                        </>
-                    )}
-                    trigger={({ open }) => (
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            icon={<IconFilter />}
-                            active={open}
-                            tooltip={showSearch ? `Search and filter ${searchSubject}` : 'Filter by property'}
-                        >
-                            {isInline ? 'Filter' : undefined}
-                        </LemonButton>
-                    )}
-                />
+                {/* Inline variant uses the input trigger: a search box with the filter icon as a
+                    leading button — focusing/typing opens the combobox, the icon opens the menu. */}
+                <div className={cn(isInline ? 'w-[28rem] max-w-full' : 'contents')}>
+                    <TaxonomicFilterMenu
+                        triggerVariant={isInline ? 'input' : 'button'}
+                        fullWidthTrigger={isInline}
+                        placeholder={
+                            showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
+                        }
+                        comboboxLeadingEntries={searchEntries}
+                        extraMenuItems={({ close }) => (
+                            <>
+                                {showIssueControls && (
+                                    <>
+                                        <DropdownMenuSeparator />
+                                        <IssueControlMenuItems close={close} />
+                                    </>
+                                )}
+                                {quickFilterContext && (
+                                    <>
+                                        <DropdownMenuSeparator />
+                                        <QuickFilterMenuItems context={quickFilterContext} logicKey={logicKey} />
+                                    </>
+                                )}
+                                <DropdownMenuSeparator />
+                                <InternalUsersMenuItem />
+                            </>
+                        )}
+                        trigger={({ open }) => (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={<IconFilter />}
+                                active={open}
+                                tooltip={showSearch ? `Search and filter ${searchSubject}` : 'Filter by property'}
+                            />
+                        )}
+                    />
+                </div>
                 <FilterOperatorToggle />
                 {showIssueControls && <IssueFilterChips />}
                 <InternalUsersChip />

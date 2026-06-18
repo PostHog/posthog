@@ -100,6 +100,7 @@ const IssuesTab = (): JSX.Element => {
                         <SearchBarVariantToggle />
                         <FilterBar
                             variant="inline"
+                            searchSubject="exceptions"
                             reload={<IssueReloadButton />}
                             logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                             quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
@@ -136,6 +137,7 @@ const IssuesRedesignedTab = (): JSX.Element => {
                     toolbar={
                         <FilterBar
                             variant="inline"
+                            searchSubject="exceptions"
                             reload={<IssueReloadButton />}
                             logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                             quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
