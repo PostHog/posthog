@@ -95,6 +95,19 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
 
+    def test_empty_model_output_skips_without_persisting(self) -> None:
+        # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
+        # to the idempotency guard and re-bill the LLM on every retry.
+        self._observation("something")
+        action = self._action()
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run, llm_content="   \n  ")
+
+        self.assertEqual(result.status, SynthesisStatus.SKIPPED_EMPTY)
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown, "")
+
     def test_idempotent_when_already_synthesized(self) -> None:
         self._observation("something")
         action = self._action()

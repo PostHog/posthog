@@ -92,6 +92,12 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
     markdown = _run_synthesis(team, action, lines)
+    if not markdown.strip():
+        # The model returned nothing. Skip without persisting — an empty `synthesized_markdown` would
+        # read as "not done" to the idempotency guard above and re-bill the LLM on every retry.
+        logger.warning("vision_action.synthesis.empty_output", vision_action_id=str(action.id))
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
+
     markdown = strip_external_links_markdown(markdown)
     slack_text = _markdown_to_slack(markdown)
 
