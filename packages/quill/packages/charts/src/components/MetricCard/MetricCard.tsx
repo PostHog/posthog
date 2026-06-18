@@ -136,7 +136,9 @@ function MetricCardInner({
     const showHeader = title != null || headerDelta != null
     const headerJustify = title != null ? 'justify-between' : 'justify-end'
     const renderedHeadline = (
-        <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
+        <div className={`text-4xl font-bold tracking-tight tabular-nums${showHeader ? ' mt-2' : ''}`}>
+            {headlineDisplay}
+        </div>
     )
 
     return (

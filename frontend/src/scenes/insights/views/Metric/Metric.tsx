@@ -64,7 +64,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const labels = resultSeries.days?.map((day) => formatDate(dayjs(day))) ?? resultSeries.labels
 
     return (
-        <div className={clsx('Metric ph-no-capture flex flex-col w-full p-4', inCardView && 'flex-1')}>
+        <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
             <MetricCard
                 className={inCardView ? 'flex-1' : undefined}
                 sparklineFill={inCardView}
@@ -83,7 +83,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 showChange={showChange}
                 formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
                 sparklineHeight={120}
-                sparklineClassName="mt-4 -mx-4"
+                sparklineClassName="mt-4 -mx-2"
                 dataAttr="metric-value"
             />
         </div>
