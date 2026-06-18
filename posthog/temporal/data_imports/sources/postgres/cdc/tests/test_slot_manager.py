@@ -131,21 +131,18 @@ class TestGetMaxSlotWalKeepSizeMb:
 
 
 class TestGetPublicationTables:
-    def test_returns_schema_qualified_tables(self):
+    @parameterized.expand(
+        [
+            ("with_tables", [("public", "orders"), ("analytics", "events")], ["public.orders", "analytics.events"]),
+            ("empty_publication", [], []),
+        ]
+    )
+    def test_returns_schema_qualified_tables(self, _name, fetchall, expected):
         conn, cursor = _mock_conn()
-        cursor.fetchall.return_value = [("public", "orders"), ("analytics", "events")]
+        cursor.fetchall.return_value = fetchall
 
-        tables = get_publication_tables(conn, pub_name="my_pub")
-
-        assert tables == ["public.orders", "analytics.events"]
-        sql_str = str(cursor.execute.call_args[0][0])
-        assert "pg_publication_tables" in sql_str
-
-    def test_empty_publication(self):
-        conn, cursor = _mock_conn()
-        cursor.fetchall.return_value = []
-
-        assert get_publication_tables(conn, pub_name="my_pub") == []
+        assert get_publication_tables(conn, pub_name="my_pub") == expected
+        assert "pg_publication_tables" in str(cursor.execute.call_args[0][0])
 
 
 class TestRemoveTableFromPublication:
