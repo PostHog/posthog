@@ -19,6 +19,7 @@ import os
 import re
 import logging
 from typing import TYPE_CHECKING, TypedDict
+from uuid import UUID
 
 import duckdb
 import psycopg
@@ -237,6 +238,36 @@ def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer
         return DuckgresServer.objects.get(organization_id=organization_id)
     except DuckgresServer.DoesNotExist:
         return None
+
+
+def upsert_duckgres_server_for_org(
+    organization_id: str | UUID,
+    *,
+    host: str,
+    port: int,
+    database: str,
+    username: str,
+    password: str,
+) -> DuckgresServer:
+    """Create or update the org's DuckgresServer connection row.
+
+    Called at managed-warehouse provision time so the org is immediately backfill-ready:
+    the Dagster duckling backfill resolves its connection from this row (via
+    get_duckgres_config_for_org). Idempotent — re-provisioning updates the existing row.
+    """
+    from posthog.ducklake.models import DuckgresServer
+
+    server, _ = DuckgresServer.objects.update_or_create(
+        organization_id=organization_id,
+        defaults={
+            "host": host,
+            "port": port,
+            "database": database,
+            "username": username,
+            "password": password,
+        },
+    )
+    return server
 
 
 # Managed-warehouse S3 bucket naming. The bucket is created by the duckgres Crossplane
