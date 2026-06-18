@@ -5,11 +5,20 @@ allowed to import. Internal modules (query runners) stay behind this seam
 so import-linter's strict-mode contract holds.
 """
 
+import datetime as dt
 from typing import Any
 
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryClause, MetricQueryRequest, MetricSeries
+from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.facade.contracts import (
+    MetricAnomalyReport,
+    MetricFilter,
+    MetricPoint,
+    MetricQueryClause,
+    MetricQueryRequest,
+    MetricSeries,
+)
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
@@ -183,3 +192,41 @@ def list_metric_names(
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
     return runner.run()
+
+
+def characterize_metric_anomaly(
+    *,
+    team: Team,
+    metric_name: str,
+    anomaly_from: dt.datetime,
+    anomaly_to: dt.datetime,
+    baseline_from: dt.datetime | None = None,
+    baseline_to: dt.datetime | None = None,
+    aggregation: str | None = None,
+    quantile: float | None = None,
+    filters: tuple[MetricFilter, ...] = (),
+    candidate_keys: tuple[str, ...] | None = None,
+) -> MetricAnomalyReport:
+    """Characterize how a metric behaves in an anomaly window vs a baseline:
+    summary statistics, change magnitude/direction, the onset bucket, and
+    the label values that moved the most (drilling into up to four candidate
+    keys, auto-discovered from the metric's attributes when not given).
+
+    The baseline defaults to the window of equal length immediately before
+    `anomaly_from`. `aggregation` defaults by the metric's OTel type
+    (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
+    Raises `ValueError` for invalid windows/aggregations — the presentation
+    layer surfaces these as 400s.
+    """
+    return _characterize_anomaly(
+        team=team,
+        metric_name=metric_name,
+        anomaly_from=anomaly_from,
+        anomaly_to=anomaly_to,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=filters,
+        candidate_keys=candidate_keys,
+    )

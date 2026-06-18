@@ -10,7 +10,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -155,16 +155,16 @@ const ExperimentsTableFilters = ({
                     <span className="ml-1">
                         <b>Created by</b>
                     </span>
-                    <MemberSelect
+                    <MemberMultiSelect
                         defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
+                        value={filters.created_by_id ?? []}
                         size="xsmall"
-                        onChange={(user) => {
-                            if (!user) {
+                        onChange={(userIds) => {
+                            if (!userIds.length) {
                                 const { created_by_id, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ created_by_id: user.id, page: 1 })
+                                onFiltersChange({ created_by_id: userIds, page: 1 })
                             }
                         }}
                     />
@@ -279,7 +279,7 @@ const ExperimentsTable = ({
             key: 'remaining_time',
             width: 80,
             render: function Render(_, experiment: Experiment) {
-                const remainingDays = experiment.parameters?.recommended_running_time
+                const remainingDays = experiment.running_time_calculation?.recommended_running_time
                 const daysElapsed = experiment.start_date
                     ? dayjs().diff(dayjs(experiment.start_date), 'day')
                     : undefined

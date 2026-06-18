@@ -1,4 +1,3 @@
-import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
@@ -8,6 +7,7 @@ import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { finder } from '~/toolbar/vendor/finder'
 import { ActionStepType } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
@@ -166,6 +166,14 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                 // that aren't in the PostHog preferred list - they were returned early above
                 return name.startsWith('data-')
             },
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {

@@ -1,3 +1,5 @@
+import { isOAuthMode } from 'lib/oauth/oauthClient'
+
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
 
 declare global {
@@ -8,6 +10,11 @@ declare global {
 }
 
 export function getAppContext(): AppContext | undefined {
+    // When logged into a remote cloud region over OAuth, ignore the local backend's
+    // server-rendered context so the whole app bootstraps from the remote region instead.
+    if (isOAuthMode()) {
+        return undefined
+    }
     return window.POSTHOG_APP_CONTEXT || undefined
 }
 

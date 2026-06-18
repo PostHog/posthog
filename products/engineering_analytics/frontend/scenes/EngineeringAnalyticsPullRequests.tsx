@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import {
     LemonButton,
@@ -7,6 +7,7 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -16,10 +17,11 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { StatCard } from '../components/StatCard'
@@ -39,7 +41,6 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         filteredPullRequests,
         pullRequestsLoading,
         tableTruncated,
-        loadFailed,
         stateFilter,
         author,
         repo,
@@ -49,12 +50,31 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         repoOptions,
         hasActiveFilters,
         activeCard,
+        sourceId,
+        notConnected,
+        pullRequestsLoadError,
+        costLensEnabled,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
-        useActions(engineeringAnalyticsLogic)
+    const {
+        setStateFilter,
+        setAuthor,
+        setRepo,
+        setCiStatusFilter,
+        setSearch,
+        resetFilters,
+        applyCardFilter,
+        setCostLensEnabled,
+        refresh,
+    } = useActions(engineeringAnalyticsLogic)
 
-    if (loadFailed) {
+    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
+    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
+    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
+    if (notConnected) {
         return <ConnectGitHubSource />
+    }
+    if (pullRequestsLoadError) {
+        return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
     const failingPct =
@@ -131,6 +151,52 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 </span>
             ),
         },
+        // Cost & performance lens: friction signals available today (pushes / re-runs) plus the cost
+        // scaffold ("pending" until the job-level warehouse source lands).
+        ...(costLensEnabled
+            ? ([
+                  {
+                      title: 'Pushes',
+                      key: 'pushes',
+                      width: 90,
+                      align: 'right',
+                      tooltip:
+                          'Distinct head commits that triggered CI for this PR (all-time, not windowed). Fork PRs are unattributed.',
+                      sorter: (a, b) => a.pushes - b.pushes,
+                      render: (_, row) => (
+                          <span className="text-xs tabular-nums">{humanFriendlyNumber(row.pushes)}</span>
+                      ),
+                  },
+                  {
+                      title: 'Re-runs',
+                      key: 'rerunCycles',
+                      width: 90,
+                      align: 'right',
+                      tooltip: 'Workflow runs on this PR that were a 2nd+ attempt (a re-run).',
+                      sorter: (a, b) => a.rerunCycles - b.rerunCycles,
+                      render: (_, row) => (
+                          <span className="text-xs tabular-nums">
+                              {row.rerunCycles > 0 ? humanFriendlyNumber(row.rerunCycles) : '—'}
+                          </span>
+                      ),
+                  },
+                  {
+                      title: 'Est. cost',
+                      key: 'estimatedCostUsd',
+                      width: 110,
+                      align: 'right',
+                      tooltip: 'Estimated Depot CI cost. Lands with job-level CI data — not available yet.',
+                      render: (_, row) =>
+                          row.estimatedCostUsd == null ? (
+                              <LemonTag type="muted">pending</LemonTag>
+                          ) : (
+                              <span className="text-xs tabular-nums">
+                                  {humanFriendlyCurrency(row.estimatedCostUsd)}
+                              </span>
+                          ),
+                  },
+              ] as LemonTableColumns<PullRequestRow>)
+            : []),
     ]
 
     return (
@@ -216,6 +282,14 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                         data-attr="engineering-analytics-author-filter"
                     />
                 </div>
+                <LemonSwitch
+                    label="Cost & performance lens"
+                    checked={costLensEnabled}
+                    onChange={setCostLensEnabled}
+                    size="small"
+                    bordered
+                    data-attr="engineering-analytics-cost-lens"
+                />
             </div>
 
             <LemonTable
@@ -226,7 +300,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 rowKey={prKeyOf}
                 loading={pullRequestsLoading}
                 onRow={(row) => {
-                    const detailUrl = urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number)
+                    // Carry the selected source so the PR's detail page reads the same one.
+                    const detailUrl = combineUrl(
+                        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
+                        sourceId ? { source: sourceId } : {}
+                    ).url
                     return {
                         // Inner links (PR title → GitHub) keep their own behavior.
                         onClick: (e: React.MouseEvent) => {

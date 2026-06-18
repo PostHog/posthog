@@ -233,25 +233,45 @@ class SummarisedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        fetch_limit = ((offset or 0) + (limit or 50)) * 2
-        query = RecordingsQuery(limit=fetch_limit, order=RecordingOrder.RECORDING_TTL)
+    """
+    Surfaces recordings whose retention window ends within the next 10 days.
+    The expiry window is computed in Python over a ClickHouse scan ordered by TTL,
+    so the filtered session ids are cached for 1 hour and shared by the count and
+    pagination paths to avoid re-scanning on every list load.
+    """
+
+    CACHE_KEY_PREFIX = "expiring_synthetic_playlist"
+    CACHE_TTL = 3600  # 1 hour
+    EXPIRY_WINDOW_DAYS = 10
+    SCAN_LIMIT = 10000
+
+    @staticmethod
+    def _get_cache_key(team_id: int) -> str:
+        return f"{ExpiringPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _get_expiring_session_ids(team: Team, user: User) -> list[str]:
+        cache_key = ExpiringPlaylistSource._get_cache_key(team.pk)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
+
+        query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
         recordings, _, _, _ = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
-        ten_days_from_now = now + timedelta(days=10)
+        window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
-        result = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= ten_days_from_now]
-        return self._paginate_list(result, limit, offset)
+        session_ids = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= window_end]
+        cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
+        return session_ids
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        session_ids = self._get_expiring_session_ids(team, user)
+        return self._paginate_list(session_ids, limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
-        query = RecordingsQuery(limit=10000, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _, _ = list_recordings_from_query(query, user, team)
-
-        now = datetime.now(UTC)
-        ten_days_from_now = now + timedelta(days=10)
-
-        return sum(1 for r in recordings if r.expiry_time and now <= r.expiry_time <= ten_days_from_now)
+        return len(self._get_expiring_session_ids(team, user))
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
