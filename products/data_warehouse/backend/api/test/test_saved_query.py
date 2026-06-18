@@ -252,6 +252,51 @@ class TestSavedQuery(APIBaseTest):
             assert response.status_code == 400
             assert response.json()["detail"] == "Cannot materialize a query from a managed viewset."
 
+    def test_schedule_materialization_transient_error_does_not_disable(self):
+        """A transient Temporal connectivity blip must not silently disable a materialized view."""
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            is_materialized=True,
+            created_by=self.user,
+        )
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                side_effect=RuntimeError("Failed client connect: ConnectionReset"),
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                saved_query.schedule_materialization()
+
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is True
+
+    def test_schedule_materialization_genuine_error_disables(self):
+        """A genuine scheduling failure should still disable materialization for the view."""
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            is_materialized=True,
+            created_by=self.user,
+        )
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                side_effect=ValueError("invalid schedule spec"),
+            ),
+        ):
+            saved_query.schedule_materialization()
+
+        saved_query.refresh_from_db()
+        assert saved_query.is_materialized is False
+
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
             response = self.client.post(

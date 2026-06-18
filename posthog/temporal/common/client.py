@@ -1,16 +1,50 @@
+import asyncio
 import dataclasses
 from typing import Any
 
 from django.conf import settings as django_settings
 
+import structlog
 import temporalio.converter
 import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, TLSConfig
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.codec import EncryptionCodec
+
+logger = structlog.get_logger(__name__)
+
+# gRPC status codes that indicate a transient server/connectivity problem rather than a
+# permanent failure of the request itself — safe to retry or to treat as "leave state alone".
+_TRANSIENT_RPC_STATUS_CODES = frozenset(
+    {RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.ABORTED}
+)
+
+
+def is_transient_temporal_error(error: BaseException) -> bool:
+    """Whether an error from a Temporal call is a transient connectivity issue.
+
+    `Client.connect` surfaces transport-level failures (e.g. a connection reset) as a
+    `RuntimeError`, while in-flight RPCs raise `RPCError` carrying a gRPC status code. Both
+    can be momentary blips that should not be treated as permanent failures by callers.
+    """
+    if isinstance(error, RuntimeError):
+        return True
+    if isinstance(error, RPCError):
+        return error.status in _TRANSIENT_RPC_STATUS_CODES
+    return False
+
+
+# Bounded retry for the initial Temporal connection. A transient network blip (e.g. the
+# server resetting the connection mid-handshake) surfaces from `Client.connect` as a
+# `RuntimeError`, so we retry a few times with exponential backoff before giving up rather
+# than letting a momentary reset propagate to callers.
+CONNECT_MAX_ATTEMPTS = 4
+CONNECT_INITIAL_RETRY_DELAY = 0.5
+CONNECT_MAX_RETRY_DELAY = 4.0
 
 
 async def connect(
@@ -42,15 +76,34 @@ async def connect(
             payload_codec=EncryptionCodec.from_settings(settings=settings),
         )
 
-    client = await Client.connect(
-        f"{host}:{port}",
-        namespace=namespace,
-        tls=tls,
-        runtime=runtime,
-        interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
-        data_converter=data_converter,
-    )
-    return client
+    attempt = 0
+    while True:
+        try:
+            return await Client.connect(
+                f"{host}:{port}",
+                namespace=namespace,
+                tls=tls,
+                runtime=runtime,
+                interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
+                data_converter=data_converter,
+            )
+        except RuntimeError as e:
+            # `Client.connect` surfaces transport-level failures (e.g. a connection reset
+            # during the handshake) as RuntimeError. Retry these transient errors with
+            # backoff; give up once we exhaust our attempts.
+            attempt += 1
+            if attempt >= CONNECT_MAX_ATTEMPTS:
+                raise
+
+            delay = min(CONNECT_MAX_RETRY_DELAY, CONNECT_INITIAL_RETRY_DELAY * (2 ** (attempt - 1)))
+            logger.warning(
+                "temporal_client_connect_retry",
+                attempt=attempt,
+                max_attempts=CONNECT_MAX_ATTEMPTS,
+                delay=delay,
+                error=str(e),
+            )
+            await asyncio.sleep(delay)
 
 
 @async_to_sync

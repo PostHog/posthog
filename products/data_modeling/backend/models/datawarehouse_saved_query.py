@@ -24,6 +24,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import is_transient_temporal_error
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
 from products.warehouse_sources.backend.models.util import (
@@ -168,8 +169,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
 
-        If the workflow fails to schedule, it will disable materialization for this view.
-        This also guarantees model paths are properly created or updated.
+        If the workflow fails to schedule because of a genuine scheduling error, it will
+        disable materialization for this view. Transient Temporal connectivity errors are
+        re-raised instead so a momentary network blip does not silently disable a working
+        materialized view (which would otherwise require a manual re-enable via the
+        resume_schedule API). This also guarantees model paths are properly created or updated.
         """
         from products.data_warehouse.backend.data_load.saved_query_service import (
             saved_query_workflow_exists,
@@ -193,8 +197,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 error=str(e),
             )
 
-            # Disable materialization for this view if we failed to schedule the workflow
-            # We can re-enable schedules via the resume_schedule API endpoint
+            # A transient Temporal connectivity error is not a real scheduling failure — leave
+            # is_materialized untouched and re-raise so the caller can retry rather than
+            # silently disabling a materialized view that is still configured correctly.
+            if is_transient_temporal_error(e):
+                raise
+
+            # Genuine scheduling failure: disable materialization for this view.
+            # We can re-enable schedules via the resume_schedule API endpoint.
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
 

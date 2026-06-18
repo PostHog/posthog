@@ -920,9 +920,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query.is_materialized = True
         saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
 
-        # Enable materialization - this handles model path setup and schedule creation
-        # If this fails, it will set is_materialized = False
-        saved_query.schedule_materialization(unpause=should_unpause)
+        # Enable materialization - this handles model path setup and schedule creation.
+        # A genuine scheduling failure sets is_materialized = False; a transient Temporal
+        # connectivity error is re-raised instead (so it doesn't disable the view), which we
+        # surface as the same "try again" response without leaving the view half-enabled.
+        try:
+            saved_query.schedule_materialization(unpause=should_unpause)
+        except Exception:
+            saved_query.is_materialized = False
+            saved_query.save(update_fields=["is_materialized"])
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
         saved_query.refresh_from_db()
