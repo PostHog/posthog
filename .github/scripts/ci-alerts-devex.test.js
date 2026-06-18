@@ -102,6 +102,24 @@ const activeAnchor = (payload = {}) => ({
     },
 })
 
+// One failure that landed `redMins` ago, preceded by a green run. count=1 (below the streak
+// threshold), so this drives the wall-clock arm in isolation; redForMins == redMins.
+const failingFor = (redMins, name = 'Backend CI') => [
+    { name, conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
+    { name, conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
+]
+
+// A single commit `ageMins` old — drives recentActivity. No matching run SHA, so it classifies
+// 'unknown' and does not trip the commit-streak arm.
+const commitsAt = (ageMins) => [
+    {
+        sha: 'c0',
+        html_url: 'https://github.com/commit/c0',
+        author: { login: 'dev' },
+        commit: { message: 'c', author: { name: 'dev', date: minutes(-ageMins).toISOString() } },
+    },
+]
+
 function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     const outputs = {}
     const core = { setOutput: (k, v) => (outputs[k] = v), info: () => {}, warning: () => {} }
@@ -110,6 +128,9 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
         SLACK_CHANNEL: 'C0AS64N6DJL',
         GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml',
         WORKFLOW_FAILURE_STREAK_THRESHOLD: '5',
+        // Reset to production defaults every run so a per-test override can't leak via process.env.
+        WORKFLOW_FAILURE_MINUTES_THRESHOLD: '20',
+        ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         ...env,
     })
@@ -156,7 +177,7 @@ describe('ci-alerts-devex', () => {
             const thread = slack.postMessage.calls[1][0]
             assert.equal(thread.thread_ts, '111.222')
             assert.match(thread.text, /Backend CI/)
-            assert.match(thread.text, /crossed the failure threshold/)
+            assert.match(thread.text, /is now failing master/)
         })
     }
 
@@ -271,6 +292,60 @@ describe('ci-alerts-devex', () => {
         assert.equal(slack.postMessage.calls.length, 0)
         assert.equal(slack.update.calls.length, 0)
     })
+
+    it('opens via the wall-clock arm when red past the threshold and master is being pushed', async () => {
+        // 1 failure (below the 5-streak) but red 25m, recent push → time arm trips.
+        const github = createGithubMock(
+            { 'ci-backend.yml': failingFor(25), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: commitsAt(3) }
+        )
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /Backend CI/)
+        assert.match(body, /red for 25m/)
+        assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
+    })
+
+    it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {
+        const github = createGithubMock(
+            { 'ci-backend.yml': failingFor(2400), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: commitsAt(3000) }
+        )
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    it('keeps a stale-red incident open (updates, never resolves) once activity goes quiet', async () => {
+        const github = createGithubMock(
+            { 'ci-backend.yml': failingFor(2400), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: commitsAt(3000) }
+        )
+        const { slack, outputs } = await run(github, { history: [activeAnchor()] })
+        assert.equal(outputs.action, 'update')
+        assert.equal(slack.update.calls[0][0].attachments[0].color, '#E01E5A')
+        assert.equal(slack.update.calls[0][0].metadata.event_payload.status, 'active')
+    })
+
+    // Wall-clock arm gate: (red minutes, last-push age, threshold override) → action.
+    for (const [scenario, { red, commitAge, env = {} }, expected] of [
+        ['stays quiet below the minutes threshold', { red: 15, commitAge: 3 }, 'none'],
+        ['fails closed with no commit data', { red: 25 }, 'none'],
+        ['honors a custom minutes threshold', { red: 12, commitAge: 3, env: { WORKFLOW_FAILURE_MINUTES_THRESHOLD: '10' } }, 'create'],
+        ['opens just inside the activity window', { red: 30, commitAge: 119 }, 'create'],
+        ['stays quiet just outside the activity window', { red: 30, commitAge: 121 }, 'none'],
+    ]) {
+        it(`wall-clock arm ${scenario}`, async () => {
+            const github = createGithubMock(
+                { 'ci-backend.yml': failingFor(red), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+                commitAge == null ? {} : { commits: commitsAt(commitAge) }
+            )
+            const { outputs } = await run(github, { env })
+            assert.equal(outputs.action, expected)
+        })
+    }
 
     describe('formatDuration', () => {
         for (const [mins, expected] of [

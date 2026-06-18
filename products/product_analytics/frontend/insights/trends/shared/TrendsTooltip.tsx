@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react'
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'

@@ -11,6 +11,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -198,7 +199,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 }
             }
 
-            if (stepMatched || conversionMatched) {
+            // A matched wait step always resumes the job. A conversion match only wakes the job when
+            // the workflow is configured to exit on conversion — then the resumed job exits early via
+            // `shouldExitEarly`. For any other exit condition a conversion goal is measurement-only,
+            // so waking would just pull a parked job (e.g. one sitting in a delay) forward and run its
+            // next step early. `conversionMatched` is still surfaced so the executor can act on it.
+            if (stepMatched || (conversionMatched && exitsOnConversion(hogflow))) {
                 jobsToWake.push({
                     id: candidate.id,
                     stepMatched,
@@ -239,6 +245,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
+        }
+        // An empty condition compiles to always-true bytecode, which would wake the job on the next
+        // event of any kind. Only evaluate the condition when it has a real compiled filter;
+        // otherwise the wait relies on its `events` / the step timeout.
+        if (!isEvaluableCondition(action.config.condition)) {
+            return false
         }
         return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
@@ -460,14 +472,24 @@ function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; a
     return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
 }
 
-// Skip teams whose hogflows have no wait_until_condition step and no event-based
-// conversion goal — nothing for the matcher to evaluate against.
+// Whether a workflow exits when its conversion goal is met. Only then does the matcher wake a
+// parked job on a conversion match (so it can exit early); otherwise the conversion goal is
+// measurement-only and must not perturb the job's progression.
+function exitsOnConversion(hogflow: HogFlow): boolean {
+    return (
+        hogflow.exit_condition === 'exit_on_conversion' ||
+        hogflow.exit_condition === 'exit_on_trigger_not_matched_or_conversion'
+    )
+}
+
+// Skip teams whose hogflows have nothing the matcher can act on: no wait_until_condition step, and
+// no event-based conversion goal that the workflow exits on.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
         return true
     }
     const conversionEvents = hogflow.conversion?.events
-    return Array.isArray(conversionEvents) && conversionEvents.length > 0
+    return Array.isArray(conversionEvents) && conversionEvents.length > 0 && exitsOnConversion(hogflow)
 }
 
 // Single pass over the batch: dedup distinct/person ids, collect team ids,

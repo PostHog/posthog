@@ -27,6 +27,18 @@ def test_direct_import_uses_original_name_not_alias(tmp_path: Path) -> None:
     assert result == {"LogsQuery": ["logs"]}
 
 
+def test_schema_enums_symbol_import(tmp_path: Path) -> None:
+    write_py(tmp_path, "logs", "a.py", "from posthog.schema_enums import ProductKey\n")
+    result = scan(str(tmp_path))
+    assert result == {"ProductKey": ["logs"]}
+
+
+def test_import_posthog_schema_enums_dotted(tmp_path: Path) -> None:
+    write_py(tmp_path, "logs", "a.py", "import posthog.schema_enums\nk = posthog.schema_enums.ProductKey\n")
+    result = scan(str(tmp_path))
+    assert result == {"ProductKey": ["logs"]}
+
+
 def test_star_import_is_wildcard(tmp_path: Path) -> None:
     write_py(tmp_path, "logs", "a.py", "from posthog.schema import *\n")
     assert scan(str(tmp_path)) == {"*": ["logs"]}

@@ -8,6 +8,7 @@ import {
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
+    formatModelRowLabel,
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
@@ -30,8 +31,8 @@ const recipe = new RecipeNormalizer()
 const IMPLS = [
     {
         name: 'recipe',
-        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
-        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t),
+        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d).messages,
+        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t).messages,
     },
 ] as const
 
@@ -1597,6 +1598,105 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 }
                 expect(formatLLMEventTitle(event)).toBe('Custom Action')
             })
+        })
+
+        describe('non-string properties (untyped property bag)', () => {
+            // `$ai_*` title properties are strings by convention, but the event property bag is
+            // untyped. A structured value (object/array) or number must never be returned verbatim,
+            // or it would be rendered as a raw React child and crash the page (React error #31).
+            const cases: Array<[string, string, Record<string, unknown>, string]> = [
+                [
+                    'generation, object span name, with model',
+                    '$ai_generation',
+                    { $ai_span_name: {}, $ai_model: 'gpt-4' },
+                    'gpt-4',
+                ],
+                ['generation, object span name, no model', '$ai_generation', { $ai_span_name: {} }, 'Generation'],
+                ['generation, object model', '$ai_generation', { $ai_model: {} }, 'Generation'],
+                [
+                    'generation, object model, with provider',
+                    '$ai_generation',
+                    { $ai_model: {}, $ai_provider: 'openai' },
+                    'Generation (openai)',
+                ],
+                ['generation, object provider', '$ai_generation', { $ai_model: 'gpt-4', $ai_provider: {} }, 'gpt-4'],
+                ['embedding, object span name', '$ai_embedding', { $ai_span_name: {} }, 'Embedding'],
+                ['embedding, object model', '$ai_embedding', { $ai_model: {} }, 'Embedding'],
+                ['span, object span name', '$ai_span', { $ai_span_name: {} }, 'Span'],
+                ['span, array span name', '$ai_span', { $ai_span_name: [] }, 'Span'],
+                ['span, numeric span name', '$ai_span', { $ai_span_name: 123 }, 'Span'],
+            ]
+
+            it.each(cases)('%s falls back to a string label', (_label, event, properties, expected) => {
+                const traceEvent: LLMTraceEvent = {
+                    id: 'event-1',
+                    event,
+                    properties,
+                    createdAt: '2024-01-01T00:00:00Z',
+                }
+                const title = formatLLMEventTitle(traceEvent)
+                expect(typeof title).toBe('string')
+                expect(title).toBe(expected)
+            })
+        })
+    })
+
+    describe('formatModelRowLabel', () => {
+        it('returns null for a trace', () => {
+            const trace: LLMTrace = {
+                id: 'trace-1',
+                createdAt: '2024-01-01T00:00:00Z',
+                distinctId: 'user-1',
+                person: {
+                    uuid: 'person-1',
+                    created_at: '2024-01-01T00:00:00Z',
+                    properties: {},
+                    distinct_id: 'user-1',
+                },
+                events: [],
+            }
+            expect(formatModelRowLabel(trace)).toBeNull()
+        })
+
+        const cases: Array<[string, string, Record<string, unknown>, string | null]> = [
+            // Only generations with a span name get a model row; otherwise the event title covers it.
+            ['span event', '$ai_span', { $ai_span_name: 'My Span', $ai_model: 'gpt-4' }, null],
+            ['embedding event', '$ai_embedding', { $ai_span_name: 'Embed', $ai_model: 'gpt-4' }, null],
+            ['generation without span name', '$ai_generation', { $ai_model: 'gpt-4' }, null],
+            ['generation with object span name', '$ai_generation', { $ai_span_name: {}, $ai_model: 'gpt-4' }, null],
+            [
+                'generation with model and provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: 'gpt-4', $ai_provider: 'openai' },
+                'gpt-4 (openai)',
+            ],
+            ['generation with model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: 'gpt-4' }, 'gpt-4'],
+            [
+                'generation with object model and string provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: {}, $ai_provider: 'openai' },
+                'openai',
+            ],
+            [
+                'generation with string model and object provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: 'gpt-4', $ai_provider: {} },
+                'gpt-4',
+            ],
+            ['generation with object model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: {} }, null],
+            ['generation with array model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: [] }, null],
+            ['generation with numeric model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: 4 }, null],
+            ['generation without model or provider', '$ai_generation', { $ai_span_name: 'Chat' }, null],
+        ]
+
+        it.each(cases)('%s', (_label, event, properties, expected) => {
+            const traceEvent: LLMTraceEvent = {
+                id: 'event-1',
+                event,
+                properties,
+                createdAt: '2024-01-01T00:00:00Z',
+            }
+            expect(formatModelRowLabel(traceEvent)).toBe(expected)
         })
     })
 

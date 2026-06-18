@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef};
 use cymbal::types::operator::TeamId;
@@ -37,7 +37,7 @@ impl SymbolResolver for FakeResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         if self.fail_unhandled {
             return Err(UnhandledError::Other("forced resolver failure".to_string()));
@@ -78,7 +78,7 @@ impl SymbolResolver for SlowResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let call_index = self.started.fetch_add(1, Ordering::AcqRel);
         let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
@@ -397,11 +397,7 @@ async fn invalid_payload_and_metadata_formats_are_invalid_payload_errors() {
                 deadline_ms: 1_000,
             },
             make_item_with_metadata(2, &exc, b"not-json".to_vec()),
-            make_item_with_metadata(
-                3,
-                &exc,
-                br#"{"apple_debug_images_json":"not-a-list"}"#.to_vec(),
-            ),
+            make_item_with_metadata(3, &exc, br#"{"debug_images_json":"not-a-list"}"#.to_vec()),
         ],
     )
     .await;

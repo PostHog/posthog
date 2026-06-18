@@ -13,6 +13,8 @@
 #       and the value should be PascalCase
 # 6. TODO: update get_source_config(). update the name to match the SchemaExternalDataSourceType from step 5.
 #       also add any config fields users will need to connect the source. see other sources for examples.
+#       set `category` to the closest DataWarehouseSourceCategory bucket (required — it groups the source in
+#       the new-source wizard catalog) and optionally `keywords` (search aliases). see other sources for examples.
 # 7. TODO: add a line to `posthog/temporal/data_imports/sources/__init__.py` to import your
 #       source and include it in the  __all__ list
 # 8. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
@@ -35,6 +37,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -57,6 +60,8 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
+            category=DataWarehouseSourceCategory.DATABASES,  # TODO: pick the closest catalog bucket (groups this source in the new-source wizard)
+            keywords=[],  # TODO (optional): lowercase search terms — acronyms/alt spellings (e.g. ["ga4", "ga"])
             iconPath="/static/services/template.png",  # update this icon path
             label="Template",  # only needed if the readable name is complex
             caption=None,  # only needed if you wanna inline docs

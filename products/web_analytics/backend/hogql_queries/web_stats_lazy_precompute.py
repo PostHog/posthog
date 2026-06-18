@@ -283,6 +283,7 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
+        spill_to_disk=True,  # high-cardinality breakdown GROUP BY; can build a large hash table
     )
 
 

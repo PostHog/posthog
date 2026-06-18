@@ -52,6 +52,22 @@ pub(super) const CAPTURE_V1_WARNING_METRIC: &str = "capture_v1_analytics_warning
 /// Counter name for body-read timeouts during payload extraction.
 pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";
 
+/// Counter for streaming decompression failures (label: encoding).
+pub(super) const CAPTURE_V1_DECOMPRESSION_ERRORS: &str = "capture_v1_decompression_errors_total";
+
+/// Histogram of events per request batch. The `_batch_size` suffix picks up
+/// the shared BATCH_SIZES buckets configured in prometheus.rs.
+pub(super) const CAPTURE_V1_EVENT_BATCH_SIZE: &str = "capture_v1_event_batch_size";
+
+/// Histogram of request payload sizes in bytes (label: stage = compressed |
+/// decompressed). Buckets configured in prometheus.rs (PAYLOAD_SIZES).
+pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes";
+
+/// Histogram of absolute client clock skew in seconds, from the
+/// PostHog-Request-Timestamp header vs. server receive time. Buckets
+/// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
+pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
+
 // ---------------------------------------------------------------------------
 // Fallback values
 // ---------------------------------------------------------------------------

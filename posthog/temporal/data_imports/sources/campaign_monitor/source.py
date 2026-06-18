@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -99,6 +100,7 @@ class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, Campaig
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CAMPAIGN_MONITOR,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Campaign Monitor",
             caption="""Enter your Campaign Monitor (CreateSend) API key and Client ID to pull your email marketing data into the PostHog Data warehouse.
 

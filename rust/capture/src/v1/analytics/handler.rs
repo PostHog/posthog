@@ -36,6 +36,9 @@ pub async fn handle_request(
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
 
+    let skew_seconds = context.clock_skew().num_milliseconds().saturating_abs() as f64 / 1000.0;
+    metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_SECONDS).record(skew_seconds);
+
     // Non-fatal: unusable PostHog-Sdk-Info means $lib/$lib_version can't be
     // materialized for this batch. Count once per request for visibility.
     if context.sdk_lib_and_version().is_none() {
@@ -65,6 +68,9 @@ pub async fn handle_request(
         err
     })?;
 
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
+        .record(raw_bytes.len() as f64);
+
     let payload = v1::util::decompress_payload(
         context.content_encoding.as_deref(),
         raw_bytes,
@@ -77,11 +83,16 @@ pub async fn handle_request(
         err
     })?;
 
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
+        .record(payload.len() as f64);
+
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
         let err = v1::Error::RequestParsingError(e.to_string());
         log_stat_error!(err, &context);
         err
     })?;
+
+    metrics::histogram!(CAPTURE_V1_EVENT_BATCH_SIZE).record(batch.batch.len() as f64);
 
     match super::process::process_batch(&state, &mut context, batch).await {
         Ok(resp) => Ok(resp.into_response()),

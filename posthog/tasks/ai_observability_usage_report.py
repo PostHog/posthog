@@ -9,8 +9,6 @@ from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -18,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region, get_previous_day

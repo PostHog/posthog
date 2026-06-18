@@ -27,6 +27,7 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    DashboardMode,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
@@ -198,12 +199,12 @@ describe('dashboardLogic', () => {
                 },
                 '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
-                '/api/environments/:team_id/insights/:id/': (req) => {
-                    const dashboard = req.url.searchParams.get('from_dashboard')
+                '/api/environments/:team_id/insights/:id/': ({ request, params }) => {
+                    const dashboard = new URL(request.url).searchParams.get('from_dashboard')
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
                     }
-                    const matched = insights[boxToId(req.params['id'])]
+                    const matched = insights[boxToId(params.id as string | readonly string[])]
                     if (!matched) {
                         return [404, null]
                     }
@@ -214,19 +215,17 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/dashboards/:id/': async (req) => {
+                '/api/environments/:team_id/dashboards/:id/': async ({ request, params }) => {
                     const dashboardId =
-                        typeof req.params['id'] === 'string'
-                            ? parseInt(req.params['id'])
-                            : parseInt(req.params['id'][0])
-                    const payload = await req.json()
+                        typeof params.id === 'string' ? parseInt(params.id) : parseInt((params.id as string[])[0])
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
-                '/api/environments/:team_id/dashboards/:id/move_tile/': async (req) => {
+                '/api/environments/:team_id/dashboards/:id/move_tile/': async ({ request, params }) => {
                     // backend updates the two dashboards and the insight
-                    const jsonPayload = await req.json()
+                    const jsonPayload = (await request.json()) as Record<string, any>
                     const { to_dashboard: toDashboard, tile: tileToUpdate } = jsonPayload
-                    const from = dashboards[Number(req.params.id)]
+                    const from = dashboards[Number(params.id)]
                     // remove the tile from the source dashboard
                     const fromIndex = from.tiles.findIndex(
                         (tile) => !!tile.insight && tile.insight.id === tileToUpdate.insight.id
@@ -249,13 +248,13 @@ describe('dashboardLogic', () => {
 
                     return [200, { ...from }]
                 },
-                '/api/environments/:team_id/insights/:id/': async (req) => {
+                '/api/environments/:team_id/insights/:id/': async ({ request, params }) => {
                     try {
-                        const updates = await req.json()
+                        const updates = await request.json()
                         if (typeof updates !== 'object') {
                             return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
                         }
-                        const insightId = boxToId(req.params.id)
+                        const insightId = boxToId(params.id as string | readonly string[])
 
                         const starting: QueryBasedInsightModel = insights[insightId]
                         insights[insightId] = {
@@ -465,6 +464,192 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        describe('layoutEditMode', () => {
+            it('enters edit mode without layout editing when filters change', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: DashboardMode.Edit,
+                        layoutEditMode: false,
+                    })
+            })
+
+            it('enables layout editing for explicit layout edit sources', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: DashboardMode.Edit,
+                        layoutEditMode: true,
+                    })
+            })
+
+            it('clears layout editing when exiting edit mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: null,
+                        layoutEditMode: false,
+                    })
+            })
+
+            it('reports filter changes separately from layout edit mode entry', async () => {
+                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
+                const reportLayoutEditEntered = jest.spyOn(
+                    eventUsageLogic.actions,
+                    'reportDashboardLayoutEditModeEntered'
+                )
+                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                }).toFinishAllListeners()
+
+                expect(reportLayoutEditEntered).not.toHaveBeenCalled()
+                expect(reportModeToggled).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                }).toFinishAllListeners()
+
+                expect(reportFiltersChanged).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    'date',
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+
+                reportFiltersChanged.mockClear()
+                reportLayoutEditEntered.mockClear()
+                reportModeToggled.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                expect(reportLayoutEditEntered).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    DashboardEventSource.SceneCommonButtons,
+                    1
+                )
+                expect(reportModeToggled).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    DashboardMode.Edit,
+                    DashboardEventSource.SceneCommonButtons,
+                    1,
+                    true
+                )
+                expect(reportFiltersChanged).not.toHaveBeenCalled()
+
+                reportFiltersChanged.mockRestore()
+                reportLayoutEditEntered.mockRestore()
+                reportModeToggled.mockRestore()
+            })
+
+            it('restoreUrlStateAtEditModeEntry applies snapshot payload to url', async () => {
+                const editedFilters = JSON.stringify({ date_from: '-14d', date_to: null })
+                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
+
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: editedFilters,
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.restoreUrlStateAtEditModeEntry({
+                        filters: originalFilters,
+                        variables: undefined,
+                    })
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBe(originalFilters)
+            })
+
+            it('discarding filter edit passes url snapshot into restore action', async () => {
+                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
+
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: originalFilters,
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+                expect(logic.values.urlSearchParamsAtEditModeEntry).toBeNull()
+
+                const restoreSpy = jest.spyOn(logic.actions, 'restoreUrlStateAtEditModeEntry')
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        urlSearchParamsAtEditModeEntry: {
+                            filters: originalFilters,
+                            variables: undefined,
+                        },
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                restoreSpy.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(restoreSpy).toHaveBeenCalledWith({
+                    filters: originalFilters,
+                    variables: undefined,
+                })
+
+                restoreSpy.mockRestore()
+            })
+
+            it('filter edit source clears layout edit mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        layoutEditMode: true,
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        layoutEditMode: false,
+                    })
+            })
         })
 
         describe('hasUnsavedLayoutChanges selector', () => {
@@ -1361,6 +1546,32 @@ describe('dashboardLogic', () => {
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
+        })
+
+        it('removes the tile from state optimistically before the API call resolves', () => {
+            expect(logic.values.textTiles).toHaveLength(1)
+
+            // Dispatch without awaiting listeners — the reducer drops the tile synchronously.
+            logic.actions.removeTile(TEXT_TILE)
+
+            expect(logic.values.textTiles).toEqual([])
+        })
+
+        it('restores the tile and suppresses the undo toast when the API call fails', async () => {
+            const updateSpy = jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('boom'))
+            const lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            }).toFinishAllListeners()
+
+            // Tile is back in place, the error toast fired, and no undo toast was shown.
+            expect(logic.values.textTiles).toHaveLength(1)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+            expect(lemonToastInfoSpy).not.toHaveBeenCalled()
+
+            updateSpy.mockRestore()
+            lemonToastErrorSpy.mockRestore()
         })
     })
 

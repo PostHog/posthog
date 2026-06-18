@@ -193,7 +193,7 @@ class MprocsGenerator(ConfigGenerator):
                 proc_config = self._add_uv_groups(proc_config, resolved)
 
             # Wrap Python/Node service commands in the dev sandbox when opted in
-            proc_config = self._add_sandbox_wrapper(proc_config)
+            proc_config = self._add_sandbox_wrapper(proc_config, name)
 
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
@@ -391,7 +391,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     # code, so running them unsandboxed doesn't widen the untrusted attack surface.
     _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
 
-    def _add_sandbox_wrapper(self, proc_config: dict[str, Any]) -> dict[str, Any]:
+    def _add_sandbox_wrapper(self, proc_config: dict[str, Any], name: str = "") -> dict[str, Any]:
         """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
 
         Opt in globally with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). A proc is
@@ -403,6 +403,12 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
         the docker/agent sockets so it can't escape via a container mount.
 
+        POSTHOG_DEV_SANDBOX_EXCLUDE (comma-separated proc names) opts individual
+        procs back out. Use sparingly — it exists for procs whose feature set
+        requires the docker socket the profile denies, e.g. temporal-worker running
+        PostHog Code tasks with SANDBOX_PROVIDER=docker. Excluded procs run fully
+        unsandboxed, so the dependency-isolation guarantee no longer covers them.
+
         The docker-gate preamble (bin/wait-for-docker) is peeled out to run
         unsandboxed, since it needs the very socket the sandbox denies; the actual
         server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
@@ -411,7 +417,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         # `sandbox` is a registry-only selector; pop it so it never leaks into the
         # emitted proc config (which phrocs/mprocs would otherwise see).
         should_sandbox = bool(proc_config.pop("sandbox", False))
-        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox:
+        excluded = {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
+        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox or (name and name in excluded):
             return proc_config
 
         shell = proc_config.get("shell", "")

@@ -79,7 +79,7 @@ The assistant used the todo list because:
 5. This approach allows for tracking progress across multiple recording queries and summaries
 """.strip()
 
-SESSION_REPLAY_MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them."
+SESSION_REPLAY_MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, summarize entire sessions or a set of them, and find recordings by the meaning of what Replay Vision scanners observed in them."
 
 
 class SessionReplayAgentToolkit(AgentToolkit):
@@ -100,7 +100,14 @@ class SessionReplayAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [FilterSessionRecordingsTool, SummarizeSessionsTool]
+        # Lazy import keeps the product dependency off this module's import path (see test_toolkit_imports).
+        from products.replay_vision.backend.max_tools import SearchReplayVisionObservationsTool
+
+        tools: list[type[MaxTool]] = [
+            FilterSessionRecordingsTool,
+            SummarizeSessionsTool,
+            SearchReplayVisionObservationsTool,
+        ]
         return tools
 
 

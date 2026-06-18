@@ -1,6 +1,6 @@
 import dagster
 
-from products.growth.dags import github_sdk_versions, identity_matching, oauth, user_product_list
+from products.growth.dags import github_sdk_versions, identity_matching, oauth, team_production_event_activation, user_product_list
 
 from . import loggers, resources
 
@@ -10,6 +10,7 @@ jobs = [
     user_product_list.populate_user_product_list_job,
     user_product_list.sync_colleagues_products_monthly_job,
     user_product_list.sync_cross_sell_products_monthly_job,
+    team_production_event_activation.detect_first_team_production_event_job,
 ]
 # Identity matching processes internal PostHog data that only exists on Cloud US (team 2),
 # so the job is not registered on Cloud EU.
@@ -23,6 +24,7 @@ defs = dagster.Definitions(
         github_sdk_versions.cache_github_sdk_versions_schedule,
         user_product_list.sync_colleagues_products_monthly_schedule,
         user_product_list.sync_cross_sell_products_monthly_schedule,
+        team_production_event_activation.detect_first_team_production_event_schedule,
     ],
     loggers=loggers,
     resources=resources,

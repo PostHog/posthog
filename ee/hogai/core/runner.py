@@ -45,7 +45,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.tool import ApprovalRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
@@ -466,6 +466,10 @@ class BaseAgentRunner(ABC):
                             # No need to yield a message here - the form will be displayed to the user through the tool call args
                             # and the answers comes through the tool call result ui_payload
                             should_not_update_state = True
+                        elif isinstance(interrupt.value, ClientToolCallRequest):
+                            # Nothing to stream (the tool call args are already in the thread); skipping
+                            # the state update lets an abandoned round trip start fresh, like approvals
+                            should_not_update_state = True
                         elif isinstance(interrupt.value, ApprovalRequest):
                             # Check if this is an ApprovalRequest from interrupt() in a tool
                             should_not_update_state = True
@@ -600,6 +604,8 @@ class BaseAgentRunner(ABC):
 
         if isinstance(update, ConversationTitleAction):
             self._conversation.title = update.title
+            if update.topic is not None:
+                self._conversation.topic = update.topic
             self._pending_conversation_update = True
             return None
 

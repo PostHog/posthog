@@ -5,8 +5,8 @@ import { IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { sharePasswordsLogic } from './sharePasswordsLogic'
 

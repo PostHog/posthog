@@ -105,6 +105,12 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     await createTopics(kafkaConfig, TEST_KAFKA_TOPICS)
 }
 
+// Builds a unique topic name for a test so each test can produce to and consume from an
+// isolated input topic without deleting the shared topics ClickHouse subscribes to.
+export function createKafkaTestTopicName(baseTopic: string): string {
+    return `${baseTopic}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
 export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
     const client = AdminClient.create(kafkaConfig)
     await deleteAllTopics(kafkaConfig)

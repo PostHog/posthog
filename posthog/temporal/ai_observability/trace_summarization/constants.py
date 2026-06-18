@@ -119,6 +119,14 @@ EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level
 # Document types for embeddings
 GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
 
+# Keys under which the summary embedding's `metadata` JSON carries the ids needed to stitch
+# clustering data back together. `rendering` stays a fixed low-cardinality enum (the summary
+# mode); these ids live in `metadata` instead and are read back via JSONExtractString in
+# trace_clustering/data.py. `batch_run_id` pairs an embedding to its summary event
+# ($ai_batch_run_id); `job_id` scopes a clustering read to one ClusteringJob.
+EMBEDDING_METADATA_BATCH_RUN_ID_KEY = "batch_run_id"
+EMBEDDING_METADATA_JOB_ID_KEY = "job_id"
+
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units
 
