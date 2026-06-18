@@ -263,18 +263,12 @@ fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFa
 
     let metadata: serde_json::Value = serde_json::from_slice(metadata)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid metadata: {e}")))?;
-    // Prefer the generic key; fall back to the legacy apple-specific key sent
-    // by older cymbal deployments.
-    // TODO(2026-09-01): drop the legacy key once the dual-write release is fully rolled out.
-    let (key, debug_images) = match metadata.get("debug_images_json") {
-        Some(images) => ("debug_images_json", images),
-        None => match metadata.get("apple_debug_images_json") {
-            Some(images) => ("apple_debug_images_json", images),
-            None => return Ok(Vec::new()),
-        },
+    let Some(debug_images) = metadata.get("debug_images_json") else {
+        return Ok(Vec::new());
     };
-    serde_json::from_value(debug_images.clone())
-        .map_err(|e| ItemFailure::InvalidPayload(format!("invalid metadata.{key}: {e}")))
+    serde_json::from_value(debug_images.clone()).map_err(|e| {
+        ItemFailure::InvalidPayload(format!("invalid metadata.debug_images_json: {e}"))
+    })
 }
 
 enum ResolveOneError {
@@ -338,44 +332,31 @@ mod test {
     }
 
     #[test]
-    fn metadata_prefers_generic_debug_images_key() {
+    fn metadata_reads_debug_images_key() {
         let metadata = serde_json::to_vec(&serde_json::json!({
-            "debug_images_json": images_json("generic"),
-            "apple_debug_images_json": images_json("legacy"),
+            "debug_images_json": images_json("img-1"),
         }))
         .unwrap();
 
         let images = debug_images_from_metadata(&metadata).unwrap();
         assert_eq!(images.len(), 1);
-        assert_eq!(images[0].debug_id, "generic");
+        assert_eq!(images[0].debug_id, "img-1");
     }
 
     #[test]
-    fn metadata_falls_back_to_legacy_apple_key() {
-        let metadata = serde_json::to_vec(&serde_json::json!({
-            "apple_debug_images_json": images_json("legacy"),
-        }))
-        .unwrap();
-
-        let images = debug_images_from_metadata(&metadata).unwrap();
-        assert_eq!(images.len(), 1);
-        assert_eq!(images[0].debug_id, "legacy");
-    }
-
-    #[test]
-    fn metadata_without_debug_images_keys_is_empty() {
-        let metadata = serde_json::to_vec(&serde_json::json!({"other": 1})).unwrap();
+    fn metadata_without_debug_images_key_is_empty() {
+        // The legacy apple-specific key is no longer read, so it is ignored.
+        let metadata =
+            serde_json::to_vec(&serde_json::json!({"apple_debug_images_json": images_json("x")}))
+                .unwrap();
         assert!(debug_images_from_metadata(&metadata).unwrap().is_empty());
         assert!(debug_images_from_metadata(&[]).unwrap().is_empty());
     }
 
     #[test]
-    fn invalid_generic_key_errors_even_when_legacy_is_valid() {
-        let metadata = serde_json::to_vec(&serde_json::json!({
-            "debug_images_json": "not-a-list",
-            "apple_debug_images_json": images_json("legacy"),
-        }))
-        .unwrap();
+    fn invalid_debug_images_key_errors() {
+        let metadata =
+            serde_json::to_vec(&serde_json::json!({"debug_images_json": "not-a-list"})).unwrap();
 
         assert!(matches!(
             debug_images_from_metadata(&metadata),
