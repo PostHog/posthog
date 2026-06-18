@@ -3869,6 +3869,9 @@ export interface ExperimentApiMetric {
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
+     *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -4013,6 +4016,9 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
         source: ExperimentMetricSource
+        /** When set, reports the percentage of users whose per-user summed/counted value
+         *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+        threshold?: number
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
