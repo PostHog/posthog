@@ -33,13 +33,14 @@ in this order within the window:
             `is_production_host`. `$ip`/GeoIP can't be used instead: a
             developer's local backend still reaches us over the public
             internet from a public IP.
-  - MOBILE: enough distinct physical devices (`$device_id`) on events that
-            affirm `$is_emulator: false`. A single non-emulator event is *not*
-            production evidence — a developer testing on their own phone looks
-            identical — but several distinct physical devices means the app
-            shipped to real hands. Events without a `$device_id` fail closed:
-            distinct_ids churn under login/logout/reinstall, so they can't
-            stand in for devices.
+  - MOBILE: enough distinct users (`distinct_id`) on events from mobile SDKs
+            (`$lib`), dropping any event flagged `$is_emulator: true`. Mobile
+            SDKs don't emit a stable per-device id in event properties, so this
+            is a user-diversity proxy like the server leg, not a device count:
+            a handful of fixture/dev ids stays below the bar, an app in real
+            hands clears it. Emulator-flagged events are dropped so a
+            developer's simulator runs don't count; events without the flag are
+            kept (most mobile events don't carry it).
   - SERVER: enough distinct users on events from server-side SDKs. There is no
             environment signal at all in backend events, so this is a pure
             diversity proxy and intentionally has the highest bar.
@@ -104,12 +105,12 @@ HOSTS_PER_TEAM_CAP: Final[int] = 1_000
 MAX_HOSTNAME_LENGTH: Final[int] = 253
 SQL_HOST_LENGTH_CAP: Final[int] = 256
 
-# MOBILE: distinct physical devices (`$device_id`) on `$is_emulator: false`
-# events. One developer owns one or two test phones; this many distinct real
-# devices means the app shipped. Device IDs are required (no distinct_id
-# fallback) because anonymous distinct_ids churn under one developer's
-# login/logout/reinstall cycles.
-MOBILE_PHYSICAL_DEVICES_THRESHOLD: Final[int] = 3
+# MOBILE: distinct users (`distinct_id`) on events from mobile SDKs, dropping
+# events flagged `$is_emulator: true`. Mobile SDKs don't put a stable per-device
+# id in event properties, so this is a user-diversity proxy (like the server
+# leg), not a device count. Set above the handful of ids a single developer
+# churns through (login/logout/reinstall) so dev traffic stays below the bar.
+MOBILE_LIB_USERS_THRESHOLD: Final[int] = 5
 
 # SERVER: distinct users on events from server-side SDKs. Backend events carry
 # no environment signal whatsoever, so this is a diversity proxy: a production
@@ -134,13 +135,23 @@ SERVER_SIDE_LIBS: Final[tuple[str, ...]] = (
     "posthog-rs",
 )
 
+# `$lib` values treated as mobile-SDK evidence. The mobile leg counts distinct
+# users on these libs (excluding emulator-flagged events) — an allowlist, like
+# the server leg, so only real mobile SDK traffic feeds the user-diversity proxy.
+MOBILE_SIDE_LIBS: Final[tuple[str, ...]] = (
+    "posthog-ios",
+    "posthog-android",
+    "posthog-flutter",
+    "posthog-react-native",
+)
+
 
 @dataclass(frozen=True, kw_only=True)
 class ProductionTrafficSignal:
     """Which signal qualified a team, for the emitted analytics event.
 
     `production_host` is set for the web leg; `distinct_count` carries the
-    device count (mobile leg) or user count (server leg).
+    distinct-user count for the mobile and server legs.
 
     `converted_at` is the team's activation instant: the event timestamp of the
     earliest production-host event in the window. Only the web leg can resolve a
@@ -149,7 +160,7 @@ class ProductionTrafficSignal:
     back to the run time for those.
     """
 
-    kind: Literal["production_host", "mobile_physical_devices", "server_lib_users"]
+    kind: Literal["production_host", "mobile_lib_users", "server_lib_users"]
     production_host: str | None = None
     distinct_count: int | None = None
     converted_at: datetime | None = None
@@ -251,18 +262,30 @@ def _strip_port_and_brackets(host: str) -> str:
 def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTrafficSignal]:
     """Return `{team_id: signal}` for the subset of `team_ids` whose recent
     traffic meets the criterion, with the strongest signal that matched (web
-    origin host > mobile physical devices > server-side user diversity).
+    origin host > mobile user diversity > server-side user diversity).
 
     Single source of truth for "what counts as production traffic." ClickHouse
     only collects per-team evidence — candidate origin hosts (`$host`, falling
-    back to the host of `$current_url`), physical-device counts, and
+    back to the host of `$current_url`), mobile-SDK user counts, and
     server-side user counts; host classification happens in
     `is_production_host` so it stays unit-testable. The localhost/loopback
     prefilter in SQL is an optimization only (it keeps the dominant dev noise
     out of the result set and away from the per-team cap); correctness lives
-    in the Python classifier. `$is_emulator` is matched against its raw JSON
-    value so both boolean and stringly-typed `false` count, and anything else
-    (true, absent, garbage, SDK versions that don't send it) fails closed.
+    in the Python classifier.
+
+    Evidence is gathered in two passes so the scan stays under ClickHouse's
+    per-query read-bytes limit. The web and server legs and the mobile-user
+    upper bound read only the small, materialized-where-available
+    `$host`/`$current_url`/`$lib` columns plus `distinct_id` — never the large
+    `properties` blob. The mobile leg is the only one that must read
+    `properties` (for `$is_emulator`, to drop emulator-flagged events — see
+    `_teams_with_mobile_users`), so it runs as a second, narrowly-scoped query
+    over only the teams that did NOT qualify on the web leg and that carry
+    enough distinct mobile users to possibly cross the threshold. High-volume
+    teams overwhelmingly qualify on the web/server legs (or send no mobile-SDK
+    `$lib`), so they drop out before the expensive `properties` scan — which is
+    what kept a batch of high-traffic teams from blowing the read-bytes limit on
+    the old single-query form.
     """
     team_id_list = list(team_ids)
     if not team_id_list:
@@ -270,13 +293,8 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
 
     # Use materialized property columns where the deployment has them; the
     # fallback is the JSONExtractString these expressions would otherwise be.
-    # `$is_emulator` stays on JSONExtractRaw deliberately: JSONExtractString
-    # returns '' for JSON booleans, so the string-expression fallback would
-    # silently kill the mobile leg on deployments without the materialized
-    # column, while the raw value works everywhere.
     host_expr, _ = get_property_string_expr("events", "$host", "'$host'", "properties")
     current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-    device_id_expr, _ = get_property_string_expr("events", "$device_id", "'$device_id'", "properties")
     lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
     # Internal background job, not a customer-facing query — tag it so it's
@@ -285,10 +303,15 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     # cluster on cloud: this is a fleet sweep over raw events and must not
     # compete with customer-facing queries.
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-    # The interpolated fragments are server-side SQL expressions from
-    # get_property_string_expr, never user input; all values go through
-    # query parameters.
-    query = f"""
+
+    # Pass 1 — web + server legs and a mobile-user upper bound. Reads only the
+    # materialized property columns + distinct_id; the `properties` blob is never
+    # touched here. `mobile_candidate_users` is the pre-emulator-filter mobile
+    # user count, so a team below the mobile threshold here cannot reach it after
+    # the filter and never enters the expensive pass below. The interpolated
+    # fragments are server-side SQL expressions from get_property_string_expr,
+    # never user input; all values go through query parameters.
+    web_server_query = f"""
         SELECT
             team_id,
             groupUniqArrayIf(%(hosts_per_team_cap)s)(
@@ -298,10 +321,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                 AND NOT startsWith(host, 'localhost:')
                 AND NOT startsWith(host, '127.0.0.1')
             ) AS candidate_hosts,
-            uniqIf(
-                device_id,
-                device_id != '' AND is_emulator_raw IN ('false', '"false"')
-            ) AS physical_devices,
+            uniqIf(distinct_id, lib IN %(mobile_side_libs)s) AS mobile_candidate_users,
             uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
         FROM (
             SELECT
@@ -312,8 +332,6 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     1,
                     %(host_length_cap)s
                 ) AS host,
-                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
-                {device_id_expr} AS device_id,
                 {lib_expr} AS lib
             FROM events
             WHERE team_id IN %(team_ids)s
@@ -321,19 +339,20 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
         )
         GROUP BY team_id
         HAVING notEmpty(candidate_hosts)
-            OR physical_devices >= %(mobile_threshold)s
+            OR mobile_candidate_users >= %(mobile_threshold)s
             OR server_lib_users >= %(server_threshold)s
     """
     with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
         rows = sync_execute(
-            query,
+            web_server_query,
             {
                 "team_ids": team_id_list,
                 "window_days": WINDOW_DAYS,
                 "hosts_per_team_cap": HOSTS_PER_TEAM_CAP,
                 "host_length_cap": SQL_HOST_LENGTH_CAP,
+                "mobile_side_libs": list(MOBILE_SIDE_LIBS),
                 "server_side_libs": list(SERVER_SIDE_LIBS),
-                "mobile_threshold": MOBILE_PHYSICAL_DEVICES_THRESHOLD,
+                "mobile_threshold": MOBILE_LIB_USERS_THRESHOLD,
                 "server_threshold": SERVER_LIB_USERS_THRESHOLD,
             },
             workload=workload,
@@ -344,14 +363,33 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
         )
 
     qualifying: dict[int, ProductionTrafficSignal] = {}
-    for team_id, candidate_hosts, physical_devices, server_lib_users in rows:
+    # Teams that surfaced evidence but no production host: candidates for the
+    # mobile/server legs, resolved after the (properties-reading) mobile pass.
+    pending: dict[int, tuple[int, int]] = {}  # team_id -> (server_lib_users, mobile_candidate_users)
+    for team_id, candidate_hosts, mobile_candidate_users, server_lib_users in rows:
         production_host = next((host for host in candidate_hosts if is_production_host(host)), None)
         if production_host is not None:
             qualifying[team_id] = ProductionTrafficSignal(kind="production_host", production_host=production_host)
-        elif physical_devices >= MOBILE_PHYSICAL_DEVICES_THRESHOLD:
-            qualifying[team_id] = ProductionTrafficSignal(
-                kind="mobile_physical_devices", distinct_count=physical_devices
-            )
+        else:
+            pending[team_id] = (server_lib_users, mobile_candidate_users)
+
+    # Pass 2 — mobile leg, the only one that reads `properties`. Scoped to teams
+    # that didn't qualify on the web leg and have enough distinct mobile users to
+    # possibly cross the threshold, keeping the full-blob scan off the
+    # high-volume web/server teams above.
+    mobile_candidates = [
+        team_id
+        for team_id, (_server_lib_users, mobile_candidate_users) in pending.items()
+        if mobile_candidate_users >= MOBILE_LIB_USERS_THRESHOLD
+    ]
+    mobile_users_by_team = _teams_with_mobile_users(mobile_candidates, lib_expr, workload)
+
+    # Resolve the mobile/server legs for the pending teams, mobile first to keep
+    # the documented web > mobile > server precedence.
+    for team_id, (server_lib_users, _mobile_candidate_users) in pending.items():
+        mobile_users = mobile_users_by_team.get(team_id)
+        if mobile_users is not None:
+            qualifying[team_id] = ProductionTrafficSignal(kind="mobile_lib_users", distinct_count=mobile_users)
         elif server_lib_users >= SERVER_LIB_USERS_THRESHOLD:
             qualifying[team_id] = ProductionTrafficSignal(kind="server_lib_users", distinct_count=server_lib_users)
 
@@ -371,6 +409,65 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
             qualifying[team_id] = replace(qualifying[team_id], converted_at=converted_at)
 
     return qualifying
+
+
+def _teams_with_mobile_users(
+    team_ids: list[int],
+    lib_expr: str,
+    workload: Workload,
+) -> dict[int, int]:
+    """Distinct mobile-SDK users per team (excluding emulator-flagged events),
+    for the teams that cross the mobile threshold.
+
+    The user-diversity proxy for the mobile leg. Mobile SDKs don't put a stable
+    per-device id in event properties, so `distinct_id` (the anonymous,
+    device-scoped id) is the unit. This is the only leg that reads `properties`:
+    `$is_emulator` is matched against its raw JSON value to DROP events
+    affirmatively flagged as emulators (`true`/`"true"`) — events without the
+    flag are kept, since most mobile events don't carry it. JSONExtractRaw forces
+    a full `properties` read, so the caller scopes `team_ids` to the residual set
+    of not-yet-qualified teams with enough mobile users to keep that read small.
+    """
+    if not team_ids:
+        return {}
+
+    # As in `_teams_meeting_criterion`: the interpolated fragment is a
+    # server-side SQL expression from get_property_string_expr, never user
+    # input; all values go through query parameters.
+    query = f"""
+        SELECT
+            team_id,
+            uniqIf(
+                distinct_id,
+                lib IN %(mobile_side_libs)s
+                AND is_emulator_raw NOT IN ('true', '"true"')
+            ) AS mobile_lib_users
+        FROM (
+            SELECT
+                team_id,
+                distinct_id,
+                {lib_expr} AS lib,
+                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= now() - toIntervalDay(%(window_days)s)
+        )
+        GROUP BY team_id
+        HAVING mobile_lib_users >= %(mobile_threshold)s
+    """
+    with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
+        rows = sync_execute(
+            query,
+            {
+                "team_ids": team_ids,
+                "window_days": WINDOW_DAYS,
+                "mobile_side_libs": list(MOBILE_SIDE_LIBS),
+                "mobile_threshold": MOBILE_LIB_USERS_THRESHOLD,
+            },
+            workload=workload,
+            settings={"max_execution_time": 600},
+        )
+    return dict(rows)
 
 
 def _earliest_production_host_timestamps(

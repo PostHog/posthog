@@ -36,6 +36,10 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
     "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
     "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
+    # Expanded to SQL in the resolver's visit_call; these never map to a real CH function. (The
+    # bot/traffic-type functions are registered further down; the resolver expands them too.)
+    "_defaultChannelType": HogQLFunctionMeta("_defaultChannelType", 7, 7),
+    "_domainType": HogQLFunctionMeta("_domainType", 1, 1),
     # posthog/models/exchange_rate/sql.py
     # convertCurrency(from_currency, to_currency, amount, timestamp?)
     "convertCurrency": HogQLFunctionMeta(
