@@ -179,15 +179,13 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             query_params["search"] = params["search"]
         where = " AND ".join(conditions)
 
-        # nosemgrep: clickhouse-fstring-param-audit - table name is a module constant and the WHERE
-        # clause is assembled from string literals above; all values are parameterized
-        [[count]] = sync_execute(
-            f"SELECT count() FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk WHERE {where}",
-            query_params,
+        [[count]] = (
+            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — constant table name, WHERE built from string literals, values parameterized
+                f"SELECT count() FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk WHERE {where}",
+                query_params,
+            )
         )
-        # nosemgrep: clickhouse-fstring-param-audit - same as above: constant table names, literal-built
-        # WHERE clause, parameterized values
-        rows = sync_execute(
+        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — constant table names, WHERE built from string literals, values parameterized
             f"""
             SELECT
                 lk.job_id,

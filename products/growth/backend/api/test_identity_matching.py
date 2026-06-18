@@ -44,9 +44,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         orphan_paid_touch: int = 0,
     ) -> None:
         computed_at = computed_at or RUN_A_COMPUTED_AT
-        # nosemgrep: clickhouse-fstring-param-audit - test fixture; table name is a module constant,
-        # all values are parameterized
-        sync_execute(
+        sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — test fixture; constant table name, all values parameterized
             f"""
             INSERT INTO {IDENTITY_MATCHING_LINKS_TABLE}
             (job_id, team_id, model_version, orphan_distinct_id, anchor_person_key, score,
@@ -65,9 +63,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
                 "computed_at": computed_at,
             },
         )
-        # nosemgrep: clickhouse-fstring-param-audit - test fixture; table name is a module constant,
-        # all values are parameterized
-        sync_execute(
+        sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — test fixture; constant table name, all values parameterized
             f"""
             INSERT INTO {IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE}
             (job_id, team_id, orphan_distinct_id, anchor_person_key, shared_ip_days, shared_ips,
