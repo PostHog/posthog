@@ -2265,6 +2265,7 @@ export namespace Schemas {
       ActionsAreaGraph: 'ActionsAreaGraph',
       ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
       BoldNumber: 'BoldNumber',
+      Metric: 'Metric',
       ActionsPie: 'ActionsPie',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
@@ -2383,6 +2384,18 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Metric display: change pill color when the metric decreased. Defaults to red. */
+      metricChangeDecreaseColor?: string | null;
+      /** Metric display: change pill color when the metric increased. Defaults to green. */
+      metricChangeIncreaseColor?: string | null;
+      /** Metric display: color the sparkline by whether the metric increased or decreased. */
+      metricColorByDirection?: boolean | null;
+      /** Metric display: line color when the metric decreased. Defaults to red. */
+      metricLineDecreaseColor?: string | null;
+      /** Metric display: line color when the metric increased. Defaults to green. */
+      metricLineIncreaseColor?: string | null;
+      /** Show the period-over-period change pill on the Metric display. */
+      metricShowChange?: boolean | null;
       minDecimalPlaces?: number | null;
       movingAverageIntervals?: number | null;
       /** Wether result datasets are associated by their values or by their order. */
@@ -18223,12 +18236,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18367,18 +18376,14 @@ export namespace Schemas {
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
       /** @nullable */
-      description?: string | null;
+      description: string | null;
       /**
          * Issue linked to this rule
          * @nullable
          */
       readonly issue: ErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -19011,14 +19016,74 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingReleaseMetadata = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingRelease {
-      readonly id: string;
+      id: string;
       hash_id: string;
-      readonly team_id: number;
-      readonly created_at: string;
-      metadata?: unknown;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      metadata: ErrorTrackingReleaseMetadata;
       version: string;
       project: string;
+    }
+
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseCreateRequest {
+      /** Human-readable release version, e.g. a semver string or build number. */
+      version: string;
+      /** Identifier of the project this release belongs to. */
+      project: string;
+      /**
+         * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Optional free-form metadata object stored alongside the release.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseCreateRequestMetadata;
+    }
+
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface ErrorTrackingSettings {
@@ -19117,43 +19182,62 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSpikeEventIssue {
-      readonly id: string;
+      id: string;
       /** @nullable */
-      readonly name: string | null;
+      name: string | null;
       /** @nullable */
-      readonly description: string | null;
+      description: string | null;
     }
 
     export interface ErrorTrackingSpikeEvent {
-      readonly id: string;
-      readonly issue: ErrorTrackingSpikeEventIssue;
-      readonly detected_at: string;
-      readonly computed_baseline: number;
-      readonly current_bucket_value: number;
+      id: string;
+      issue: ErrorTrackingSpikeEventIssue;
+      detected_at: string;
+      computed_baseline: number;
+      current_bucket_value: number;
     }
 
+    export type ErrorTrackingStackFrameContents = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingStackFrameContext = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingStackFrame {
-      readonly id: string;
-      /** Raw frame ID in 'hash/part' format */
-      readonly raw_id: string;
-      readonly created_at: string;
-      contents: unknown;
+      id: string;
+      raw_id: string;
+      created_at: string;
+      contents: ErrorTrackingStackFrameContents;
       resolved: boolean;
-      context?: unknown;
-      symbol_set_ref?: string;
-      readonly release: ErrorTrackingRelease;
+      /** @nullable */
+      context: ErrorTrackingStackFrameContext;
+      /** @nullable */
+      symbol_set_ref: string | null;
+      release: ErrorTrackingRelease | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetRequest {
+      /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+      raw_ids: string[];
+      /**
+         * Optional symbol set reference to scope the lookup to a single symbol set.
+         * @nullable
+         */
+      symbol_set?: string | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetResponse {
+      /** Resolved stack frames for the requested raw IDs. */
+      results: ErrorTrackingStackFrame[];
     }
 
     export interface ErrorTrackingSuppressionRule {
       readonly id: string;
       filters: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
+      disabled_data: unknown;
+      sampling_rate: number;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -34473,10 +34557,6 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34516,10 +34596,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34572,14 +34648,34 @@ export namespace Schemas {
       description?: string | null;
     }
 
-    export interface PatchedErrorTrackingRelease {
-      readonly id?: string;
-      hash_id?: string;
-      readonly team_id?: number;
-      readonly created_at?: string;
-      metadata?: unknown;
-      version?: string;
-      project?: string;
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type PatchedErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface PatchedErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface PatchedErrorTrackingSettings {
@@ -34630,10 +34726,6 @@ export namespace Schemas {
     export interface PatchedErrorTrackingSuppressionRule {
       readonly id?: string;
       filters?: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       sampling_rate?: number;
@@ -44935,6 +45027,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -44989,6 +45083,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -60489,7 +60585,7 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string;
     /**
