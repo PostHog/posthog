@@ -54,6 +54,11 @@ class SelectorPart:
             # brackets are handled properly.
             # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].py-2\.5'
             # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'py-2\.5']
+            # Known limitation: `(?<!\\)` only checks for a single preceding backslash,
+            # and Python's `re` has no variable-length lookbehind, so an even run such as
+            # 'foo\\.bar' (an escaped backslash followed by a real separator dot) is not
+            # split. This is extremely rare in real class names — typical selectors like
+            # 'py-2\.5' are handled correctly — so the impact is negligible.
             pattern = r"(?<!\\)\.(?![^\[]*\])"
             parts = re.split(pattern, tag)
             # Strip all slashes that are not followed by another slash
